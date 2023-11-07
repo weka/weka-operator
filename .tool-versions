@@ -2,3 +2,4 @@ golang 1.21.3
 kubectl 1.28.3
 kubebuilder 3.13.0
 kind 0.20.0
+k9s 0.28.0
