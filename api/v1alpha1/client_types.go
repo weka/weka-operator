@@ -28,8 +28,8 @@ type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Client. Edit client_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Version is the version of Weka to deploy
+	Version string `json:"version,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client
