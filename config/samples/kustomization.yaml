@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- weka_v1alpha1_client.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

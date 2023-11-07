@@ -7,4 +7,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: weka-operator
 repo: weka.io/weka-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: weka.io
+  group: weka
+  kind: Client
+  path: weka.io/weka-operator/api/v1alpha1
+  version: v1alpha1
 version: "3"
