@@ -1,4 +1,4 @@
-## Append samples of your project ##
+## Append samples you want in your CSV to this file as resources ##
 resources:
 - weka_v1alpha1_client.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
