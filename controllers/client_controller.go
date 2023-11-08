@@ -21,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,7 +32,8 @@ import (
 // ClientReconciler reconciles a Client object
 type ClientReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
@@ -48,15 +50,19 @@ type ClientReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Client")
 
 	// TODO(user): your logic here
 	client := &wekav1alpha1.Client{}
 	err := r.Get(ctx, req.NamespacedName, client)
 	if err != nil {
+		logger.Error(err, "unable to fetch Client")
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("Client", "name", client.Name, "namespace", client.Namespace)
+	logger.Info("Finished Reconciling Client")
 	return ctrl.Result{}, nil
 }
 
