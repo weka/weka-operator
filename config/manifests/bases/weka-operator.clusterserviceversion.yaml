@@ -1,0 +1,47 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: weka-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: Client is the Schema for the clients API
+      displayName: Client
+      kind: Client
+      name: clients.weka.weka.io
+      version: v1alpha1
+  description: Weka
+  displayName: Weka
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - matt:matthew.pfefferle@weka.io
+  links:
+  - name: Weka Operator
+    url: https://weka-operator.domain
+  maintainers:
+  - email: matthew.pfefferle@weka.io
+    name: matt
+  maturity: alpha
+  provider:
+    name: Weka
+  version: 0.0.0
