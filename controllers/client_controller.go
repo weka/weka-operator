@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -136,8 +137,16 @@ func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*appsv1.Deployment, error) {
+	runAsNonRoot := false
+	privileged := true
+	runAsUser := int64(0)
+
 	ls := map[string]string{
 		"app.kubernetes.io": "weka-client",
+		"iteration":         "2",
+		"runAsNonRoot":      strconv.FormatBool(runAsNonRoot),
+		"privileged":        strconv.FormatBool(privileged),
+		"runAsUser":         strconv.FormatInt(runAsUser, 10),
 	}
 	replicas := int32(1)
 
@@ -168,16 +177,15 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 						Name:            "weka-client",
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
-							RunAsNonRoot:             &[]bool{true}[0],
-							RunAsUser:                &[]int64{1000}[0],
-							AllowPrivilegeEscalation: &[]bool{false}[0],
-							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{
-									"All",
-								},
-							},
+							// RunAsNonRoot: &[]bool{false}[0],
+							// Privileged:   &[]bool{true}[0],
+							RunAsNonRoot: &[]bool{runAsNonRoot}[0],
+							Privileged:   &[]bool{privileged}[0],
+							RunAsUser:    &[]int64{runAsUser}[0],
 						},
 						Command: []string{"sleep", "3600"},
+						TTY:     true,
+						Stdin:   true,
 					}},
 				},
 			},
