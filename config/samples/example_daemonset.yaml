@@ -1,0 +1,29 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: example-daemonset
+  labels:
+    app: example-daemonset
+spec:
+  selector:
+    matchLabels:
+      app: example-daemonset
+  template:
+    metadata:
+      labels:
+        app: example-daemonset
+    spec:
+      containers:
+      - name: example-daemonset
+        image: "busybox:1.35"
+        securityContext:
+          privileged: true
+        command: ["sleep", "3600"]
+        volumeMounts:
+          - name: root
+            mountPath: /mnt/root
+      volumes:
+        - name: root
+          hostPath:
+            path: /
