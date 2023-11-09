@@ -86,7 +86,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Deployment
+	// Deployment - Runs weka-client as a simple busybox container
 	deployment := &appsv1.Deployment{}
 	err = r.Get(ctx, req.NamespacedName, deployment)
 	if err != nil && apierrors.IsNotFound(err) {
@@ -124,6 +124,44 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// DaemonSet - Runs a privileged container that installs a file on each node
+	daemon := &appsv1.DaemonSet{}
+	err = r.Get(ctx, req.NamespacedName, daemon)
+	if err != nil && apierrors.IsNotFound(err) {
+		fileManagerDaemon, err := r.fileManagerDaemonSet(client)
+		if err != nil {
+			logger.Error(err, "unable to create DaemonSet for Client", "Client.Namespace", client.Namespace, "Client.Name", client.Name)
+
+			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+				Type:    "Available",
+				Status:  metav1.ConditionFalse,
+				Reason:  "Reconciling",
+				Message: fmt.Sprintf("Failed to create DaemonSet for the custom resource (%s): (%s)", client.Name, err),
+			})
+
+			if err = r.Status().Update(ctx, client); err != nil {
+				logger.Error(err, "unable to update Client status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Creating a new DaemonSet", "DaemonSet.Namespace", fileManagerDaemon.Namespace, "DaemonSet.Name", fileManagerDaemon.Name)
+		if err = r.Create(ctx, fileManagerDaemon); err != nil {
+			logger.Error(err, "Failed to create new DaemonSet",
+				"DaemonSet.Namespace", fileManagerDaemon.Namespace, "DaemonSet.Name", fileManagerDaemon.Name)
+			return ctrl.Result{}, err
+		}
+
+		// DaemonSet created successfully - return and requeue
+		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+
+	} else if err != nil {
+		logger.Error(err, "unable to fetch DaemonSet")
+		return ctrl.Result{}, err
+	}
+
 	logger.Info("Finished Reconciling Client")
 	return ctrl.Result{}, nil
 }
@@ -137,9 +175,9 @@ func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*appsv1.Deployment, error) {
-	runAsNonRoot := false
-	privileged := true
-	runAsUser := int64(0)
+	runAsNonRoot := true
+	privileged := false
+	runAsUser := int64(1001)
 
 	ls := map[string]string{
 		"app.kubernetes.io": "weka-client",
@@ -197,4 +235,64 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 	// Set Client instance as the owner and controller
 	ctrl.SetControllerReference(client, dep, r.Scheme)
 	return dep, nil
+}
+
+// Creates a DaemonSet that installs a file on each node
+// This container is privileged and runs as root
+func (r *ClientReconciler) fileManagerDaemonSet(client *wekav1alpha1.Client) (*appsv1.DaemonSet, error) {
+
+	name := client.Name
+
+	daemon := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: client.Namespace,
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app.kubernetes.io": name,
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io": name,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Image:           "busybox:1.35",
+						Name:            name,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:   &[]bool{true}[0],
+							RunAsNonRoot: &[]bool{false}[0],
+							RunAsUser:    &[]int64{0}[0],
+						},
+						Command: []string{"sleep", "3600"},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "root",
+								MountPath: "/mnt/root",
+							},
+						},
+					}},
+					Volumes: []corev1.Volume{
+						{
+							Name: "root",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctrl.SetControllerReference(client, daemon, r.Scheme)
+	return daemon, nil
 }
