@@ -240,7 +240,6 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 // Creates a DaemonSet that installs a file on each node
 // This container is privileged and runs as root
 func (r *ClientReconciler) fileManagerDaemonSet(client *wekav1alpha1.Client) (*appsv1.DaemonSet, error) {
-
 	name := client.Name
 
 	daemon := &appsv1.DaemonSet{
@@ -262,7 +261,7 @@ func (r *ClientReconciler) fileManagerDaemonSet(client *wekav1alpha1.Client) (*a
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image:           "busybox:1.35",
+						Image:           "docker.io/library/file-daemon:0.0.1",
 						Name:            name,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
