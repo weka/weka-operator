@@ -15,3 +15,5 @@ spec:
       containers:
       - name: file-daemon
         image: docker.io/library/file-daemon:0.0.1
+      command:
+      - /bin/sh
