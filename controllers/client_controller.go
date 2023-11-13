@@ -187,6 +187,13 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 						Image:           "busybox:1.35",
 						Name:            "weka-client",
 						ImagePullPolicy: corev1.PullIfNotPresent,
+						// Pass Version as an env variable to simulate install/upgrade
+						Env: []corev1.EnvVar{
+							{
+								Name:  "WEKA_VERSION",
+								Value: client.Spec.Version,
+							},
+						},
 						SecurityContext: &corev1.SecurityContext{
 							// RunAsNonRoot: &[]bool{false}[0],
 							// Privileged:   &[]bool{true}[0],
