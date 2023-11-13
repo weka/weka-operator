@@ -28,9 +28,10 @@ type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
-
-	Version string `json:"size,omitempty"`
+	// Version defines the version of Weka to install
+	// +kubebuilder:csv:customresourcedefinitions:type=spec
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){2}[0-9]{1,3}$`
+	Version string `json:"version,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client
@@ -39,13 +40,15 @@ type ClientStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions       []metav1.Condition `json:"conditions,omitempty"`
+	InstalledVersion string             `json:"installedVersion,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
 // Client is the Schema for the clients API
+// +kubebuilder:subresource:status
 type Client struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
