@@ -86,6 +86,17 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
+	if client.Status.InstalledVersion != client.Spec.Version {
+		logger.Info("Updating installed version status", "Client.Spec.Version", client.Spec.Version)
+		client.Status.InstalledVersion = client.Spec.Version
+		if err = r.Status().Update(ctx, client); err != nil {
+			logger.Error(err, "unable to update installed version status")
+			return ctrl.Result{}, err
+		}
+	} else {
+		logger.Info("Installed version status is already set", "Client.Status.InstalledVersion", client.Status.InstalledVersion)
+	}
+
 	// Deployment
 	deployment := &appsv1.Deployment{}
 	err = r.Get(ctx, req.NamespacedName, deployment)
