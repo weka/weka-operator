@@ -38,4 +38,4 @@ if [ -z "${APP_DIR}" ]; then
     exit 1
 fi
 
-cp "${APP_DIR}/file_daemon.service" "${TARGET}"
+cp "${APP_DIR}/weka_testing.service" "${TARGET}"

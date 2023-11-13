@@ -261,7 +261,7 @@ func (r *ClientReconciler) fileManagerDaemonSet(client *wekav1alpha1.Client) (*a
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image:           "docker.io/library/file-daemon:0.0.1",
+						Image:           "file-daemon:0.0.1",
 						Name:            name,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
