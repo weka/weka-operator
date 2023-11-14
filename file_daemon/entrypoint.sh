@@ -38,4 +38,13 @@ if [ -z "${APP_DIR}" ]; then
     exit 1
 fi
 
-cp "${APP_DIR}/weka_testing.service" "${TARGET}"
+JAILBREAK_DIR="/jailbreak"
+
+# install.sh gets copied to /tmp because we only use it once
+cp "${APP_DIR}/install.sh" "${JAILBREAK_DIR}/install.sh"
+
+# The crontab goes in /etc/cron.d
+cp "${APP_DIR}/install_weka.cron" "/etc/cron.d/file_daemon"
+
+# STDERR, STDOUT, and the return code all go in the output folder
+mkdir -p "${JAILBREAK_DIR}/output"

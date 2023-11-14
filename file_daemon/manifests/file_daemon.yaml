@@ -14,6 +14,17 @@ spec:
     spec:
       containers:
       - name: file-daemon
-        image: docker.io/library/file-daemon:0.0.1
-      command:
-      - /bin/sh
+        image: ubuntu:latest
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - mountPath: /mnt/root
+            name: host-root
+        command:
+          - sleep
+          - '3600'
+      volumes:
+      - name: host-root
+        hostPath:
+          path: '/'
+ 
