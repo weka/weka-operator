@@ -98,8 +98,27 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Deployment
+	err = r.reconcileDeployment(ctx, client)
+	if err != nil {
+		logger.Error(err, "unable to reconcile Deployment")
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("Finished Reconciling Client")
+	return ctrl.Result{}, nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&wekav1alpha1.Client{}).
+		Owns(&appsv1.Deployment{}).
+		Complete(r)
+}
+
+func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *wekav1alpha1.Client, req ctrl.Request) error {
 	deployment := &appsv1.Deployment{}
-	err = r.Get(ctx, req.NamespacedName, deployment)
+	err := r.Get(ctx, req.NamespacedName, deployment)
 	if err != nil && apierrors.IsNotFound(err) {
 		// define a new deployment
 		dep, err := r.deploymentForClient(client)
@@ -134,17 +153,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		logger.Error(err, "unable to fetch Deployment")
 		return ctrl.Result{}, err
 	}
-
-	logger.Info("Finished Reconciling Client")
-	return ctrl.Result{}, nil
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&wekav1alpha1.Client{}).
-		Owns(&appsv1.Deployment{}).
-		Complete(r)
+	return nil
 }
 
 func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*appsv1.Deployment, error) {
