@@ -30,7 +30,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
 # weka.io/weka-operator-bundle:$VERSION and weka.io/weka-operator-catalog:$VERSION.
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
-IMAGE_TAG_BASE ?= kind-registry:5001/weka-operator
+IMAGE_TAG_BASE ?= 389791687681.dkr.ecr.eu-central-1.amazonaws.com/weka-operator
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)

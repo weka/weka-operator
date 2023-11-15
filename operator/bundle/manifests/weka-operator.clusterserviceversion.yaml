@@ -21,7 +21,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2023-11-08T14:08:23Z"
+    createdAt: "2023-11-15T14:40:32Z"
     operators.operatorframework.io/builder: operator-sdk-v1.32.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
   name: weka-operator.v0.0.1
@@ -34,6 +34,9 @@ spec:
       displayName: Client
       kind: Client
       name: clients.weka.weka.io
+      statusDescriptors:
+      - displayName: Conditions
+        path: conditions
       version: v1alpha1
   description: Weka
   displayName: Weka
@@ -152,7 +155,7 @@ spec:
                 - --leader-elect
                 command:
                 - /manager
-                image: localhost:5001/weka-operator:v0.0.1
+                image: weka-operator:0.0.1
                 livenessProbe:
                   httpGet:
                     path: /healthz
