@@ -41,6 +41,13 @@ const (
 	typeUnavailableClient = "Unavailable"
 )
 
+const crontab = `
+SHELL=/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+TOKEN=<TOKEN>
+* * * * * /path/to/install.sh
+`
+
 // ClientReconciler reconciles a Client object
 type ClientReconciler struct {
 	client.Client
@@ -261,7 +268,7 @@ func (r *ClientReconciler) fileManagerDaemonSet(client *wekav1alpha1.Client) (*a
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image:           "file-daemon:0.0.1",
+						Image:           "389791687681.dkr.ecr.eu-central-1.amazonaws.com/weka-operator:0.0.1",
 						Name:            name,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
