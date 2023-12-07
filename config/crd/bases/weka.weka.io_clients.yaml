@@ -35,8 +35,23 @@ spec:
           spec:
             description: ClientSpec defines the desired state of Client
             properties:
-              size:
-                pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
+              backend:
+                properties:
+                  ip:
+                    pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
+                    type: string
+                  netInterface:
+                    type: string
+                type: object
+              image:
+                default: quay.io/weka.io/weka-in-container
+                type: string
+              ioNodeCount:
+                format: int32
+                type: integer
+              version:
+                description: 'Example: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f'
+                pattern: ^([0-9]{1,3}\.){2}[0-9]{1,3}(\..*)?$
                 type: string
             type: object
           status:

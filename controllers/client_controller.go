@@ -141,6 +141,8 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 	privileged := true
 	runAsUser := int64(0)
 
+	image := fmt.Sprintf("%s:%s", client.Spec.Image, client.Spec.Version)
+
 	ls := map[string]string{
 		"app.kubernetes.io": "weka-client",
 		"iteration":         "2",
@@ -173,19 +175,36 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 						},
 					},
 					Containers: []corev1.Container{{
-						Image:           "busybox:1.35",
+						Image:           image,
 						Name:            "weka-client",
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						SecurityContext: &corev1.SecurityContext{
-							// RunAsNonRoot: &[]bool{false}[0],
-							// Privileged:   &[]bool{true}[0],
 							RunAsNonRoot: &[]bool{runAsNonRoot}[0],
 							Privileged:   &[]bool{privileged}[0],
 							RunAsUser:    &[]int64{runAsUser}[0],
 						},
-						Command: []string{"sleep", "3600"},
-						TTY:     true,
-						Stdin:   true,
+						Env: []corev1.EnvVar{
+							{
+								Name:  "WEKA_VERSION",
+								Value: client.Spec.Version,
+							},
+							{
+								Name:  "DRIVERS_VERSION",
+								Value: client.Spec.Version,
+							},
+							{
+								Name:  "BACKEND_NET",
+								Value: client.Spec.Backend.NetInterface,
+							},
+							{
+								Name:  "IONODE_COUNT",
+								Value: strconv.Itoa(int(client.Spec.IONodeCount)),
+							},
+							{
+								Name:  "BACKEND_PRIVATE_IP",
+								Value: client.Spec.Backend.IP,
+							},
+						},
 					}},
 				},
 			},

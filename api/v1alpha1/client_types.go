@@ -23,14 +23,28 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+type BackendSpec struct {
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
+	IP string `json:"ip,omitempty"`
+
+	NetInterface string `json:"netInterface,omitempty"`
+}
+
 // ClientSpec defines the desired state of Client
 type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
+	// Example: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){2}[0-9]{1,3}(\..*)?$`
+	Version string `json:"version,omitempty"`
 
-	Version string `json:"size,omitempty"`
+	// +kubebuilder:default:="quay.io/weka.io/weka-in-container"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	Backend     BackendSpec `json:"backend,omitempty"`
+	IONodeCount int32       `json:"ioNodeCount,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client
