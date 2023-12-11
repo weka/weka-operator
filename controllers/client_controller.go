@@ -125,6 +125,11 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 
 		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+	} else {
+		if err != nil {
+			logger.Error(err, "unable to fetch wekafsio driver")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Deployment
