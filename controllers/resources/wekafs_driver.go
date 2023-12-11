@@ -21,13 +21,11 @@ type WekaFSModuleOptions struct {
 
 // WekaFSModule is a template for the two wekafs drivers
 func WekaFSModule(options *WekaFSModuleOptions) (*v1beta1.Module, error) {
-	if options == nil {
-		return nil, errors.New("options cannot be nil")
+	err := validateModuleOptions(options)
+	if err != nil {
+		return nil, err
 	}
 
-	if options.ModuleName == "" {
-		return nil, errors.New("options.ModuleName cannot be empty")
-	}
 	moduleName := options.ModuleName
 
 	// ModuleLoadingOrder is optional
@@ -48,19 +46,8 @@ func WekaFSModule(options *WekaFSModuleOptions) (*v1beta1.Module, error) {
 		dockerfileConfigMapName = options.DockerfileConfigMapName
 	}
 
-	if options.ImagePullSecretName == "" {
-		return nil, errors.New("options.ImagePullSecretName cannot be empty")
-	}
 	imagePullSecretName := options.ImagePullSecretName
-
-	if options.WekaVersion == "" {
-		return nil, errors.New("options.WekaVersion cannot be empty")
-	}
 	wekaVersion := options.WekaVersion
-
-	if options.BackendIP == "" {
-		return nil, errors.New("options.BackendIP cannot be empty")
-	}
 	backendIP := options.BackendIP
 
 	return &v1beta1.Module{
@@ -100,6 +87,30 @@ func WekaFSModule(options *WekaFSModuleOptions) (*v1beta1.Module, error) {
 			},
 		},
 	}, nil
+}
+
+func validateModuleOptions(options *WekaFSModuleOptions) error {
+	if options == nil {
+		return errors.New("options cannot be nil")
+	}
+
+	if options.ModuleName == "" {
+		return errors.New("options.ModuleName cannot be empty")
+	}
+
+	if options.ImagePullSecretName == "" {
+		return errors.New("options.ImagePullSecretName cannot be empty")
+	}
+
+	if options.WekaVersion == "" {
+		return errors.New("options.WekaVersion cannot be empty")
+	}
+
+	if options.BackendIP == "" {
+		return errors.New("options.BackendIP cannot be empty")
+	}
+
+	return nil
 }
 
 func imageRepoSecret(secretName string) *v1.LocalObjectReference {
