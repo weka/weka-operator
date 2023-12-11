@@ -30,9 +30,7 @@ type BackendSpec struct {
 	NetInterface string `json:"netInterface,omitempty"`
 }
 
-type DriverSpec struct {
-	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
-}
+type DriverSpec struct{}
 
 // ClientSpec defines the desired state of Client
 type ClientSpec struct {
@@ -50,8 +48,10 @@ type ClientSpec struct {
 	Backend     BackendSpec `json:"backend,omitempty"`
 	IONodeCount int32       `json:"ioNodeCount,omitempty"`
 
-	// Driver Configuration Options
-	Driver DriverSpec `json:"drivers,omitempty"`
+	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
+
+	// +kubebuilder:validation:Enum=1
+	Debug string `json:"debug,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client

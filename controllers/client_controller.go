@@ -94,7 +94,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err != nil && apierrors.IsNotFound(err) {
 		// define a new wekafsio Driver
 		options := &resources.WekaFSModuleOptions{
-			ImagePullSecretName: client.Spec.Driver.ImagePullSecretName,
+			ImagePullSecretName: client.Spec.ImagePullSecretName,
 			WekaVersion:         client.Spec.Version,
 			BackendIP:           client.Spec.Backend.IP,
 		}

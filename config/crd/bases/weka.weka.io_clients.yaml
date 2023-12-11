@@ -43,14 +43,14 @@ spec:
                   netInterface:
                     type: string
                 type: object
-              drivers:
-                description: Driver Configuration Options
-                properties:
-                  imagePullSecretName:
-                    type: string
-                type: object
+              debug:
+                enum:
+                - 1
+                type: string
               image:
                 default: quay.io/weka.io/weka-in-container
+                type: string
+              imagePullSecretName:
                 type: string
               ioNodeCount:
                 format: int32

@@ -9,8 +9,10 @@ metadata:
     app.kubernetes.io/created-by: weka-operator
   name: client-sample
 spec:
-  version: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f
+  version: 4.2.6.3399-9e3798410b34cd34828b641d92c45832
   image: quay.io/weka.io/weka-in-container
+  imagePullSecretName: quay-creds
+
   backend:
     netInterface: eth0
     ip: 10.108.128.122
