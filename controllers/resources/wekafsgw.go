@@ -6,8 +6,8 @@ import (
 )
 
 // WekaFSIOModule returns the module definition for the `wekafsio` module
-func WekaFSGWModule(imagePullSecretName string) v1beta1.Module {
-	moduleName := "wekafsgw"
-	moduleLoadingOrder := []string{}
-	return WekaFSModule(moduleName, moduleLoadingOrder, imagePullSecretName)
+func WekaFSGWModule(options *WekaFSModuleOptions) (*v1beta1.Module, error) {
+	options.ModuleName = "wekafsgw"
+	options.ModuleLoadingOrder = []string{}
+	return WekaFSModule(options)
 }

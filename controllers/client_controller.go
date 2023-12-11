@@ -33,7 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	"github.com/weka/weka-operator/controllers/resources"
 )
 
 const (
@@ -84,6 +86,45 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			logger.Error(err, "unable to update Client status")
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Drivers
+	wekafsioDriver := &kmmv1beta1.Module{}
+	err = r.Get(ctx, req.NamespacedName, wekafsioDriver)
+	if err != nil && apierrors.IsNotFound(err) {
+		// define a new wekafsio Driver
+		options := &resources.WekaFSModuleOptions{
+			ImagePullSecretName: client.Spec.Driver.ImagePullSecretName,
+			WekaVersion:         client.Spec.Version,
+			BackendIP:           client.Spec.Backend.IP,
+		}
+		spec, err := resources.WekaFSIOModule(options)
+		if err != nil {
+			logger.Error(err, "Invalid driver configuration for wekafsio")
+
+			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+				Type:    typeAvailableClient,
+				Status:  metav1.ConditionFalse,
+				Reason:  "Reconciling",
+				Message: fmt.Sprintf("Invalid driver configuration for wekafsio: (%s)", err),
+			})
+
+			if err = r.Status().Update(ctx, client); err != nil {
+				logger.Error(err, "unable to update Client status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		logger.Info("Creating a new wekafsio driver", "wekafsioDriver.Namespace", spec.Namespace, "wekafsioDriver.Name", spec.Name)
+		if err = r.Create(ctx, spec); err != nil {
+			logger.Error(err, "Failed to create new wekafsio driver",
+				"wekafsioDriver.Namespace", spec.Namespace, "wekafsioDriver.Name", spec.Name)
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
 	}
 
 	// Deployment
