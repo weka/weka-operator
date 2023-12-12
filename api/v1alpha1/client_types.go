@@ -50,7 +50,6 @@ type ClientSpec struct {
 
 	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
 
-	// +kubebuilder:validation:Enum=1
 	Debug string `json:"debug,omitempty"`
 }
 

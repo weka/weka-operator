@@ -7,14 +7,14 @@ metadata:
     app.kubernetes.io/part-of: weka-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: weka-operator
-  name: client-sample
+  name: weka-agent
 spec:
   version: 4.2.6.3399-9e3798410b34cd34828b641d92c45832
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
-  debug: 1
+  debug: "1"
 
   backend:
     netInterface: eth0
-    ip: 10.108.128.122
-  ioNodeCount: 4
+    ip: 10.108.217.187
+  ioNodeCount: 1

@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -313,7 +314,7 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 	image := fmt.Sprintf("%s:%s", client.Spec.Image, client.Spec.Version)
 
 	ls := map[string]string{
-		"app.kubernetes.io": "weka-client",
+		"app.kubernetes.io": "weka-agent",
 		"iteration":         "2",
 		"runAsNonRoot":      strconv.FormatBool(runAsNonRoot),
 		"privileged":        strconv.FormatBool(privileged),
@@ -330,7 +331,9 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
+				MatchLabels: map[string]string{
+					"app.kubernetes.io": "weka-agent",
+				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -348,46 +351,59 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 							Name: client.Spec.ImagePullSecretName,
 						},
 					},
-					Containers: []corev1.Container{{
-						Image:           image,
-						Name:            "weka-client",
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						SecurityContext: &corev1.SecurityContext{
-							RunAsNonRoot: &[]bool{runAsNonRoot}[0],
-							Privileged:   &[]bool{privileged}[0],
-							RunAsUser:    &[]int64{runAsUser}[0],
-						},
-						Command: []string{
-							"sleep",
-							"infinity",
-						},
-						Env: []corev1.EnvVar{
-							{
-								Name:  "WEKA_VERSION",
-								Value: client.Spec.Version,
-							},
-							{
-								Name:  "DRIVERS_VERSION",
-								Value: client.Spec.Version,
-							},
-							{
-								Name:  "BACKEND_NET",
-								Value: client.Spec.Backend.NetInterface,
-							},
-							{
-								Name:  "IONODE_COUNT",
-								Value: strconv.Itoa(int(client.Spec.IONodeCount)),
-							},
-							{
-								Name:  "BACKEND_PRIVATE_IP",
-								Value: client.Spec.Backend.IP,
-							},
-							{
-								Name:  "WEKA_CLI_DEBUG",
-								Value: client.Spec.Debug,
+					Containers: []corev1.Container{
+						// Agent Container
+						wekaAgentContainer(client, image),
+						wekaClientContainer(client, image),
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "host-root",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/",
+								},
 							},
 						},
-					}},
+						{
+							Name: "host-dev",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/dev",
+								},
+							},
+						},
+						{
+							Name: "host-cgroup",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/sys/fs/cgroup",
+								},
+							},
+						},
+						{
+							Name: "opt-weka-data",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
+							},
+						},
+						{
+							Name: "hugepage-2mi-1",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{
+									Medium: corev1.StorageMediumHugePages,
+								},
+							},
+						},
+						//{
+						//Name: "hugepage-2mi-2",
+						//VolumeSource: corev1.VolumeSource{
+						//EmptyDir: &corev1.EmptyDirVolumeSource{
+						//Medium: corev1.StorageMediumHugePages,
+						//},
+						//},
+						//},
+					},
 				},
 			},
 		},
@@ -398,6 +414,153 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 	// Set Client instance as the owner and controller
 	ctrl.SetControllerReference(client, dep, r.Scheme)
 	return dep, nil
+}
+
+func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+	container := corev1.Container{
+		Image:           image,
+		Name:            "weka-agent",
+		ImagePullPolicy: corev1.PullAlways,
+		Command: []string{
+			"/usr/bin/weka",
+			"--agent",
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot: &[]bool{false}[0],
+			Privileged:   &[]bool{true}[0],
+			RunAsUser:    &[]int64{0}[0],
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "host-root",
+				MountPath: "/dev/root",
+			},
+			{
+				Name:      "host-dev",
+				MountPath: "/dev",
+			},
+			{
+				Name:      "host-cgroup",
+				MountPath: "/sys/fs/cgroup",
+			},
+			{
+				Name:      "opt-weka-data",
+				MountPath: "/opt/weka/data",
+			},
+			{
+				Name:      "hugepage-2mi-1",
+				MountPath: "/dev/hugepages",
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				"hugepages-2Mi": resource.MustParse("1024Mi"),
+				"memory":        resource.MustParse("8Gi"),
+			},
+			Requests: corev1.ResourceList{
+				"memory":        resource.MustParse("8Gi"),
+				"hugepages-2Mi": resource.MustParse("1024Mi"),
+			},
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "WEKA_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "DRIVERS_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "IONODE_COUNT",
+				Value: strconv.Itoa(int(client.Spec.IONodeCount)),
+			},
+			{
+				Name:  "BACKEND_PRIVATE_IP",
+				Value: client.Spec.Backend.IP,
+			},
+			{
+				Name:  "WEKA_CLI_DEBUG",
+				Value: client.Spec.Debug,
+			},
+		},
+	}
+
+	return container
+}
+
+func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+	return corev1.Container{
+		Image:           image,
+		Name:            "weka-client",
+		ImagePullPolicy: corev1.PullAlways,
+		Command: []string{
+			//"sleep", "infinity",
+			"/opt/start-weka-client.sh",
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot: &[]bool{false}[0],
+			Privileged:   &[]bool{true}[0],
+			RunAsUser:    &[]int64{0}[0],
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "host-root",
+				MountPath: "/mnt/root",
+			},
+			{
+				Name:      "host-dev",
+				MountPath: "/dev",
+			},
+			{
+				Name:      "host-cgroup",
+				MountPath: "/sys/fs/cgroup",
+			},
+			{
+				Name:      "opt-weka-data",
+				MountPath: "/opt/weka/data",
+			},
+			//{
+			//Name:      "hugepage-2mi-2",
+			//MountPath: "/dev/hugepages",
+			//},
+		},
+		//Resources: corev1.ResourceRequirements{
+		//Limits: corev1.ResourceList{
+		//"hugepages-2Mi": resource.MustParse("512Mi"),
+		//"memory":        resource.MustParse("1Gi"),
+		//},
+		//Requests: corev1.ResourceList{
+		//"memory": resource.MustParse("1Gi"),
+		//},
+		//},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "WEKA_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "DRIVERS_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "IONODE_COUNT",
+				Value: strconv.Itoa(int(client.Spec.IONodeCount)),
+			},
+			{
+				Name:  "BACKEND_PRIVATE_IP",
+				Value: client.Spec.Backend.IP,
+			},
+			{
+				Name:  "WEKA_CLI_DEBUG",
+				Value: "", // client.Spec.Debug,
+			},
+		},
+		Ports: []corev1.ContainerPort{
+			{ContainerPort: 14000},
+			{ContainerPort: 14100},
+		},
+	}
 }
 
 func (r *ClientReconciler) finalizeClient(ctx context.Context, client *wekav1alpha1.Client) error {
