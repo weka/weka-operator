@@ -343,6 +343,11 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
+					ImagePullSecrets: []corev1.LocalObjectReference{
+						{
+							Name: client.Spec.ImagePullSecretName,
+						},
+					},
 					Containers: []corev1.Container{{
 						Image:           image,
 						Name:            "weka-client",
@@ -351,6 +356,10 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 							RunAsNonRoot: &[]bool{runAsNonRoot}[0],
 							Privileged:   &[]bool{privileged}[0],
 							RunAsUser:    &[]int64{runAsUser}[0],
+						},
+						Command: []string{
+							"sleep",
+							"infinity",
 						},
 						Env: []corev1.EnvVar{
 							{
