@@ -12,6 +12,7 @@ spec:
   version: 4.2.6.3399-9e3798410b34cd34828b641d92c45832
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
+  debug: 1
 
   backend:
     netInterface: eth0

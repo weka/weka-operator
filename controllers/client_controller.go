@@ -382,6 +382,10 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 								Name:  "BACKEND_PRIVATE_IP",
 								Value: client.Spec.Backend.IP,
 							},
+							{
+								Name:  "WEKA_CLI_DEBUG",
+								Value: client.Spec.Debug,
+							},
 						},
 					}},
 				},
