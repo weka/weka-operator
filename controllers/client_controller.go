@@ -32,12 +32,16 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
+	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	"github.com/weka/weka-operator/controllers/resources"
 )
+
+const clientFinalizer = "client.weka.io/finalizer"
 
 const (
 	typeAvailableClient   = "Available"
@@ -66,14 +70,48 @@ type ClientReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Client", "NamespacedName", req.NamespacedName)
+	logger.Info("Reconciling Client", "NamespacedName", req.NamespacedName, "Request", req)
 
-	// TODO(user): your logic here
 	client := &wekav1alpha1.Client{}
 	err := r.Get(ctx, req.NamespacedName, client)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Request object not found, could have been deleted after reconcile request.
+			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
+			logger.Info("Client resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
 		logger.Error(err, "unable to fetch Client")
 		return ctrl.Result{}, err
+	}
+
+	// Check if the Client instance is marked to be deleted, which is
+	// indicated by the deletion timestamp being set.
+	isClientMarkedToBeDeleted := client.GetDeletionTimestamp() != nil
+	if isClientMarkedToBeDeleted {
+		if controllerutil.ContainsFinalizer(client, clientFinalizer) {
+			if err := r.finalizeClient(ctx, client); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Remove clientFinalizer. Once all finalizers have been
+			// removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(client, clientFinalizer)
+			err := r.Update(ctx, client)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this CR
+	if !controllerutil.ContainsFinalizer(client, clientFinalizer) {
+		controllerutil.AddFinalizer(client, clientFinalizer)
+		err := r.Update(ctx, client)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if client.Status.Conditions == nil || len(client.Status.Conditions) == 0 {
@@ -91,58 +129,11 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Drivers
 	// wekafsgw
-	wekafsgwDriver := &kmmv1beta1.Module{}
-	wekafsgwNamespacedName := types.NamespacedName{
-		Name:      "wekafsgw",
-		Namespace: req.Namespace,
-	}
-	err = r.Get(ctx, wekafsgwNamespacedName, wekafsgwDriver)
-	if err != nil && apierrors.IsNotFound(err) {
-		// define a new wekafsgw Driver
-		metadata := &metav1.ObjectMeta{
-			Name:      wekafsgwNamespacedName.Name,
-			Namespace: wekafsgwNamespacedName.Namespace,
-		}
-		options := &resources.WekaFSModuleOptions{
-			ImagePullSecretName: client.Spec.ImagePullSecretName,
-			WekaVersion:         client.Spec.Version,
-			BackendIP:           client.Spec.Backend.IP,
-		}
-		spec, err := resources.WekaFSGWModule(metadata, options)
-		if err != nil {
-			logger.Error(err, "Invalid driver configuration for wekafsgw")
-
-			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
-				Type:    typeAvailableClient,
-				Status:  metav1.ConditionFalse,
-				Reason:  "Reconciling",
-				Message: fmt.Sprintf("Invalid driver configuration for wekafsgw: (%s)", err),
-			})
-
-			if err = r.Status().Update(ctx, client); err != nil {
-				logger.Error(err, "unable to update Client status")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
-		if spec.Namespace == "" {
-			spec.Namespace = "default"
-		}
-		logger.Info("Creating a new wekafsgw driver", "wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
-		if err = r.Create(ctx, spec); err != nil {
-			logger.Error(err, "Failed to create new wekafsgw driver",
-				"wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
-	} else {
-		if err != nil {
-			logger.Error(err, "unable to fetch wekafsgw driver")
-			return ctrl.Result{}, err
-		}
+	result, err := r.reconcileWekaFsGw(ctx, req, client)
+	if err != nil {
+		return result, errors.Wrap(err, "failed to reconcile wekafsgw driver")
+	} else if !result.IsZero() {
+		return result, nil
 	}
 
 	// wekafsio
@@ -250,6 +241,70 @@ func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// reconcileWekaFsGw reconciles the wekafsgw driver
+func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, req ctrl.Request, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling wekafsgw driver", "NamespacedName", req.NamespacedName)
+
+	wekafsgwDriver := &kmmv1beta1.Module{}
+	wekafsgwNamespacedName := types.NamespacedName{
+		Name:      "wekafsgw",
+		Namespace: req.Namespace,
+	}
+	err := r.Get(ctx, wekafsgwNamespacedName, wekafsgwDriver)
+	if err != nil && apierrors.IsNotFound(err) {
+		// define a new wekafsgw Driver
+		metadata := &metav1.ObjectMeta{
+			Name:      wekafsgwNamespacedName.Name,
+			Namespace: wekafsgwNamespacedName.Namespace,
+		}
+		options := &resources.WekaFSModuleOptions{
+			ImagePullSecretName: client.Spec.ImagePullSecretName,
+			WekaVersion:         client.Spec.Version,
+			BackendIP:           client.Spec.Backend.IP,
+		}
+		spec, err := resources.WekaFSGWModule(metadata, options)
+		if err != nil {
+			logger.Error(err, "Invalid driver configuration for wekafsgw")
+
+			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+				Type:    typeAvailableClient,
+				Status:  metav1.ConditionFalse,
+				Reason:  "Reconciling",
+				Message: fmt.Sprintf("Invalid driver configuration for wekafsgw: (%s)", err),
+			})
+
+			if err = r.Status().Update(ctx, client); err != nil {
+				logger.Error(err, "unable to update Client status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		if spec.Namespace == "" {
+			spec.Namespace = "default"
+		}
+		logger.Info("Creating a new wekafsgw driver", "wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
+		if err = r.Create(ctx, spec); err != nil {
+			logger.Error(err, "Failed to create new wekafsgw driver",
+				"wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
+			return ctrl.Result{}, err
+		}
+		ctrl.SetControllerReference(client, spec, r.Scheme)
+
+		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+	} else {
+		if err != nil {
+			logger.Error(err, "unable to fetch wekafsgw driver")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Nothing to do
+	return ctrl.Result{}, nil
+}
+
 func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*appsv1.Deployment, error) {
 	runAsNonRoot := false
 	privileged := true
@@ -330,4 +385,10 @@ func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*ap
 	// Set Client instance as the owner and controller
 	ctrl.SetControllerReference(client, dep, r.Scheme)
 	return dep, nil
+}
+
+func (r *ClientReconciler) finalizeClient(ctx context.Context, client *wekav1alpha1.Client) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Successfully finalized Client")
+	return nil
 }
