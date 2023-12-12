@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,7 +66,7 @@ type ClientReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Client")
+	logger.Info("Reconciling Client", "NamespacedName", req.NamespacedName)
 
 	// TODO(user): your logic here
 	client := &wekav1alpha1.Client{}
@@ -89,16 +90,80 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Drivers
-	wekafsioDriver := &kmmv1beta1.Module{}
-	err = r.Get(ctx, req.NamespacedName, wekafsioDriver)
+	// wekafsgw
+	wekafsgwDriver := &kmmv1beta1.Module{}
+	wekafsgwNamespacedName := types.NamespacedName{
+		Name:      "wekafsgw",
+		Namespace: req.Namespace,
+	}
+	err = r.Get(ctx, wekafsgwNamespacedName, wekafsgwDriver)
 	if err != nil && apierrors.IsNotFound(err) {
-		// define a new wekafsio Driver
+		// define a new wekafsgw Driver
+		metadata := &metav1.ObjectMeta{
+			Name:      wekafsgwNamespacedName.Name,
+			Namespace: wekafsgwNamespacedName.Namespace,
+		}
 		options := &resources.WekaFSModuleOptions{
 			ImagePullSecretName: client.Spec.ImagePullSecretName,
 			WekaVersion:         client.Spec.Version,
 			BackendIP:           client.Spec.Backend.IP,
 		}
-		spec, err := resources.WekaFSIOModule(options)
+		spec, err := resources.WekaFSGWModule(metadata, options)
+		if err != nil {
+			logger.Error(err, "Invalid driver configuration for wekafsgw")
+
+			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+				Type:    typeAvailableClient,
+				Status:  metav1.ConditionFalse,
+				Reason:  "Reconciling",
+				Message: fmt.Sprintf("Invalid driver configuration for wekafsgw: (%s)", err),
+			})
+
+			if err = r.Status().Update(ctx, client); err != nil {
+				logger.Error(err, "unable to update Client status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		if spec.Namespace == "" {
+			spec.Namespace = "default"
+		}
+		logger.Info("Creating a new wekafsgw driver", "wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
+		if err = r.Create(ctx, spec); err != nil {
+			logger.Error(err, "Failed to create new wekafsgw driver",
+				"wekafsgwDriver.Namespace", spec.Namespace, "wekafsgwDriver.Name", spec.Name)
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
+	} else {
+		if err != nil {
+			logger.Error(err, "unable to fetch wekafsgw driver")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// wekafsio
+	wekafsioDriver := &kmmv1beta1.Module{}
+	wekafsioNamespacedName := types.NamespacedName{
+		Name:      "wekafsio",
+		Namespace: "default",
+	}
+	err = r.Get(ctx, wekafsioNamespacedName, wekafsioDriver)
+	if err != nil && apierrors.IsNotFound(err) {
+		// define a new wekafsio Driver
+		metadata := &metav1.ObjectMeta{
+			Name:      "wekafsio",
+			Namespace: "default",
+		}
+		options := &resources.WekaFSModuleOptions{
+			ImagePullSecretName: client.Spec.ImagePullSecretName,
+			WekaVersion:         client.Spec.Version,
+			BackendIP:           client.Spec.Backend.IP,
+		}
+		spec, err := resources.WekaFSIOModule(metadata, options)
 		if err != nil {
 			logger.Error(err, "Invalid driver configuration for wekafsio")
 
@@ -117,6 +182,9 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, err
 		}
 
+		if spec.Namespace == "" {
+			spec.Namespace = "default"
+		}
 		logger.Info("Creating a new wekafsio driver", "wekafsioDriver.Namespace", spec.Namespace, "wekafsioDriver.Name", spec.Name)
 		if err = r.Create(ctx, spec); err != nil {
 			logger.Error(err, "Failed to create new wekafsio driver",
