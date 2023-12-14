@@ -48,7 +48,7 @@ type ClientReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
-	// ConditionReady *Ready
+	Builder              *resources.Builder
 	ModuleReconciler     *ModuleReconciler
 	DeploymentReconciler *DeploymentReconciler
 }
@@ -89,7 +89,7 @@ func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, client *wekav1
 		WekaVersion:         client.Spec.Version,
 		BackendIP:           client.Spec.Backend.IP,
 	}
-	desired, err := resources.WekaFSModule(client, key, options)
+	desired, err := r.Builder.WekaFSModule(client, key, options)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsgw: %w", err)
 	}
@@ -107,7 +107,7 @@ func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1
 		WekaVersion:         client.Spec.Version,
 		BackendIP:           client.Spec.Backend.IP,
 	}
-	desired, err := resources.WekaFSModule(client, key, options)
+	desired, err := r.Builder.WekaFSModule(client, key, options)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsio: %w", err)
 	}
@@ -118,7 +118,7 @@ func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1
 func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
 	key := runtimeClient.ObjectKeyFromObject(client)
 
-	desired, err := resources.DeploymentForClient(client, key)
+	desired, err := r.Builder.DeploymentForClient(client, key)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid deployment configuration: %w", err)
 	}

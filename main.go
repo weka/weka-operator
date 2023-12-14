@@ -34,6 +34,7 @@ import (
 	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	"github.com/weka/weka-operator/controllers"
+	"github.com/weka/weka-operator/controllers/resources"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -96,6 +97,7 @@ func main() {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("weka-operator"),
 
+		Builder:              resources.NewBuilder(mgr.GetScheme()),
 		ModuleReconciler:     controllers.NewModuleReconciler(mgr.GetClient()),
 		DeploymentReconciler: controllers.NewDeploymentReconciler(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {

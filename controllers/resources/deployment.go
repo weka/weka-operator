@@ -10,9 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) (*appsv1.Deployment, error) {
+func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) (*appsv1.Deployment, error) {
 	runAsNonRoot := false
 	privileged := true
 	runAsUser := int64(0)
@@ -116,7 +117,9 @@ func DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) 
 		},
 	}
 
-	dep.ObjectMeta.ResourceVersion = ""
+	if err := controllerutil.SetControllerReference(client, dep, b.scheme); err != nil {
+		return nil, fmt.Errorf("failed to set controller reference: %w", err)
+	}
 	return dep, nil
 }
 

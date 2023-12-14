@@ -8,8 +8,8 @@ import (
 )
 
 // WekaFSIOModule returns the module definition for the `wekafsio` module
-func WekaFSGWModule(client *clientv1alpha1.Client, key types.NamespacedName, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
+func (b *Builder) WekaFSGWModule(client *clientv1alpha1.Client, key types.NamespacedName, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
 	options.ModuleName = "wekafsgw"
 	options.ModuleLoadingOrder = []string{}
-	return WekaFSModule(client, key, options)
+	return b.WekaFSModule(client, key, options)
 }

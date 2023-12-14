@@ -3,12 +3,14 @@ package resources
 // Definition for KMM Module type
 import (
 	"errors"
+	"fmt"
 
 	"github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	clientv1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type WekaFSModuleOptions struct {
@@ -23,7 +25,7 @@ type WekaFSModuleOptions struct {
 }
 
 // WekaFSModule is a template for the two wekafs drivers
-func WekaFSModule(client *clientv1alpha1.Client, key types.NamespacedName, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
+func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.NamespacedName, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
 	err := validateModuleOptions(options)
 	if err != nil {
 		return nil, err
@@ -53,7 +55,7 @@ func WekaFSModule(client *clientv1alpha1.Client, key types.NamespacedName, optio
 	wekaVersion := options.WekaVersion
 	backendIP := options.BackendIP
 
-	return &v1beta1.Module{
+	module := &v1beta1.Module{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        moduleName,
 			Namespace:   key.Namespace,
@@ -95,7 +97,13 @@ func WekaFSModule(client *clientv1alpha1.Client, key types.NamespacedName, optio
 				"weka.io/role": "client",
 			},
 		},
-	}, nil
+	}
+
+	if err := controllerutil.SetControllerReference(client, module, b.scheme); err != nil {
+		return nil, fmt.Errorf("failed to set controller reference: %w", err)
+	}
+
+	return module, nil
 }
 
 func validateModuleOptions(options *WekaFSModuleOptions) error {
