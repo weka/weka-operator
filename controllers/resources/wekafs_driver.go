@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
+	clientv1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type WekaFSModuleOptions struct {
@@ -21,7 +23,7 @@ type WekaFSModuleOptions struct {
 }
 
 // WekaFSModule is a template for the two wekafs drivers
-func WekaFSModule(metadata *metav1.ObjectMeta, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
+func WekaFSModule(client *clientv1alpha1.Client, key types.NamespacedName, options *WekaFSModuleOptions) (*v1beta1.Module, error) {
 	err := validateModuleOptions(options)
 	if err != nil {
 		return nil, err
@@ -52,7 +54,12 @@ func WekaFSModule(metadata *metav1.ObjectMeta, options *WekaFSModuleOptions) (*v
 	backendIP := options.BackendIP
 
 	return &v1beta1.Module{
-		ObjectMeta: *metadata,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        moduleName,
+			Namespace:   key.Namespace,
+			Labels:      map[string]string{},
+			Annotations: map[string]string{},
+		},
 		Spec: v1beta1.ModuleSpec{
 			ModuleLoader: v1beta1.ModuleLoaderSpec{
 				Container: v1beta1.ModuleLoaderContainerSpec{

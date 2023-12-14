@@ -95,6 +95,9 @@ func main() {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("weka-operator"),
+
+		ModuleReconciler:     controllers.NewModuleReconciler(mgr.GetClient()),
+		DeploymentReconciler: controllers.NewDeploymentReconciler(mgr.GetClient()),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Client")
 		os.Exit(1)
