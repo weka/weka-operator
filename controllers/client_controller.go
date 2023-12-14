@@ -22,6 +22,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	"github.com/weka/weka-operator/controllers/condition"
 	"github.com/weka/weka-operator/controllers/resources"
 
 	multiError "github.com/hashicorp/go-multierror"
@@ -49,6 +52,7 @@ type ClientReconciler struct {
 	Recorder record.EventRecorder
 
 	Builder              *resources.Builder
+	ConditionReady       *condition.Ready
 	ModuleReconciler     *ModuleReconciler
 	DeploymentReconciler *DeploymentReconciler
 }
@@ -150,6 +154,23 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	if client.Status.Conditions == nil || len(client.Status.Conditions) == 0 {
+		meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+			Type:    typeAvailableClient,
+			Status:  metav1.ConditionUnknown,
+			Reason:  "Initializing",
+			Message: "Beginning Reconcialiation",
+		})
+		if err := r.Status().Update(ctx, client); err != nil {
+			logger.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.patchStatus(ctx, client, r.patcher(ctx, client)); err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	phases := r.reconcilePhases()
 	for _, phase := range phases {
 		result, err := phase.Reconcile(ctx, client)
@@ -162,15 +183,15 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			errBundle := &multiError.Error{}
 			errBundle = multiError.Append(errBundle, err)
 
-			//msg := fmt.Sprintf("Failed to reconcile phase %s: %s", phase.Name, err)
-			//patchErr := r.patchStatus(ctx, client, func(status *wekav1alpha1.ClientStatus) error {
-			//patcher := r.ConditionReady.PatcherFailed(msg)
-			//patcher(status)
-			//return nil
-			//})
-			//if apiErrors.IsNotFound(patchErr) {
-			//errBundle = multiError.Append(errBundle, patchErr)
-			//}
+			msg := fmt.Sprintf("Failed to reconcile phase %s: %s", phase.Name, err)
+			patchErr := r.patchStatus(ctx, client, func(status *wekav1alpha1.ClientStatus) error {
+				patcher := r.ConditionReady.PatcherFailed(msg)
+				patcher(status)
+				return nil
+			})
+			if apierrors.IsNotFound(patchErr) {
+				errBundle = multiError.Append(errBundle, patchErr)
+			}
 
 			if err := errBundle.ErrorOrNil(); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to reconcile phase %s: %w", phase.Name, err)

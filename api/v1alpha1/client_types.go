@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -70,6 +71,13 @@ type ClientStatus struct {
 
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+func (s *ClientStatus) SetCondition(condition metav1.Condition) {
+	if s.Conditions == nil {
+		s.Conditions = []metav1.Condition{}
+	}
+	meta.SetStatusCondition(&s.Conditions, condition)
 }
 
 //+kubebuilder:object:root=true
