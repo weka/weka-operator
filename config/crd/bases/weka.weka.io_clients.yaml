@@ -35,6 +35,11 @@ spec:
           spec:
             description: ClientSpec defines the desired state of Client
             properties:
+              agent:
+                properties:
+                  debug:
+                    type: boolean
+                type: object
               backend:
                 properties:
                   ip:
@@ -43,8 +48,11 @@ spec:
                   netInterface:
                     type: string
                 type: object
-              debug:
-                type: string
+              client:
+                properties:
+                  debug:
+                    type: boolean
+                type: object
               image:
                 default: quay.io/weka.io/weka-in-container
                 type: string

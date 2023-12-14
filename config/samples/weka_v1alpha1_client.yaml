@@ -9,13 +9,18 @@ metadata:
     app.kubernetes.io/created-by: weka-operator
   name: weka-agent
 spec:
-  version: 4.2.6.3399-9e3798410b34cd34828b641d92c45832
+  version: 4.2.7.442-4ba059e153b2dce7e3e490bfc43eb5e2
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
-  debug: "1"
 
   backend:
     netInterface: eth0
-    ip: 10.108.217.187
+    ip: 10.108.29.22
   ioNodeCount: 1
   managementIPs: 10.108.135.54
+
+  agent:
+    debug: true
+
+  client:
+    debug: false

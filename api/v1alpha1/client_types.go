@@ -32,6 +32,14 @@ type BackendSpec struct {
 
 type DriverSpec struct{}
 
+type ClientContainerSpec struct {
+	Debug bool `json:"debug,omitempty"`
+}
+
+type AgentContainerSpec struct {
+	Debug bool `json:"debug,omitempty"`
+}
+
 // ClientSpec defines the desired state of Client
 type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -51,7 +59,8 @@ type ClientSpec struct {
 
 	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
 
-	Debug string `json:"debug,omitempty"`
+	Client ClientContainerSpec `json:"client,omitempty"`
+	Agent  AgentContainerSpec  `json:"agent,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client

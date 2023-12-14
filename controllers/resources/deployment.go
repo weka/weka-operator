@@ -185,7 +185,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 			},
 			{
 				Name:  "WEKA_CLI_DEBUG",
-				Value: client.Spec.Debug,
+				Value: wekaCliDebug(client.Spec.Agent.Debug),
 			},
 		},
 		Ports: []corev1.ContainerPort{
@@ -265,8 +265,16 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 			},
 			{
 				Name:  "WEKA_CLI_DEBUG",
-				Value: client.Spec.Debug,
+				Value: wekaCliDebug(client.Spec.Client.Debug),
 			},
 		},
+	}
+}
+
+func wekaCliDebug(debug bool) string {
+	if debug {
+		return "1"
+	} else {
+		return ""
 	}
 }
