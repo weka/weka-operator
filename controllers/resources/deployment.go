@@ -46,6 +46,7 @@ func DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) 
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
+					HostNetwork: true,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: &[]bool{true}[0],
 						SeccompProfile: &corev1.SeccompProfile{
@@ -135,24 +136,24 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
+				MountPath: "/mnt/root",
 				Name:      "host-root",
-				MountPath: "/dev/root",
 			},
 			{
-				Name:      "host-dev",
 				MountPath: "/dev",
+				Name:      "host-dev",
 			},
 			{
-				Name:      "host-cgroup",
 				MountPath: "/sys/fs/cgroup",
+				Name:      "host-cgroup",
 			},
 			{
-				Name:      "opt-weka-data",
 				MountPath: "/opt/weka/data",
+				Name:      "opt-weka-data",
 			},
 			{
-				Name:      "hugepage-2mi-1",
 				MountPath: "/dev/hugepages",
+				Name:      "hugepage-2mi-1",
 			},
 		},
 		Resources: corev1.ResourceRequirements{
@@ -187,6 +188,10 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Value: client.Spec.Debug,
 			},
 		},
+		Ports: []corev1.ContainerPort{
+			{ContainerPort: 14000},
+			{ContainerPort: 14100},
+		},
 	}
 
 	return container
@@ -208,35 +213,35 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{
-				Name:      "host-root",
 				MountPath: "/mnt/root",
+				Name:      "host-root",
 			},
 			{
-				Name:      "host-dev",
 				MountPath: "/dev",
+				Name:      "host-dev",
 			},
 			{
-				Name:      "host-cgroup",
 				MountPath: "/sys/fs/cgroup",
+				Name:      "host-cgroup",
 			},
 			{
-				Name:      "opt-weka-data",
 				MountPath: "/opt/weka/data",
+				Name:      "opt-weka-data",
 			},
-			//{
-			//Name:      "hugepage-2mi-2",
-			//MountPath: "/dev/hugepages",
-			//},
+			{
+				Name:      "hugepage-2mi-2",
+				MountPath: "/dev/hugepages",
+			},
 		},
-		//Resources: corev1.ResourceRequirements{
-		//Limits: corev1.ResourceList{
-		//"hugepages-2Mi": resource.MustParse("512Mi"),
-		//"memory":        resource.MustParse("1Gi"),
-		//},
-		//Requests: corev1.ResourceList{
-		//"memory": resource.MustParse("1Gi"),
-		//},
-		//},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				"hugepages-2Mi": resource.MustParse("512Mi"),
+				"memory":        resource.MustParse("512Mi"),
+			},
+			Requests: corev1.ResourceList{
+				"memory": resource.MustParse("512Mi"),
+			},
+		},
 		Env: []corev1.EnvVar{
 			{
 				Name:  "WEKA_VERSION",
@@ -255,13 +260,13 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				Value: client.Spec.Backend.IP,
 			},
 			{
-				Name:  "WEKA_CLI_DEBUG",
-				Value: "", // client.Spec.Debug,
+				Name:  "MANAGEMENT_IPS",
+				Value: client.Spec.ManagementIPs,
 			},
-		},
-		Ports: []corev1.ContainerPort{
-			{ContainerPort: 14000},
-			{ContainerPort: 14100},
+			{
+				Name:  "WEKA_CLI_DEBUG",
+				Value: client.Spec.Debug,
+			},
 		},
 	}
 }

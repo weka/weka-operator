@@ -18,3 +18,4 @@ spec:
     netInterface: eth0
     ip: 10.108.217.187
   ioNodeCount: 1
+  managementIPs: 10.108.135.54
