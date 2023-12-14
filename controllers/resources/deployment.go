@@ -102,14 +102,14 @@ func DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) 
 								},
 							},
 						},
-						//{
-						//Name: "hugepage-2mi-2",
-						//VolumeSource: corev1.VolumeSource{
-						//EmptyDir: &corev1.EmptyDirVolumeSource{
-						//Medium: corev1.StorageMediumHugePages,
-						//},
-						//},
-						//},
+						{
+							Name: "hugepage-2mi-2",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{
+									Medium: corev1.StorageMediumHugePages,
+								},
+							},
+						},
 					},
 				},
 			},
