@@ -98,10 +98,6 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 			Reconcile: r.reconcileDeployment,
 		},
 		{
-			Name:      "api_key",
-			Reconcile: r.reconcileApiKey,
-		},
-		{
 			Name:      "process_list",
 			Reconcile: r.reconcileProcessList,
 		},
@@ -110,6 +106,7 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 
 // reconcileWekaFsGw reconciles the wekafsgw driver
 func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsgw")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	options := &resources.WekaFSModuleOptions{
@@ -123,11 +120,12 @@ func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, client *wekav1
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsgw: %w", err)
 	}
-	return ctrl.Result{}, r.ModuleReconciler.Reconcile(ctx, desired)
+	return r.ModuleReconciler.Reconcile(ctx, desired)
 }
 
 // reconcileWekaFsIO reconciles the wekafsio driver
 func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsio")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	options := &resources.WekaFSModuleOptions{
@@ -141,22 +139,24 @@ func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsio: %w", err)
 	}
-	return ctrl.Result{}, r.ModuleReconciler.Reconcile(ctx, desired)
+	return r.ModuleReconciler.Reconcile(ctx, desired)
 }
 
 // reconcileDeployment reconciles the deployment containing the client and agent
 func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling deployment")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	desired, err := r.Builder.DeploymentForClient(client, key)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid deployment configuration: %w", err)
 	}
-	return ctrl.Result{}, r.DeploymentReconciler.Reconcile(ctx, desired)
+	return r.DeploymentReconciler.Reconcile(ctx, desired)
 }
 
 // reconcileApiKey Extracts the API key from the client
 func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling api key")
 	// Client generates a key at startup and puts it in a well known location
 	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
 	stdout, stderr, err := r.clientExec(ctx, client, []string{"cat", "/root/.weka/auth-token.json"})
@@ -174,6 +174,7 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 
 // reconcileProcessList Adds `weka ps` to the status
 func (r *ClientReconciler) reconcileProcessList(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling process list")
 	logger := log.FromContext(ctx)
 	stdout, stderr, err := r.clientExec(ctx, client, []string{"/usr/bin/weka", "local", "ps", "-J"})
 	if err != nil {
@@ -341,6 +342,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciled", "Finished Reconciliation")
 	return ctrl.Result{}, nil
 }
 
