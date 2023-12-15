@@ -20,6 +20,7 @@ func NewDeploymentReconciler(c client.Client) *DeploymentReconciler {
 }
 
 func (r *DeploymentReconciler) Reconcile(ctx context.Context, desired *appsv1.Deployment) (ctrl.Result, error) {
+	logger := ctrl.LoggerFrom(ctx)
 	key := client.ObjectKeyFromObject(desired)
 	existing := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, existing); err != nil {
@@ -29,6 +30,11 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, desired *appsv1.De
 		if err := r.Create(ctx, desired); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to create deployment %s: %w", key, err)
 		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if !r.isDeploymentAvailable(existing) {
+		logger.Info("deployment is not available yet, requeuing")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -42,4 +48,16 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, desired *appsv1.De
 	}
 
 	return ctrl.Result{}, r.Patch(ctx, existing, patch)
+}
+
+// isDeploymentAvailable returns true if the deployment is available.
+// The helper inspects the status conditions to determine if it has reached an available state
+func (r *DeploymentReconciler) isDeploymentAvailable(deployment *appsv1.Deployment) bool {
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == appsv1.DeploymentAvailable && condition.Status == "True" {
+			return true
+		}
+	}
+
+	return false
 }
