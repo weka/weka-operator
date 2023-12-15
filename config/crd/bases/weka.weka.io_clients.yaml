@@ -139,6 +139,63 @@ spec:
                   - type
                   type: object
                 type: array
+              processList:
+                items:
+                  description: "Process is a single weka process running in the agent
+                    container This is a single line of output from `weka local ps`
+                    Example: \n { \"APIPort\": 14000, \"containerPid\": 66, \"internalStatus\":
+                    { \"display_status\": \"READY\", \"message\": \"Ready\", \"state\":
+                    \"READY\" }, \"isDisabled\": false, \"isManaged\": false, \"isMonitoring\":
+                    true, \"isPersistent\": true, \"isRunning\": true, \"lastFailure\":
+                    \"Added to cluster\", \"lastFailureText\": \"Added to cluster
+                    (1 hour ago)\", \"lastFailureTime\": \"2023-12-15T14:17:24.576897Z\",
+                    \"name\": \"client\", \"runStatus\": \"Running\", \"type\": \"weka\",
+                    \"uptime\": 5693.65999999999985, \"versionName\": \"4.2.7.442-4ba059e153b2dce7e3e490bfc43eb5e2\"
+                    }"
+                  properties:
+                    apiPort:
+                      format: int32
+                      type: integer
+                    containerPid:
+                      format: int32
+                      type: integer
+                    internalStatus:
+                      properties:
+                        display_status:
+                          type: string
+                        message:
+                          type: string
+                        state:
+                          type: string
+                      type: object
+                    isDisabled:
+                      type: boolean
+                    isManaged:
+                      type: boolean
+                    isMonitoring:
+                      type: boolean
+                    isPersistent:
+                      type: boolean
+                    isRunning:
+                      type: boolean
+                    lastFailure:
+                      type: string
+                    lastFailureText:
+                      type: string
+                    lastFailureTime:
+                      type: string
+                    name:
+                      type: string
+                    runStatus:
+                      type: string
+                    type:
+                      type: string
+                    uptime:
+                      type: string
+                    versionName:
+                      type: string
+                  type: object
+                type: array
             type: object
         type: object
     served: true

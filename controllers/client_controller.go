@@ -61,11 +61,12 @@ type ClientReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
-	ApiKey               *ApiKey
 	Builder              *resources.Builder
 	ConditionReady       *condition.Ready
 	ModuleReconciler     *ModuleReconciler
 	DeploymentReconciler *DeploymentReconciler
+
+	ApiKey *ApiKey
 }
 
 type reconcilePhase struct {
@@ -99,6 +100,10 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 		{
 			Name:      "api_key",
 			Reconcile: r.reconcileApiKey,
+		},
+		{
+			Name:      "process_list",
+			Reconcile: r.reconcileProcessList,
 		},
 	}
 }
@@ -163,6 +168,29 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 	// Parse the JSON
 	//   - keys: access_token, refresh_token, token_type
 	json.Unmarshal(stdout.Bytes(), r.ApiKey)
+
+	return ctrl.Result{}, nil
+}
+
+// reconcileProcessList Adds `weka ps` to the status
+func (r *ClientReconciler) reconcileProcessList(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	stdout, stderr, err := r.clientExec(ctx, client, []string{"/usr/bin/weka", "local", "ps", "-J"})
+	if err != nil {
+		logger.Error(err, "Failed to get process list", "stdout", stdout.String(), "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to get process list")
+	}
+
+	processList := []wekav1alpha1.Process{}
+	json.Unmarshal(stdout.Bytes(), &processList)
+
+	// Update Status
+	client.Status.ProcessList = processList
+	err = r.Status().Update(ctx, client)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to update status")
+		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	}
 
 	return ctrl.Result{}, nil
 }

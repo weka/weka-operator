@@ -71,6 +71,59 @@ type ClientStatus struct {
 
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	ProcessList []Process `json:"processList,omitempty"`
+}
+
+// Process is a single weka process running in the agent container
+// This is a single line of output from `weka local ps`
+// Example:
+//
+//	{
+//			"APIPort": 14000,
+//			"containerPid": 66,
+//			"internalStatus": {
+//					"display_status": "READY",
+//					"message": "Ready",
+//					"state": "READY"
+//			},
+//			"isDisabled": false,
+//			"isManaged": false,
+//			"isMonitoring": true,
+//			"isPersistent": true,
+//			"isRunning": true,
+//			"lastFailure": "Added to cluster",
+//			"lastFailureText": "Added to cluster (1 hour ago)",
+//			"lastFailureTime": "2023-12-15T14:17:24.576897Z",
+//			"name": "client",
+//			"runStatus": "Running",
+//			"type": "weka",
+//			"uptime": 5693.65999999999985,
+//			"versionName": "4.2.7.442-4ba059e153b2dce7e3e490bfc43eb5e2"
+//	}
+type Process struct {
+	APIPort         int32          `json:"apiPort,omitempty"`
+	ContainerPid    int32          `json:"containerPid,omitempty"`
+	InternalStatus  InternalStatus `json:"internalStatus,omitempty"`
+	IsDisabled      bool           `json:"isDisabled,omitempty"`
+	IsManaged       bool           `json:"isManaged,omitempty"`
+	IsMonitoring    bool           `json:"isMonitoring,omitempty"`
+	IsPersistent    bool           `json:"isPersistent,omitempty"`
+	IsRunning       bool           `json:"isRunning,omitempty"`
+	LastFailure     string         `json:"lastFailure,omitempty"`
+	LastFailureText string         `json:"lastFailureText,omitempty"`
+	LastFailureTime string         `json:"lastFailureTime,omitempty"`
+	Name            string         `json:"name,omitempty"`
+	RunStatus       string         `json:"runStatus,omitempty"`
+	Type            string         `json:"type,omitempty"`
+	Uptime          string         `json:"uptime,omitempty"`
+	VersionName     string         `json:"versionName,omitempty"`
+}
+
+type InternalStatus struct {
+	DisplayStatus string `json:"display_status,omitempty"`
+	Message       string `json:"message,omitempty"`
+	State         string `json:"state,omitempty"`
 }
 
 func (s *ClientStatus) SetCondition(condition metav1.Condition) {
