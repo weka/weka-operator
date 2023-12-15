@@ -97,6 +97,7 @@ func main() {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("weka-operator"),
 
+		ApiKey:               &controllers.ApiKey{},
 		Builder:              resources.NewBuilder(mgr.GetScheme()),
 		ModuleReconciler:     controllers.NewModuleReconciler(mgr.GetClient()),
 		DeploymentReconciler: controllers.NewDeploymentReconciler(mgr.GetClient()),

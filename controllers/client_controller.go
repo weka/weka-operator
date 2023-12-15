@@ -17,19 +17,29 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/kubectl/pkg/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	"github.com/weka/weka-operator/controllers/condition"
 	"github.com/weka/weka-operator/controllers/resources"
@@ -51,6 +61,7 @@ type ClientReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
+	ApiKey               *ApiKey
 	Builder              *resources.Builder
 	ConditionReady       *condition.Ready
 	ModuleReconciler     *ModuleReconciler
@@ -63,6 +74,12 @@ type reconcilePhase struct {
 }
 
 type patcher func(status *wekav1alpha1.ClientStatus) error
+
+type ApiKey struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+}
 
 // reconcilePhases is the order in which to reconcile sub-resources
 func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
@@ -78,6 +95,10 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 		{
 			Name:      "deployment",
 			Reconcile: r.reconcileDeployment,
+		},
+		{
+			Name:      "api_key",
+			Reconcile: r.reconcileApiKey,
 		},
 	}
 }
@@ -127,6 +148,86 @@ func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *weka
 		return ctrl.Result{}, fmt.Errorf("invalid deployment configuration: %w", err)
 	}
 	return ctrl.Result{}, r.DeploymentReconciler.Reconcile(ctx, desired)
+}
+
+// reconcileApiKey Extracts the API key from the client
+func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	// Client generates a key at startup and puts it in a well known location
+	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling API Key", "Client", client.Name, "Namespace", client.Namespace)
+
+	config, err := kubernetesConfiguration()
+	if err != nil {
+		logger.Error(err, "Failed to get kubernetes configuration")
+		return ctrl.Result{}, errors.Wrap(err, "failed to get kubernetes configuration")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		logger.Error(err, "Failed to get clientset")
+		return ctrl.Result{}, errors.Wrap(err, "failed to get clientset")
+	}
+
+	// Lookup the pod via the deployment
+	deployment := &appsv1.Deployment{}
+	err = r.Get(ctx, runtimeClient.ObjectKeyFromObject(client), deployment)
+	if err != nil {
+		logger.Error(err, "Failed to get deployment")
+		return ctrl.Result{}, errors.Wrap(err, "failed to get deployment")
+	}
+	deploymentPods, err := clientset.CoreV1().Pods(client.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", deployment.Name),
+	})
+	if err != nil {
+		logger.Error(err, "Failed to get pod")
+		return ctrl.Result{}, errors.Wrap(err, "failed to get pod")
+	}
+	pod := deploymentPods.Items[0]
+
+	podExec := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(pod.Name).
+		Namespace(pod.Namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: "weka-client",
+			Command:   []string{"cat", "/root/.weka/auth-token.json"},
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", podExec.URL())
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return ctrl.Result{}, errors.Wrap(err, "failed to create executor")
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	if err != nil {
+		logger.Info("Failed to stream", "stdout", stdout.String(), "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to stream")
+	}
+
+	// Parse the JSON
+	//   - keys: access_token, refresh_token, token_type
+	json.Unmarshal(stdout.Bytes(), r.ApiKey)
+
+	return ctrl.Result{}, nil
+}
+
+func kubernetesConfiguration() (*rest.Config, error) {
+	kubeConfigPath := os.Getenv("KUBECONFIG")
+	if kubeConfigPath == "" {
+		return rest.InClusterConfig()
+	} else {
+		return clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	}
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
