@@ -154,18 +154,33 @@ func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *weka
 func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
 	// Client generates a key at startup and puts it in a well known location
 	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
+	stdout, stderr, err := r.clientExec(ctx, client, []string{"cat", "/root/.weka/auth-token.json"})
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to get api key", "stdout", stdout.String(), "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to get api key")
+	}
+
+	// Parse the JSON
+	//   - keys: access_token, refresh_token, token_type
+	json.Unmarshal(stdout.Bytes(), r.ApiKey)
+
+	return ctrl.Result{}, nil
+}
+
+func (r *ClientReconciler) clientExec(ctx context.Context, client *wekav1alpha1.Client, command []string) (bytes.Buffer, bytes.Buffer, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling API Key", "Client", client.Name, "Namespace", client.Namespace)
 
+	var stdout, stderr bytes.Buffer
 	config, err := kubernetesConfiguration()
 	if err != nil {
 		logger.Error(err, "Failed to get kubernetes configuration")
-		return ctrl.Result{}, errors.Wrap(err, "failed to get kubernetes configuration")
+		return stdout, stderr, errors.Wrap(err, "failed to get kubernetes configuration")
 	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		logger.Error(err, "Failed to get clientset")
-		return ctrl.Result{}, errors.Wrap(err, "failed to get clientset")
+		return stdout, stderr, errors.Wrap(err, "failed to get clientset")
 	}
 
 	// Lookup the pod via the deployment
@@ -173,14 +188,14 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 	err = r.Get(ctx, runtimeClient.ObjectKeyFromObject(client), deployment)
 	if err != nil {
 		logger.Error(err, "Failed to get deployment")
-		return ctrl.Result{}, errors.Wrap(err, "failed to get deployment")
+		return stdout, stderr, errors.Wrap(err, "failed to get deployment")
 	}
 	deploymentPods, err := clientset.CoreV1().Pods(client.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", deployment.Name),
 	})
 	if err != nil {
 		logger.Error(err, "Failed to get pod")
-		return ctrl.Result{}, errors.Wrap(err, "failed to get pod")
+		return stdout, stderr, errors.Wrap(err, "failed to get pod")
 	}
 	pod := deploymentPods.Items[0]
 
@@ -191,7 +206,7 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
 			Container: "weka-client",
-			Command:   []string{"cat", "/root/.weka/auth-token.json"},
+			Command:   command,
 			Stdout:    true,
 			Stderr:    true,
 			TTY:       false,
@@ -200,10 +215,9 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", podExec.URL())
 	if err != nil {
 		logger.Error(err, "Failed to create executor")
-		return ctrl.Result{}, errors.Wrap(err, "failed to create executor")
+		return stdout, stderr, errors.Wrap(err, "failed to create executor")
 	}
 
-	var stdout, stderr bytes.Buffer
 	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdout: &stdout,
 		Stderr: &stderr,
@@ -211,14 +225,10 @@ func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1al
 	})
 	if err != nil {
 		logger.Info("Failed to stream", "stdout", stdout.String(), "stderr", stderr.String())
-		return ctrl.Result{}, errors.Wrap(err, "failed to stream")
+		return stdout, stderr, errors.Wrap(err, "failed to stream")
 	}
 
-	// Parse the JSON
-	//   - keys: access_token, refresh_token, token_type
-	json.Unmarshal(stdout.Bytes(), r.ApiKey)
-
-	return ctrl.Result{}, nil
+	return stdout, stderr, nil
 }
 
 func kubernetesConfiguration() (*rest.Config, error) {
