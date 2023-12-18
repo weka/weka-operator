@@ -151,6 +151,7 @@ func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *weka
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid deployment configuration: %w", err)
 	}
+
 	return r.DeploymentReconciler.Reconcile(ctx, desired)
 }
 
