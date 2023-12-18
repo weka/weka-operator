@@ -129,8 +129,8 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		Name:            "weka-agent",
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
-			"/usr/bin/weka",
-			"--agent",
+			"/lib/systemd/systemd",
+			//"sleep", "infinity",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
