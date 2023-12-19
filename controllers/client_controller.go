@@ -235,7 +235,7 @@ func (r *ClientReconciler) clientExec(ctx context.Context, client *wekav1alpha1.
 		Namespace(pod.Namespace).
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Container: "weka-client",
+			Container: "weka-agent",
 			Command:   command,
 			Stdout:    true,
 			Stderr:    true,
