@@ -1,10 +1,14 @@
 package controllers
 
 import (
+	"time"
+
+	"github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var _ = Describe("Client controller", func() {
@@ -31,7 +35,28 @@ var _ = Describe("Client controller", func() {
 		}
 	})
 
-	It("should create a client", func() {
-		Expect(k8sClient.Create(testCtx, client)).Should(Succeed())
+	Context("When creating a client", func() {
+		var clientCreated error
+		timeout := time.Second * 10
+		interval := time.Millisecond * 250
+
+		BeforeEach(func() {
+			clientCreated = k8sClient.Create(testCtx, client)
+		})
+		It("should create a client", func() {
+			Expect(clientCreated).To(Succeed())
+		})
+		It("should create a wekafsio module", func() {
+			createdModule := &v1beta1.Module{}
+			deployKey := types.NamespacedName{
+				Name:      "wekafsio",
+				Namespace: testNamespace,
+			}
+			Eventually(func() bool {
+				err := k8sClient.Get(testCtx, deployKey, createdModule)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			Expect(createdModule.Spec.ModuleLoader.Container.Modprobe.ModuleName).To(Equal("wekafsio"))
+		})
 	})
 })

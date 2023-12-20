@@ -82,6 +82,19 @@ type ApiKey struct {
 	TokenType    string `json:"token_type"`
 }
 
+func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
+	return &ClientReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("weka-operator"),
+
+		ApiKey:               &ApiKey{},
+		Builder:              resources.NewBuilder(mgr.GetScheme()),
+		ModuleReconciler:     NewModuleReconciler(mgr.GetClient()),
+		DeploymentReconciler: NewDeploymentReconciler(mgr.GetClient()),
+	}
+}
+
 // reconcilePhases is the order in which to reconcile sub-resources
 func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 	return []reconcilePhase{

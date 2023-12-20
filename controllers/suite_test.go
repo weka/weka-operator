@@ -26,11 +26,13 @@ import (
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
@@ -71,11 +73,26 @@ var _ = BeforeSuite(func() {
 	err = wekav1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	//+kubebuilder:scaffold:scheme
+	err = kmmv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+	})
+
+	err = (*NewClientReconciler(k8sManager)).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	//+kubebuilder:scaffold:scheme
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(testCtx)
+		Expect(err).ToNot(HaveOccurred(), "failed to start manager")
+	}()
 })
 
 var _ = AfterSuite(func() {
