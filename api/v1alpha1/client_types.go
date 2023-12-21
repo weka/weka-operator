@@ -17,20 +17,51 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+type BackendSpec struct {
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
+	IP string `json:"ip,omitempty"`
+
+	NetInterface string `json:"netInterface,omitempty"`
+}
+
+type DriverSpec struct{}
+
+type ClientContainerSpec struct {
+	Debug bool `json:"debug,omitempty"`
+}
+
+type AgentContainerSpec struct {
+	Debug bool `json:"debug,omitempty"`
+}
+
 // ClientSpec defines the desired state of Client
 type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
+	// Example: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f
+	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){2}[0-9]{1,3}(\..*)?$`
+	Version string `json:"version,omitempty"`
 
-	Version string `json:"size,omitempty"`
+	// +kubebuilder:default:="quay.io/weka.io/weka-in-container"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	Backend       BackendSpec `json:"backend,omitempty"`
+	IONodeCount   int32       `json:"ioNodeCount,omitempty"`
+	ManagementIPs string      `json:"managementIPs,omitempty"`
+
+	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
+
+	Client ClientContainerSpec `json:"client,omitempty"`
+	Agent  AgentContainerSpec  `json:"agent,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client
@@ -40,6 +71,66 @@ type ClientStatus struct {
 
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	ProcessList []Process `json:"processList,omitempty"`
+}
+
+// Process is a single weka process running in the agent container
+// This is a single line of output from `weka local ps`
+// Example:
+//
+//	{
+//			"APIPort": 14000,
+//			"containerPid": 66,
+//			"internalStatus": {
+//					"display_status": "READY",
+//					"message": "Ready",
+//					"state": "READY"
+//			},
+//			"isDisabled": false,
+//			"isManaged": false,
+//			"isMonitoring": true,
+//			"isPersistent": true,
+//			"isRunning": true,
+//			"lastFailure": "Added to cluster",
+//			"lastFailureText": "Added to cluster (1 hour ago)",
+//			"lastFailureTime": "2023-12-15T14:17:24.576897Z",
+//			"name": "client",
+//			"runStatus": "Running",
+//			"type": "weka",
+//			"uptime": 5693.65999999999985,
+//			"versionName": "4.2.7.442-4ba059e153b2dce7e3e490bfc43eb5e2"
+//	}
+type Process struct {
+	APIPort         int32          `json:"apiPort,omitempty"`
+	ContainerPid    int32          `json:"containerPid,omitempty"`
+	InternalStatus  InternalStatus `json:"internalStatus,omitempty"`
+	IsDisabled      bool           `json:"isDisabled,omitempty"`
+	IsManaged       bool           `json:"isManaged,omitempty"`
+	IsMonitoring    bool           `json:"isMonitoring,omitempty"`
+	IsPersistent    bool           `json:"isPersistent,omitempty"`
+	IsRunning       bool           `json:"isRunning,omitempty"`
+	LastFailure     string         `json:"lastFailure,omitempty"`
+	LastFailureText string         `json:"lastFailureText,omitempty"`
+	LastFailureTime string         `json:"lastFailureTime,omitempty"`
+	Name            string         `json:"name,omitempty"`
+	RunStatus       string         `json:"runStatus,omitempty"`
+	Type            string         `json:"type,omitempty"`
+	Uptime          string         `json:"uptime,omitempty"`
+	VersionName     string         `json:"versionName,omitempty"`
+}
+
+type InternalStatus struct {
+	DisplayStatus string `json:"display_status,omitempty"`
+	Message       string `json:"message,omitempty"`
+	State         string `json:"state,omitempty"`
+}
+
+func (s *ClientStatus) SetCondition(condition metav1.Condition) {
+	if s.Conditions == nil {
+		s.Conditions = []metav1.Condition{}
+	}
+	meta.SetStatusCondition(&s.Conditions, condition)
 }
 
 //+kubebuilder:object:root=true

@@ -17,24 +17,38 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"strconv"
-	"time"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/kubectl/pkg/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	"github.com/weka/weka-operator/controllers/condition"
+	"github.com/weka/weka-operator/controllers/resources"
+
+	multiError "github.com/hashicorp/go-multierror"
+	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const clientFinalizer = "client.weka.io/finalizer"
 
 const (
 	typeAvailableClient   = "Available"
@@ -46,6 +60,214 @@ type ClientReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+
+	Builder              *resources.Builder
+	ConditionReady       *condition.Ready
+	ModuleReconciler     *ModuleReconciler
+	DeploymentReconciler *DeploymentReconciler
+
+	ApiKey *ApiKey
+}
+
+type reconcilePhase struct {
+	Name      string
+	Reconcile func(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error)
+}
+
+type patcher func(status *wekav1alpha1.ClientStatus) error
+
+type ApiKey struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+}
+
+// reconcilePhases is the order in which to reconcile sub-resources
+func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
+	return []reconcilePhase{
+		{
+			Name:      "wekafsgw",
+			Reconcile: r.reconcileWekaFsGw,
+		},
+		{
+			Name:      "wekafsio",
+			Reconcile: r.reconcileWekaFsIO,
+		},
+		{
+			Name:      "deployment",
+			Reconcile: r.reconcileDeployment,
+		},
+		{
+			Name:      "process_list",
+			Reconcile: r.reconcileProcessList,
+		},
+	}
+}
+
+// reconcileWekaFsGw reconciles the wekafsgw driver
+func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsgw")
+	key := runtimeClient.ObjectKeyFromObject(client)
+
+	options := &resources.WekaFSModuleOptions{
+		ModuleName:          "wekafsgw",
+		ModuleLoadingOrder:  []string{},
+		ImagePullSecretName: client.Spec.ImagePullSecretName,
+		WekaVersion:         client.Spec.Version,
+		BackendIP:           client.Spec.Backend.IP,
+	}
+	desired, err := r.Builder.WekaFSModule(client, key, options)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsgw: %w", err)
+	}
+	return r.ModuleReconciler.Reconcile(ctx, desired)
+}
+
+// reconcileWekaFsIO reconciles the wekafsio driver
+func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsio")
+	key := runtimeClient.ObjectKeyFromObject(client)
+
+	options := &resources.WekaFSModuleOptions{
+		ModuleName:          "wekafsio",
+		ModuleLoadingOrder:  []string{"wekafsio", "wekafsgw"},
+		ImagePullSecretName: client.Spec.ImagePullSecretName,
+		WekaVersion:         client.Spec.Version,
+		BackendIP:           client.Spec.Backend.IP,
+	}
+	desired, err := r.Builder.WekaFSModule(client, key, options)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("invalid driver configuration for wekafsio: %w", err)
+	}
+	return r.ModuleReconciler.Reconcile(ctx, desired)
+}
+
+// reconcileDeployment reconciles the deployment containing the client and agent
+func (r *ClientReconciler) reconcileDeployment(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling deployment")
+	key := runtimeClient.ObjectKeyFromObject(client)
+
+	desired, err := r.Builder.DeploymentForClient(client, key)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("invalid deployment configuration: %w", err)
+	}
+
+	return r.DeploymentReconciler.Reconcile(ctx, desired)
+}
+
+// reconcileApiKey Extracts the API key from the client
+func (r *ClientReconciler) reconcileApiKey(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling api key")
+	// Client generates a key at startup and puts it in a well known location
+	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
+	stdout, stderr, err := r.clientExec(ctx, client, []string{"cat", "/root/.weka/auth-token.json"})
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to get api key", "stdout", stdout.String(), "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to get api key")
+	}
+
+	// Parse the JSON
+	//   - keys: access_token, refresh_token, token_type
+	json.Unmarshal(stdout.Bytes(), r.ApiKey)
+
+	return ctrl.Result{}, nil
+}
+
+// reconcileProcessList Adds `weka ps` to the status
+func (r *ClientReconciler) reconcileProcessList(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling process list")
+	logger := log.FromContext(ctx)
+	stdout, stderr, err := r.clientExec(ctx, client, []string{"/usr/bin/weka", "local", "ps", "-J"})
+	if err != nil {
+		logger.Error(err, "Failed to get process list", "stdout", stdout.String(), "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to get process list")
+	}
+
+	processList := []wekav1alpha1.Process{}
+	json.Unmarshal(stdout.Bytes(), &processList)
+
+	// Update Status
+	client.Status.ProcessList = processList
+	err = r.Status().Update(ctx, client)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to update status")
+		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *ClientReconciler) clientExec(ctx context.Context, client *wekav1alpha1.Client, command []string) (bytes.Buffer, bytes.Buffer, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling API Key", "Client", client.Name, "Namespace", client.Namespace)
+
+	var stdout, stderr bytes.Buffer
+	config, err := kubernetesConfiguration()
+	if err != nil {
+		logger.Error(err, "Failed to get kubernetes configuration")
+		return stdout, stderr, errors.Wrap(err, "failed to get kubernetes configuration")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		logger.Error(err, "Failed to get clientset")
+		return stdout, stderr, errors.Wrap(err, "failed to get clientset")
+	}
+
+	// Lookup the pod via the deployment
+	deployment := &appsv1.Deployment{}
+	err = r.Get(ctx, runtimeClient.ObjectKeyFromObject(client), deployment)
+	if err != nil {
+		logger.Error(err, "Failed to get deployment")
+		return stdout, stderr, errors.Wrap(err, "failed to get deployment")
+	}
+	deploymentPods, err := clientset.CoreV1().Pods(client.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", deployment.Name),
+	})
+	if err != nil {
+		logger.Error(err, "Failed to get pod")
+		return stdout, stderr, errors.Wrap(err, "failed to get pod")
+	}
+	pod := deploymentPods.Items[0]
+
+	podExec := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(pod.Name).
+		Namespace(pod.Namespace).
+		SubResource("exec").
+		VersionedParams(&v1.PodExecOptions{
+			Container: "weka-agent",
+			Command:   command,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", podExec.URL())
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return stdout, stderr, errors.Wrap(err, "failed to create executor")
+	}
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Tty:    false,
+	})
+	if err != nil {
+		logger.Info("Failed to stream", "stdout", stdout.String(), "stderr", stderr.String())
+		return stdout, stderr, errors.Wrap(err, "failed to stream")
+	}
+
+	return stdout, stderr, nil
+}
+
+func kubernetesConfiguration() (*rest.Config, error) {
+	kubeConfigPath := os.Getenv("KUBECONFIG")
+	if kubeConfigPath == "" {
+		return rest.InClusterConfig()
+	} else {
+		return clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	}
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
@@ -63,13 +285,13 @@ type ClientReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Client")
+	logger.Info("Reconciling Client", "NamespacedName", req.NamespacedName, "Request", req)
 
-	// TODO(user): your logic here
 	client := &wekav1alpha1.Client{}
-	err := r.Get(ctx, req.NamespacedName, client)
-	if err != nil {
-		logger.Error(err, "unable to fetch Client")
+	if err := r.Get(ctx, req.NamespacedName, client); err != nil {
+		return ctrl.Result{}, runtimeClient.IgnoreNotFound(err)
+	}
+	if err := r.patchStatus(ctx, client, r.patcher(ctx, client)); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	}
 
@@ -77,57 +299,69 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
 			Type:    typeAvailableClient,
 			Status:  metav1.ConditionUnknown,
-			Reason:  "Reconciling",
-			Message: "Reconciling Client",
+			Reason:  "Initializing",
+			Message: "Beginning Reconcialiation",
 		})
-		if err = r.Status().Update(ctx, client); err != nil {
-			logger.Error(err, "unable to update Client status")
+		if err := r.Status().Update(ctx, client); err != nil {
+			logger.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.patchStatus(ctx, client, r.patcher(ctx, client)); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 	}
 
-	// Deployment
-	deployment := &appsv1.Deployment{}
-	err = r.Get(ctx, req.NamespacedName, deployment)
-	if err != nil && apierrors.IsNotFound(err) {
-		// define a new deployment
-		dep, err := r.deploymentForClient(client)
+	phases := r.reconcilePhases()
+	for _, phase := range phases {
+		result, err := phase.Reconcile(ctx, client)
 		if err != nil {
-			logger.Error(err, "unable to create Deployment for Client", "Client.Namespace", client.Namespace, "Client.Name", client.Name)
-
-			meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
-				Type:    typeAvailableClient,
-				Status:  metav1.ConditionFalse,
-				Reason:  "Reconciling",
-				Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", client.Name, err),
-			})
-
-			if err = r.Status().Update(ctx, client); err != nil {
-				logger.Error(err, "unable to update Client status")
-				return ctrl.Result{}, err
+			if apierrors.IsNotFound(err) {
+				logger.Info("Resource not found", "phase", phase.Name)
+				continue
 			}
 
-			return ctrl.Result{}, err
-		}
+			errBundle := &multiError.Error{}
+			errBundle = multiError.Append(errBundle, err)
 
-		logger.Info("Creating a new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-		if err = r.Create(ctx, dep); err != nil {
-			logger.Error(err, "Failed to create new Deployment",
-				"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-			return ctrl.Result{}, err
-		}
+			msg := fmt.Sprintf("Failed to reconcile phase %s: %s", phase.Name, err)
+			patchErr := r.patchStatus(ctx, client, func(status *wekav1alpha1.ClientStatus) error {
+				patcher := r.ConditionReady.PatcherFailed(msg)
+				patcher(status)
+				return nil
+			})
+			if apierrors.IsNotFound(patchErr) {
+				errBundle = multiError.Append(errBundle, patchErr)
+			}
 
-		// Deployment created successfully - return and requeue
-		return ctrl.Result{RequeueAfter: time.Minute * 1}, nil
-	} else if err != nil {
-		logger.Error(err, "unable to fetch Deployment")
-		return ctrl.Result{}, err
+			if err := errBundle.ErrorOrNil(); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to reconcile phase %s: %w", phase.Name, err)
+			}
+		}
+		if !result.IsZero() {
+			return result, nil
+		}
 	}
 
-	logger.Info("Finished Reconciling Client")
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciled", "Finished Reconciliation")
 	return ctrl.Result{}, nil
 }
 
+func (r *ClientReconciler) patchStatus(ctx context.Context, client *wekav1alpha1.Client, patcher patcher) error {
+	patch := runtimeClient.MergeFrom(client.DeepCopy())
+	if err := patcher(&client.Status); err != nil {
+		return err
+	}
+	return r.Status().Patch(ctx, client, patch)
+}
+
+func (r *ClientReconciler) patcher(ctx context.Context, client *wekav1alpha1.Client) patcher {
+	return func(status *wekav1alpha1.ClientStatus) error {
+		return nil
+	}
+}
+
+// TODO: Factor the below  out into reconciler methods
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -136,65 +370,8 @@ func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *ClientReconciler) deploymentForClient(client *wekav1alpha1.Client) (*appsv1.Deployment, error) {
-	runAsNonRoot := false
-	privileged := true
-	runAsUser := int64(0)
-
-	ls := map[string]string{
-		"app.kubernetes.io": "weka-client",
-		"iteration":         "2",
-		"runAsNonRoot":      strconv.FormatBool(runAsNonRoot),
-		"privileged":        strconv.FormatBool(privileged),
-		"runAsUser":         strconv.FormatInt(runAsUser, 10),
-	}
-	replicas := int32(1)
-
-	dep := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      client.Name,
-			Namespace: client.Namespace,
-			Labels:    ls,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls,
-				},
-				Spec: corev1.PodSpec{
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: &[]bool{true}[0],
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
-					Containers: []corev1.Container{{
-						Image:           "busybox:1.35",
-						Name:            "weka-client",
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						SecurityContext: &corev1.SecurityContext{
-							// RunAsNonRoot: &[]bool{false}[0],
-							// Privileged:   &[]bool{true}[0],
-							RunAsNonRoot: &[]bool{runAsNonRoot}[0],
-							Privileged:   &[]bool{privileged}[0],
-							RunAsUser:    &[]int64{runAsUser}[0],
-						},
-						Command: []string{"sleep", "3600"},
-						TTY:     true,
-						Stdin:   true,
-					}},
-				},
-			},
-		},
-	}
-
-	dep.ObjectMeta.ResourceVersion = ""
-
-	// Set Client instance as the owner and controller
-	ctrl.SetControllerReference(client, dep, r.Scheme)
-	return dep, nil
+func (r *ClientReconciler) finalizeClient(ctx context.Context, client *wekav1alpha1.Client) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Successfully finalized Client")
+	return nil
 }

@@ -7,6 +7,20 @@ metadata:
     app.kubernetes.io/part-of: weka-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: weka-operator
-  name: client-sample
+  name: weka-agent
 spec:
-  # TODO(user): Add fields here
+  version: 4.2.7.815-d3e193ee4ceb15033f5207b466815c3c
+  image: quay.io/weka.io/weka-in-container
+  imagePullSecretName: quay-cred
+
+  backend:
+    netInterface: eth0
+    ip: 10.108.29.22
+  ioNodeCount: 1
+  managementIPs: 10.108.135.54
+
+  agent:
+    debug: false
+
+  client:
+    debug: false
