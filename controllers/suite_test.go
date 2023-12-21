@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -46,6 +47,7 @@ var (
 	testEnv    *envtest.Environment
 	testCtx    context.Context
 	testCancel context.CancelFunc
+	kubectlExe string
 )
 
 func TestAPIs(t *testing.T) {
@@ -58,13 +60,17 @@ var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	testCtx, testCancel = context.WithCancel(context.TODO())
 
+	var err error
+	kubectlExe, err = exec.LookPath("kubectl")
+	Expect(err).NotTo(HaveOccurred())
+
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
+		UseExistingCluster:    func(b bool) *bool { return &b }(true),
 	}
 
-	var err error
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
