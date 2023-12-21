@@ -108,6 +108,10 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 			Reconcile: r.reconcileWekaFsIO,
 		},
 		{
+			Name:      "mpin_user",
+			Reconcile: r.reconcileMpinUser,
+		},
+		{
 			Name:      "weka-agent",
 			Reconcile: r.reconcileAgent,
 		},
@@ -158,8 +162,27 @@ func (r *ClientReconciler) reconcileWekaFsIO(name types.NamespacedName, client *
 	return NewModuleReconciler(r, desired, name), nil
 }
 
+func (r *ClientReconciler) reconcileMpinUser(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
+	key := runtimeClient.ObjectKeyFromObject(client)
+
+	options := &resources.WekaFSModuleOptions{
+		ModuleName:          "mpin_user",
+		ModuleLoadingOrder:  []string{},
+		ImagePullSecretName: client.Spec.ImagePullSecretName,
+		WekaVersion:         client.Spec.Version,
+		BackendIP:           client.Spec.BackendIP,
+	}
+	desired, err := r.Builder.WekaFSModule(client, key, options)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mpin user configuration: %w", err)
+	}
+
+	return NewModuleReconciler(r, desired, key), nil
+}
+
 // reconcileAgent reconciles the deployment containing the client and agent
 func (r *ClientReconciler) reconcileAgent(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
+	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling deployment")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	desired, err := resources.AgentResource(client, key)
