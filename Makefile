@@ -171,6 +171,23 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
 
+##@ Helm Chart
+HELM=helm
+CHART=charts/weka-operator
+CHART_ARCHIVE=charts/weka-operator-$(VERSION).tgz
+
+.PHONY: chart
+chart: $(CHART_ARCHIVE) ## Build Helm chart.
+	$(HELM) package $(CHART) --destination charts --version $(VERSION)
+
+$(CHART_ARCHIVE): templates
+
+.PHONY: templates
+templates: manifests
+	cp -r config/crd $(CHART)/templates/crds
+	cp -r config/rbac $(CHART)/templates/rbac
+	cp -r config/manager $(CHART)/templates/manager
+
 ##@ Build Dependencies
 
 ## Location to install dependencies to

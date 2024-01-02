@@ -5,3 +5,4 @@ kind 0.20.0
 k9s 0.28.0
 operator-sdk 1.32.0
 minikube 1.32.0
+kustomize 5.3.0
