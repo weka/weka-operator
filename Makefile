@@ -184,9 +184,8 @@ $(CHART_ARCHIVE): templates
 
 .PHONY: templates
 templates: manifests
-	cp -r config/crd $(CHART)/templates/crds
-	cp -r config/rbac $(CHART)/templates/rbac
-	cp -r config/manager $(CHART)/templates/manager
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default > $(CHART)/templates/operator.yaml
 
 ##@ Build Dependencies
 
