@@ -1,0 +1,6 @@
+---
+apiVersion: v1alpha1
+name: weka-operator
+version: v0.0.1
+kubeVersion: ~1.28.0
+type: application
