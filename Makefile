@@ -178,9 +178,10 @@ CHART_ARCHIVE=charts/weka-operator-$(VERSION).tgz
 
 .PHONY: chart
 chart: $(CHART_ARCHIVE) ## Build Helm chart.
+	$(HELM) lint $(CHART)
 	$(HELM) package $(CHART) --destination charts --version $(VERSION)
 
-$(CHART_ARCHIVE): templates
+$(CHART_ARCHIVE): templates docker-buildx
 
 .PHONY: templates
 templates: manifests

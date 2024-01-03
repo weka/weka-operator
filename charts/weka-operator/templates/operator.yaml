@@ -241,6 +241,48 @@ metadata:
   name: weka-operator-manager-role
 rules:
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - kmm.sigs.x-k8s.io
+  resources:
+  - modules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - weka.weka.io
   resources:
   - clients
@@ -463,7 +505,8 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/weka.io/weka-operator:0.0.1
+        image: quay.io/weka.io/weka-operator:0.0.2
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz
