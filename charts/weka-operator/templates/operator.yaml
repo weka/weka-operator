@@ -505,8 +505,7 @@ spec:
         - --leader-elect
         command:
         - /manager
-        image: quay.io/weka.io/weka-operator:0.0.2
-        imagePullPolicy: Always
+        image: quay.io/weka.io/weka-operator:0.1.0
         livenessProbe:
           httpGet:
             path: /healthz
