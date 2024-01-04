@@ -26,7 +26,7 @@ jobs:
         run: make kustomize
 
       - name: Docker login
-        run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
+        run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
 
       - name: Build Chart
         run: |
