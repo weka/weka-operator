@@ -23,6 +23,13 @@ jobs:
 
       - run: go version
 
+      - name: Setup Kustomize
+        uses: kustomize-everything/action-kustomize@v1
+        with: 
+          version: v5.3.0
+
+      - run: kustomize version
+
       - name: Build Chart
         run: |
           make chart
