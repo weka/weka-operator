@@ -286,6 +286,10 @@ func kubernetesConfiguration() (*rest.Config, error) {
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
+//+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
