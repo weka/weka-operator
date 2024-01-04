@@ -1,1 +1,38 @@
-Hi!
+Chart: {{ .Chart.Name }}
+Release: {{ .Release.Name }}
+
+Notes:
+This has been tested with the CSI plugin.  Please ensure that the operator is
+installed before the plugin.  When uninstalling, please ensure that the plugin
+is removed before this chart.  Otherwise, uninstallation may hang when removing
+Weka kernel modules.
+
+Next steps:
+Please create a client.yaml file to configure the operator.
+
+Example:
+```yaml
+apiVersion: weka.weka.io/v1alpha1
+kind: Client
+metadata:
+  labels:
+    app.kubernetes.io/name: client
+    app.kubernetes.io/instance: client-sample
+    app.kubernetes.io/part-of: weka-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: weka-operator
+  name: weka-agent
+spec:
+  version: 4.2.7.815-d3e193ee4ceb15033f5207b466815c3c
+  image: quay.io/weka.io/weka-in-container
+  imagePullSecretName: quay-cred
+
+  backend:
+    netInterface: eth0
+    ip: <IP address of backed VM>
+  ioNodeCount: 1
+  managementIPs: <IP address of host VM>
+
+  agent:
+    debug: false
+```
