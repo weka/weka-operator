@@ -48,3 +48,14 @@ jobs:
 
       - name: Push chart to registry
         run: helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm
+
+  Github-Release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: true
+          allow-initial-development-versions: true
+          hooks: goreleaser
