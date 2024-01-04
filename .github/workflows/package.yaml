@@ -25,12 +25,11 @@ jobs:
       - name: Install kustomize
         run: make kustomize
 
-      - name: Setup Kind
-        uses: helm/kind-action@v1.8.0
+      - name: Docker login
+        run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
 
       - name: Build Chart
         run: |
-          make templates
           make docker-build
           make docker-push
           make chart
