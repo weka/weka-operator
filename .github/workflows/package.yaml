@@ -25,7 +25,7 @@ jobs:
       - name: Build Chart
         run: |
           make kustomize
-          make chart
+          make build
 
       - name: Configure git
         run: |
