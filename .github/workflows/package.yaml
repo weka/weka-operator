@@ -33,6 +33,7 @@ jobs:
           make templates
           make docker-build
           make docker-push
+          make chart
 
       - name: Configure git
         run: |
