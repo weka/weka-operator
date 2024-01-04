@@ -2,7 +2,6 @@
 name: Package Operator (HELM)
 run-name: ${{ github.actor }} is building the Helm package
 on:
-  pull_request:
   push:
     branches:
       - main
