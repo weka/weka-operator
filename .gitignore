@@ -26,3 +26,6 @@ Dockerfile.cross
 *~
 .DS_Store
 *.tgz
+node_modules
+.semrel
+semantic-release
