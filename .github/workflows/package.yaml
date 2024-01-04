@@ -26,10 +26,5 @@ jobs:
         with:
           version: v3.12.1
 
-      - name: Run release
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          packages_with_index: true
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-
+      - name: Login to Registry
+        run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
