@@ -31,7 +31,8 @@ jobs:
       - name: Build Chart
         run: |
           make templates
-          make docker-buildx
+          make docker-build
+          make docker-push
 
       - name: Configure git
         run: |
