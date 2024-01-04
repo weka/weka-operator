@@ -8,5 +8,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: wagoid/commitlint-github-action@v5
+
+      - name: Linting commits
+        uses: wagoid/commitlint-github-action@v5
+
+      - name: Preview semantic release
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: true
+          allow-initial-development-versions: true
+          hooks: goreleaser
+          dry: true
 
