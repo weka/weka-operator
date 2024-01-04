@@ -26,7 +26,9 @@ jobs:
         run: make kustomize
 
       - name: Build Chart
-        run: make templates
+        run: |
+          make templates
+          make docker-buildx
 
       - name: Configure git
         run: |
