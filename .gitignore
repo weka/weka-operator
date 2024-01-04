@@ -29,3 +29,5 @@ Dockerfile.cross
 node_modules
 .semrel
 semantic-release
+
+dist/
