@@ -25,6 +25,9 @@ jobs:
       - name: Install kustomize
         run: make kustomize
 
+      - name: Setup Kind
+        uses: helm/kind-action@1.8.0
+
       - name: Build Chart
         run: |
           make templates
