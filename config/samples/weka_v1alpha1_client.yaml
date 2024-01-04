@@ -15,9 +15,9 @@ spec:
 
   backend:
     netInterface: eth0
-    ip: 10.108.29.22
+    ip:  10.108.32.110
   ioNodeCount: 1
-  managementIPs: 10.108.135.54
+  managementIPs: 10.108.162.198
 
   agent:
     debug: false
