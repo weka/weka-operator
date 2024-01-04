@@ -1,0 +1,4 @@
+FROM scratch
+ENTRYPOINT ["/manager"]
+
+COPY weka-operator /
