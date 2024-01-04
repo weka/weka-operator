@@ -22,10 +22,11 @@ jobs:
           go-version: '1.21.3'
       - run: go version
 
+      - name: Install kustomize
+        run: make kustomize
+
       - name: Build Chart
-        run: |
-          make kustomize
-          make manifests
+        run: make manifests
 
       - name: Configure git
         run: |
