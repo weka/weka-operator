@@ -2,10 +2,14 @@ Chart: {{ .Chart.Name }}
 Release: {{ .Release.Name }}
 
 Notes:
-This has been tested with the CSI plugin.  Please ensure that the operator is
-installed before the plugin.  When uninstalling, please ensure that the plugin
-is removed before this chart.  Otherwise, uninstallation may hang when removing
-Weka kernel modules.
+- This has been tested with the CSI plugin.  Please ensure that the operator is
+  installed before the plugin.  When uninstalling, please ensure that the plugin
+  is removed before this chart.  Otherwise, uninstallation may hang when removing
+  Weka kernel modules.
+
+- Operator startup may fail if correct image pull credentials are not provided.
+  Please ensure that the imagePullSecret field in Values.yaml is set to a valid
+  secret containing credentials for the Weka container image.
 
 Next steps:
 Please create a client.yaml file to configure the operator.
