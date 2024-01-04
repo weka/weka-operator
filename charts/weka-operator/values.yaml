@@ -4,5 +4,5 @@
 
 imagePullSecret:
   name: quay-cred
-  username: 
-  password: 
+  username:
+  password:
