@@ -13,7 +13,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -52,6 +51,16 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 		if err := r.Create(ctx, r.Desired); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to create deployment %s: %w", key, err)
 		}
+
+		if err := r.UpdateStatus(ctx, metav1.Condition{
+			Type:    "Available",
+			Status:  metav1.ConditionFalse,
+			Reason:  "Reconciling",
+			Message: "Requested new agent",
+		}); err != nil {
+			r.Logger.Error(err, "Failed to update status")
+		}
+
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -71,6 +80,14 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 	}
 
 	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
+	//if err := r.UpdateStatus(ctx, metav1.Condition{
+	//Type:    "Available",
+	//Status:  metav1.ConditionTrue,
+	//Reason:  "Reconciled",
+	//Message: "Agent is ready",
+	//}); err != nil {
+	//return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	//}
 	return ctrl.Result{}, r.Patch(ctx, existing, patch)
 }
 
@@ -83,23 +100,12 @@ func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stder
 	pod := agentPods.Items[0]
 
 	exec, err := util.NewExecInPod(&pod)
+	if err != nil {
+		return stdout, stderr, errors.Wrapf(err, "Failed to run command %s", cmd)
+	}
 	return exec.Exec(ctx, cmd)
 }
 
-// UpdateStatus updates the status of the weka client
-func (r *AgentReconciler) UpdateStatus(ctx context.Context, key types.NamespacedName, condition metav1.Condition) error {
-	wekaClient := &wekav1alpha1.Client{}
-	if err := r.Get(ctx, key, wekaClient); err != nil {
-		return err
-	}
-	meta.SetStatusCondition(&wekaClient.Status.Conditions, condition)
-	if err := r.Status().Update(ctx, wekaClient); err != nil {
-		return errors.Wrap(err, "failed to update status")
-	}
-	return nil
-}
-
-// isAgentAvailable should check the status of the agent, but it does not
 // appear that daemonsets support conditions.  Instead, just return true.
 func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 	return deployment.Status.NumberReady == deployment.Status.DesiredNumberScheduled

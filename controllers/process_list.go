@@ -30,8 +30,8 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	if err != nil {
-		r.Logger.Error(err, "Failed to get api key", "stdout", stdout.String(), "stderr", stderr.String())
-		return ctrl.Result{}, errors.Wrap(err, "failed to get api key")
+		r.Logger.Error(err, "failed to get process list", "stderr", stderr.String())
+		return ctrl.Result{}, errors.Wrap(err, "failed to get process list")
 	}
 
 	processList := []wekav1alpha1.Process{}

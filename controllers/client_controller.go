@@ -108,7 +108,7 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 			Reconcile: r.reconcileWekaFsIO,
 		},
 		{
-			Name:      "deployment",
+			Name:      "weka-agent",
 			Reconcile: r.reconcileAgent,
 		},
 		{
@@ -270,6 +270,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// if result IsZero, then the phase is done or nothing needed to be done
 		// and we can move on to the next phase
 		if !result.IsZero() {
+			r.Logger.Info("Requeueing", "phase", phase.Name)
 			return result, nil
 		}
 	}
@@ -300,11 +301,16 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 	return nil
 }
 
-// func (r *ClientReconciler) UpdateStatus(updater func(status *ClientStatus)) error {
-// client
-// updater(&ClientStatus{})
-
-//}
+func (r *ClientReconciler) UpdateStatus(ctx context.Context, condition metav1.Condition) error {
+	if r.CurrentInstance == nil {
+		return fmt.Errorf("current client is nil")
+	}
+	if err := r.Get(ctx, runtimeClient.ObjectKeyFromObject(r.CurrentInstance), r.CurrentInstance); err != nil {
+		return errors.Wrap(err, "UpdateStatus: failed to get client")
+	}
+	meta.SetStatusCondition(&r.CurrentInstance.Status.Conditions, condition)
+	return r.Status().Update(ctx, r.CurrentInstance)
+}
 
 // TODO: Factor the below  out into reconciler methods
 // SetupWithManager sets up the controller with the Manager.

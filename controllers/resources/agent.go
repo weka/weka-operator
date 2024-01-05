@@ -201,15 +201,15 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 			{ContainerPort: 14000},
 			{ContainerPort: 14100},
 		},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				Exec: &corev1.ExecAction{
-					Command: []string{
-						"/opt/agent-ready.sh",
-					},
-				},
-			},
-		},
+		//ReadinessProbe: &corev1.Probe{
+		//ProbeHandler: corev1.ProbeHandler{
+		//Exec: &corev1.ExecAction{
+		//Command: []string{
+		//"/opt/agent-ready.sh",
+		//},
+		//},
+		//},
+		//},
 	}
 
 	return container
@@ -221,8 +221,8 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 		Name:            "weka-client",
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
-			"sleep", "infinity",
-			//"/opt/start-weka-client.sh",
+			//"sleep", "infinity",
+			"/opt/start-weka-client.sh",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
