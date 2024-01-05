@@ -42,6 +42,9 @@ func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.Nam
 					"app.kubernetes.io": "weka-agent",
 				},
 			},
+			Strategy: appsv1.DeploymentStrategy{
+				Type: appsv1.RecreateDeploymentStrategyType,
+			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: ls,
@@ -62,7 +65,7 @@ func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.Nam
 					Containers: []corev1.Container{
 						// Agent Container
 						wekaAgentContainer(client, image),
-						// wekaClientContainer(client, image),
+						wekaClientContainer(client, image),
 					},
 					Volumes: []corev1.Volume{
 						{
@@ -103,14 +106,6 @@ func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.Nam
 								},
 							},
 						},
-						{
-							Name: "hugepage-2mi-2",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{
-									Medium: corev1.StorageMediumHugePages,
-								},
-							},
-						},
 					},
 				},
 			},
@@ -129,8 +124,8 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		Name:            "weka-agent",
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
-			"/lib/systemd/systemd",
-			//"sleep", "infinity",
+			"/usr/bin/dumb-init", "--",
+			"/usr/bin/weka", "--agent",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
@@ -214,8 +209,9 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 		Name:            "weka-client",
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
-			"sleep", "infinity",
-			//"/opt/start-weka-client.sh",
+			//"sleep", "infinity",
+			"/usr/bin/dumb-init", "--",
+			"/opt/start-weka-client.sh",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
@@ -239,15 +235,10 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				MountPath: "/opt/weka/data",
 				Name:      "opt-weka-data",
 			},
-			{
-				Name:      "hugepage-2mi-2",
-				MountPath: "/dev/hugepages",
-			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				"hugepages-2Mi": resource.MustParse("512Mi"),
-				"memory":        resource.MustParse("512Mi"),
+				"memory": resource.MustParse("512Mi"),
 			},
 			Requests: corev1.ResourceList{
 				"memory": resource.MustParse("512Mi"),
