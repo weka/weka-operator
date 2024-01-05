@@ -59,7 +59,7 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 					Containers: []corev1.Container{
 						// Agent Container
 						wekaAgentContainer(client, image),
-						// wekaClientContainer(client, image),
+						wekaClientContainer(client, image),
 					},
 					Volumes: []corev1.Volume{
 						{
@@ -100,14 +100,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 								},
 							},
 						},
-						{
-							Name: "hugepage-2mi-2",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{
-									Medium: corev1.StorageMediumHugePages,
-								},
-							},
-						},
 					},
 				},
 			},
@@ -123,8 +115,9 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		Name:            "weka-agent",
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
-			"/lib/systemd/systemd",
 			//"sleep", "infinity",
+			"/usr/bin/dumb-init", "--",
+			"/usr/bin/weka", "--agent",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
@@ -222,6 +215,7 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
 			//"sleep", "infinity",
+			"/usr/bin/dumb-init", "--",
 			"/opt/start-weka-client.sh",
 		},
 		SecurityContext: &corev1.SecurityContext{
@@ -246,15 +240,10 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				MountPath: "/opt/weka/data",
 				Name:      "opt-weka-data",
 			},
-			{
-				Name:      "hugepage-2mi-2",
-				MountPath: "/dev/hugepages",
-			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				"hugepages-2Mi": resource.MustParse("512Mi"),
-				"memory":        resource.MustParse("512Mi"),
+				"memory": resource.MustParse("512Mi"),
 			},
 			Requests: corev1.ResourceList{
 				"memory": resource.MustParse("512Mi"),
