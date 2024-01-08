@@ -28,7 +28,6 @@ spec:
 
   backendIP: <IP address of backend VM>
   ioNodeCount: 1
-  managementIPs: <IP address of host VM>
 
   agent:
     debug: false
