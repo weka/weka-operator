@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.NamespacedName) (*appsv1.Deployment, error) {
+func (b *Builder) AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*appsv1.DaemonSet, error) {
 	runAsNonRoot := false
 	privileged := true
 	runAsUser := int64(0)
@@ -27,16 +27,14 @@ func (b *Builder) DeploymentForClient(client *wekav1alpha1.Client, key types.Nam
 		"privileged":        strconv.FormatBool(privileged),
 		"runAsUser":         strconv.FormatInt(runAsUser, 10),
 	}
-	replicas := int32(1)
 
-	dep := &appsv1.Deployment{
+	dep := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      client.Name,
 			Namespace: client.Namespace,
 			Labels:    ls,
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
+		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app.kubernetes.io": "weka-agent",
