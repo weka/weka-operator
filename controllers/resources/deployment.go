@@ -207,6 +207,15 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 			{ContainerPort: 14000},
 			{ContainerPort: 14100},
 		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{
+					Command: []string{
+						"/opt/agent-ready.sh",
+					},
+				},
+			},
+		},
 	}
 
 	return container
