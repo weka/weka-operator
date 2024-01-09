@@ -2,61 +2,139 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
-	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+
+	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	"github.com/weka/weka-operator/util"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type AgentReconciler struct {
-	client.Client
-	Logger logr.Logger
+	*ClientReconciler
+	Desired          *appsv1.DaemonSet
+	RootResourceName types.NamespacedName
 }
 
-func NewAgentReconciler(c client.Client, logger logr.Logger) *AgentReconciler {
-	return &AgentReconciler{c, logger}
+type PodNotFound struct {
+	Err error
 }
 
-func (r *AgentReconciler) Reconcile(ctx context.Context, desired *appsv1.DaemonSet) (ctrl.Result, error) {
-	key := client.ObjectKeyFromObject(desired)
+func (e *PodNotFound) Error() string {
+	return "pod not found"
+}
+
+func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root types.NamespacedName) *AgentReconciler {
+	return &AgentReconciler{c, desired, root}
+}
+
+func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	key := runtimeClient.ObjectKeyFromObject(r.Desired)
 	existing := &appsv1.DaemonSet{}
 	if err := r.Get(ctx, key, existing); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, fmt.Errorf("failed to get deployment %s: %w", key, err)
 		}
-		if err := r.Create(ctx, desired); err != nil {
+
+		// The resource did not already exisst, so create it.
+		if err := r.Create(ctx, r.Desired); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to create deployment %s: %w", key, err)
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !r.isAgentAvailable(existing) {
-		r.Logger.Info("deployment is not available yet, requeuing")
+		// The resource exists, but is not yet in a ready state
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	patch := client.MergeFrom(existing.DeepCopy())
-	existing.Spec = desired.Spec
-	for k, v := range desired.Annotations {
+	// The resource exists and is ready.  This adds metadata from the spec
+	patch := runtimeClient.MergeFrom(existing.DeepCopy())
+	existing.Spec = r.Desired.Spec
+	for k, v := range r.Desired.Annotations {
 		existing.Annotations[k] = v
 	}
-	for k, v := range desired.Labels {
+	for k, v := range r.Desired.Labels {
 		existing.Labels[k] = v
 	}
 
 	return ctrl.Result{}, r.Patch(ctx, existing, patch)
 }
 
+// Exec
+func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stderr bytes.Buffer, err error) {
+	agentPods, err := r.GetAgentPods(ctx)
+	if err != nil {
+		return stdout, stderr, errors.Wrap(&PodNotFound{err}, "failed to get agent pods")
+	}
+	pod := agentPods.Items[0]
+
+	exec, err := util.NewExecInPod(&pod)
+	return exec.Exec(ctx, cmd)
+}
+
+// UpdateStatus updates the status of the weka client
+func (r *AgentReconciler) UpdateStatus(ctx context.Context, key types.NamespacedName, condition metav1.Condition) error {
+	wekaClient := &wekav1alpha1.Client{}
+	if err := r.Get(ctx, key, wekaClient); err != nil {
+		return err
+	}
+	meta.SetStatusCondition(&wekaClient.Status.Conditions, condition)
+	if err := r.Status().Update(ctx, wekaClient); err != nil {
+		return errors.Wrap(err, "failed to update status")
+	}
+	return nil
+}
+
 // isAgentAvailable should check the status of the agent, but it does not
 // appear that daemonsets support conditions.  Instead, just return true.
 func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
-	numberReady := deployment.Status.NumberReady
-	r.Logger.Info("Number of nodes ready", "numberReady", numberReady)
-	r.Logger.Info("Number of nodes desired", "desired", deployment.Status.DesiredNumberScheduled)
-
 	return deployment.Status.NumberReady == deployment.Status.DesiredNumberScheduled
+}
+
+// GetAgentPods returns the pods belonging to the daemonset
+func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
+	agent, err := r.GetAgentResource(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting pods")
+	}
+
+	config, err := util.KubernetesConfiguration()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get kubernetes configuration")
+	}
+
+	clientset, err := util.KubernetesClientSet(config)
+	namespace := agent.Namespace
+	agentPods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", agent.Name),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get pod")
+	}
+
+	return agentPods, nil
+}
+
+// GetAgentResource returns the agent DaemonSet resource
+func (r *AgentReconciler) GetAgentResource(ctx context.Context) (*appsv1.DaemonSet, error) {
+	agent := &appsv1.DaemonSet{}
+	key := client.ObjectKeyFromObject(r.Desired)
+	err := r.Get(ctx, key, agent)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get agent resources")
+	}
+
+	return agent, nil
 }
