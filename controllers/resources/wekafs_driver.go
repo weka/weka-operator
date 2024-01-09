@@ -77,7 +77,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 								BuildArgs: []v1beta1.BuildArg{
 									{
 										Name:  "WEKA_VERSION",
-										Value: "4.2.7.64",
+										Value: options.WekaVersion,
 									},
 									{
 										Name:  "BACKEND_IP",
