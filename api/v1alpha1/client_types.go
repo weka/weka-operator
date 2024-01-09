@@ -24,13 +24,6 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type BackendSpec struct {
-	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){3}[0-9]{1,3}$`
-	IP string `json:"ip,omitempty"`
-
-	NetInterface string `json:"netInterface,omitempty"`
-}
-
 type DriverSpec struct{}
 
 type ClientContainerSpec struct {
@@ -54,9 +47,9 @@ type ClientSpec struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	Backend       BackendSpec `json:"backend,omitempty"`
-	IONodeCount   int32       `json:"ioNodeCount,omitempty"`
-	ManagementIPs string      `json:"managementIPs,omitempty"`
+	IONodeCount   int32  `json:"ioNodeCount,omitempty"`
+	ManagementIPs string `json:"managementIPs,omitempty"`
+	BackendIP     string `json:"backendIP,omitempty"`
 
 	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
 

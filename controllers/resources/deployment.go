@@ -188,7 +188,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 			},
 			{
 				Name:  "BACKEND_PRIVATE_IP",
-				Value: client.Spec.Backend.IP,
+				Value: client.Spec.BackendIP,
 			},
 			{
 				Name:  "MANAGEMENT_IPS",
@@ -268,7 +268,7 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 			},
 			{
 				Name:  "BACKEND_PRIVATE_IP",
-				Value: client.Spec.Backend.IP,
+				Value: client.Spec.BackendIP,
 			},
 			{
 				Name:  "MANAGEMENT_IPS",

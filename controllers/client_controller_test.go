@@ -27,10 +27,7 @@ var _ = Describe("Client controller", func() {
 				IONodeCount:         1,
 				ManagementIPs:       "5.6.7.8",
 				ImagePullSecretName: "test-secret",
-
-				Backend: wekav1alpha1.BackendSpec{
-					IP: "1.2.3.4",
-				},
+				BackendIP:           "1.2.3.4",
 			},
 		}
 	})

@@ -2,25 +2,15 @@ apiVersion: weka.weka.io/v1alpha1
 kind: Client
 metadata:
   labels:
-    app.kubernetes.io/name: client
-    app.kubernetes.io/instance: client-sample
-    app.kubernetes.io/part-of: weka-operator
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: weka-operator
   name: weka-agent
 spec:
   version: 4.2.7.815-d3e193ee4ceb15033f5207b466815c3c
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
-
-  backend:
-    netInterface: eth0
-    ip:  10.108.32.110
   ioNodeCount: 1
   managementIPs: 10.108.162.198
-
+  backendIP: 10.108.32.110
   agent:
     debug: false
-
   client:
     debug: false
