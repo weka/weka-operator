@@ -127,7 +127,7 @@ func (r *ClientReconciler) reconcileWekaFsGw(ctx context.Context, client *wekav1
 		ModuleLoadingOrder:  []string{},
 		ImagePullSecretName: client.Spec.ImagePullSecretName,
 		WekaVersion:         client.Spec.Version,
-		BackendIP:           client.Spec.Backend.IP,
+		BackendIP:           client.Spec.BackendIP,
 	}
 	desired, err := r.Builder.WekaFSModule(client, key, options)
 	if err != nil {
@@ -146,7 +146,7 @@ func (r *ClientReconciler) reconcileWekaFsIO(ctx context.Context, client *wekav1
 		ModuleLoadingOrder:  []string{"wekafsio", "wekafsgw"},
 		ImagePullSecretName: client.Spec.ImagePullSecretName,
 		WekaVersion:         client.Spec.Version,
-		BackendIP:           client.Spec.Backend.IP,
+		BackendIP:           client.Spec.BackendIP,
 	}
 	desired, err := r.Builder.WekaFSModule(client, key, options)
 	if err != nil {

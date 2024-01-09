@@ -40,14 +40,8 @@ spec:
                   debug:
                     type: boolean
                 type: object
-              backend:
-                properties:
-                  ip:
-                    pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
-                    type: string
-                  netInterface:
-                    type: string
-                type: object
+              backendIP:
+                type: string
               client:
                 properties:
                   debug:
