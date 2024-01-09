@@ -4,6 +4,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: weka-kmod-downloader
+  namespace: weka-operator-system
 data:
   dockerfile: |
     FROM ubuntu:20.04 as builder

@@ -36,7 +36,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 	// ModuleLoadingOrder is optional
 	moduleLoadingOrder := options.ModuleLoadingOrder
 
-	containerImage := fmt.Sprintf("quay.io/weka.io/weka-drivers-${MOD_NAME}:${KERNEL_FULL_VERSION}-%s", options.WekaVersion)
+	containerImage := fmt.Sprintf("weka-image-registry.weka-operator-system:5000/weka-drivers-${MOD_NAME}:${KERNEL_FULL_VERSION}-%s", options.WekaVersion)
 	if options.ContainerImage != "" {
 		containerImage = options.ContainerImage
 	}
@@ -52,7 +52,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 	}
 
 	imagePullSecretName := options.ImagePullSecretName
-	wekaVersion := options.WekaVersion
+	//wekaVersion := options.WekaVersion
 	backendIP := options.BackendIP
 
 	module := &v1beta1.Module{
@@ -77,7 +77,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 								BuildArgs: []v1beta1.BuildArg{
 									{
 										Name:  "WEKA_VERSION",
-										Value: wekaVersion,
+										Value: "4.2.7.64",
 									},
 									{
 										Name:  "BACKEND_IP",
@@ -89,6 +89,10 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 								},
 							},
 						},
+					},
+					RegistryTLS: v1beta1.TLSOptions{
+						Insecure:              true,
+						InsecureSkipTLSVerify: true,
 					},
 				},
 			},
