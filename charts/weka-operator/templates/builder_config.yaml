@@ -1,0 +1,32 @@
+# ConfigMap embeds a dockerfile that is used to build Kernel modules
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weka-kmod-downloader
+data:
+  dockerfile: |
+    FROM ubuntu:20.04 as builder
+
+    RUN apt-get update && apt-get -y install \
+      curl \
+      kmod
+
+    ARG KERNEL_FULL_VERSION
+    ARG WEKA_VERSION
+    ARG BACKEND_IP
+    ARG MOD_NAME
+    ENV REMOTE_MODULE_FILE=${MOD_NAME}-${KERNEL_FULL_VERSION}-${WEKA_VERSION}.ko
+    #TODO: replcae here WEKA_VERSION with actual parsing of spec.file to extract squashfs name of correct driver, so we wont need to duplicate on every weka version
+
+    RUN curl -kvL https://${BACKEND_IP}:14000/dist/v1/image/${REMOTE_MODULE_FILE} \
+          --output /opt/lib/modules/${KERNEL_FULL_VERSION}/${MOD_NAME}.ko \
+          --create-dirs --fail && \
+        find /opt -name '*.ko'
+
+    RUN depmod -b /opt ${KERNEL_FULL_VERSION}
+
+    FROM scratch
+
+    COPY --from=builder /opt /opt
+

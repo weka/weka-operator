@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/weka.io/weka-operator
-  newTag: 0.1.0
+  newTag: 0.1.2

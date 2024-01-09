@@ -21,7 +21,7 @@ version: 0.1.0
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
-appVersion: "4.2.7.815-d3e193ee4ceb15033f5207b466815c3c"
+appVersion: "0.1.12"
 
 maintainers:
   - name: weka

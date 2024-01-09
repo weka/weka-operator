@@ -36,7 +36,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 	// ModuleLoadingOrder is optional
 	moduleLoadingOrder := options.ModuleLoadingOrder
 
-	containerImage := "quay.io/weka.io/${MOD_NAME}-driver:v4.2.6-${KERNEL_FULL_VERSION}-7"
+	containerImage := fmt.Sprintf("quay.io/weka.io/weka-drivers-${MOD_NAME}:${KERNEL_FULL_VERSION}-%s", options.WekaVersion)
 	if options.ContainerImage != "" {
 		containerImage = options.ContainerImage
 	}
@@ -46,7 +46,7 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 		regexp = options.KernelRegexp
 	}
 
-	dockerfileConfigMapName := "weka-kmod-dockerfile-ubuntu"
+	dockerfileConfigMapName := "weka-kmod-downloader"
 	if options.DockerfileConfigMapName != "" {
 		dockerfileConfigMapName = options.DockerfileConfigMapName
 	}
