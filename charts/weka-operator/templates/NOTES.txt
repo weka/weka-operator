@@ -22,7 +22,7 @@ metadata:
   namespace: weka-operator-system
   name: weka-agent
 spec:
-  version: 4.2.7.69-k8so-beta
+  version: 4.2.7.64-k8so-beta.0
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
 
