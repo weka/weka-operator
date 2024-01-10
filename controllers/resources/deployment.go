@@ -191,8 +191,12 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Value: client.Spec.BackendIP,
 			},
 			{
-				Name:  "MANAGEMENT_IPS",
-				Value: client.Spec.ManagementIPs,
+				Name: "MANAGEMENT_IPS",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "status.hostIP",
+					},
+				},
 			},
 			{
 				Name:  "WEKA_CLI_DEBUG",
@@ -271,8 +275,12 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				Value: client.Spec.BackendIP,
 			},
 			{
-				Name:  "MANAGEMENT_IPS",
-				Value: client.Spec.ManagementIPs,
+				Name: "MANAGEMENT_IPS",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "status.hostIP",
+					},
+				},
 			},
 			{
 				Name:  "WEKA_CLI_DEBUG",

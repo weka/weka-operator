@@ -25,7 +25,6 @@ var _ = Describe("Client controller", func() {
 				Version:             "1.0.0",
 				Image:               "wekadev/weka-operator",
 				IONodeCount:         1,
-				ManagementIPs:       "5.6.7.8",
 				ImagePullSecretName: "test-secret",
 				BackendIP:           "1.2.3.4",
 			},

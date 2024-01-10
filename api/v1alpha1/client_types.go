@@ -47,9 +47,8 @@ type ClientSpec struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	IONodeCount   int32  `json:"ioNodeCount,omitempty"`
-	ManagementIPs string `json:"managementIPs,omitempty"`
-	BackendIP     string `json:"backendIP,omitempty"`
+	IONodeCount int32  `json:"ioNodeCount,omitempty"`
+	BackendIP   string `json:"backendIP,omitempty"`
 
 	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
 
