@@ -44,3 +44,5 @@ jobs:
           allow-initial-development-versions: true
           hooks: goreleaser
           update-file: charts/weka-operator/Chart.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
