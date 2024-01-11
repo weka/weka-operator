@@ -21,11 +21,17 @@ jobs:
         run: make kustomize
       - name: Docker login
         run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
+      - name: Building Release
+        uses: go-semantic-release/action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-initial-development-versions: true
+          hooks: goreleaser
+          update-file: charts/weka-operator/Chart.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Chart
-        run: |
-          make docker-build
-          make docker-push
-          make chart
+        run: make chart
       - name: Configure git
         run: |
           git config user.name "$GITHUB_ACTOR"
@@ -38,11 +44,3 @@ jobs:
         run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
       - name: Push chart to registry
         run: helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm
-      - uses: go-semantic-release/action@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          allow-initial-development-versions: true
-          hooks: goreleaser
-          update-file: charts/weka-operator/Chart.yaml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
