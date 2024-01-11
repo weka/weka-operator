@@ -177,7 +177,7 @@ CHART=charts/weka-operator
 CHART_ARCHIVE=charts/weka-operator-$(VERSION).tgz
 
 .PHONY: chart
-chart: $(CHART_ARCHIVE) ## Build Helm chart.
+chart: kustomize $(CHART_ARCHIVE) ## Build Helm chart.
 	$(HELM) lint $(CHART)
 	$(HELM) package $(CHART) --destination charts --version $(VERSION)
 
