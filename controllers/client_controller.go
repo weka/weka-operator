@@ -60,7 +60,10 @@ type ClientReconciler struct {
 
 	Logger logr.Logger
 
-	ApiKey *ApiKey
+	// -- State dependent components
+	// These may be nil depending on where we are int he reconciliation process
+	CurrentInstance *wekav1alpha1.Client
+	ApiKey          *ApiKey
 }
 
 type Reconciler interface {
@@ -117,7 +120,6 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 
 // reconcileWekaFsGw reconciles the wekafsgw driver
 func (r *ClientReconciler) reconcileWekaFsGw(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsgw")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	options := &resources.WekaFSModuleOptions{
@@ -136,7 +138,6 @@ func (r *ClientReconciler) reconcileWekaFsGw(name types.NamespacedName, client *
 
 // reconcileWekaFsIO reconciles the wekafsio driver
 func (r *ClientReconciler) reconcileWekaFsIO(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling wekafsio")
 	key := runtimeClient.ObjectKeyFromObject(client)
 
 	options := &resources.WekaFSModuleOptions{
@@ -218,12 +219,11 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("Reconciling Client", "NamespacedName", req.NamespacedName, "Request", req)
-
 	client := &wekav1alpha1.Client{}
 	if err := r.Get(ctx, req.NamespacedName, client); err != nil {
 		return ctrl.Result{}, runtimeClient.IgnoreNotFound(err)
 	}
+	r.CurrentInstance = client
 
 	if client.Status.Conditions == nil || len(client.Status.Conditions) == 0 {
 		meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
@@ -274,8 +274,14 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciled", "Finished Reconciliation")
-	return ctrl.Result{}, nil
+	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Finished Reconciliation")
+	meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
+		Type:    typeAvailableClient,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Reconciled",
+		Message: "Finished Reconciliation",
+	})
+	return ctrl.Result{}, r.Status().Update(ctx, client)
 }
 
 func (r *ClientReconciler) patchStatus(ctx context.Context, client *wekav1alpha1.Client, patcher patcher) error {
@@ -284,6 +290,14 @@ func (r *ClientReconciler) patchStatus(ctx context.Context, client *wekav1alpha1
 		return err
 	}
 	return r.Status().Patch(ctx, client, patch)
+}
+
+func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message string) error {
+	if r.CurrentInstance == nil {
+		return fmt.Errorf("current client is nil")
+	}
+	r.Recorder.Event(r.CurrentInstance, v1.EventTypeNormal, reason, message)
+	return nil
 }
 
 // func (r *ClientReconciler) UpdateStatus(updater func(status *ClientStatus)) error {

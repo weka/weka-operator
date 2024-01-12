@@ -21,11 +21,12 @@ func NewProcessListReconciler(c *ClientReconciler, executor Executor) *ProcessLi
 }
 
 func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	r.recorder(client).Event(v1.EventTypeNormal, "Reconciling", "Reconciling process list")
+	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling process list")
 	// Client generates a key at startup and puts it in a well known location
 	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"/usr/bin/weka", "local", "ps", "-J"})
-	if errors.As(err, &PodNotFound{}) {
+	var pageNotFound *PodNotFound
+	if errors.As(err, &pageNotFound) {
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	if err != nil {
@@ -45,6 +46,7 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 		return ctrl.Result{}, errors.Wrap(err, "failed to update client status")
 	}
 
+	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Process list recorded")
 	return ctrl.Result{}, nil
 }
 

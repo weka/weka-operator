@@ -40,6 +40,7 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 }
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling agent")
 	key := runtimeClient.ObjectKeyFromObject(r.Desired)
 	existing := &appsv1.DaemonSet{}
 	if err := r.Get(ctx, key, existing); err != nil {
@@ -69,6 +70,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 		existing.Labels[k] = v
 	}
 
+	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
 	return ctrl.Result{}, r.Patch(ctx, existing, patch)
 }
 
