@@ -46,6 +46,14 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 		return ctrl.Result{}, errors.Wrap(err, "failed to update client status")
 	}
 
+	// If process list reports that the client is not ready, then requeue
+	for _, process := range processList {
+		if process.InternalStatus.State != "READY" {
+			r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Processes not yet ready")
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		}
+	}
+
 	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Process list recorded")
 	return ctrl.Result{}, nil
 }
