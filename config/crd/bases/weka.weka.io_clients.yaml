@@ -131,6 +131,33 @@ spec:
                   - type
                   type: object
                 type: array
+              containerList:
+                items:
+                  description: "Container is a single line from `weka cluster container`
+                    \n weka cluster container -J \n Example: \n { \"container_name\":
+                    \"default\", \"host_id\": \"HostId<4>\", \"host_ip\": \"10.108.244.140\",
+                    \"hostname\": \"mbp-k8s-oci-backend-4\", \"last_failure\": \"Applying
+                    resources on container\", \"sw_release_string\": \"4.2.8.312-6a24a384e98df01fb2ab00075d196b81\",
+                    ... }"
+                  properties:
+                    container_name:
+                      type: string
+                    host_id:
+                      type: string
+                    host_ip:
+                      type: string
+                    hostname:
+                      type: string
+                    last_failure:
+                      type: string
+                    start_time:
+                      type: string
+                    status:
+                      type: string
+                    sw_release_string:
+                      type: string
+                  type: object
+                type: array
               processList:
                 items:
                   description: "Process is a single weka process running in the agent

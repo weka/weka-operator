@@ -115,6 +115,10 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 			Name:      "process_list",
 			Reconcile: r.reconcileProcessList,
 		},
+		{
+			Name:      "container_list",
+			Reconcile: r.reconcileContainerList,
+		},
 	}
 }
 
@@ -185,6 +189,15 @@ func (r *ClientReconciler) reconcileProcessList(name types.NamespacedName, clien
 		return nil, errors.Wrap(err, "unable to get agent reconciler")
 	}
 	return NewProcessListReconciler(r, executor), nil
+}
+
+// reconcileContainerList Adds `weka cluster container` to the status
+func (r *ClientReconciler) reconcileContainerList(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
+	executor, err := r.executor(name, client)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to get agent reconciler")
+	}
+	return NewContainerListReconciler(r, executor), nil
 }
 
 func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alpha1.Client) (Executor, error) {
@@ -301,14 +314,26 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 	return nil
 }
 
-func (r *ClientReconciler) UpdateStatus(ctx context.Context, condition metav1.Condition) error {
+func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1.Condition) error {
+	if r.CurrentInstance == nil {
+		return fmt.Errorf("current client is nil")
+	}
+	if err := r.Get(ctx, runtimeClient.ObjectKeyFromObject(r.CurrentInstance), r.CurrentInstance); err != nil {
+		return errors.Wrap(err, "RecordCondition: failed to get client")
+	}
+	meta.SetStatusCondition(&r.CurrentInstance.Status.Conditions, condition)
+	return r.Status().Update(ctx, r.CurrentInstance)
+}
+
+// UpdateStatus sets Status fields on the Client
+func (r *ClientReconciler) UpdateStatus(ctx context.Context, updater func(*wekav1alpha1.ClientStatus)) error {
 	if r.CurrentInstance == nil {
 		return fmt.Errorf("current client is nil")
 	}
 	if err := r.Get(ctx, runtimeClient.ObjectKeyFromObject(r.CurrentInstance), r.CurrentInstance); err != nil {
 		return errors.Wrap(err, "UpdateStatus: failed to get client")
 	}
-	meta.SetStatusCondition(&r.CurrentInstance.Status.Conditions, condition)
+	updater(&r.CurrentInstance.Status)
 	return r.Status().Update(ctx, r.CurrentInstance)
 }
 

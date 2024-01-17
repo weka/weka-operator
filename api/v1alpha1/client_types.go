@@ -64,7 +64,34 @@ type ClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	ProcessList []Process `json:"processList,omitempty"`
+	ContainerList []Container `json:"containerList,omitempty"`
+	ProcessList   []Process   `json:"processList,omitempty"`
+}
+
+// Container is a single line from `weka cluster container`
+//
+//	weka cluster container -J
+//
+// Example:
+//
+//	    {
+//	       "container_name": "default",
+//	       "host_id": "HostId<4>",
+//	       "host_ip": "10.108.244.140",
+//	       "hostname": "mbp-k8s-oci-backend-4",
+//	       "last_failure": "Applying resources on container",
+//	       "sw_release_string": "4.2.8.312-6a24a384e98df01fb2ab00075d196b81",
+//					...
+//	   }
+type Container struct {
+	Id          string `json:"host_id,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	Container   string `json:"container_name,omitempty"`
+	Ips         string `json:"host_ip,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Release     string `json:"sw_release_string,omitempty"`
+	FailureText string `json:"last_failure,omitempty"`
+	StartTime   string `json:"start_time,omitempty"`
 }
 
 // Process is a single weka process running in the agent container

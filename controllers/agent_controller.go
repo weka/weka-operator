@@ -52,7 +52,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 			return ctrl.Result{}, fmt.Errorf("failed to create deployment %s: %w", key, err)
 		}
 
-		if err := r.UpdateStatus(ctx, metav1.Condition{
+		if err := r.RecordCondition(ctx, metav1.Condition{
 			Type:    "Available",
 			Status:  metav1.ConditionFalse,
 			Reason:  "Reconciling",
