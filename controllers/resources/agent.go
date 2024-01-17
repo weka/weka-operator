@@ -61,6 +61,9 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 						wekaAgentContainer(client, image),
 						// wekaClientContainer(client, image),
 					},
+					InitContainers: []corev1.Container{
+						createDataDirContainer(client),
+					},
 					Volumes: []corev1.Volume{
 						{
 							Name: "host-root",
@@ -89,7 +92,9 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 						{
 							Name: "opt-weka-data",
 							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/opt/weka-operator/data/client",
+								},
 							},
 						},
 						{
@@ -156,6 +161,10 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				MountPath: "/dev/hugepages",
 				Name:      "hugepage-2mi-1",
 			},
+			{
+				MountPath: "/opt/weka/data/client",
+				Name:      "opt-weka-data",
+			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
@@ -215,6 +224,28 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 	return container
 }
 
+func createDataDirContainer(client *wekav1alpha1.Client) corev1.Container {
+	return corev1.Container{
+		Name:            "create-data-dir",
+		Image:           "ubuntu:20.04",
+		ImagePullPolicy: corev1.PullAlways,
+		Command: []string{
+			"mkdir", "-p", "/mnt/root/opt/weka-operator/data/client",
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot: &[]bool{false}[0],
+			Privileged:   &[]bool{true}[0],
+			RunAsUser:    &[]int64{0}[0],
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				MountPath: "/mnt/root",
+				Name:      "host-root",
+			},
+		},
+	}
+}
+
 func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Container {
 	return corev1.Container{
 		Image:           image,
@@ -243,7 +274,7 @@ func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				Name:      "host-cgroup",
 			},
 			{
-				MountPath: "/opt/weka/data",
+				MountPath: "/opt/weka/data/client",
 				Name:      "opt-weka-data",
 			},
 			{
