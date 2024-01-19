@@ -36,7 +36,7 @@ jobs:
         if: steps.semrel.outputs.version != ''
         run: |
           echo '${{ steps.semrel.outputs.version }}'
-          make chart VERSION=${{ steps.semrel.outputs.version }}
+          make chart VERSION=v${{ steps.semrel.outputs.version }}
       - name: Configure git
         if: steps.semrel.outputs.version != ''
         run: |
