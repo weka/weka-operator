@@ -32,3 +32,5 @@ semantic-release
 
 dist/
 charts/weka-operator-*-SNAPSHOT
+charts/weka-operator/templates/operator.yaml
+config/rbac/role.yaml
