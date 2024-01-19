@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 COPY main.go main.go
 COPY api/ api/
 COPY controllers/ controllers/
+COPY util/ util/
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
