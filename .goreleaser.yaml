@@ -28,9 +28,9 @@ builds:
 dockers:
   - image_templates:
     - "quay.io/weka.io/weka-operator:{{ .Tag }}"
-    - "quay.io/weka.io/weka-operator:v{{ .Major }}"
-    - "quay.io/weka.io/weka-operator:v{{ .Major }}.{{ .Minor }}"
-    - "quay.io/weka.io/weka-operator:v{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+    - "quay.io/weka.io/weka-operator:{{ .Major }}"
+    - "quay.io/weka.io/weka-operator:{{ .Major }}.{{ .Minor }}"
+    - "quay.io/weka.io/weka-operator:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
     - "quay.io/weka.io/weka-operator:latest"
 
     dockerfile: "Dockerfile.release"
