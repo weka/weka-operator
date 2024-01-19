@@ -218,6 +218,7 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clients/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
 //+kubebuilder:rbac:groups=kmm.sigs.x-k8s.io,resources=modules,verbs=get;list;watch;create;update;patch;delete
