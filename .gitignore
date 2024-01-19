@@ -31,3 +31,4 @@ node_modules
 semantic-release
 
 dist/
+charts/weka-operator-*-SNAPSHOT
