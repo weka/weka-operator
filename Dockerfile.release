@@ -3,4 +3,4 @@ ENTRYPOINT ["/manager"]
 
 USER 65532:65532
 
-COPY weka-operator /
+COPY weka-operator /manager
