@@ -59,7 +59,7 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 					Containers: []corev1.Container{
 						// Agent Container
 						wekaAgentContainer(client, image),
-						wekaClientContainer(client, image),
+						// wekaClientContainer(client, image),
 					},
 					Volumes: []corev1.Volume{
 						{
@@ -116,8 +116,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
 			//"sleep", "infinity",
-			"/usr/bin/dumb-init", "--",
-			"/usr/bin/weka", "--agent",
+			"/usr/local/bin/supervisord", "-c", "/etc/supervisor.conf",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
