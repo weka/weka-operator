@@ -1,0 +1,11 @@
+package: weka_api
+generate:
+  client: true
+  models: true
+output-options:
+  # Not all generated stubs compile properly.  Use tagging to limit imports and
+  # hope we don't need something that's broken
+  include-tags:
+    - Processes
+    - Containers
+output: weka_api.gen.go
