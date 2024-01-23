@@ -13,3 +13,14 @@ spec:
     debug: false
   client:
     debug: false
+
+  wekaUsername:
+    secretKeyRef:
+      name: weka-cli
+      key: username
+
+  wekaPassword:
+    secretKeyRef:
+      name: weka-cli
+      key: password
+
