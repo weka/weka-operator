@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -54,6 +55,10 @@ type ClientSpec struct {
 
 	Client ClientContainerSpec `json:"client,omitempty"`
 	Agent  AgentContainerSpec  `json:"agent,omitempty"`
+
+	WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
+	WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
+	WekaOrg      string              `json:"wekaOrg,omitempty"`
 }
 
 // ClientStatus defines the observed state of Client

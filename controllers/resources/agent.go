@@ -188,6 +188,18 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Name:  "WEKA_CLI_DEBUG",
 				Value: wekaCliDebug(client.Spec.Agent.Debug),
 			},
+			{
+				Name:      "WEKA_USERNAME",
+				ValueFrom: &client.Spec.WekaUsername,
+			},
+			{
+				Name:      "WEKA_PASSWORD",
+				ValueFrom: &client.Spec.WekaPassword,
+			},
+			{
+				Name:  "WEKA_ORG",
+				Value: wekaOrg(client),
+			},
 		},
 		Ports: []corev1.ContainerPort{
 			{ContainerPort: 14000},
@@ -286,5 +298,13 @@ func wekaCliDebug(debug bool) string {
 		return "1"
 	} else {
 		return ""
+	}
+}
+
+func wekaOrg(client *wekav1alpha1.Client) string {
+	if client.Spec.WekaOrg != "" {
+		return client.Spec.WekaOrg
+	} else {
+		return "0"
 	}
 }
