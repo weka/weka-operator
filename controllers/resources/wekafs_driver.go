@@ -4,6 +4,7 @@ package resources
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	clientv1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
@@ -52,12 +53,12 @@ func (b *Builder) WekaFSModule(client *clientv1alpha1.Client, key types.Namespac
 	}
 
 	imagePullSecretName := options.ImagePullSecretName
-	//wekaVersion := options.WekaVersion
+	// wekaVersion := options.WekaVersion
 	backendIP := options.BackendIP
 
 	module := &v1beta1.Module{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        moduleName,
+			Name:        toObjectName(moduleName),
 			Namespace:   key.Namespace,
 			Labels:      map[string]string{},
 			Annotations: map[string]string{},
@@ -136,4 +137,10 @@ func validateModuleOptions(options *WekaFSModuleOptions) error {
 
 func imageRepoSecret(secretName string) *v1.LocalObjectReference {
 	return &v1.LocalObjectReference{Name: secretName}
+}
+
+// toObjectName converts a module name to a valid object name
+// converts _ to -
+func toObjectName(name string) string {
+	return strings.ReplaceAll(name, "_", "-")
 }
