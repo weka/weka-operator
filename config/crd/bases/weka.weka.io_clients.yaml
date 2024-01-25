@@ -47,6 +47,11 @@ spec:
                   debug:
                     type: boolean
                 type: object
+              coreIds:
+                items:
+                  format: int32
+                  type: integer
+                type: array
               image:
                 default: quay.io/weka.io/weka-in-container
                 type: string
