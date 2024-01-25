@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -159,138 +160,69 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
 			},
 		},
-		Env: []corev1.EnvVar{
-			{
-				Name:  "WEKA_VERSION",
-				Value: client.Spec.Version,
-			},
-			{
-				Name:  "DRIVERS_VERSION",
-				Value: client.Spec.Version,
-			},
-			{
-				Name:  "IONODE_COUNT",
-				Value: strconv.Itoa(int(client.Spec.IONodeCount)),
-			},
-			{
-				Name:  "BACKEND_PRIVATE_IP",
-				Value: client.Spec.BackendIP,
-			},
-			{
-				Name: "MANAGEMENT_IPS",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "status.hostIP",
-					},
-				},
-			},
-			{
-				Name:  "WEKA_CLI_DEBUG",
-				Value: wekaCliDebug(client.Spec.Agent.Debug),
-			},
-			{
-				Name:      "WEKA_USERNAME",
-				ValueFrom: &client.Spec.WekaUsername,
-			},
-			{
-				Name:      "WEKA_PASSWORD",
-				ValueFrom: &client.Spec.WekaPassword,
-			},
-			{
-				Name:  "WEKA_ORG",
-				Value: wekaOrg(client),
-			},
-		},
+		Env: environmentVariables(client),
 		Ports: []corev1.ContainerPort{
 			{ContainerPort: 14000},
 			{ContainerPort: 14100},
 		},
-		//ReadinessProbe: &corev1.Probe{
-		//ProbeHandler: corev1.ProbeHandler{
-		//Exec: &corev1.ExecAction{
-		//Command: []string{
-		//"/opt/agent-ready.sh",
-		//},
-		//},
-		//},
-		//},
 	}
 
 	return container
 }
 
-func wekaClientContainer(client *wekav1alpha1.Client, image string) corev1.Container {
-	return corev1.Container{
-		Image:           image,
-		Name:            "weka-client",
-		ImagePullPolicy: corev1.PullAlways,
-		Command: []string{
-			//"sleep", "infinity",
-			"/usr/bin/dumb-init", "--",
-			"/opt/start-weka-client.sh",
+func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
+	variables := []corev1.EnvVar{
+		{
+			Name:  "WEKA_VERSION",
+			Value: client.Spec.Version,
 		},
-		SecurityContext: &corev1.SecurityContext{
-			RunAsNonRoot: &[]bool{false}[0],
-			Privileged:   &[]bool{true}[0],
-			RunAsUser:    &[]int64{0}[0],
+		{
+			Name:  "DRIVERS_VERSION",
+			Value: client.Spec.Version,
 		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				MountPath: "/mnt/root",
-				Name:      "host-root",
-			},
-			{
-				MountPath: "/dev",
-				Name:      "host-dev",
-			},
-			{
-				MountPath: "/sys/fs/cgroup",
-				Name:      "host-cgroup",
-			},
-			{
-				MountPath: "/opt/weka/data",
-				Name:      "opt-weka-data",
-			},
+		{
+			Name:  "BACKEND_PRIVATE_IP",
+			Value: client.Spec.BackendIP,
 		},
-		Resources: corev1.ResourceRequirements{
-			Limits: corev1.ResourceList{
-				"memory": resource.MustParse("512Mi"),
-			},
-			Requests: corev1.ResourceList{
-				"memory": resource.MustParse("512Mi"),
-			},
-		},
-		Env: []corev1.EnvVar{
-			{
-				Name:  "WEKA_VERSION",
-				Value: client.Spec.Version,
-			},
-			{
-				Name:  "DRIVERS_VERSION",
-				Value: client.Spec.Version,
-			},
-			{
-				Name:  "IONODE_COUNT",
-				Value: strconv.Itoa(int(client.Spec.IONodeCount)),
-			},
-			{
-				Name:  "BACKEND_PRIVATE_IP",
-				Value: client.Spec.BackendIP,
-			},
-			{
-				Name: "MANAGEMENT_IPS",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						FieldPath: "status.hostIP",
-					},
+		{
+			Name: "MANAGEMENT_IPS",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "status.hostIP",
 				},
 			},
-			{
-				Name:  "WEKA_CLI_DEBUG",
-				Value: wekaCliDebug(client.Spec.Client.Debug),
-			},
+		},
+		{
+			Name:  "WEKA_CLI_DEBUG",
+			Value: wekaCliDebug(client.Spec.Agent.Debug),
+		},
+		{
+			Name:      "WEKA_USERNAME",
+			ValueFrom: &client.Spec.WekaUsername,
+		},
+		{
+			Name:      "WEKA_PASSWORD",
+			ValueFrom: &client.Spec.WekaPassword,
+		},
+		{
+			Name:  "WEKA_ORG",
+			Value: wekaOrg(client),
 		},
 	}
+
+	if len(client.Spec.CoreIds) > 0 {
+		variables = append(variables, corev1.EnvVar{
+			Name:  "CORE_IDS",
+			Value: coreIds(client),
+		})
+	} else {
+		variables = append(variables, corev1.EnvVar{
+			Name:  "IONODE_COUNT",
+			Value: strconv.Itoa(int(client.Spec.IONodeCount)),
+		})
+	}
+
+	return variables
 }
 
 func wekaCliDebug(debug bool) string {
@@ -307,4 +239,12 @@ func wekaOrg(client *wekav1alpha1.Client) string {
 	} else {
 		return "0"
 	}
+}
+
+func coreIds(client *wekav1alpha1.Client) string {
+	coreIds := []string{}
+	for _, coreId := range client.Spec.CoreIds {
+		coreIds = append(coreIds, strconv.Itoa(int(coreId)))
+	}
+	return strings.Join(coreIds, ",")
 }
