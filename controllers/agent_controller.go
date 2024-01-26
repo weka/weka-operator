@@ -80,14 +80,14 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 	}
 
 	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
-	//if err := r.UpdateStatus(ctx, metav1.Condition{
-	//Type:    "Available",
-	//Status:  metav1.ConditionTrue,
-	//Reason:  "Reconciled",
-	//Message: "Agent is ready",
-	//}); err != nil {
-	//return ctrl.Result{}, errors.Wrap(err, "failed to update status")
-	//}
+	if err := r.RecordCondition(ctx, metav1.Condition{
+		Type:    "Available",
+		Status:  metav1.ConditionTrue,
+		Reason:  "Reconciled",
+		Message: "Agent is ready",
+	}); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	}
 	return ctrl.Result{}, r.Patch(ctx, existing, patch)
 }
 

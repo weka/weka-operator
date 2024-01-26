@@ -30,7 +30,6 @@ func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.C
 	}
 	usernameByes := usernameSecret.Data[usernameRef.SecretKeyRef.Key]
 	username := string(usernameByes)
-	r.Logger.Info("Username", "username", username)
 
 	passwordRef := client.Spec.WekaPassword
 	passwordSecretName := passwordRef.SecretKeyRef.Name
@@ -40,7 +39,6 @@ func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.C
 	}
 	passwordBytes := passwordSecret.Data[passwordRef.SecretKeyRef.Key]
 	password := string(passwordBytes)
-	r.Logger.Info("Password", "password", password)
 
 	// Using the REST API we can exchange a username and password for an API key
 	wekaApi, err := weka_api.NewAnonymousClient(client.Spec.BackendIP)

@@ -13,12 +13,14 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
   go mod download
 
 # Copy the go source
-COPY hack/ hack/
-COPY config/ config/
 COPY Makefile Makefile
 COPY main.go main.go
+
 COPY api/ api/
+COPY config/ config/
 COPY controllers/ controllers/
+COPY hack/ hack/
+COPY internal/ internal/
 COPY util/ util/
 
 # Build
