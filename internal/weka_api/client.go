@@ -5,8 +5,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strconv"
 
+	"github.com/deepmap/oapi-codegen/v2/pkg/securityprovider"
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -23,9 +26,26 @@ type ApiKey struct {
 	TokenType    string `json:"token_type"`
 }
 
-func NewWekaRestApiClient(host string) (*WekaRestApiClient, error) {
+func NewAnonymousClient(host string) (*WekaRestApiClient, error) {
+	return NewWekaRestApiClient(host, nil)
+}
+
+func NewWekaRestApiClient(host string, accessToken *string) (*WekaRestApiClient, error) {
 	baseUrl := fmt.Sprintf("https://%s:14000/api/v2", host)
-	clientImpl, err := NewClientWithResponses(baseUrl, disableHostKeyChecking)
+
+	clientOptions := []ClientOption{
+		disableHostKeyChecking,
+	}
+
+	if accessToken != nil {
+		tokenProvider, err := securityprovider.NewSecurityProviderBearerToken(*accessToken)
+		if err != nil {
+			return nil, errors.Wrap(err, "creating security token provider")
+		}
+		clientOptions = append(clientOptions, WithRequestEditorFn(tokenProvider.Intercept))
+	}
+
+	clientImpl, err := NewClientWithResponses(baseUrl, clientOptions...)
 	if err != nil {
 		return nil, errors.Wrap(err, "error creating client")
 	}
@@ -63,8 +83,6 @@ func (c *WekaRestApiClient) Login(ctx context.Context, username, password string
 		Password: password,
 		Org:      &org,
 	}
-	logger := log.FromContext(ctx)
-	logger.Info("Login request", "request", request)
 
 	resp, err := c.ClientImpl.LoginWithResponse(ctx, request)
 	if err != nil {
@@ -82,4 +100,60 @@ func (c *WekaRestApiClient) Login(ctx context.Context, username, password string
 	}
 
 	return nil
+}
+
+// GetProcessList returns a list of processes running on the cluster
+func (c *WekaRestApiClient) GetProcessList(ctx context.Context) ([]v1alpha1.Process, error) {
+	if c.ClientImpl == nil {
+		return nil, errors.New("client not initialized")
+	}
+
+	if c.ApiKey == nil {
+		return nil, errors.New("API key not initialized, call Login first")
+	}
+
+	resp, err := c.ClientImpl.GetProcessesWithResponse(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting process list")
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, errors.Errorf("GetProcesses failed: %s", resp.Body)
+	}
+	logger := log.FromContext(ctx)
+	logger.Info("GetProcesses response", "body", resp.Body)
+
+	processListExt := resp.JSON200.Data
+	processList := []v1alpha1.Process{}
+	for _, process := range *processListExt {
+		containerPid, err := strconv.ParseInt(*process.ContainerId, 10, 32)
+		if err != nil {
+			containerPid = -1
+		}
+
+		processList = append(processList, v1alpha1.Process{
+			APIPort:      int32(*process.MgmtPort),
+			ContainerPid: int32(containerPid),
+			InternalStatus: v1alpha1.InternalStatus{
+				DisplayStatus: *process.Status,
+				Message:       *process.Status,
+				State:         *process.Status,
+			},
+			IsDisabled:      false,
+			IsManaged:       false,
+			IsMonitoring:    false,
+			IsPersistent:    false,
+			IsRunning:       false,
+			LastFailure:     "",
+			LastFailureText: "",
+			LastFailureTime: "",
+			Name:            *process.ContainerName,
+			RunStatus:       *process.Status,
+			Uptime:          "",
+			VersionName:     *process.SwVersion,
+		})
+
+	}
+
+	return processList, nil
 }

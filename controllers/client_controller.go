@@ -132,11 +132,7 @@ func (r *ClientReconciler) reconcileApiKey(name types.NamespacedName, client *we
 
 // reconcileProcessList Adds `weka ps` to the status
 func (r *ClientReconciler) reconcileProcessList(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	executor, err := r.executor(name, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get agent reconciler")
-	}
-	return NewProcessListReconciler(r, executor), nil
+	return NewProcessListReconciler(r), nil
 }
 
 // reconcileContainerList Adds `weka cluster container` to the status

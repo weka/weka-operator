@@ -43,7 +43,7 @@ func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.C
 	r.Logger.Info("Password", "password", password)
 
 	// Using the REST API we can exchange a username and password for an API key
-	wekaApi, err := weka_api.NewWekaRestApiClient(client.Spec.BackendIP)
+	wekaApi, err := weka_api.NewAnonymousClient(client.Spec.BackendIP)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "Unable to reconcile API key")
 	}
