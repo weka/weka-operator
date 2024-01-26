@@ -37,6 +37,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	"github.com/weka/weka-operator/controllers/condition"
 	"github.com/weka/weka-operator/controllers/resources"
+	"github.com/weka/weka-operator/internal/weka_api"
 
 	multiError "github.com/hashicorp/go-multierror"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,7 +64,7 @@ type ClientReconciler struct {
 	// -- State dependent components
 	// These may be nil depending on where we are int he reconciliation process
 	CurrentInstance *wekav1alpha1.Client
-	ApiKey          *ApiKey
+	ApiKey          *weka_api.ApiKey
 }
 
 type Reconciler interface {
@@ -77,19 +78,13 @@ type reconcilePhase struct {
 
 type patcher func(status *wekav1alpha1.ClientStatus) error
 
-type ApiKey struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
-}
-
 func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
 	return &ClientReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("weka-operator"),
 
-		ApiKey:  &ApiKey{},
+		ApiKey:  &weka_api.ApiKey{},
 		Builder: resources.NewBuilder(mgr.GetScheme()),
 
 		Logger: mgr.GetLogger().WithName("controllers").WithName("Client"),
@@ -132,11 +127,7 @@ func (r *ClientReconciler) reconcileAgent(name types.NamespacedName, client *wek
 
 // reconcileApiKey Extracts the API key from the client
 func (r *ClientReconciler) reconcileApiKey(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	executor, err := r.executor(name, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get agent reconciler")
-	}
-	return NewApiKeyReconciler(r, executor), nil
+	return NewApiKeyReconciler(r), nil
 }
 
 // reconcileProcessList Adds `weka ps` to the status
