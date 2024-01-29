@@ -27,9 +27,10 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 		return ctrl.Result{}, errors.Wrap(err, "Unable to reconcile process list")
 	}
 
-	// Inject api key?
-
 	processList, err := apiClient.GetProcessList(ctx)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "Unable to reconcile process list")
+	}
 	err = r.UpdateStatus(ctx, func(status *wekav1alpha1.ClientStatus) {
 		status.ProcessList = processList
 	})
