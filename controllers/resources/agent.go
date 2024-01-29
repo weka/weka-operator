@@ -215,7 +215,7 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 			Name:  "CORE_IDS",
 			Value: coreIds(client),
 		})
-	} else {
+	} else if client.Spec.IONodeCount != 0 {
 		variables = append(variables, corev1.EnvVar{
 			Name:  "IONODE_COUNT",
 			Value: strconv.Itoa(int(client.Spec.IONodeCount)),
