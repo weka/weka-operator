@@ -102,6 +102,34 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 							},
 						},
 					},
+					// Limit pods to running on nodes with the drivers installed.  These
+					// nodes are identified by the presence of the label
+					// `kmm.node.kubernetes.io/weka-operator-system.<driver-name>.ready`.
+					// This label has no value.
+					Affinity: &corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "kmm.node.kubernetes.io/weka-operator-system.mpin-user.ready",
+												Operator: corev1.NodeSelectorOpExists,
+											},
+											{
+												Key:      "kmm.node.kubernetes.io/weka-operator-system.wekafsgw.ready",
+												Operator: corev1.NodeSelectorOpExists,
+											},
+											{
+												Key:      "kmm.node.kubernetes.io/weka-operator-system.wekafsio.ready",
+												Operator: corev1.NodeSelectorOpExists,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
