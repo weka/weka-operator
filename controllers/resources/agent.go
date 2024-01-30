@@ -182,10 +182,12 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 			Limits: corev1.ResourceList{
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
 				"memory":        resource.MustParse("8Gi"),
+				"cpu":           resource.MustParse("2"),
 			},
 			Requests: corev1.ResourceList{
 				"memory":        resource.MustParse("8Gi"),
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
+				"cpu":           resource.MustParse("2"),
 			},
 		},
 		Env: environmentVariables(client),
