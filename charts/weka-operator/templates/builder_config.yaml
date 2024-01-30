@@ -1,5 +1,5 @@
-# ConfigMap embeds a dockerfile that is used to build Kernel modules
 ---
+# ConfigMap embeds a dockerfile that is used to build Kernel modules
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -31,4 +31,3 @@ data:
     FROM scratch
 
     COPY --from=builder /opt /opt
-
