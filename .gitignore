@@ -34,3 +34,6 @@ dist/
 charts/weka-operator-*-SNAPSHOT
 charts/weka-operator/templates/operator.yaml
 config/rbac/role.yaml
+.terraform
+.direnv
+temp.json

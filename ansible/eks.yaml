@@ -1,0 +1,79 @@
+---
+# Terraform builds the EKS and Weka clusters
+- name: Build EKS Cluster
+  hosts: localhost
+  gather_facts: false
+  tags:
+    - terraform
+  tasks:
+    - name: Run Terraform
+      community.general.terraform:
+        project_path: "{{ root }}/terraform/eks"
+        state: present
+
+# Development Prerequisites in Kubernetes
+# - Operator namespace
+# - Image pull secret
+# - CLI secret, this is used by the agent to authenticate with the Weka cluster
+# - Install OLM
+# - Install KMM
+- name: Configuring Prerequisites in kubernetes
+  tags: k8s_prerequisites
+  hosts: localhost
+  vars:
+    dockerconfigjson_b64: "eyJhdXRocyI6eyJxdWF5LmlvIjp7InVzZXJuYW1lIjoibWF0dGhld19wZmVmZmVybGVfd2VrYSIsInBhc3N3b3JkIjoidC9sZVppOHVwQmo1c3hmOVg5RFkrK0h4RUlVNUQ2WFVRTHIxM203ZHNEdjlBclpoUW1UdVRyV1Bkc0lzTUdGM3I1UzAzWXFuSzZKZDZMeEFObnYxZEE9PSIsImF1dGgiOiJiV0YwZEdobGQxOXdabVZtWm1WeWJHVmZkMlZyWVRwMEwyeGxXbWs0ZFhCQ2FqVnplR1k1V0RsRVdTc3JTSGhGU1ZVMVJEWllWVkZNY2pFemJUZGtjMFIyT1VGeVdtaFJiVlIxVkhKWFVHUnpTWE5OUjBZemNqVlRNRE5aY1c1TE5rcGtOa3g0UVU1dWRqRmtRVDA5In19fQ=="
+  tasks:
+    - name: Creating operator namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: namespace
+          metadata:
+            name: weka-operator-system
+    - name: Creating image pull secret - quay-cred
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: quay-cred
+            namespace: weka-operator-system
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ dockerconfigjson_b64 }}"
+    - name: Creating CLI Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: weka-cli
+            namespace: weka-operator-system
+          type: kubernetes.io/basic-auth
+          stringData:
+            username: admin
+            password: admin
+
+    - name: Install OLM
+      shell: curl -sL https://github.com/operator-framework/operator-lifecycle-manager/releases/download/v0.26.0/install.sh | bash -s v0.26.0
+      register: olm_install
+      failed_when: olm_install.rc != 0 and "OLM is already installed" not in olm_install.stdout
+      changed_when: "'OLM is already installed' not in olm_install.stdout"
+
+    - name: Install KMM
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: my-kernel-module-management
+            namespace: operators
+          spec:
+            channel: alpha
+            name: kernel-module-management
+            source: operatorhubio-catalog
+            sourceNamespace: olm
