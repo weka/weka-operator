@@ -208,6 +208,10 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 			Name:  "WEKA_ORG",
 			Value: wekaOrg(client),
 		},
+		{
+			Name:  "MANAGEMENT_PORT",
+			Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
+		},
 	}
 
 	if len(client.Spec.CoreIds) > 0 {
@@ -247,4 +251,11 @@ func coreIds(client *wekav1alpha1.Client) string {
 		coreIds = append(coreIds, strconv.Itoa(int(coreId)))
 	}
 	return strings.Join(coreIds, ",")
+}
+
+func managementPort(base, offset int32) int32 {
+	if base == 0 {
+		base = 14000
+	}
+	return base + offset
 }

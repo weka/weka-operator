@@ -1,14 +1,22 @@
+---
 apiVersion: weka.weka.io/v1alpha1
 kind: Client
 metadata:
   namespace: weka-operator-system # should stay the same namespace as the operator, otherwise will also need to duplicate pull secrets
   name: weka-agent
 spec:
-  version: 4.2.8.327-2e1055ee63d09d7d6cf1ff636db6ed79
+  version: 4.2.7.64-k8so-beta.6
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
-  ioNodeCount: 1
-  backendIP: 10.108.150.232
+  #ioNodeCount: 1
+  backendIP: 10.108.90.174
+
+  # Backend nodes are listening on this port
+  #managementPortBase: 16000
+
+  coreIds:
+    - 1
+  #backendIP: mbp-k8s-oci-backend-0
   agent:
     debug: false
   client:
@@ -23,4 +31,3 @@ spec:
     secretKeyRef:
       name: weka-cli
       key: password
-
