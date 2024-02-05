@@ -24,7 +24,6 @@ var _ = Describe("Client controller", func() {
 			Spec: wekav1alpha1.ClientSpec{
 				Version:             "1.0.0",
 				Image:               "wekadev/weka-operator",
-				IONodeCount:         1,
 				ImagePullSecretName: "test-secret",
 				BackendIP:           "1.2.3.4",
 			},
