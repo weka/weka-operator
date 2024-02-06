@@ -7,39 +7,6 @@ data "aws_ssm_parameter" "eks_ami" {
   name = "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/image_id"
 }
 
-# Launch template for worker nodes
-# We need 800 2M hugepages
-resource "aws_launch_template" "weka_launch_template" {
-  name_prefix   = "${local.prefix}-${local.cluster_name}-"
-  instance_type = "m6i.xlarge"
-  image_id      = data.aws_ssm_parameter.eks_ami.value
-  key_name      = aws_key_pair.eks_key_pair.key_name
-
-  block_device_mappings {
-    device_name = "/dev/sda1"
-    ebs {
-      volume_size = 50
-    }
-  }
-
-  capacity_reservation_specification {
-    capacity_reservation_preference = "open"
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "${local.prefix}-${local.cluster_name}-weka-node"
-    }
-  }
-
-  user_data = base64encode(<<-EOF
-              #!/bin/bash
-              echo 800 > /proc/sys/vm/nr_hugepages
-              EOF
-  )
-}
-
 # Create a k8s cluster to go with weka
 resource "aws_eks_cluster" "eks" {
   name     = local.cluster_name
@@ -51,7 +18,6 @@ resource "aws_eks_cluster" "eks" {
   version = local.kubernetes_version
 
   depends_on = [
-    aws_launch_template.weka_launch_template,
     aws_iam_role_policy_attachment.weka-AmazonEKSClusterPolicy,
     aws_iam_role_policy_attachment.weka-AmazonEKSVPCResourceController,
   ]
@@ -128,7 +94,7 @@ resource "aws_eks_node_group" "weka_node_group" {
 }
 
 resource "aws_launch_template" "worker_nodes" {
-  name_prefix   = "${local.prefix}-${local.cluster_name}-"
+  name_prefix   = "${local.prefix}-${local.cluster_name}-eks-"
   instance_type = "m6i.xlarge"
   image_id      = data.aws_ssm_parameter.eks_ami.value
   key_name      = aws_key_pair.eks_key_pair.key_name
@@ -160,10 +126,8 @@ resource "aws_launch_template" "worker_nodes" {
   )
 }
 
-resource "aws_security_group" "eks_control_plane" {
-  name        = "${local.prefix}-${local.cluster_name}-eks-control-plane"
-  vpc_id      = aws_vpc.weka_vpc.id
-  description = "EKS control plane security group"
+data "aws_security_group" "eks_control_plane" {
+  id = aws_eks_cluster.eks.vpc_config[0].cluster_security_group_id
 }
 
 resource "aws_security_group_rule" "inbound_worker_to_control_plane" {
@@ -171,17 +135,8 @@ resource "aws_security_group_rule" "inbound_worker_to_control_plane" {
   from_port                = 1025
   to_port                  = 65535
   protocol                 = "tcp"
-  security_group_id        = aws_security_group.eks_control_plane.id
+  security_group_id        = data.aws_security_group.eks_control_plane.id
   source_security_group_id = aws_security_group.eks_worker_nodes.id
-}
-
-resource "aws_security_group_rule" "outbound_control_plane" {
-  type              = "egress"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
-  security_group_id = aws_security_group.eks_control_plane.id
-  cidr_blocks       = ["0.0.0.0/0"]
 }
 
 resource "aws_security_group" "eks_worker_nodes" {
@@ -196,7 +151,7 @@ resource "aws_security_group_rule" "inbound_control_plane_to_worker" {
   to_port                  = 65535
   protocol                 = "tcp"
   security_group_id        = aws_security_group.eks_worker_nodes.id
-  source_security_group_id = aws_security_group.eks_control_plane.id
+  source_security_group_id = data.aws_security_group.eks_control_plane.id
 }
 
 resource "aws_security_group_rule" "all_traffic_between_workers" {
@@ -214,6 +169,16 @@ resource "aws_security_group_rule" "outbound_worker_nodes" {
   to_port           = 0
   protocol          = "-1"
   security_group_id = aws_security_group.eks_worker_nodes.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+# Inbound SSH from the internet
+resource "aws_security_group_rule" "inbound_ssh" {
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  security_group_id = data.aws_security_group.eks_control_plane.id
   cidr_blocks       = ["0.0.0.0/0"]
 }
 

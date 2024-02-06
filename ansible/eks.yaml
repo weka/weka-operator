@@ -11,6 +11,69 @@
         project_path: "{{ root }}/terraform/eks"
         state: present
 
+- name: Discover Hosts
+  hosts: localhost
+  gather_facts: false
+  tags:
+    - discovery
+    - provision_backend
+  tasks:
+    - name: Discover EKS Nodes
+      ec2_instance_info:
+        filters:
+          "tag:eks:nodegroup-name": weka-mpfefferle-weka-node-group
+      register: eks_nodes
+    - name: Register Frontend
+      add_host:
+        name: "{{ item.public_ip_address }}"
+        groups:
+          - weka_frontend
+          - ec2
+          - eks
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/weka_dev_ssh_key"
+      with_items: "{{ eks_nodes.instances }}"
+    - name: Discover Weka Backend Nodes
+      ec2_instance_info:
+        filters:
+          "tag:weka_cluster_name": mpfefferle
+      register: weka_cluster
+    - name: Register Backend
+      add_host:
+        name: "{{ item.public_ip_address }}"
+        groups:
+          - weka_backend
+          - ec2
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/weka_dev_ssh_key"
+      with_items: "{{ weka_cluster.instances }}"
+
+- name: Provision Backend
+  hosts: weka_backend
+  become: true
+  tags:
+    - provision_backend
+  vars:
+    kernel_full_version: "{{ ansible_kernel }}"
+  tasks:
+    - name: Find installed drivers
+      find:
+        patterns:
+          - "wekafs(gw|io).ko"
+          - "mpin_user.ko"
+        paths: /opt/weka/data
+        recurse: true
+        use_regex: true
+      register: found_drivers
+
+    - name: Copy drivers to web root
+      file:
+        src: "{{ item.path }}"
+        dest: "/opt/weka/dist/image/{{ item.path | basename | splitext | first | replace('_', '-') }}-{{ kernel_full_version }}-{{ weka_version }}.ko"
+        state: link
+      loop: "{{ found_drivers.files }}"
+
+
 # Development Prerequisites in Kubernetes
 # - Operator namespace
 # - Image pull secret
@@ -77,3 +140,13 @@
             name: kernel-module-management
             source: operatorhubio-catalog
             sourceNamespace: olm
+
+    - name: Install Registry
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ root }}/charts/weka-operator/templates/registry.yaml"
+
+    - name: Install Builder
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ root }}/charts/weka-operator/templates/builder_config.yaml"

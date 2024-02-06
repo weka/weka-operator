@@ -17,6 +17,7 @@ spec:
   coreIds:
     - 1
   #backendIP: mbp-k8s-oci-backend-0
+  backendIP: 10.0.1.29
   agent:
     debug: false
   client:
