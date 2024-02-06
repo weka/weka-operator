@@ -7,39 +7,6 @@ data "aws_ssm_parameter" "eks_ami" {
   name = "/aws/service/eks/optimized-ami/1.29/amazon-linux-2/recommended/image_id"
 }
 
-# Launch template for worker nodes
-# We need 800 2M hugepages
-resource "aws_launch_template" "weka_launch_template" {
-  name_prefix   = "${local.prefix}-${local.cluster_name}-"
-  instance_type = "m6i.xlarge"
-  image_id      = data.aws_ssm_parameter.eks_ami.value
-  key_name      = aws_key_pair.eks_key_pair.key_name
-
-  block_device_mappings {
-    device_name = "/dev/sda1"
-    ebs {
-      volume_size = 50
-    }
-  }
-
-  capacity_reservation_specification {
-    capacity_reservation_preference = "open"
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "${local.prefix}-${local.cluster_name}-weka-node"
-    }
-  }
-
-  user_data = base64encode(<<-EOF
-              #!/bin/bash
-              echo 800 > /proc/sys/vm/nr_hugepages
-              EOF
-  )
-}
-
 # Create a k8s cluster to go with weka
 resource "aws_eks_cluster" "eks" {
   name     = local.cluster_name
