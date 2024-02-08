@@ -23,6 +23,16 @@ while [[ $# -gt 0 ]]; do
       shift
       shift
       ;;
+    --skip-tags)
+      SKIP_TAGS="$2"
+      shift
+      shift
+      ;;
+    --weka-version)
+      WEKA_VERSION="$2"
+      shift
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -39,6 +49,14 @@ ANSIBLE_COMMAND=(poetry --directory "${ANSIBLE_DIR}" run ansible-playbook)
 
 if [[ -n "${TAGS:-}" ]]; then
   ANSIBLE_COMMAND+=(--tags "${TAGS}")
+fi
+
+if [[ -n "${SKIP_TAGS:-}" ]]; then
+  ANSIBLE_COMMAND+=(--skip-tags "${SKIP_TAGS}")
+fi
+
+if [[ -n "${WEKA_VERSION:-}" ]]; then
+  ANSIBLE_COMMAND+=(-e weka_version="${WEKA_VERSION}")
 fi
 
 ANSIBLE_COMMAND+=(-e root="${ROOT}" "${ANSIBLE_DIR}/eks.yaml")

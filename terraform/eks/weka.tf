@@ -13,7 +13,8 @@ module "weka" {
   create_alb               = true
   alb_additional_subnet_id = aws_subnet.weka_subnet2.id
 
-  sg_ids = [aws_security_group.eks_control_plane.id, aws_security_group.eks_worker_nodes.id]
+  sg_ids = [data.aws_security_group.eks_control_plane.id, aws_security_group.eks_worker_nodes.id, aws_eks_cluster.eks.vpc_config[0].cluster_security_group_id]
 
   ssh_public_key = aws_key_pair.eks_key_pair.public_key
 }
+
