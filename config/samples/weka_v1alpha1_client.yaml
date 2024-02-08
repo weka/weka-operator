@@ -5,10 +5,10 @@ metadata:
   namespace: weka-operator-system # should stay the same namespace as the operator, otherwise will also need to duplicate pull secrets
   name: weka-agent
 spec:
-  version: 4.2.8.1202-23ee44343240776745615486f6ca2a10
+  version: 4.2.8.1171-0c360671991d340c3989974b16cc5352
   image: quay.io/weka.io/weka-in-container
   imagePullSecretName: quay-cred
-  backendIP: 10.0.1.223
+  backendIP: 10.0.1.32
 
   # Backend nodes are listening on this port
   # managementPortBase: 16000

@@ -119,7 +119,8 @@ resource "aws_launch_template" "worker_nodes" {
 
   user_data = base64encode(<<-EOF
               #!/bin/bash
-              echo 800 > /proc/sys/vm/nr_hugepages
+              echo "vm.nr_hugepages=800" >> /etc/sysctl.conf
+              /usr/sbin/sysctl --system
               /etc/eks/bootstrap.sh ${aws_eks_cluster.eks.name} \
                 --kubelet-extra-args '--cpu-manager-policy=static'
               EOF

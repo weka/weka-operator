@@ -22,7 +22,10 @@
       ec2_instance_info:
         filters:
           "tag:eks:nodegroup-name": weka-mpfefferle-weka-node-group
+          instance-state-name: running
       register: eks_nodes
+      failed_when: eks_nodes.instances | length == 0
+
     - name: Register Frontend
       add_host:
         name: "{{ item.public_ip_address }}"
@@ -33,10 +36,12 @@
         ansible_user: ec2-user
         ansible_ssh_private_key_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/weka_dev_ssh_key"
       with_items: "{{ eks_nodes.instances }}"
+
     - name: Discover Weka Backend Nodes
       ec2_instance_info:
         filters:
           "tag:weka_cluster_name": mpfefferle
+          instance-state-name: running
       register: weka_cluster
     - name: Register Backend
       add_host:
@@ -48,31 +53,56 @@
         ansible_ssh_private_key_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/weka_dev_ssh_key"
       with_items: "{{ weka_cluster.instances }}"
 
+- name: Provision Frontend
+  hosts: weka_frontend
+  become: true
+  tags:
+    - provision_frontend
+  tasks:
+    - name: Remove existing drivers
+      shell: "rmmod {{ item }}"
+      loop:
+        - mpin_user
+        - igb_uio
+        - wekafsgw
+        - wekafsio
+      ignore_errors: true
+
+
 - name: Provision Backend
   hosts: weka_backend
   become: true
   tags:
     - provision_backend
   vars:
-    kernel_full_version: "{{ ansible_kernel }}"
+    kernel_full_version: "{{ hostvars[groups['weka_frontend'][0]].ansible_kernel }}"
+    driver_root: "/opt/weka/dist/drivers"
   tasks:
-    - name: Find installed drivers
+    # tar each driver into file named <driver-name>-<weka-version>-<kernel-version>.<arch>.tar.gz
+    # wekafs(gw|io) are packaged in a single tarball
+    - name: Find wekafs drivers
       find:
         patterns:
           - "wekafs(gw|io).ko"
+          - "igb_uio.ko"
           - "mpin_user.ko"
         paths: /opt/weka/data
         recurse: true
         use_regex: true
-      register: found_drivers
+      register: drivers
 
-    - name: Copy drivers to web root
+    - name: Create driver directory
       file:
-        src: "{{ item.path }}"
-        dest: "/opt/weka/dist/image/{{ item.path | basename | splitext | first | replace('_', '-') }}-{{ kernel_full_version }}-{{ weka_version }}.ko"
-        state: link
-      loop: "{{ found_drivers.files }}"
+        path: "{{ driver_root }}"
+        state: directory
 
+    - name: Archive drivers
+      archive:
+        path: "{{ item.path }}"
+        dest: "{{ driver_root }}/{{ item.path | basename | splitext | first }}-{{ weka_version }}-{{ kernel_full_version }}.x86_64.tar.gz"
+        format: gz
+        force_archive: true
+      loop: "{{ drivers.files }}"
 
 # Development Prerequisites in Kubernetes
 # - Operator namespace
@@ -117,36 +147,50 @@
             namespace: weka-operator-system
           type: kubernetes.io/basic-auth
           stringData:
-            username: admin
-            password: admin
-
-    - name: Install OLM
-      shell: curl -sL https://github.com/operator-framework/operator-lifecycle-manager/releases/download/v0.26.0/install.sh | bash -s v0.26.0
-      register: olm_install
-      failed_when: olm_install.rc != 0 and "OLM is already installed" not in olm_install.stdout
-      changed_when: "'OLM is already installed' not in olm_install.stdout"
-
-    - name: Install KMM
+            username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-2oGY') }}"
+            password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-2oGY') }}"
+    - name: Supervisord Conf
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: operators.coreos.com/v1alpha1
-          kind: Subscription
+          apiVersion: v1
+          kind: ConfigMap
           metadata:
-            name: my-kernel-module-management
-            namespace: operators
-          spec:
-            channel: alpha
-            name: kernel-module-management
-            source: operatorhubio-catalog
-            sourceNamespace: olm
+            name: supervisord-conf
+            namespace: weka-operator-system
+          data:
+            supervisord.conf: |
+              [supervisord]
+              logfile = /dev/stdout
+              logfile_maxbytes = 0
+              loglevel = debug
+              syslog_facility=local0
+              syslog_tag=test
+              syslog_stdout_priority=debug
+              syslog_stderr_priority=err
 
-    - name: Install Registry
-      kubernetes.core.k8s:
-        state: present
-        src: "{{ root }}/charts/weka-operator/templates/registry.yaml"
+              [program:agent]
+              command=/usr/bin/weka --agent
+              redirect_stderr=true
+              priority=100
+              stdout_logfile=syslog @udp:localhost:514
+              syslog_facility=local0
+              syslog_tag=weka-agent
+              syslog_stdout_priority=info
+              syslog_stderr_priority=err
 
-    - name: Install Builder
-      kubernetes.core.k8s:
-        state: present
-        src: "{{ root }}/charts/weka-operator/templates/builder_config.yaml"
+              [program:client]
+              command=/opt/start-weka-client.sh
+              redirect_stderr=true
+              priority=200
+              stdout_logfile=syslog @udp:localhost:514
+              syslog_facility=local0
+              syslog_tag=weka-client
+              syslog_stdout_priority=debug
+              syslog_stderr_priority=err
+
+              [program:syslog]
+              command=/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf
+              redirect_stderr=true
+              priority=10
+              stdout_logfile=/dev/stdout, /var/log/syslog.log

@@ -79,14 +79,14 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 								},
 							},
 						},
-						{
-							Name: "host-cgroup",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/sys/fs/cgroup",
-								},
-							},
-						},
+						//{
+						//Name: "host-cgroup",
+						//VolumeSource: corev1.VolumeSource{
+						//HostPath: &corev1.HostPathVolumeSource{
+						//Path: "/sys/fs/cgroup",
+						//},
+						//},
+						//},
 						{
 							Name: "opt-weka-data",
 							VolumeSource: corev1.VolumeSource{
@@ -98,6 +98,22 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{
 									Medium: corev1.StorageMediumHugePages,
+								},
+							},
+						},
+						{
+							Name: "supervisord-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "supervisord-conf",
+									},
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "supervisord.conf",
+											Path: "supervisord.conf",
+										},
+									},
 								},
 							},
 						},
@@ -117,7 +133,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
 			//"sleep", "infinity",
-			"/usr/local/bin/supervisord", "-c", "/etc/supervisor.conf",
+			"/usr/local/bin/supervisord", "-c", "/etc/supervisord/supervisord.conf",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
@@ -141,23 +157,29 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				MountPath: "/mnt/root",
 				Name:      "host-root",
 			},
-			{
-				MountPath: "/sys/fs/cgroup",
-				Name:      "host-cgroup",
-			},
+			//{
+			//MountPath: "/sys/fs/cgroup",
+			//Name:      "host-cgroup",
+			//},
 			{
 				MountPath: "/dev/hugepages",
 				Name:      "hugepage-2mi-1",
+			},
+			{
+				MountPath: "/etc/supervisord",
+				Name:      "supervisord-config",
 			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
 				"memory":        resource.MustParse("8Gi"),
+				"cpu":           resource.MustParse("2"),
 			},
 			Requests: corev1.ResourceList{
 				"memory":        resource.MustParse("8Gi"),
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
+				"cpu":           resource.MustParse("2"),
 			},
 		},
 		Env: environmentVariables(client),

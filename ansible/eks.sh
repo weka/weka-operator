@@ -9,6 +9,9 @@ ANSIBLE_DIR="${ROOT}/ansible"
 export ANSIBLE_CONFIG="${ANSIBLE_DIR}/ansible.cfg"
 export ANSIBLE_INVENTORY="${ANSIBLE_DIR}/inventory.ini"
 
+# Silence failures relating to constantize string in lookups
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
 # Parse Arguments
 while [[ $# -gt 0 ]]; do
   key="$1"
