@@ -62,6 +62,9 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 						wekaAgentContainer(client, image),
 						// wekaClientContainer(client, image),
 					},
+					InitContainers: []corev1.Container{
+						driverInitContainer(client, image),
+					},
 					Volumes: []corev1.Volume{
 						{
 							Name: "host-root",
@@ -79,14 +82,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 								},
 							},
 						},
-						//{
-						//Name: "host-cgroup",
-						//VolumeSource: corev1.VolumeSource{
-						//HostPath: &corev1.HostPathVolumeSource{
-						//Path: "/sys/fs/cgroup",
-						//},
-						//},
-						//},
 						{
 							Name: "opt-weka-data",
 							VolumeSource: corev1.VolumeSource{
@@ -157,10 +152,6 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				MountPath: "/mnt/root",
 				Name:      "host-root",
 			},
-			//{
-			//MountPath: "/sys/fs/cgroup",
-			//Name:      "host-cgroup",
-			//},
 			{
 				MountPath: "/dev/hugepages",
 				Name:      "hugepage-2mi-1",
@@ -249,6 +240,46 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 	}
 
 	return variables
+}
+
+// driverInitContainer creates an init container that loads the weka driver
+//
+// This is based on the same agent image
+func driverInitContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+	container := corev1.Container{
+		Image:           image,
+		Name:            "weka-driver-loader",
+		ImagePullPolicy: corev1.PullAlways,
+		Command: []string{
+			"/opt/install-drivers.sh",
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot: &[]bool{false}[0],
+			Privileged:   &[]bool{true}[0],
+			RunAsUser:    &[]int64{0}[0],
+			Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{
+					"ALL",
+				},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeUnconfined,
+			},
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "WEKA_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "BACKEND_PRIVATE_IP",
+				Value: client.Spec.BackendIP,
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{},
+	}
+
+	return container
 }
 
 func wekaCliDebug(debug bool) string {
