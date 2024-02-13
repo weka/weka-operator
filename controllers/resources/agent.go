@@ -3,7 +3,6 @@ package resources
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -66,14 +65,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 						driverInitContainer(client, image),
 					},
 					Volumes: []corev1.Volume{
-						{
-							Name: "host-root",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/",
-								},
-							},
-						},
 						{
 							Name: "host-dev",
 							VolumeSource: corev1.VolumeSource{
@@ -227,18 +218,6 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 		},
 	}
 
-	if len(client.Spec.CoreIds) > 0 {
-		variables = append(variables, corev1.EnvVar{
-			Name:  "CORE_IDS",
-			Value: coreIds(client),
-		})
-	} else {
-		variables = append(variables, corev1.EnvVar{
-			Name:  "IONODE_COUNT",
-			Value: strconv.Itoa(int(client.Spec.IONodeCount)),
-		})
-	}
-
 	return variables
 }
 
@@ -296,14 +275,6 @@ func wekaOrg(client *wekav1alpha1.Client) string {
 	} else {
 		return "0"
 	}
-}
-
-func coreIds(client *wekav1alpha1.Client) string {
-	coreIds := []string{}
-	for _, coreId := range client.Spec.CoreIds {
-		coreIds = append(coreIds, strconv.Itoa(int(coreId)))
-	}
-	return strings.Join(coreIds, ",")
 }
 
 func managementPort(base, offset int32) int32 {

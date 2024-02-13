@@ -13,8 +13,7 @@ spec:
   # Backend nodes are listening on this port
   # managementPortBase: 16000
 
-  coreIds:
-    - 1
+  backendIP: 10.0.1.32
   agent:
     debug: false
   client:
