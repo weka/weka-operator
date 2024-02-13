@@ -160,6 +160,12 @@
             namespace: weka-operator-system
           data:
             supervisord.conf: |
+              [inet_http_server]
+              port=127.0.0.1:9001
+
+              [supervisorctl]
+              serverurl=http://127.0.0.1:9001
+
               [supervisord]
               logfile = /dev/stdout
               logfile_maxbytes = 0
@@ -188,6 +194,8 @@
               syslog_tag=weka-client
               syslog_stdout_priority=debug
               syslog_stderr_priority=err
+              stopsignal=TERM
+              stopwaitsecs=60
 
               [program:syslog]
               command=/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf
