@@ -66,14 +66,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: "host-root",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/",
-								},
-							},
-						},
-						{
 							Name: "host-dev",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
