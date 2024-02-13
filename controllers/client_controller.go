@@ -100,18 +100,6 @@ func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
 func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 	return []reconcilePhase{
 		{
-			Name:      "wekafsgw",
-			Reconcile: r.reconcileWekaFsGw,
-		},
-		{
-			Name:      "wekafsio",
-			Reconcile: r.reconcileWekaFsIO,
-		},
-		{
-			Name:      "mpin_user",
-			Reconcile: r.reconcileMpinUser,
-		},
-		{
 			Name:      "weka-agent",
 			Reconcile: r.reconcileAgent,
 		},
@@ -124,60 +112,6 @@ func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
 			Reconcile: r.reconcileContainerList,
 		},
 	}
-}
-
-// reconcileWekaFsGw reconciles the wekafsgw driver
-func (r *ClientReconciler) reconcileWekaFsGw(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	key := runtimeClient.ObjectKeyFromObject(client)
-
-	options := &resources.WekaFSModuleOptions{
-		ModuleName:          "wekafsgw",
-		ModuleLoadingOrder:  []string{},
-		ImagePullSecretName: client.Spec.ImagePullSecretName,
-		WekaVersion:         client.Spec.Version,
-		BackendIP:           client.Spec.BackendIP,
-	}
-	desired, err := r.Builder.WekaFSModule(client, key, options)
-	if err != nil {
-		return nil, fmt.Errorf("invalid driver configuration for wekafsgw: %w", err)
-	}
-	return NewModuleReconciler(r, desired, name), nil
-}
-
-// reconcileWekaFsIO reconciles the wekafsio driver
-func (r *ClientReconciler) reconcileWekaFsIO(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	key := runtimeClient.ObjectKeyFromObject(client)
-
-	options := &resources.WekaFSModuleOptions{
-		ModuleName:          "wekafsio",
-		ModuleLoadingOrder:  []string{"wekafsio", "wekafsgw"},
-		ImagePullSecretName: client.Spec.ImagePullSecretName,
-		WekaVersion:         client.Spec.Version,
-		BackendIP:           client.Spec.BackendIP,
-	}
-	desired, err := r.Builder.WekaFSModule(client, key, options)
-	if err != nil {
-		return nil, fmt.Errorf("invalid driver configuration for wekafsio: %w", err)
-	}
-	return NewModuleReconciler(r, desired, name), nil
-}
-
-func (r *ClientReconciler) reconcileMpinUser(name types.NamespacedName, client *wekav1alpha1.Client) (Reconciler, error) {
-	key := runtimeClient.ObjectKeyFromObject(client)
-
-	options := &resources.WekaFSModuleOptions{
-		ModuleName:          "mpin_user",
-		ModuleLoadingOrder:  []string{},
-		ImagePullSecretName: client.Spec.ImagePullSecretName,
-		WekaVersion:         client.Spec.Version,
-		BackendIP:           client.Spec.BackendIP,
-	}
-	desired, err := r.Builder.WekaFSModule(client, key, options)
-	if err != nil {
-		return nil, fmt.Errorf("invalid mpin user configuration: %w", err)
-	}
-
-	return NewModuleReconciler(r, desired, key), nil
 }
 
 // reconcileAgent reconciles the deployment containing the client and agent

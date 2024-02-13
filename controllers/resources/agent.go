@@ -62,6 +62,9 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 						wekaAgentContainer(client, image),
 						// wekaClientContainer(client, image),
 					},
+					InitContainers: []corev1.Container{
+						driverInitContainer(client, image),
+					},
 					Volumes: []corev1.Volume{
 						{
 							Name: "host-root",
@@ -80,14 +83,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 							},
 						},
 						{
-							Name: "host-cgroup",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/sys/fs/cgroup",
-								},
-							},
-						},
-						{
 							Name: "opt-weka-data",
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{},
@@ -98,6 +93,22 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{
 									Medium: corev1.StorageMediumHugePages,
+								},
+							},
+						},
+						{
+							Name: "supervisord-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "supervisord-conf",
+									},
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "supervisord.conf",
+											Path: "supervisord.conf",
+										},
+									},
 								},
 							},
 						},
@@ -117,7 +128,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		ImagePullPolicy: corev1.PullAlways,
 		Command: []string{
 			//"sleep", "infinity",
-			"/usr/local/bin/supervisord", "-c", "/etc/supervisor.conf",
+			"/usr/local/bin/supervisord", "-c", "/etc/supervisord/supervisord.conf",
 		},
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: &[]bool{false}[0],
@@ -142,22 +153,24 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Name:      "host-root",
 			},
 			{
-				MountPath: "/sys/fs/cgroup",
-				Name:      "host-cgroup",
-			},
-			{
 				MountPath: "/dev/hugepages",
 				Name:      "hugepage-2mi-1",
+			},
+			{
+				MountPath: "/etc/supervisord",
+				Name:      "supervisord-config",
 			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
 				"memory":        resource.MustParse("8Gi"),
+				"cpu":           resource.MustParse("2"),
 			},
 			Requests: corev1.ResourceList{
 				"memory":        resource.MustParse("8Gi"),
 				"hugepages-2Mi": resource.MustParse("1500Mi"),
+				"cpu":           resource.MustParse("2"),
 			},
 		},
 		Env: environmentVariables(client),
@@ -227,6 +240,46 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 	}
 
 	return variables
+}
+
+// driverInitContainer creates an init container that loads the weka driver
+//
+// This is based on the same agent image
+func driverInitContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+	container := corev1.Container{
+		Image:           image,
+		Name:            "weka-driver-loader",
+		ImagePullPolicy: corev1.PullAlways,
+		Command: []string{
+			"/opt/install-drivers.sh",
+		},
+		SecurityContext: &corev1.SecurityContext{
+			RunAsNonRoot: &[]bool{false}[0],
+			Privileged:   &[]bool{true}[0],
+			RunAsUser:    &[]int64{0}[0],
+			Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{
+					"ALL",
+				},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeUnconfined,
+			},
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "WEKA_VERSION",
+				Value: client.Spec.Version,
+			},
+			{
+				Name:  "BACKEND_PRIVATE_IP",
+				Value: client.Spec.BackendIP,
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{},
+	}
+
+	return container
 }
 
 func wekaCliDebug(debug bool) string {
