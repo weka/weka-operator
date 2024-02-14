@@ -90,9 +90,6 @@ var _ = BeforeSuite(func() {
 		Scheme: scheme.Scheme,
 	})
 
-	err = (*NewClientReconciler(k8sManager)).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
 	//+kubebuilder:scaffold:scheme
 	go func() {
 		defer GinkgoRecover()
