@@ -140,10 +140,6 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Name:      "host-dev",
 			},
 			{
-				MountPath: "/mnt/root",
-				Name:      "host-root",
-			},
-			{
 				MountPath: "/dev/hugepages",
 				Name:      "hugepage-2mi-1",
 			},
