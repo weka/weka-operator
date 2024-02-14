@@ -1,0 +1,16 @@
+{
+  "*.go": {
+    "type": "src",
+    "alternate": "{}_test.go"
+  },
+  "*_test.go": {
+    "type": "test",
+    "alternate": "{}.go"
+  },
+  ".projections.json": {
+    "type": "projections,"
+  },
+  "Makefile": {
+    "type": "makefile"
+  }
+}
