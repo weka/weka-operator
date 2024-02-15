@@ -250,6 +250,10 @@ func driverInitContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 				Name:  "BACKEND_PRIVATE_IP",
 				Value: client.Spec.BackendIP,
 			},
+			{
+				Name:  "BACKEND_PORT",
+				Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
+			},
 		},
 		VolumeMounts: []corev1.VolumeMount{},
 	}

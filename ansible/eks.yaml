@@ -147,8 +147,8 @@
             namespace: weka-operator-system
           type: kubernetes.io/basic-auth
           stringData:
-            username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-2oGY') }}"
-            password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-2oGY') }}"
+            username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-w1QA') }}"
+            password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-w1QA') }}"
     - name: Supervisord Conf
       kubernetes.core.k8s:
         state: present

@@ -7,7 +7,7 @@ module "weka" {
   allow_ssh_cidrs    = ["0.0.0.0/0"]
   get_weka_io_token  = var.get_weka_io_token
   clients_number     = 0
-  install_weka_url   = "https://EZxlx8iydgqQTcvZ@get.prod.weka.io/dist/v1/install/4.2.8-406c00f199f95e0399f1a52f4474adb6/4.2.8.1171-0c360671991d340c3989974b16cc5352"
+  install_weka_url   = "https://EZxlx8iydgqQTcvZ@get.prod.weka.io/dist/v1/install/4.2.9-406c00f199f95e0399f1a52f4474adb6/4.2.9.214-27fc8e5a8889d57c9ebdf0768e098c5a"
 
   vpc_id                   = aws_vpc.weka_vpc.id
   subnet_ids               = [aws_subnet.weka_subnet1.id]
