@@ -1,8 +1,13 @@
+---
 # Default values for weka-operator.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-imagePullSecret:
-  name: quay-cred
-  username:
-  password:
+# Prefix for all resources created by the operator
+prefix: "{{ .Release.Name }}"
+
+image:
+  repository: quay.io/weka.io/weka-operator
+  tag: "{{ .Chart.Version }}"
+
+imagePullSecret: quay-cred
