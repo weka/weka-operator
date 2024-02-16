@@ -60,15 +60,3 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
-
-
-{{/*
-Generate dockerconfigjson for an image pull secret
-*/}}
-{{- define "weka-operator.dockerconfigjson" }}
-  {{- $auth := printf "%s:%s" .Values.imagePullSecret.username .Values.imagePullSecret.password | b64enc }}
-  {{- $username := .Values.imagePullSecret.username }}
-  {{- $password := .Values.imagePullSecret.password }}
-  {{- printf "{\"auths\": {\"quay.io\": {\"auth\": \"%s\", \"username\": \"%s\", \"password\": \"%s\"}}}" $auth $username $password | b64enc }}
-{{- end }}
-
