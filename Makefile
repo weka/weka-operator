@@ -103,6 +103,11 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
+CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
+.PHONY: cluster-sample
+cluster-sample: ## Deploy sample cluster CRD
+	kubectl apply -f $(CLUSTER_SAMPLE)
+
 ##@ Build
 
 .PHONY: build
