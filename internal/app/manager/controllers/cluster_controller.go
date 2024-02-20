@@ -1,0 +1,156 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"context"
+
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+)
+
+func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {
+	logger := ctrl.Log
+	logger.Info("NewClusterReconciler() called")
+	return &ClusterReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Logger: logger,
+	}
+}
+
+// ClusterReconciler reconciles a Cluster object
+type ClusterReconciler struct {
+	client.Client
+	Scheme *runtime.Scheme
+	Logger logr.Logger
+}
+
+type SizeClass struct {
+	ContainerCount int
+	DriveCount     int
+}
+
+var SizeClasses = map[string]SizeClass{
+	"dev":    {1, 1},
+	"small":  {3, 3},
+	"medium": {5, 5},
+	"large":  {7, 7},
+}
+
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+
+// Reconcile is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	r.Logger.Info("ClusterReconciler.Reconcile() called")
+
+	cluster := &wekav1alpha1.Cluster{}
+	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	r.Logger.Info("Cluster: ", "name", cluster.Name)
+
+	// Reconcile available nodes
+	result, err := r.reconcileAvailableNodes(ctx, req)
+	if err != nil {
+		return result, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	r.Logger.Info("ClusterReconciler.reconcileAvailableNodes() called")
+	// List all available nodes
+	nodes := &v1.NodeList{}
+	if err := r.List(ctx, nodes); err != nil {
+		return ctrl.Result{}, err
+	}
+	for _, node := range nodes.Items {
+		r.Logger.Info("Node: ", "name", node.Name, "labels", node.Labels)
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// createWekaNode creates a Weka node for the given Kubernetes node
+// Only backends for now
+func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
+	r.Logger.Info("ClusterReconciler.createWekaNode() called")
+
+	// Backends are identified with the "weka.io/role=backend" label
+	roleLabel, ok := node.Labels["weka.io/role"]
+	r.Logger.Info("Node: ", "name", node.Name, "roleLabel", roleLabel)
+	if !ok || roleLabel != "backend" {
+		r.Logger.Info("Node is not a backend")
+		return nil
+	}
+
+	// Check if the backend already
+	backend := &wekav1alpha1.Backend{}
+	namespace := cluster.Namespace
+	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: node.Name}, backend)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return errors.Wrap(err, "failed to get backend")
+	}
+
+	r.createBackend(ctx, node, cluster)
+	return nil
+}
+
+func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
+	r.Logger.Info("ClusterReconciler.createBackend() called")
+
+	for k, v := range node.Status.Allocatable {
+		r.Logger.Info("Allocatable: ", "resource", k, "value", v.String())
+	}
+
+	backend := &wekav1alpha1.Backend{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name:      node.Name,
+			Namespace: cluster.Namespace,
+		},
+		Spec: wekav1alpha1.BackendSpec{
+			ClusterName: cluster.Name,
+			Hostname:    node.Name,
+		},
+	}
+	err := r.Create(ctx, backend)
+	if err != nil {
+		return errors.Wrap(err, "failed to create backend")
+	}
+
+	return nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&wekav1alpha1.Cluster{}).
+		Complete(r)
+}
