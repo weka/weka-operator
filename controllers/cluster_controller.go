@@ -33,26 +33,34 @@ type ClusterReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+type SizeClass struct {
+	ContainerCount int
+	DriveCount     int
+}
+
+var SizeClasses = map[string]SizeClass{
+	"dev":    {1, 1},
+	"small":  {3, 3},
+	"medium": {5, 5},
+	"large":  {7, 7},
+}
+
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Cluster object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Reconcile available nodes
+	result, err := r.reconcileAvailableNodes(ctx, req)
 
 	return ctrl.Result{}, nil
 }
+
+func 
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
