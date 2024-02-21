@@ -118,7 +118,7 @@ dev:
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run ./cmd/manager/main.go
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
