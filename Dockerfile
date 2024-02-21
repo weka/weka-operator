@@ -13,13 +13,15 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
   go mod download
 
 # Copy the go source
+COPY cmd/ cmd/
 COPY hack/ hack/
 COPY config/ config/
 COPY Makefile Makefile
-COPY main.go main.go
 COPY api/ api/
 COPY controllers/ controllers/
 COPY util/ util/
+
+FROM builder as build-manager
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
@@ -29,13 +31,28 @@ COPY util/ util/
 RUN make manifests generate fmt vet
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -a -o manager main.go
+    go build -a -o manager cmd/manager/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
+FROM --platform=${TARGETARCH} gcr.io/distroless/static:nonroot as manager
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=build-manager /workspace/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
+
+# Build device plugin
+FROM builder as build-device-plugin
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -a -o device-plugin cmd/device-plugin/main.go
+
+FROM --platform=${TARGETARCH} gcr.io/distroless/static:nonroot as device-plugin
+WORKDIR /
+COPY --from=build-device-plugin /workspace/device-plugin .
+USER 65532:65532
+
+ENTRYPOINT ["/device-plugin"]

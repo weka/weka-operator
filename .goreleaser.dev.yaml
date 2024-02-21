@@ -17,7 +17,16 @@ builds:
     targets:
       - "darwin_arm64"
       - "linux_amd64"
-    binary: "manager"
+    main: "./cmd/manager"
+    binary: manager
+
+  - id: "device-plugin"
+    env:
+      - CGO_ENABLED=0
+    targets:
+      - "linux_amd64"
+      - "darwin_arm64"
+    main: "./cmd/device-plugin"
 
 dockers:
   # TODO: Add plugin and labeller images
