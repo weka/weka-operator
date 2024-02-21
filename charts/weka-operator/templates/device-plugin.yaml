@@ -1,0 +1,53 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: weka-device-plugin
+  labels:
+    app.kubernetes.io/name: weka-device-plugin
+    app.kubernetes.io/instance: weka-device-plugin
+    app.kubernetes.io/part-of: weka-operator
+    app.kubernetes.io/created-by: weka-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: weka-device-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: weka-device-plugin
+        app.kubernetes.io/instance: weka-device-plugin
+        app.kubernetes.io/part-of: weka-operator
+        app.kubernetes.io/created-by: weka-operator
+    spec:
+      imagePullSecrets:
+        - name: "{{ .Values.imagePullSecret }}"
+      containers:
+        - name: weka-device-plugin
+          image: "quay.io/weka.io/weka-operator-device-plugin:{{ .Values.image.tag }}"
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+          command:
+            - /device-plugin
+          args:
+            - --logtostderr
+            - --v=3
+          env:
+            - name: FLAGS_logtostderr
+              value: "1"
+            - name: FLAGS_v
+              value: "3"
+      securityContext:
+        privileged: true
+        runAsNonRoot: false
+        runAsUser: 0
+
+
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
