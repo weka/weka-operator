@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"k8s.io/client-go/tools/record"
 )
 

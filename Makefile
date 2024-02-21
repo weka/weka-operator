@@ -69,7 +69,7 @@ help: ## Display this help.
 ##@ Development
 
 CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
-$(CRD): controller-gen api/v1alpha1/client_types.go
+$(CRD): controller-gen internal/pkg/api/v1alpha1/client_types.go
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
@@ -77,7 +77,7 @@ crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): controller-gen controllers/client_controller.go
+$(RBAC): controller-gen internal/app/manager/controllers/client_controller.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
@@ -123,6 +123,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${IMAGE_TAG_BASE}:latest
+	docker push ${IMAGE_TAG_BASE}-node-labeller:latest
 
 ##@ Deployment
 
