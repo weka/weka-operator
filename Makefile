@@ -69,7 +69,11 @@ help: ## Display this help.
 ##@ Development
 
 CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
-$(CRD): controller-gen api/v1alpha1/client_types.go
+CRD_TYPES = internal/app/manager/api/v1alpha1/client_types.go \
+		internal/app/manager/api/v1alpha1/cluster_types.go \
+		internal/app/manager/api/v1alpha1/backend_types.go
+
+$(CRD): controller-gen $(CRD_TYPES)
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
@@ -77,7 +81,7 @@ crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): controller-gen controllers/client_controller.go
+$(RBAC): controller-gen internal/app/manager/controllers/client_controller.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
