@@ -90,7 +90,7 @@ func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 	for _, node := range nodes.Items {
-		r.Logger.Info("Node: ", "name", node.Name)
+		r.Logger.Info("Node: ", "name", node.Name, "labels", node.Labels)
 	}
 
 	return ctrl.Result{}, nil
