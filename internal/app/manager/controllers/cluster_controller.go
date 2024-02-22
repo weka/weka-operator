@@ -106,7 +106,9 @@ func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cl
 
 	// Backends are identified with the "weka.io/role=backend" label
 	roleLabel, ok := node.Labels["weka.io/role"]
+	r.Logger.Info("Node: ", "name", node.Name, "roleLabel", roleLabel)
 	if !ok || roleLabel != "backend" {
+		r.Logger.Info("Node is not a backend")
 		return nil
 	}
 
@@ -114,18 +116,20 @@ func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cl
 	backend := &wekav1alpha1.Backend{}
 	namespace := cluster.Namespace
 	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: node.Name}, backend)
-	if apierrors.IsNotFound(err) {
-		r.createBackend(ctx, node, cluster)
-		return nil
-	} else if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		return errors.Wrap(err, "failed to get backend")
 	}
 
+	r.createBackend(ctx, node, cluster)
 	return nil
 }
 
 func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
 	r.Logger.Info("ClusterReconciler.createBackend() called")
+
+	for k, v := range node.Status.Allocatable {
+		r.Logger.Info("Allocatable: ", "resource", k, "value", v.String())
+	}
 
 	backend := &wekav1alpha1.Backend{
 		ObjectMeta: ctrl.ObjectMeta{
