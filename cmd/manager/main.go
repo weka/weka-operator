@@ -22,6 +22,7 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,9 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/app/manager/controllers"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,7 +47,6 @@ func init() {
 
 	utilruntime.Must(wekav1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-	utilruntime.Must(kmmv1beta1.AddToScheme(scheme))
 }
 
 func main() {
@@ -62,6 +61,7 @@ func main() {
 	opts := zap.Options{
 		Development: true,
 	}
+	zap.Level(zapcore.Level(-2))
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -97,6 +97,10 @@ func main() {
 	}
 	if err = (controllers.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		os.Exit(1)
+	}
+	if err = (controllers.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Backend")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

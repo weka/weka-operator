@@ -34,9 +34,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
 	multiError "github.com/hashicorp/go-multierror"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
