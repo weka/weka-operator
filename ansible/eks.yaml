@@ -108,8 +108,6 @@
 # - Operator namespace
 # - Image pull secret
 # - CLI secret, this is used by the agent to authenticate with the Weka cluster
-# - Install OLM
-# - Install KMM
 - name: Configuring Prerequisites in kubernetes
   tags: k8s_prerequisites
   hosts: localhost
@@ -136,16 +134,16 @@
           type: kubernetes.io/dockerconfigjson
           data:
             .dockerconfigjson: "{{ dockerconfigjson_b64 }}"
-    - name: Creating CLI Secret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: weka-cli
-            namespace: weka-operator-system
-          type: kubernetes.io/basic-auth
-          stringData:
-            username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-w1QA') }}"
-            password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-w1QA') }}"
+            #- name: Creating CLI Secret
+          #kubernetes.core.k8s:
+          #state: present
+          #definition:
+          #apiVersion: v1
+          #kind: Secret
+          #metadata:
+          #name: weka-cli
+          #namespace: weka-operator-system
+          #type: kubernetes.io/basic-auth
+          #stringData:
+          #username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-w1QA') }}"
+          #password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-w1QA') }}"
