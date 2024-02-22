@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )

@@ -33,8 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -79,7 +78,6 @@ var _ = BeforeSuite(func() {
 	err = wekav1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = kmmv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})

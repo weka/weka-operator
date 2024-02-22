@@ -20,16 +20,18 @@ import (
 	"context"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	"github.com/pkg/errors"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 )
 
 func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {
-	logger := ctrl.Log
+	logger := ctrl.Log.WithName("controllers").WithName("Cluster")
 	logger.Info("NewClusterReconciler() called")
 	return &ClusterReconciler{
 		Client: mgr.GetClient(),
@@ -74,7 +76,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	r.Logger.Info("Cluster: ", "name", cluster.Name)
 
 	// Reconcile available nodes
-	result, err := r.reconcileAvailableNodes(ctx, req)
+	result, err := r.reconcileAvailableNodes(ctx, req, cluster)
 	if err != nil {
 		return result, err
 	}
@@ -82,7 +84,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctrl.Request, cluster *wekav1alpha1.Cluster) (ctrl.Result, error) {
 	r.Logger.Info("ClusterReconciler.reconcileAvailableNodes() called")
 	// List all available nodes
 	nodes := &v1.NodeList{}
@@ -91,9 +93,56 @@ func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctr
 	}
 	for _, node := range nodes.Items {
 		r.Logger.Info("Node: ", "name", node.Name, "labels", node.Labels)
+		r.createWekaNode(ctx, node, cluster)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// createWekaNode creates a Weka node for the given Kubernetes node
+// Only backends for now
+func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
+	r.Logger.Info("ClusterReconciler.createWekaNode() called")
+
+	// Backends are identified with the "weka.io/role=backend" label
+	roleLabel, ok := node.Labels["weka.io/role"]
+	if !ok || roleLabel != "backend" {
+		return nil
+	}
+
+	// Check if the backend already
+	backend := &wekav1alpha1.Backend{}
+	namespace := cluster.Namespace
+	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: node.Name}, backend)
+	if apierrors.IsNotFound(err) {
+		r.createBackend(ctx, node, cluster)
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "failed to get backend")
+	}
+
+	return nil
+}
+
+func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
+	r.Logger.Info("ClusterReconciler.createBackend() called")
+
+	backend := &wekav1alpha1.Backend{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name:      node.Name,
+			Namespace: cluster.Namespace,
+		},
+		Spec: wekav1alpha1.BackendSpec{
+			ClusterName: cluster.Name,
+			Hostname:    node.Name,
+		},
+	}
+	err := r.Create(ctx, backend)
+	if err != nil {
+		return errors.Wrap(err, "failed to create backend")
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

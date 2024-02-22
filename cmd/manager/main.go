@@ -31,10 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
-
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
-	"github.com/weka/weka-operator/controllers"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -48,7 +46,6 @@ func init() {
 
 	utilruntime.Must(wekav1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-	utilruntime.Must(kmmv1beta1.AddToScheme(scheme))
 }
 
 func main() {
@@ -98,6 +95,10 @@ func main() {
 	}
 	if err = (controllers.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		os.Exit(1)
+	}
+	if err = (controllers.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Backend")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
