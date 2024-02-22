@@ -18,8 +18,6 @@ COPY hack/ hack/
 COPY config/ config/
 COPY Makefile Makefile
 COPY util/ util/
-COPY api/ api/
-COPY controllers/ controllers/
 COPY internal/ internal/
 
 FROM builder as build-manager

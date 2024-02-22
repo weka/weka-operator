@@ -27,12 +27,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
 )
 
 func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {
-	logger := ctrl.Log
-	logger.Info("NewClusterReconciler() called")
+	logger := ctrl.Log.WithName("controllers").WithName("Cluster")
+	logger.V(2).Info("NewClusterReconciler() called")
 	return &ClusterReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -67,16 +67,15 @@ var SizeClasses = map[string]SizeClass{
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("ClusterReconciler.Reconcile() called")
+	r.Logger.V(2).Info("ClusterReconciler.Reconcile() called")
 
 	cluster := &wekav1alpha1.Cluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	r.Logger.Info("Cluster: ", "name", cluster.Name)
 
 	// Reconcile available nodes
-	result, err := r.reconcileAvailableNodes(ctx, req)
+	result, err := r.reconcileAvailableNodes(ctx, req, cluster)
 	if err != nil {
 		return result, err
 	}
@@ -84,15 +83,15 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("ClusterReconciler.reconcileAvailableNodes() called")
+func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctrl.Request, cluster *wekav1alpha1.Cluster) (ctrl.Result, error) {
+	r.Logger.V(2).Info("ClusterReconciler.reconcileAvailableNodes() called")
 	// List all available nodes
 	nodes := &v1.NodeList{}
 	if err := r.List(ctx, nodes); err != nil {
 		return ctrl.Result{}, err
 	}
 	for _, node := range nodes.Items {
-		r.Logger.Info("Node: ", "name", node.Name, "labels", node.Labels)
+		r.createWekaNode(ctx, node, cluster)
 	}
 
 	return ctrl.Result{}, nil
@@ -101,13 +100,13 @@ func (r *ClusterReconciler) reconcileAvailableNodes(ctx context.Context, req ctr
 // createWekaNode creates a Weka node for the given Kubernetes node
 // Only backends for now
 func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
-	r.Logger.Info("ClusterReconciler.createWekaNode() called")
+	r.Logger.V(2).Info("ClusterReconciler.createWekaNode() called")
 
 	// Backends are identified with the "weka.io/role=backend" label
 	roleLabel, ok := node.Labels["weka.io/role"]
-	r.Logger.Info("Node: ", "name", node.Name, "roleLabel", roleLabel)
+	r.Logger.V(2).Info("Node: ", "name", node.Name, "roleLabel", roleLabel)
 	if !ok || roleLabel != "backend" {
-		r.Logger.Info("Node is not a backend")
+		r.Logger.V(2).Info("Node is not a backend")
 		return nil
 	}
 
@@ -124,11 +123,7 @@ func (r *ClusterReconciler) createWekaNode(ctx context.Context, node v1.Node, cl
 }
 
 func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
-	r.Logger.Info("ClusterReconciler.createBackend() called")
-
-	for k, v := range node.Status.Allocatable {
-		r.Logger.Info("Allocatable: ", "resource", k, "value", v.String())
-	}
+	r.Logger.V(2).Info("ClusterReconciler.createBackend() called")
 
 	backend := &wekav1alpha1.Backend{
 		ObjectMeta: ctrl.ObjectMeta{
@@ -137,7 +132,7 @@ func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, clu
 		},
 		Spec: wekav1alpha1.BackendSpec{
 			ClusterName: cluster.Name,
-			Hostname:    node.Name,
+			NodeName:    node.Name,
 		},
 	}
 	err := r.Create(ctx, backend)
