@@ -35,11 +35,11 @@ spec:
             properties:
               clusterName:
                 type: string
-              hostname:
+              nodeName:
                 type: string
             required:
             - clusterName
-            - hostname
+            - nodeName
             type: object
           status:
             type: object

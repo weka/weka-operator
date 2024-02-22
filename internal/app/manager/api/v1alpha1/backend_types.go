@@ -14,7 +14,7 @@ type Backend struct {
 
 type BackendSpec struct {
 	ClusterName string `json:"clusterName"`
-	Hostname    string `json:"hostname"`
+	NodeName    string `json:"nodeName"`
 }
 
 type BackendStatus struct{}
