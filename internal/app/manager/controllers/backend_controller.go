@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,7 +48,10 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	drives := node.Status.Allocatable["drive.weka.io/drive"]
-	r.Logger.Info("Drives: ", "count", drives.Value())
+	backend.Status.DriveCount = int(drives.Value())
+	if err := r.Status().Update(ctx, backend); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	}
 
 	return ctrl.Result{}, nil
 }

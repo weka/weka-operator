@@ -17,7 +17,9 @@ type BackendSpec struct {
 	NodeName    string `json:"nodeName"`
 }
 
-type BackendStatus struct{}
+type BackendStatus struct {
+	DriveCount int `json:"driveCount"`
+}
 
 // +kubebuilder:object:root=true
 

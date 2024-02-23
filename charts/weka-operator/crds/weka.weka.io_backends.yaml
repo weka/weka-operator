@@ -42,6 +42,11 @@ spec:
             - nodeName
             type: object
           status:
+            properties:
+              driveCount:
+                type: integer
+            required:
+            - driveCount
             type: object
         type: object
     served: true
