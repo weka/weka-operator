@@ -69,9 +69,9 @@ help: ## Display this help.
 ##@ Development
 
 CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
-CRD_TYPES = internal/app/manager/api/v1alpha1/client_types.go \
-		internal/app/manager/api/v1alpha1/cluster_types.go \
-		internal/app/manager/api/v1alpha1/backend_types.go
+CRD_TYPES = internal/pkg/api/v1alpha1/client_types.go \
+		internal/pkg/api/v1alpha1/cluster_types.go \
+		internal/pkg/api/v1alpha1/backend_types.go
 
 $(CRD): controller-gen $(CRD_TYPES)
 

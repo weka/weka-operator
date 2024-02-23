@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
