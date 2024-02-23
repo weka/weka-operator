@@ -27,7 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
 func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {

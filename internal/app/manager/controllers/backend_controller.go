@@ -10,7 +10,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
 func NewBackendReconciler(mgr ctrl.Manager) *BackendReconciler {

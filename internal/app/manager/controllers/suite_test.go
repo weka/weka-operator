@@ -33,7 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/app/manager/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
