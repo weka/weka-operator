@@ -1,6 +1,7 @@
-FROM scratch
-ENTRYPOINT ["/manager"]
+FROM scratch as builder
 
 USER 65532:65532
 
-COPY weka-operator /manager
+FROM builder as manager
+COPY manager /manager
+
