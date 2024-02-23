@@ -30,7 +30,7 @@ type BackendReconciler struct {
 //+kubebuilder:rbac:groups=weka.weka.io,resources=backends,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=backends/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=backends/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update
 
 func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Logger.Info("BackendReconciler.Reconcile() called")
@@ -54,7 +54,26 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
 	}
 
+	if err := r.labelNode(ctx, node, backend); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to label node")
+	}
+
 	return ctrl.Result{}, nil
+}
+
+func (r *BackendReconciler) labelNode(ctx context.Context, node *v1.Node, backend *wekav1alpha1.Backend) error {
+	labels := node.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels["weka.io/backend"] = backend.Name
+	node.SetLabels(labels)
+
+	if err := r.Update(ctx, node); err != nil {
+		return errors.Wrap(err, "failed to update node")
+	}
+
+	return nil
 }
 
 func (r *BackendReconciler) SetupWithManager(mgr ctrl.Manager) error {
