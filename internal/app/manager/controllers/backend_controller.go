@@ -48,6 +48,7 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	drives := node.Status.Allocatable["drive.weka.io/drive"]
+	r.Logger.Info("Found drives", "count", drives.Value())
 	backend.Status.DriveCount = int(drives.Value())
 	if err := r.Status().Update(ctx, backend); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
