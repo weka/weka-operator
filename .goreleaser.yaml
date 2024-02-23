@@ -27,8 +27,19 @@ builds:
       - "linux_amd64"
       - "darwin_arm64"
     main: "./cmd/device-plugin"
+    binary: "device-plugin"
+
+  - id: node-labeller
+    env:
+      - CGO_ENABLED=0
+    targets:
+      - "linux_amd64"
+      - "darwin_arm64"
+    main: "./cmd/node-labeller"
+    binary: "node-labeller"
 
 dockers:
+  # TODO: Add plugin and labeller images
   - image_templates:
       - "quay.io/weka.io/weka-operator:{{ .Tag }}"
       - "quay.io/weka.io/weka-operator:{{ .Major }}"
@@ -39,6 +50,26 @@ dockers:
     dockerfile: "Dockerfile.release"
     build_flag_templates:
       - "--target=manager"
+
+  - image_templates:
+      - "quay.io/weka.io/weka-operator-device-plugin:{{ .Tag }}"
+      - "quay.io/weka.io/weka-operator-device-plugin:{{ .Major }}"
+      - "quay.io/weka.io/weka-operator-device-plugin:{{ .Major }}.{{ .Minor }}"
+      - "quay.io/weka.io/weka-operator-device-plugin:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+      - "quay.io/weka.io/weka-operator-device-plugin:latest"
+    dockerfile: "Dockerfile.release"
+    build_flag_templates:
+      - "--target=device-plugin"
+
+  - image_templates:
+      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Tag }}"
+      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}"
+      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}"
+      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+      - "quay.io/weka.io/weka-operator-node-labeller:latest"
+    dockerfile: "Dockerfile.release"
+    build_flag_templates:
+      - "--target=node-labeller"
 
 archives:
   - format: tar.gz

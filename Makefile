@@ -117,7 +117,15 @@ dev:
 	$(MAKE) deploy VERSION=latest
 
 .PHONY: build
-build: manifests generate fmt vet $(BINS) ## Build manager binary.
+build: ## Build manager binary.
+	goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
+
+.PHONY: dev
+dev:
+	$(MAKE) build
+	$(MAKE) docker-push
+	- $(MAKE) undeploy
+	$(MAKE) deploy VERSION=latest
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -126,6 +134,8 @@ run: manifests generate fmt vet ## Run a controller from your host.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${IMAGE_TAG_BASE}:latest
+	docker push ${IMAGE_TAG_BASE}-node-labeller:latest
+	docker push ${IMAGE_TAG_BASE}-device-plugin:latest
 
 ##@ Deployment
 
