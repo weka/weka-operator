@@ -71,7 +71,8 @@ help: ## Display this help.
 CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
 CRD_TYPES = internal/pkg/api/v1alpha1/client_types.go \
 		internal/pkg/api/v1alpha1/cluster_types.go \
-		internal/pkg/api/v1alpha1/backend_types.go
+		internal/pkg/api/v1alpha1/backend_types.go \
+		internal/pkg/api/v1alpha1/drive_types.go 
 
 $(CRD): controller-gen $(CRD_TYPES)
 
@@ -113,17 +114,6 @@ cluster-sample: ## Deploy sample cluster CRD
 	kubectl apply -f $(CLUSTER_SAMPLE)
 
 ##@ Build
-
-.PHONY: build
-build: ## Build manager binary.
-	goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
-
-.PHONY: dev
-dev:
-	$(MAKE) build
-	$(MAKE) docker-push
-	- $(MAKE) undeploy
-	$(MAKE) deploy VERSION=latest
 
 .PHONY: build
 build: ## Build manager binary.
