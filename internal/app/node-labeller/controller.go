@@ -2,20 +2,27 @@ package nodeLabeller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/device"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
 type Controller struct {
 	client.Client
+	Scheme   *runtime.Scheme
 	logger   logr.Logger
 	nodeName string
 }
@@ -23,6 +30,7 @@ type Controller struct {
 func NewController(mgr ctrl.Manager, logger logr.Logger, nodeName string) *Controller {
 	return &Controller{
 		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
 		logger:   logger.WithName("controllers").WithName("NodeLabeller"),
 		nodeName: nodeName,
 	}
@@ -52,7 +60,12 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	podName := os.Getenv("HOSTNAME")
 	node.Labels["weka.io/labeller"] = podName
 
-	if err := c.addDriveAnnotations(node); err != nil {
+	drives, err := device.ListDrives()
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to list drives")
+	}
+
+	if err := c.addDriveAnnotations(node, drives); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to add drive labels")
 	}
 
@@ -60,18 +73,53 @@ func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, errors.Wrap(err, "failed to update node")
 	}
 
+	if err := c.registerDrives(ctx, node, drives); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to register drives")
+	}
+
 	return ctrl.Result{}, nil
 }
 
-func (c *Controller) addDriveAnnotations(node *v1.Node) error {
-	drives, err := device.ListDrives()
-	if err != nil {
-		return errors.Wrap(err, "failed to list drives")
-	}
+func (c *Controller) addDriveAnnotations(node *v1.Node, drives []device.Drive) error {
 	for _, drive := range drives {
 		c.logger.Info("Drive", "name", drive.Name, "path", drive.Path)
 	}
 	node.Annotations["weka.io/drives"] = strconv.Itoa(len(drives))
 
 	return nil
+}
+
+func (c *Controller) registerDrives(ctx context.Context, node *v1.Node, drives []device.Drive) error {
+	var errors error
+	for _, d := range drives {
+		c.logger.Info("Registering drive", "name", d.Name, "path", d.Path, "uuid", d.UUID)
+
+		drive := &wekav1alpha1.Drive{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-%s", node.Name, d.Name),
+				Namespace: "weka-operator-system",
+			},
+		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(drive), drive); err != nil {
+			if apierrors.IsNotFound(err) {
+				if err := c.Create(ctx, drive); err != nil {
+					c.logger.Error(err, "Failed to create drive", "name", d.Name, "path", d.Path)
+					errors = multierror.Append(errors, err)
+					continue
+				}
+			} else {
+				errors = multierror.Append(errors, err)
+				continue
+			}
+		}
+
+		drive.Status.Path = d.Path
+		drive.Status.UUID = d.UUID
+		if err := c.Status().Update(ctx, drive); err != nil {
+			c.logger.Error(err, "Failed to update drive", "name", d.Name, "path", d.Path)
+			errors = multierror.Append(errors, err)
+			continue
+		}
+	}
+	return errors
 }
