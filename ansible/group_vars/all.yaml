@@ -1,0 +1,9 @@
+---
+teka: "{{ wekapp_root }}/teka"
+frontend_lab_name: "mbp-k8s-oci"
+frontend_cluster_size: 3
+backend_lab_name: "{{ frontend_lab_name }}-backend"
+backend_cluster_size: 5
+ansible_ssh_user: root
+os: ubuntu20
+env: oci
