@@ -40,4 +40,4 @@ temp.json
 charts/weka-operator/templates/role.yaml
 charts/weka-operator/crds/weka.weka.io_clients.yaml
 k3s.yaml
-/drivers
+drivers
