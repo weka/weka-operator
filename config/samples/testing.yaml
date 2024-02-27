@@ -1,0 +1,19 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: weka-client-testing
+  namespace: weka-operator-system
+spec:
+  containers:
+    - name: weka-client
+      image: quay.io/weka.io/weka-in-container:4.3.1.20252-d1350f201a919ec3d9dbf78c533e470c
+      command: ["sleep", "infinity"]
+      securityContext:
+        privileged: true
+        runAsUser: 0
+        runAsNonRoot: false
+        capabilities:
+          add: ["ALL"]
+        seccompProfile:
+          type: Unconfined
