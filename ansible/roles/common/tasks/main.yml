@@ -1,0 +1,21 @@
+---
+- name: Check access to public repos
+  shell: "curl https://gcr.io/v1/_ping --write-out {{ '%{http_code}' }} --silent --output /dev/null"
+  register: response_body
+  failed_when: "'403' in response_body.stdout"
+- name: Set Hugepages
+  shell: "echo 800 > /proc/sys/vm/nr_hugepages"
+
+- name: Disable Firewall
+  service:
+    name: ufw
+    enabled: false
+    state: stopped
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Disable Firewall
+  service:
+    name: firewalld
+    enabled: false
+    state: stopped
+  when: ansible_facts['os_family'] == 'RedHat'

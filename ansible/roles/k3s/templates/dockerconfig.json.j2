@@ -1,0 +1,10 @@
+{
+  "auths": {
+    "quay.io": {
+      "username": "{{ docker_username }}",
+      "password": "{{ docker_password }}",
+      "auth": "{{ (docker_username + ':' + docker_password) | b64encode }}"
+    }
+  }
+}
+

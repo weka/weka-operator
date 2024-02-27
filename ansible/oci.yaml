@@ -46,6 +46,7 @@
         sleep: 60
         timeout: 3600
         connect_timeout: 15
+
 - name: Provision Frontend Nodes
   tags: provision_frontend
   hosts: frontend_hosts:&oci_all
@@ -66,6 +67,7 @@
         name: ufw
         enabled: false
         state: stopped
+
 - name: Install Initial k8s Node
   tags: install_k8s_initial
   hosts: principal_frontend_host:&oci_all
@@ -112,6 +114,7 @@
         dest: "{{ root }}/k3s.yaml"
         content: "{{ local_k3s_yaml.k3s_yaml | to_yaml }}"
       delegate_to: localhost
+
 - name: Join Secondary Nodes
   tags: join_secondaries
   hosts: secondary_frontend_hosts:&oci_all
