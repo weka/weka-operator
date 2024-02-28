@@ -212,6 +212,10 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 			Name:  "MANAGEMENT_PORT",
 			Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
 		},
+		{
+			Name:  "BACKEND_NET",
+			Value: client.Spec.InterfaceName,
+		},
 	}
 
 	return variables
