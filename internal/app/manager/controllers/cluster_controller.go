@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,8 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
+	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {
@@ -52,7 +55,7 @@ type SizeClass struct {
 	DriveCount     int
 }
 
-var SizeClasses = map[string]SizeClass{
+var SizeClasses = map[wekav1alpha1.SizeClass]SizeClass{
 	"dev":    {1, 1},
 	"small":  {3, 3},
 	"medium": {5, 5},
@@ -62,6 +65,8 @@ var SizeClasses = map[string]SizeClass{
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/status,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -78,6 +83,12 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	result, err := r.reconcileAvailableNodes(ctx, req, cluster)
 	if err != nil {
 		return result, err
+	}
+
+	// Assign containers to nodes
+	result, err = r.reconcileContainers(ctx, req, cluster)
+	if err != nil {
+		return result, errors.Wrap(err, "failed to reconcile containers")
 	}
 
 	return ctrl.Result{}, nil
@@ -129,6 +140,18 @@ func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, clu
 		ObjectMeta: ctrl.ObjectMeta{
 			Name:      node.Name,
 			Namespace: cluster.Namespace,
+			Labels: map[string]string{
+				"weka.io/cluster": cluster.Name,
+				"weka.io/node":    node.Name,
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: wekav1alpha1.GroupVersion.String(),
+					Kind:       "Cluster",
+					Name:       cluster.Name,
+					UID:        cluster.UID,
+				},
+			},
 		},
 		Spec: wekav1alpha1.BackendSpec{
 			ClusterName: cluster.Name,
@@ -141,6 +164,68 @@ func (r *ClusterReconciler) createBackend(ctx context.Context, node v1.Node, clu
 	}
 
 	return nil
+}
+
+func (r *ClusterReconciler) reconcileContainers(ctx context.Context, req ctrl.Request, cluster *wekav1alpha1.Cluster) (ctrl.Result, error) {
+	r.Logger.V(2).Info("ClusterReconciler.reconcileContainers() called")
+
+	// Number of containers to create determined by the size class
+	sizeClass, ok := SizeClasses[cluster.Spec.SizeClass]
+	if !ok {
+		return ctrl.Result{}, errors.Errorf("invalid size class: %s", cluster.Spec.SizeClass)
+	}
+
+	var errors error
+	for i := 0; i < sizeClass.ContainerCount; i++ {
+		container := &wekav1alpha1.WekaContainer{
+			ObjectMeta: ctrl.ObjectMeta{
+				Name:      cluster.Name + "-container-" + strconv.Itoa(i),
+				Namespace: cluster.Namespace,
+				Labels: map[string]string{
+					"weka.io/cluster": cluster.Name,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: wekav1alpha1.GroupVersion.String(),
+						Kind:       "Cluster",
+						Name:       cluster.Name,
+						UID:        cluster.UID,
+					},
+				},
+			},
+			Spec: wekav1alpha1.ContainerSpec{
+				Name:    cluster.Name + "-container-" + strconv.Itoa(i),
+				Cluster: v1.ObjectReference{Name: cluster.Name, Namespace: cluster.Namespace},
+			},
+		}
+
+		key := client.ObjectKey{Namespace: container.Namespace, Name: container.Name}
+		if err := r.Get(ctx, key, container); err != nil {
+			if apierrors.IsNotFound(err) {
+				if err := r.Create(ctx, container); err != nil {
+					errors = multierror.Append(errors, err)
+					continue
+				}
+			} else {
+				errors = multierror.Append(errors, err)
+				continue
+			}
+		}
+
+		container.Status = wekav1alpha1.ContainerStatus{
+			AssignedNode: v1.Node{
+				ObjectMeta: ctrl.ObjectMeta{
+					Name: "node-" + strconv.Itoa(i),
+				},
+			},
+		}
+
+		if err := r.Status().Update(ctx, container); err != nil {
+			errors = multierror.Append(errors, err)
+			continue
+		}
+	}
+	return ctrl.Result{}, errors
 }
 
 // SetupWithManager sets up the controller with the Manager.
