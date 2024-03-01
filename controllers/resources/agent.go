@@ -45,6 +45,12 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 				},
 				Spec: corev1.PodSpec{
 					HostNetwork: true,
+					HostAliases: []corev1.HostAlias{
+						{
+							IP:        "127.0.0.1",
+							Hostnames: []string{"localhost"},
+						},
+					},
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: &[]bool{true}[0],
 						SeccompProfile: &corev1.SeccompProfile{
@@ -140,7 +146,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Name:      "host-dev",
 			},
 			{
-				MountPath: "/dev/hugepages",
+				MountPath: "/mnt/huge",
 				Name:      "hugepage-2mi-1",
 			},
 			{
@@ -150,14 +156,14 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				"hugepages-2Mi": resource.MustParse("1500Mi"),
-				"memory":        resource.MustParse("8Gi"),
 				"cpu":           resource.MustParse("2"),
+				"hugepages-2Mi": resource.MustParse("2Gi"),
+				"memory":        resource.MustParse("8Gi"),
 			},
 			Requests: corev1.ResourceList{
-				"memory":        resource.MustParse("8Gi"),
-				"hugepages-2Mi": resource.MustParse("1500Mi"),
 				"cpu":           resource.MustParse("2"),
+				"hugepages-2Mi": resource.MustParse("2Gi"),
+				"memory":        resource.MustParse("8Gi"),
 			},
 		},
 		Env: environmentVariables(client),
@@ -184,6 +190,10 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 			Name:  "BACKEND_PRIVATE_IP",
 			Value: client.Spec.BackendIP,
 		},
+		//{
+		//Name:  "MANAGEMENT_IPS",
+		//Value: "10.222.103.0",
+		//},
 		{
 			Name: "MANAGEMENT_IPS",
 			ValueFrom: &corev1.EnvVarSource{
