@@ -72,7 +72,8 @@ CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
 CRD_TYPES = internal/pkg/api/v1alpha1/client_types.go \
 		internal/pkg/api/v1alpha1/cluster_types.go \
 		internal/pkg/api/v1alpha1/backend_types.go \
-		internal/pkg/api/v1alpha1/drive_types.go 
+		internal/pkg/api/v1alpha1/drive_types.go \
+		internal/pkg/api/v1alpha1/container_types.go 
 
 $(CRD): controller-gen $(CRD_TYPES)
 
@@ -105,8 +106,8 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
+test: ## Run tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" go test -v ./... -coverprofile cover.out
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
 .PHONY: cluster-sample

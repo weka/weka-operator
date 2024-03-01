@@ -1,6 +1,9 @@
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -18,7 +21,9 @@ type BackendSpec struct {
 }
 
 type BackendStatus struct {
-	DriveCount int `json:"driveCount"`
+	DriveCount  int                       `json:"driveCount"`
+	Node        v1.Node                   `json:"node,omitempty"`
+	Assignments map[string]*WekaContainer `json:"assignments,omitempty"`
 }
 
 // +kubebuilder:object:root=true
