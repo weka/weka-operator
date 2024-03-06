@@ -20,7 +20,6 @@ builds:
     binary: "manager"
 
 dockers:
-  # TODO: Add plugin and labeller images
   - image_templates:
       - "quay.io/weka.io/weka-operator:{{ .Tag }}-{{ .ShortCommit }}"
       - "quay.io/weka.io/weka-operator:latest"
