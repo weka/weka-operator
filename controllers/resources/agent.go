@@ -45,12 +45,6 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 				},
 				Spec: corev1.PodSpec{
 					HostNetwork: true,
-					HostAliases: []corev1.HostAlias{
-						{
-							IP:        "127.0.0.1",
-							Hostnames: []string{"localhost"},
-						},
-					},
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: &[]bool{true}[0],
 						SeccompProfile: &corev1.SeccompProfile{
@@ -190,10 +184,6 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 			Name:  "BACKEND_PRIVATE_IP",
 			Value: client.Spec.BackendIP,
 		},
-		//{
-		//Name:  "MANAGEMENT_IPS",
-		//Value: "10.222.103.0",
-		//},
 		{
 			Name: "MANAGEMENT_IPS",
 			ValueFrom: &corev1.EnvVarSource{
