@@ -140,7 +140,7 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 				Name:      "host-dev",
 			},
 			{
-				MountPath: "/dev/hugepages",
+				MountPath: "/mnt/huge",
 				Name:      "hugepage-2mi-1",
 			},
 			{
@@ -150,14 +150,14 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				"hugepages-2Mi": resource.MustParse("1500Mi"),
-				"memory":        resource.MustParse("8Gi"),
 				"cpu":           resource.MustParse("2"),
+				"hugepages-2Mi": resource.MustParse("2Gi"),
+				"memory":        resource.MustParse("8Gi"),
 			},
 			Requests: corev1.ResourceList{
-				"memory":        resource.MustParse("8Gi"),
-				"hugepages-2Mi": resource.MustParse("1500Mi"),
 				"cpu":           resource.MustParse("2"),
+				"hugepages-2Mi": resource.MustParse("2Gi"),
+				"memory":        resource.MustParse("8Gi"),
 			},
 		},
 		Env: environmentVariables(client),
@@ -211,6 +211,10 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 		{
 			Name:  "MANAGEMENT_PORT",
 			Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
+		},
+		{
+			Name:  "BACKEND_NET",
+			Value: client.Spec.InterfaceName,
 		},
 	}
 

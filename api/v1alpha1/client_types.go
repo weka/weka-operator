@@ -50,6 +50,7 @@ type ClientSpec struct {
 
 	BackendIP          string `json:"backendIP,omitempty"`
 	ManagementPortBase int32  `json:"managementPortBase,omitempty"`
+	InterfaceName      string `json:"interfaceName,omitempty"`
 
 	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
 

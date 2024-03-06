@@ -1,0 +1,3 @@
+---
+- name: "Configuring k3s, phase: {{ phase }}"
+  import_tasks: "{{ phase }}.yml"

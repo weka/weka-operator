@@ -1,0 +1,40 @@
+---
+version: 1
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+    - make manifests
+    - make generate
+    - go fmt ./...
+    - go vet ./...
+
+builds:
+  - id: "weka-operator"
+    env:
+      - CGO_ENABLED=0
+    targets:
+      - "darwin_arm64"
+      - "linux_amd64"
+    binary: "manager"
+
+dockers:
+  - image_templates:
+      - "quay.io/weka.io/weka-operator:{{ .Tag }}-{{ .ShortCommit }}"
+      - "quay.io/weka.io/weka-operator:latest"
+
+    dockerfile: "Dockerfile.release"
+
+    build_flag_templates:
+      - "--target=manager"
+
+archives:
+  - format: binary
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
