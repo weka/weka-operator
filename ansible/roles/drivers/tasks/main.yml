@@ -4,6 +4,11 @@
 # used with any weka version
 # Find the appropriate driver set and upload them to the backend
 
+- name: Driver upload directory
+  file:
+    path: /opt/weka/dist/drivers
+    state: directory
+
 - name: Upload Drivers
   copy:
     src: "{{ root }}/drivers/{{ item }}-{{ kernel_full_version }}.{{ arch }}.tar.gz"

@@ -4,7 +4,7 @@
   register: response_body
   failed_when: "'403' in response_body.stdout"
 - name: Set Hugepages
-  shell: "echo 800 > /proc/sys/vm/nr_hugepages"
+  shell: "echo {{ nr_hugepages }} > /proc/sys/vm/nr_hugepages"
 
 - name: Disable Firewall
   service:
