@@ -3,6 +3,10 @@ name: Release
 on:
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   commitlint:
     runs-on: ubuntu-latest
@@ -20,4 +24,3 @@ jobs:
           allow-initial-development-versions: true
           hooks: goreleaser
           dry: true
-
