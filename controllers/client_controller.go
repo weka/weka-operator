@@ -189,6 +189,7 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	r.Logger.Info("Reconciling Client", "name", req.NamespacedName)
 	client := &wekav1alpha1.Client{}
 	if err := r.Get(ctx, req.NamespacedName, client); err != nil {
 		return ctrl.Result{}, runtimeClient.IgnoreNotFound(err)
@@ -211,6 +212,9 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	phases := r.reconcilePhases()
 	for _, phase := range phases {
 		reconciler, err := phase.Reconcile(req.NamespacedName, client)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to get reconciler for phase %s: %w", phase.Name, err)
+		}
 		result, err := reconciler.Reconcile(ctx, client)
 		if err != nil {
 			if apierrors.IsNotFound(err) {

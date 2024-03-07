@@ -44,6 +44,9 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
+					NodeSelector: map[string]string{
+						"weka.io/role": "client",
+					},
 					HostNetwork: true,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: &[]bool{true}[0],
