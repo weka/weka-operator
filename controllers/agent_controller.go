@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/pkg/errors"
 
@@ -44,12 +45,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 	existing := &appsv1.DaemonSet{}
 	if err := r.Get(ctx, key, existing); err != nil {
 		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("failed to get deployment %s: %w", key, err)
+			return ctrl.Result{}, fmt.Errorf("failed to get daemonset %s: %w", key, err)
 		}
 
 		// The resource did not already exisst, so create it.
 		if err := r.Create(ctx, r.Desired); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to create deployment %s: %w", key, err)
+			return ctrl.Result{}, fmt.Errorf("failed to create daemonset %s: %w", key, err)
 		}
 
 		if err := r.RecordCondition(ctx, metav1.Condition{
@@ -69,26 +70,18 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// The resource exists and is ready.  This adds metadata from the spec
-	patch := runtimeClient.MergeFrom(existing.DeepCopy())
-	existing.Spec = r.Desired.Spec
-	for k, v := range r.Desired.Annotations {
-		existing.Annotations[k] = v
-	}
-	for k, v := range r.Desired.Labels {
-		existing.Labels[k] = v
+	if !reflect.DeepEqual(existing.Spec, r.Desired.Spec) {
+		desired := existing.DeepCopy()
+		desired.Spec = r.Desired.Spec
+		r.Logger.Info("Updating agent", "name", desired.Name, "version", desired.Spec.Template.Spec.Containers[0].Image)
+		if err := r.Update(ctx, desired); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "failed to update daemonset")
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
-	//if err := r.UpdateStatus(ctx, metav1.Condition{
-	//Type:    "Available",
-	//Status:  metav1.ConditionTrue,
-	//Reason:  "Reconciled",
-	//Message: "Agent is ready",
-	//}); err != nil {
-	//return ctrl.Result{}, errors.Wrap(err, "failed to update status")
-	//}
-	return ctrl.Result{}, r.Patch(ctx, existing, patch)
+	return ctrl.Result{}, nil
 }
 
 // Exec
