@@ -44,7 +44,7 @@ var (
 	cfg        *rest.Config
 	k8sClient  client.Client
 	testEnv    *envtest.Environment
-	testCtx    context.Context
+	TestCtx    context.Context
 	testCancel context.CancelFunc
 	kubectlExe string
 )
@@ -57,7 +57,7 @@ func TestAPIs(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-	testCtx, testCancel = context.WithCancel(context.TODO())
+	TestCtx, testCancel = context.WithCancel(context.TODO())
 
 	var err error
 	kubectlExe, err = exec.LookPath("kubectl")
@@ -65,9 +65,9 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
-		UseExistingCluster:    func(b bool) *bool { return &b }(true),
+		UseExistingCluster:    func(b bool) *bool { return &b }(false),
 	}
 
 	// cfg is defined in this file globally.
@@ -88,10 +88,13 @@ var _ = BeforeSuite(func() {
 		Scheme: scheme.Scheme,
 	})
 
+	err = (NewClusterReconciler(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
+
 	//+kubebuilder:scaffold:scheme
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(testCtx)
+		err = k8sManager.Start(TestCtx)
 		Expect(err).ToNot(HaveOccurred(), "failed to start manager")
 	}()
 })

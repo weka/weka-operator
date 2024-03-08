@@ -25,14 +25,11 @@ import (
 
 // ClusterSpec defines the desired state of Cluster
 type ClusterSpec struct {
-	SizeClass  SizeClass  `json:"size_class,omitempty"`
-	Multiplier Multiplier `json:"multiplier,omitempty"`
+	// +kubebuilder:validation:Enum=dev;small;medium;large
+	// +kubebuilder:validation:Required
+	SizeClass  string `json:"size_class"`
+	Multiplier uint32 `json:"multiplier,omitempty"`
 }
-
-// +kubebuilder:validation:Enum=dev;small;medium;large
-type SizeClass string
-
-type Multiplier uint32
 
 // ClusterStatus defines the observed state of Cluster
 type ClusterStatus struct {

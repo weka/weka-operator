@@ -55,7 +55,7 @@ type SizeClass struct {
 	DriveCount     int
 }
 
-var SizeClasses = map[wekav1alpha1.SizeClass]SizeClass{
+var SizeClasses = map[string]SizeClass{
 	"dev":    {1, 1},
 	"small":  {3, 3},
 	"medium": {5, 5},
@@ -74,7 +74,7 @@ var SizeClasses = map[wekav1alpha1.SizeClass]SizeClass{
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Logger.V(2).Info("ClusterReconciler.Reconcile() called")
 
-	reconciliation := newReconciliationRun(r, req)
+	reconciliation := newIteration(r, req)
 	if err := reconciliation.refreshCluster(ctx); err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "failed to refresh cluster")
 	}
@@ -84,37 +84,38 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// Assign containers to nodes
-	if err := r.reconcileContainers(ctx, req); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to reconcile containers")
-	}
+	//if err := reconciliation.reconcileContainers(ctx, req); err != nil {
+	//return ctrl.Result{}, errors.Wrap(err, "failed to reconcile containers")
+	//}
 
 	return ctrl.Result{}, nil
 }
 
-func newReconciliationRun(r *ClusterReconciler, req ctrl.Request) *reconciliationRun {
-	return &reconciliationRun{
-		reconciler: r,
-		cluster:    &wekav1alpha1.Cluster{},
-		nodes:      wekav1alpha1.BackendList{},
+func newIteration(r *ClusterReconciler, req ctrl.Request) *iteration {
+	return &iteration{
+		ClusterReconciler: r,
+		cluster:           &wekav1alpha1.Cluster{},
+		backends:          wekav1alpha1.BackendList{},
+		namespacedName:    req.NamespacedName,
 	}
 }
 
-type reconciliationRun struct {
-	reconciler *ClusterReconciler
-	cluster    *wekav1alpha1.Cluster
-	backends   wekav1alpha1.BackendList
+type iteration struct {
+	*ClusterReconciler
+	cluster        *wekav1alpha1.Cluster
+	backends       wekav1alpha1.BackendList
+	namespacedName client.ObjectKey
 }
 
-func (r *reconciliationRun) refreshCluster(ctx context.Context) error {
-	cluster := &wekav1alpha1.Cluster{}
-	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
+func (r *iteration) refreshCluster(ctx context.Context) error {
+	if err := r.Get(ctx, r.namespacedName, r.cluster); err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
 	return nil
 }
 
-func (r *reconciliationRun) refreshNodes(ctx context.Context) error {
+func (r *iteration) refreshNodes(ctx context.Context) error {
 	// Reconcile available nodes
 	// List all available nodes
 	nodes := &v1.NodeList{}
@@ -123,7 +124,7 @@ func (r *reconciliationRun) refreshNodes(ctx context.Context) error {
 	}
 	var errors error
 	for _, node := range nodes.Items {
-		if err := r.createWekaNode(ctx, node, cluster); err != nil {
+		if err := r.createWekaNode(ctx, node); err != nil {
 			errors = multierror.Append(errors, err)
 			continue
 		}
@@ -134,7 +135,12 @@ func (r *reconciliationRun) refreshNodes(ctx context.Context) error {
 
 // createWekaNode creates a Weka node for the given Kubernetes node
 // Only backends for now
-func (r *reconciliationRun) createWekaNode(ctx context.Context, node v1.Node, cluster *wekav1alpha1.Cluster) error {
+func (r *iteration) createWekaNode(ctx context.Context, node v1.Node) error {
+	if r.cluster == nil {
+		return errors.New("argument error: cluster is nil")
+	}
+
+	cluster := r.cluster
 	// Backends are identified with the "weka.io/role=backend" label
 	roleLabel, ok := node.Labels["weka.io/role"]
 	r.Logger.V(2).Info("createWekaNode", "name", node.Name, "roleLabel", roleLabel)
@@ -146,47 +152,58 @@ func (r *reconciliationRun) createWekaNode(ctx context.Context, node v1.Node, cl
 	// Check if the backend already
 	backend := &wekav1alpha1.Backend{}
 	namespace := cluster.Namespace
-	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: node.Name}, backend)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return errors.Wrap(err, "failed to get backend")
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: node.Name}, backend); err != nil {
+		if apierrors.IsNotFound(err) {
+			backend := &wekav1alpha1.Backend{
+				ObjectMeta: ctrl.ObjectMeta{
+					Name:      node.Name,
+					Namespace: cluster.Namespace,
+					Labels: map[string]string{
+						"weka.io/cluster": cluster.Name,
+						"weka.io/node":    node.Name,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: wekav1alpha1.GroupVersion.String(),
+							Kind:       "Cluster",
+							Name:       cluster.Name,
+							UID:        cluster.UID,
+						},
+					},
+				},
+				Spec: wekav1alpha1.BackendSpec{
+					ClusterName: cluster.Name,
+					NodeName:    node.Name,
+				},
+			}
+			err := r.Create(ctx, backend)
+			if err != nil {
+				return errors.Wrap(err, "failed to create backend")
+			}
+		} else {
+			return errors.Wrap(err, "failed to get backend")
+		}
 	}
 
-	backend := &wekav1alpha1.Backend{
-		ObjectMeta: ctrl.ObjectMeta{
-			Name:      node.Name,
-			Namespace: cluster.Namespace,
-			Labels: map[string]string{
-				"weka.io/cluster": cluster.Name,
-				"weka.io/node":    node.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: wekav1alpha1.GroupVersion.String(),
-					Kind:       "Cluster",
-					Name:       cluster.Name,
-					UID:        cluster.UID,
-				},
-			},
-		},
-		Spec: wekav1alpha1.BackendSpec{
-			ClusterName: cluster.Name,
-			NodeName:    node.Name,
-		},
-	}
-	err := r.Create(ctx, backend)
-	if err != nil {
-		return errors.Wrap(err, "failed to create backend")
-	}
-	append(r.backends, backend)
+	r.backends.Items = append(r.backends.Items, *backend)
 	return nil
 }
 
-func (r *reconciliationRun) reconcileContainers(ctx context.Context, req ctrl.Request) error {
+func (r *iteration) reconcileContainers(ctx context.Context, req ctrl.Request) error {
+	if r.cluster == nil {
+		return errors.New("argument error: cluster is nil")
+	}
+	if r.cluster.Spec.SizeClass == "" {
+		return errors.New("size class not set")
+	}
+
 	cluster := r.cluster
 	// Number of containers to create determined by the size class
-	sizeClass, ok := SizeClasses[cluster.Spec.SizeClass]
+	r.Logger.V(2).Info("reconcileContainers", "cluster", cluster.Name, "sizeClass", cluster.Spec.SizeClass)
+	sizeClassName := cluster.Spec.SizeClass
+	sizeClass, ok := SizeClasses[sizeClassName]
 	if !ok {
-		return errors.Errorf("invalid size class: %s", cluster.Spec.SizeClass)
+		return errors.Errorf("invalid size class: %s", sizeClassName)
 	}
 
 	var errors error
@@ -214,9 +231,9 @@ func (r *reconciliationRun) reconcileContainers(ctx context.Context, req ctrl.Re
 		}
 
 		key := client.ObjectKey{Namespace: container.Namespace, Name: container.Name}
-		if err := r.reconciler.Get(ctx, key, container); err != nil {
+		if err := r.Get(ctx, key, container); err != nil {
 			if apierrors.IsNotFound(err) {
-				if err := r.reconciler.Create(ctx, container); err != nil {
+				if err := r.Create(ctx, container); err != nil {
 					errors = multierror.Append(errors, err)
 					continue
 				}
@@ -234,7 +251,7 @@ func (r *reconciliationRun) reconcileContainers(ctx context.Context, req ctrl.Re
 	return errors
 }
 
-func (r *reconciliationRun) assignContainerToNode(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+func (r *iteration) assignContainerToNode(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	for _, backend := range r.backends.Items {
 		// Check if the container is already assigned to a node
 		if container.Status.AssignedNode.Name != "" {
@@ -246,7 +263,7 @@ func (r *reconciliationRun) assignContainerToNode(ctx context.Context, container
 			if container == nil {
 				backend.Status.Assignments[drive] = container
 				container.Status.AssignedNode = backend.Status.Node
-				if err := r.reconciler.Status().Update(ctx, container); err != nil {
+				if err := r.Status().Update(ctx, container); err != nil {
 					return errors.Wrap(err, "failed to assign container to node")
 				}
 				return nil

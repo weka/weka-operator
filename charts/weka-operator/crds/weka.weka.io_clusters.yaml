@@ -45,6 +45,8 @@ spec:
                 - medium
                 - large
                 type: string
+            required:
+            - size_class
             type: object
           status:
             description: ClusterStatus defines the observed state of Cluster
