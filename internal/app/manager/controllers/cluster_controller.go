@@ -122,15 +122,28 @@ func (r *iteration) refreshNodes(ctx context.Context) error {
 	if err := r.List(ctx, nodes); err != nil {
 		return err
 	}
-	var errors error
+	var nodeErrors error
 	for _, node := range nodes.Items {
 		if err := r.createWekaNode(ctx, node); err != nil {
-			errors = multierror.Append(errors, err)
+			nodeErrors = multierror.Append(nodeErrors, err)
 			continue
 		}
 	}
 
-	return errors
+	cluster := r.cluster.DeepCopy()
+	cluster.Status.Nodes = make([]string, len(r.backends.Items))
+	for i, backend := range r.backends.Items {
+		cluster.Status.Nodes[i] = backend.Status.Node.Name
+	}
+	if err := r.Get(ctx, r.namespacedName, cluster); err != nil {
+		return errors.Wrap(err, "failed to get cluster")
+	}
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		return errors.Wrap(err, "failed to update cluster status")
+	}
+	cluster.DeepCopyInto(r.cluster)
+
+	return nodeErrors
 }
 
 // createWekaNode creates a Weka node for the given Kubernetes node

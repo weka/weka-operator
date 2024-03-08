@@ -43,6 +43,7 @@ import (
 var (
 	cfg        *rest.Config
 	k8sClient  client.Client
+	k8sManager ctrl.Manager
 	testEnv    *envtest.Environment
 	TestCtx    context.Context
 	testCancel context.CancelFunc
@@ -56,7 +57,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
+	logf.SetLogger(logger.WithName("test"))
 	TestCtx, testCancel = context.WithCancel(context.TODO())
 
 	var err error
@@ -84,11 +86,16 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+	ctrl.SetLogger(logger.WithName("controllers"))
+	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
+	Expect(err).NotTo(HaveOccurred())
 
 	err = (NewClusterReconciler(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (NewBackendReconciler(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

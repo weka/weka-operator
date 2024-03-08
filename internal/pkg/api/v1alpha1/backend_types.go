@@ -22,8 +22,8 @@ type BackendSpec struct {
 
 type BackendStatus struct {
 	DriveCount  int                       `json:"driveCount"`
-	Node        v1.Node                   `json:"node"`
-	Assignments map[string]*WekaContainer `json:"assignments"`
+	Node        v1.Node                   `json:"node,omitempty"`
+	Assignments map[string]*WekaContainer `json:"assignments,omitempty"`
 }
 
 // +kubebuilder:object:root=true

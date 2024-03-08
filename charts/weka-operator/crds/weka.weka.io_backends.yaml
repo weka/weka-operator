@@ -1168,9 +1168,7 @@ spec:
                     type: object
                 type: object
             required:
-            - assignments
             - driveCount
-            - node
             type: object
         type: object
     served: true
