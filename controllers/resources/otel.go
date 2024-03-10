@@ -35,7 +35,7 @@ var (
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
 	setupLog.Info("Setting up OTel SDK")
-	var shutdownFuncs []func(context.Context) error
+	shutdownFuncs := make([]func(context.Context) error, 0)
 
 	// shutdown calls cleanup functions registered via shutdownFuncs.
 	// The errors from the calls are joined.
@@ -43,9 +43,12 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	shutdown = func(ctx context.Context) error {
 		var err error
 		for _, fn := range shutdownFuncs {
-			err = errors.Join(err, fn(ctx))
+			if err != nil {
+				// Join errors to avoid losing them.
+				err = errors.Join(err, fn(ctx))
+			}
 		}
-		shutdownFuncs = nil
+		shutdownFuncs = []func(context.Context) error{}
 		return err
 	}
 
@@ -75,7 +78,6 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	}
 	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
 	otel.SetMeterProvider(meterProvider)
-	otel.SetTracerProvider(tracerProvider)
 
 	return shutdown, err
 }
