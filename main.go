@@ -68,9 +68,16 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress:    fmt.Sprintf("%s:%s", metricsAddr, "9443"),
+			ExtraHandlers:  nil,
+			FilterProvider: nil,
+			CertDir:        "",
+			CertName:       "",
+			KeyName:        "",
+			TLSOpts:        nil,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ad0b5146.weka.io",
