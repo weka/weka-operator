@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"github.com/weka/weka-operator/controllers/resources"
+	"go.opentelemetry.io/otel/codes"
 	"time"
 
 	"github.com/pkg/errors"
@@ -21,20 +23,29 @@ func NewContainerListReconciler(c *ClientReconciler, executor Executor) *Contain
 }
 
 func (r *ContainerListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling container list")
+	ctx, span := resources.Tracer.Start(ctx, "reconcile_container_list")
+	defer span.End()
+	span.AddEvent("Reconsiling container list")
+	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling container list")
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"/usr/bin/weka", "cluster", "container", "-J"})
 	var podNotFound *PodNotFound
 	if errors.As(err, &podNotFound) {
+		span.SetStatus(codes.Error, "Pod not found")
+		span.RecordError(err)
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to get container list")
+		span.RecordError(err)
 		r.Logger.Error(err, "failed to get container list", "stderr", stderr.String())
 		return ctrl.Result{}, errors.Wrap(err, "failed to get container list")
 	}
 
 	containerList := []wekav1alpha1.Container{}
-	json.Unmarshal(stdout.Bytes(), &containerList)
+	err = json.Unmarshal(stdout.Bytes(), &containerList)
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to parse container list")
+		span.RecordError(err)
 		return ctrl.Result{}, errors.Wrap(err, "failed to parse container list")
 	}
 
@@ -45,6 +56,8 @@ func (r *ContainerListReconciler) Reconcile(ctx context.Context, client *wekav1a
 		return ctrl.Result{}, errors.Wrap(err, "failed to update client status")
 	}
 
-	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Container list recorded")
+	span.AddEvent("Container list recorded")
+	span.SetStatus(codes.Ok, "Container list recorded")
+	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Container list recorded")
 	return ctrl.Result{}, nil
 }
