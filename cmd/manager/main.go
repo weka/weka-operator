@@ -17,7 +17,9 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -34,6 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
@@ -71,11 +74,22 @@ func main() {
 
 	logger := prettyconsole.NewLogger(uzap.DebugLevel)
 	ctrl.SetLogger(zapr.NewLogger(logger))
+	ctx := context.Background()
+	ctx, span := instrumentation.Tracer.Start(ctx, "agent_exec")
+	span.AddEvent("test")
+	span.End()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress:    metricsAddr,
+			ExtraHandlers:  nil,
+			FilterProvider: nil,
+			CertDir:        "",
+			CertName:       "",
+			KeyName:        "",
+			TLSOpts:        nil,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ad0b5146.weka.io",
