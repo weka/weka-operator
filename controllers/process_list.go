@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"github.com/weka/weka-operator/controllers/resources"
+	"go.opentelemetry.io/otel/codes"
 	"time"
 
 	"github.com/pkg/errors"
@@ -21,20 +23,29 @@ func NewProcessListReconciler(c *ClientReconciler, executor Executor) *ProcessLi
 }
 
 func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling process list")
+	ctx, span := resources.Tracer.Start(ctx, "reconcile_process_list")
+	defer span.End()
+	span.AddEvent("Reconsiling process list")
+	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling process list")
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"/usr/bin/weka", "local", "ps", "-J"})
 	var podNotFound *PodNotFound
 	if errors.As(err, &podNotFound) {
+		span.SetStatus(codes.Error, "Pod not found")
+		span.RecordError(err)
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to get process list")
+		span.RecordError(err)
 		r.Logger.Error(err, "failed to get process list", "stderr", stderr.String())
 		return ctrl.Result{}, errors.Wrap(err, "failed to get process list")
 	}
 
 	processList := []wekav1alpha1.Process{}
-	json.Unmarshal(stdout.Bytes(), &processList)
+	err = json.Unmarshal(stdout.Bytes(), &processList)
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to parse process list")
+		span.RecordError(err)
 		return ctrl.Result{}, errors.Wrap(err, "failed to parse process list")
 	}
 
@@ -42,18 +53,23 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 		status.ProcessList = processList
 	})
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to update client status")
+		span.RecordError(err)
 		return ctrl.Result{}, errors.Wrap(err, "failed to update client status")
 	}
 
 	// If process list reports that the client is not ready, then requeue
 	for _, process := range processList {
 		if process.InternalStatus.State != "READY" {
-			r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Processes not yet ready")
+			span.AddEvent("Processes not yet ready")
+			_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Processes not yet ready")
 			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 	}
 
-	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Process list recorded")
+	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Process list recorded")
+	span.SetStatus(codes.Ok, "Process list recorded")
+	span.AddEvent("Process list recorded")
 	return ctrl.Result{}, nil
 }
 
