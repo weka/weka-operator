@@ -5,6 +5,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/controllers/resources"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -40,11 +43,20 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 }
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+	ctx, span := resources.Tracer.Start(ctx, "reconcile_agent")
+	defer span.End()
+	span.AddEvent("Reconsiling agent")
+	span.SetAttributes(attribute.String("agent", client.Name))
+	span.SetAttributes(attribute.String("namespace", client.Namespace))
+	span.SetAttributes(attribute.String("root", r.RootResourceName.Name))
 	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling agent")
+
 	key := runtimeClient.ObjectKeyFromObject(r.Desired)
 	existing := &appsv1.DaemonSet{}
 	if err := r.Get(ctx, key, existing); err != nil {
 		if !apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "Failed to get daemonset")
+			span.RecordError(err)
 			return ctrl.Result{}, fmt.Errorf("failed to get daemonset %s: %w", key, err)
 		}
 
@@ -61,6 +73,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 		}); err != nil {
 			r.Logger.Error(err, "Failed to update status")
 		}
+		span.SetStatus(codes.Ok, "Created deployment")
+		span.SetAttributes(attribute.String("deployment", r.Desired.Name))
+		span.SetAttributes(attribute.String("namespace", r.Desired.Namespace))
+		span.SetAttributes(attribute.String("name", r.CurrentInstance.Name))
 
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -81,38 +97,56 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 	}
 
 	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
+	span.SetStatus(codes.Ok, "Reconciled agent")
 	return ctrl.Result{}, nil
 }
 
-// Exec
+// Exec executes a command in the agent pods
 func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stderr bytes.Buffer, err error) {
+	ctx, span := resources.Tracer.Start(ctx, "agent_exec")
+	defer span.End()
+	span.AddEvent("Fetching agent pods")
+	span.SetAttributes(attribute.StringSlice("cmd", cmd))
 	agentPods, err := r.GetAgentPods(ctx)
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to get agent pods")
 		return stdout, stderr, errors.Wrap(&PodNotFound{err}, "failed to get agent pods")
 	}
 	pod := agentPods.Items[0]
+	span.SetAttributes(attribute.String("pod", pod.Name))
 
+	span.AddEvent("Executing command")
 	exec, err := util.NewExecInPod(&pod)
 	if err != nil {
+		span.SetStatus(codes.Error, "Failed to run command")
+		span.RecordError(err)
 		return stdout, stderr, errors.Wrapf(err, "Failed to run command %s", cmd)
 	}
 	return exec.Exec(ctx, cmd)
 }
 
-// appear that daemonsets support conditions.  Instead, just return true.
+// isAgentAvailable appear that daemonsets support conditions.  Instead, just return true.
 func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 	return deployment.Status.NumberReady == deployment.Status.DesiredNumberScheduled
 }
 
 // GetAgentPods returns the pods belonging to the daemonset
 func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
+	ctx, span := resources.Tracer.Start(ctx, "get_agent_pods")
+	defer span.End()
+	span.AddEvent("Fetching agent pods")
 	agent, err := r.GetAgentResource(ctx)
 	if err != nil {
+		span.SetStatus(codes.Error, "error getting pods")
+		span.RecordError(err)
 		return nil, errors.Wrap(err, "error getting pods")
 	}
 
 	config, err := util.KubernetesConfiguration()
 	if err != nil {
+		span.SetStatus(codes.Error, "failed to get kubernetes configuration")
+		span.RecordError(err)
+
 		return nil, errors.Wrap(err, "failed to get kubernetes configuration")
 	}
 
@@ -122,6 +156,8 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", agent.Name),
 	})
 	if err != nil {
+		span.SetStatus(codes.Error, "failed to get pod")
+		span.RecordError(err)
 		return nil, errors.Wrap(err, "failed to get pod")
 	}
 
@@ -130,10 +166,14 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 
 // GetAgentResource returns the agent DaemonSet resource
 func (r *AgentReconciler) GetAgentResource(ctx context.Context) (*appsv1.DaemonSet, error) {
+	ctx, span := resources.Tracer.Start(ctx, "get_agent_resource")
+	defer span.End()
 	agent := &appsv1.DaemonSet{}
 	key := client.ObjectKeyFromObject(r.Desired)
 	err := r.Get(ctx, key, agent)
 	if err != nil {
+		span.SetStatus(codes.Error, "failed to get agent resources")
+		span.RecordError(err)
 		return nil, errors.Wrap(err, "failed to get agent resources")
 	}
 
