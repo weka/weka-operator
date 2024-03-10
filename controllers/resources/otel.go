@@ -16,7 +16,7 @@ import (
 
 var (
 	Tracer   = otel.Tracer("weka-operator")
-	meter    = otel.Meter("weka-operator")
+	Meter    = otel.Meter("weka-operator")
 	setupLog = ctrl.Log.WithName("setup")
 )
 
