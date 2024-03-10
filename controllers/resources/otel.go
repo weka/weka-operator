@@ -4,11 +4,17 @@ import (
 	"context"
 	"errors"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"time"
@@ -18,11 +24,17 @@ var (
 	Tracer   = otel.Tracer("weka-operator")
 	Meter    = otel.Meter("weka-operator")
 	setupLog = ctrl.Log.WithName("setup")
+
+	tracingEndpoint = "https://listener-eu.logz.io:8053"
+	tracingToken    = "mLuXNMTyFCYiagGxNApjaTMbcHjpPBQq"
+
+	bsp sdktrace.SpanProcessor
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
+	setupLog.Info("Setting up OTel SDK")
 	var shutdownFuncs []func(context.Context) error
 
 	// shutdown calls cleanup functions registered via shutdownFuncs.
@@ -50,7 +62,7 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	tracerProvider, err := newTraceProvider()
 	if err != nil {
 		handleErr(err)
-		return
+		return shutdown, err
 	}
 	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)
@@ -59,12 +71,26 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	meterProvider, err := newMeterProvider()
 	if err != nil {
 		handleErr(err)
-		return
+		return shutdown, err
 	}
 	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
 	otel.SetMeterProvider(meterProvider)
+	otel.SetTracerProvider(tracerProvider)
 
-	return
+	return shutdown, err
+}
+
+func newResource() *resource.Resource {
+	r, _ := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("weka-operator"),
+			semconv.ServiceVersionKey.String("v1.0.0"),
+			attribute.String("environment", "demo"),
+		),
+	)
+	return r
 }
 
 func newPropagator() propagation.TextMapPropagator {
@@ -85,6 +111,8 @@ func newTraceProvider() (*trace.TracerProvider, error) {
 		trace.WithBatcher(traceExporter,
 			// Default is 5s. Set to 1s for demonstrative purposes.
 			trace.WithBatchTimeout(time.Second)),
+		trace.WithSpanProcessor(bsp),
+		trace.WithResource(newResource()),
 	)
 	return traceProvider, nil
 }
@@ -114,5 +142,20 @@ func init() {
 			err = errors.Join(err, shutdownFunc(ctx))
 		}()
 	}
+	exporter, err := newHTTPExporter(ctx)
+	if err != nil {
+		panic(err)
+	}
+	bsp = sdktrace.NewBatchSpanProcessor(exporter)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+}
 
+func newHTTPExporter(ctx context.Context) (*otlptrace.Exporter, error) {
+	headers := make(map[string]string)
+	headers["X-Api-Key"] = tracingToken
+	headers["api-key"] = tracingToken
+	return otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpointURL(tracingEndpoint),
+		otlptracehttp.WithHeaders(headers),
+	)
 }
