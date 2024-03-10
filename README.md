@@ -10,8 +10,15 @@ It defines a CRD, and if an instance of this CRD is deployed, then the Operator 
 ## Getting Started
 
 I use `asdf` to install the prerequisite development tools.
+```shell
+brew install asdf
+```
+Then install the plugins for the tools listed in `.tool-versions`:
 These are listed in `.tool-versions`.
 You should be able to bulk-install these using `asdf install` in the project root.
+```shell
+cut -d' ' -f1 .tool-versions|xargs -i asdf plugin add  {} 
+```
 
 ### Creating a Development Cluster
 
@@ -34,38 +41,37 @@ To work around these inconsistencies, I added this to my `/etc/hosts` file:
 ### Running on the cluster
 
 1. Install Instances of Custom Resources:
-
-```sh
-kubectl apply -f config/samples/
-```
+    ```sh
+    kubectl apply -f config/samples/
+    ```
 
 2. Build and push your image to the local registry
 
-```sh
-make docker-build docker-push 
-```
+    ```sh
+    make docker-build docker-push 
+    ```
 
 3. Deploy the controller to the cluster with the image specified by `IMG`:
 
-```sh
-make deploy
-```
+    ```sh
+    make deploy
+    ```
 
 ### Uninstall CRDs
 
 To delete the CRDs from the cluster:
 
-```sh
-make uninstall
-```
+    ```sh
+    make uninstall
+    ```
 
 ### Undeploy controller
 
 UnDeploy the controller from the cluster:
 
-```sh
-make undeploy
-```
+    ```sh
+    make undeploy
+    ```
 
 ### How it works
 
@@ -82,15 +88,15 @@ The CRD definition is generated from structs in `client_types.go`
 
 1. Install the CRDs into the cluster:
 
-```sh
-make install
-```
+    ```sh
+    make install
+    ```
 
 2. Run your controller (this will run in the foreground, so switch to a new terminal if you want to leave it running):
 
-```sh
-make run
-```
+    ```sh
+    make run
+    ```
 
 **NOTE:** You can also run this in one step by running: `make install run`
 
