@@ -3,7 +3,7 @@
 locals {
   user_data = <<-EOF
               #!/bin/bash
-              echo "vm.nr_hugepages=800" >> /etc/sysctl.conf
+              echo "vm.nr_hugepages=1024" >> /etc/sysctl.conf
               /usr/sbin/sysctl --system
               /etc/eks/bootstrap.sh ${aws_eks_cluster.eks.name} \
                 --kubelet-extra-args '--cpu-manager-policy=static'
