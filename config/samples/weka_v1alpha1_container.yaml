@@ -1,0 +1,34 @@
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: sample-container
+  namespace: weka-operator-system
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - ip-10-0-1-23.us-east-2.compute.internal
+
+  drives:
+    - /dev/nvme0n1
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.9
+  imagePullSecretName: quay-cred
+  name: sample-container
+  wekaVersion: 4.2.7.64-k8so-beta.9
+  backendIP: '10.0.1.23'
+
+  #wekaUsername:
+  #secretKeyRef:
+  #name: weka-cli
+  #key: username
+
+  #wekaPassword:
+  #secretKeyRef:
+  #name: weka-cli
+  #key: password
