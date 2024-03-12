@@ -106,7 +106,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: ## Run tests.
+test: envtest## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" go test -v ./... -coverprofile cover.out
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
