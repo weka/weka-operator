@@ -16,9 +16,18 @@ type WekaContainer struct {
 }
 
 type ContainerSpec struct {
-	// +kubebuilder:validation:Required
-	Name    string             `json:"name"`
-	Cluster v1.ObjectReference `json:"cluster"`
+	Affinity            v1.Affinity `json:"affinity"`
+	Drives              []string    `json:"drives"`
+	Image               string      `json:"image"`
+	ImagePullSecretName string      `json:"imagePullSecretName,omitempty"`
+	Name                string      `json:"name"`
+	WekaVersion         string      `json:"wekaVersion"`
+	BackendIP           string      `json:"backendIP"`
+	ManagementPort      int32       `json:"managementPort,omitempty"`
+	InterfaceName       string      `json:"interfaceName,omitempty"`
+
+	// WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
+	// WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
 }
 
 type ContainerStatus struct {
