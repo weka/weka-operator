@@ -70,7 +70,6 @@ func main() {
 	flag.Parse()
 
 	logger := prettyconsole.NewLogger(uzap.DebugLevel)
-	// ctrl.SetLogger(logger)
 	ctrl.SetLogger(zapr.NewLogger(logger))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{

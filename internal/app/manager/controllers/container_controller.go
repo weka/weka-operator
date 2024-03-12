@@ -41,7 +41,7 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
 
-	desiredDeployment, err := resources.NewContainerFactory(container).NewDeployment()
+	desiredDeployment, err := resources.NewContainerFactory(container, c.Logger).NewDeployment()
 	if err != nil {
 		c.Logger.Error(err, "Error creating deployment spec")
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
@@ -116,5 +116,6 @@ func (c *ContainerController) updateDeployment(ctx context.Context, deployment *
 func (c *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaContainer{}).
+		Owns(&appsv1.Deployment{}).
 		Complete(c)
 }

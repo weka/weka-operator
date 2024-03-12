@@ -1,11 +1,13 @@
 package resources
 
 import (
+	"github.com/go-logr/zapr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -21,7 +23,7 @@ var _ = Describe("Container", func() {
 			},
 			Spec: wekav1alpha1.ContainerSpec{
 				Name:     "test-container",
-				Affinity: v1.Affinity{},
+				NodeName: "node1",
 
 				Drives: []string{
 					"/dev/nvme0n1",
@@ -53,10 +55,11 @@ var _ = Describe("Container", func() {
 			},
 		}
 
-		factory = NewContainerFactory(c)
+		logger := zapr.NewLogger(prettyconsole.NewLogger(zap.DebugLevel))
+		factory = NewContainerFactory(c, logger)
 	})
 
-	Describe("NewDeployment", func() {
+	_ = Describe("NewDeployment", func() {
 		var deployment *appsv1.Deployment
 
 		BeforeEach(func() {

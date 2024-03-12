@@ -6,7 +6,6 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,7 +50,7 @@ var _ = XDescribe("ContainerController", func() {
 		var deployment *appsv1.Deployment
 		var err error
 		BeforeEach(func() {
-			deployment, err = resources.NewContainerFactory(newTestingContainer()).NewDeployment()
+			deployment, err = resources.NewContainerFactory(newTestingContainer(), k8sManager.GetLogger()).NewDeployment()
 			Expect(err).Should(BeNil())
 
 			Expect(k8sClient.Create(TestCtx, deployment)).Should(BeNil())
@@ -91,25 +90,8 @@ func newTestingContainer() *wekav1alpha1.WekaContainer {
 			Namespace: "default",
 		},
 		Spec: wekav1alpha1.ContainerSpec{
-			Name: "test-container",
-			Affinity: v1.Affinity{
-				NodeAffinity: &v1.NodeAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
-						NodeSelectorTerms: []v1.NodeSelectorTerm{
-							{
-								MatchExpressions: []v1.NodeSelectorRequirement{
-									{
-										Key:      "kubernetes.io/hostname",
-										Operator: v1.NodeSelectorOpIn,
-
-										Values: []string{"ip-10-0-1-23.us-east-2.compute.internal"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			Name:     "test-container",
+			NodeName: "node1",
 			Drives: []string{
 				"/dev/nvme0n1",
 			},

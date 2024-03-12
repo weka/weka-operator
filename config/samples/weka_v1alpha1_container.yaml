@@ -5,15 +5,7 @@ metadata:
   name: sample-container
   namespace: weka-operator-system
 spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                  - ip-10-0-1-23.us-east-2.compute.internal
+  nodeName: ip-10-0-1-17.us-east-2.compute.internal
 
   drives:
     - /dev/nvme0n1
