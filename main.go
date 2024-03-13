@@ -17,7 +17,9 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"github.com/weka/weka-operator/controllers/resources"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -67,6 +69,10 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctx := context.Background()
+	ctx, span := resources.Tracer.Start(ctx, "agent_exec")
+	span.AddEvent("test")
+	span.End()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,

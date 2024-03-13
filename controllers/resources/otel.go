@@ -5,12 +5,8 @@ import (
 	"errors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -22,11 +18,10 @@ import (
 
 var (
 	Tracer   = otel.Tracer("weka-operator")
-	Meter    = otel.Meter("weka-operator")
 	setupLog = ctrl.Log.WithName("setup")
 
-	tracingEndpoint = "https://listener-eu.logz.io:8053"
-	tracingToken    = "mLuXNMTyFCYiagGxNApjaTMbcHjpPBQq"
+	//tracingEndpoint = "https://listener-eu.logz.io:8053"
+	//tracingToken    = "mLuXNMTyFCYiagGxNApjaTMbcHjpPBQq"
 
 	bsp sdktrace.SpanProcessor
 )
@@ -70,15 +65,6 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)
 
-	// Set up meter provider.
-	meterProvider, err := newMeterProvider()
-	if err != nil {
-		handleErr(err)
-		return shutdown, err
-	}
-	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
-	otel.SetMeterProvider(meterProvider)
-
 	return shutdown, err
 }
 
@@ -103,8 +89,17 @@ func newPropagator() propagation.TextMapPropagator {
 }
 
 func newTraceProvider() (*trace.TracerProvider, error) {
-	traceExporter, err := stdouttrace.New(
-		stdouttrace.WithPrettyPrint())
+	ctx := context.Background()
+	//headers := make(map[string]string)
+	//headers["X-Api-Key"] = tracingToken
+	//headers["api-key"] = tracingToken
+
+	traceExporter, err := otlptracehttp.New(ctx,
+		//otlptracehttp.WithEndpoint(tracingEndpoint),
+		//otlptracehttp.WithHeaders(headers),
+		//otlptracehttp.WithInsecure(),
+		otlptracehttp.WithTimeout(5*time.Second),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -113,24 +108,9 @@ func newTraceProvider() (*trace.TracerProvider, error) {
 		trace.WithBatcher(traceExporter,
 			// Default is 5s. Set to 1s for demonstrative purposes.
 			trace.WithBatchTimeout(time.Second)),
-		trace.WithSpanProcessor(bsp),
 		trace.WithResource(newResource()),
 	)
 	return traceProvider, nil
-}
-
-func newMeterProvider() (*metric.MeterProvider, error) {
-	metricExporter, err := stdoutmetric.New()
-	if err != nil {
-		return nil, err
-	}
-
-	meterProvider := metric.NewMeterProvider(
-		metric.WithReader(metric.NewPeriodicReader(metricExporter,
-			// Default is 1m. Set to 3s for demonstrative purposes.
-			metric.WithInterval(3*time.Second))),
-	)
-	return meterProvider, nil
 }
 
 func init() {
@@ -140,24 +120,10 @@ func init() {
 		setupLog.Error(err, "failed to set up OTel SDK")
 		os.Exit(1)
 	} else {
+		setupLog.Info("Successfully set up OTel SDK")
 		defer func() {
 			err = errors.Join(err, shutdownFunc(ctx))
 		}()
 	}
-	exporter, err := newHTTPExporter(ctx)
-	if err != nil {
-		panic(err)
-	}
-	bsp = sdktrace.NewBatchSpanProcessor(exporter)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
-}
-
-func newHTTPExporter(ctx context.Context) (*otlptrace.Exporter, error) {
-	headers := make(map[string]string)
-	headers["X-Api-Key"] = tracingToken
-	headers["api-key"] = tracingToken
-	return otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(tracingEndpoint),
-		otlptracehttp.WithHeaders(headers),
-	)
 }
