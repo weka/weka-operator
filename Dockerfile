@@ -16,10 +16,11 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 COPY hack/ hack/
 COPY config/ config/
 COPY Makefile Makefile
-COPY main.go main.go
-COPY api/ api/
-COPY controllers/ controllers/
+COPY cmd/ cmd/
 COPY util/ util/
+COPY internal/ internal/
+
+FROM builder as build-manager
 
 # Build
 # the GOARCH has not a default value to allow the binary be built according to the host where the command
@@ -39,3 +40,18 @@ COPY --from=builder /workspace/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
+
+# Build node labeller
+FROM builder as build-node-labeller
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -a -o node-labeller cmd/node-labeller/main.go
+
+FROM --platform=${TARGETARCH} gcr.io/distroless/static:nonroot as node-labeller
+WORKDIR /
+COPY --from=build-node-labeller /workspace/node-labeller .
+USER 65532:65532
+
+ENTRYPOINT ["/node-labeller"]

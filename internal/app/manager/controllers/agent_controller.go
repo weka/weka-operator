@@ -9,7 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	wekav1alpha1 "github.com/weka/weka-operator/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/util"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
