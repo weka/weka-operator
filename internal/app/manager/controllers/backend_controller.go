@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
+	"github.com/kr/pretty"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,7 +33,7 @@ type BackendReconciler struct {
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update
 
 func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("BackendReconciler.Reconcile() called")
+	r.Logger.Info("BackendReconciler.Reconcile() called", "name", req.NamespacedName)
 
 	backend := &wekav1alpha1.Backend{}
 	if err := r.Get(ctx, req.NamespacedName, backend); err != nil {
@@ -48,14 +48,17 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	drives := node.Status.Allocatable["drive.weka.io/drive"]
-	r.Logger.Info("Found drives", "count", drives.Value())
-	backend.Status.DriveCount = int(drives.Value())
-	if err := r.Status().Update(ctx, backend); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to update status")
+	if int(drives.Value()) != backend.Status.DriveCount {
+		backend.Status.DriveCount = int(drives.Value())
+		if err := r.Status().Update(ctx, backend); err != nil {
+			return ctrl.Result{}, pretty.Errorf("Status().Update(backend) failed", err, backend)
+		}
+
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if err := r.labelNode(ctx, node, backend); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to label node")
+		return ctrl.Result{}, pretty.Errorf("labelNode failed", err, node)
 	}
 
 	return ctrl.Result{}, nil
@@ -70,7 +73,7 @@ func (r *BackendReconciler) labelNode(ctx context.Context, node *v1.Node, backen
 	node.SetLabels(labels)
 
 	if err := r.Update(ctx, node); err != nil {
-		return errors.Wrap(err, "failed to update node")
+		return pretty.Errorf("Update(node) failed", err, node)
 	}
 
 	return nil

@@ -22,8 +22,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-logr/zapr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
+	uzap "go.uber.org/zap"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -31,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
@@ -57,7 +59,8 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
+	// logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
+	logger := zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
 	logf.SetLogger(logger.WithName("test"))
 	TestCtx, testCancel = context.WithCancel(context.TODO())
 

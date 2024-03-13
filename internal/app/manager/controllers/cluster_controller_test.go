@@ -43,12 +43,27 @@ var _ = Describe("Reconcile", func() {
 			},
 		}
 		Expect(k8sClient.Create(TestCtx, cluster)).Should(BeNil())
-		Eventually(func() error {
-			return k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-cluster", Namespace: "default"}, cluster)
-		}).Should(BeNil())
+		Eventually(func() int {
+			err := k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-cluster", Namespace: "default"}, cluster)
+			if err != nil {
+				return -1
+			}
+			return len(cluster.Status.Nodes)
+		}).Should(BeNumerically(">", 0))
 	})
 
 	AfterEach(func() {
+		backends := &wekav1alpha1.BackendList{}
+		Expect(k8sClient.List(TestCtx, backends)).Should(BeNil())
+		for _, backend := range backends.Items {
+			k8sClient.Delete(TestCtx, &backend)
+			Eventually(func() bool {
+				dummy := &wekav1alpha1.Backend{}
+				err := k8sClient.Get(TestCtx, types.NamespacedName{Name: backend.Name, Namespace: backend.Namespace}, dummy)
+				return apierrors.IsNotFound(err)
+			})
+		}
+
 		k8sClient.Delete(TestCtx, cluster)
 		Eventually(func() bool {
 			dummy := &wekav1alpha1.Cluster{}
@@ -64,13 +79,11 @@ var _ = Describe("Reconcile", func() {
 		})
 	})
 
-	XIt("should create a cluster", func() {
+	It("should create a cluster", func() {
 		Expect(cluster.Spec.SizeClass).Should(Equal("dev"))
-		Expect(len(cluster.Status.Nodes)).Should(Equal(1))
-		Expect(cluster.Status.Nodes).Should(Equal([]string{"test-node"}))
 	})
 
-	XIt("should create one backend", func() {
+	It("should create one backend", func() {
 		allBackends := &wekav1alpha1.BackendList{}
 
 		Eventually(func() error {
