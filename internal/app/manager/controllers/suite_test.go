@@ -98,6 +98,9 @@ var _ = BeforeSuite(func() {
 	err = (NewBackendReconciler(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (NewContainerController(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
+
 	//+kubebuilder:scaffold:scheme
 	go func() {
 		defer GinkgoRecover()
