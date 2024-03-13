@@ -22,8 +22,12 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+	uzap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/zapr"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -31,9 +35,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
-	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,7 +51,6 @@ func init() {
 
 	utilruntime.Must(wekav1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-	utilruntime.Must(kmmv1beta1.AddToScheme(scheme))
 }
 
 func main() {
@@ -62,10 +65,12 @@ func main() {
 	opts := zap.Options{
 		Development: true,
 	}
+	zap.Level(zapcore.Level(-2))
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := prettyconsole.NewLogger(uzap.DebugLevel)
+	ctrl.SetLogger(zapr.NewLogger(logger))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -93,6 +98,18 @@ func main() {
 
 	if err = (controllers.NewClientReconciler(mgr)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Client")
+		os.Exit(1)
+	}
+	if err = (controllers.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		os.Exit(1)
+	}
+	if err = (controllers.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Backend")
+		os.Exit(1)
+	}
+	if err = (controllers.NewContainerController(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Container")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

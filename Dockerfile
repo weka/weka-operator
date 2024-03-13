@@ -13,12 +13,14 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
   go mod download
 
 # Copy the go source
+COPY cmd/ cmd/
 COPY hack/ hack/
 COPY config/ config/
 COPY Makefile Makefile
-COPY cmd/ cmd/
 COPY util/ util/
 COPY internal/ internal/
+
+FROM builder as build-manager
 
 FROM builder as build-manager
 
@@ -30,13 +32,13 @@ FROM builder as build-manager
 RUN make manifests generate fmt vet
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -a -o manager main.go
+    go build -a -o manager cmd/manager/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
+FROM --platform=${TARGETARCH} gcr.io/distroless/static:nonroot as manager
 WORKDIR /
-COPY --from=builder /workspace/manager .
+COPY --from=build-manager /workspace/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

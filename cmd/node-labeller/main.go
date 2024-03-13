@@ -5,10 +5,15 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	nodeLabeller "github.com/weka/weka-operator/internal/app/node-labeller"
 	"go.uber.org/zap/zapcore"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	zapr "sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	nodeLabeller "github.com/weka/weka-operator/internal/app/node-labeller"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
 type App struct {
@@ -18,7 +23,15 @@ type App struct {
 
 func (a *App) Main() error {
 	ctrl.SetLogger(a.Logger)
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{})
+
+	// Set up Scheme for all resources
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(wekav1alpha1.AddToScheme(scheme))
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme: scheme,
+	})
 	if err != nil {
 		return errors.Wrap(err, "failed to create manager")
 	}

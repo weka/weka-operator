@@ -88,8 +88,7 @@ resource "aws_eks_node_group" "weka_node_group" {
 
   # K8s labels
   labels = {
-    "weka.io/role"                         = "client"
-    "kmm.node.kubernetes.io/control-plane" = "true"
+    "weka.io/role" = "client"
   }
 }
 

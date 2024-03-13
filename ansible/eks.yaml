@@ -69,47 +69,10 @@
       ignore_errors: true
 
 
-- name: Provision Backend
-  hosts: weka_backend
-  become: true
-  tags:
-    - provision_backend
-  vars:
-    kernel_full_version: "{{ hostvars[groups['weka_frontend'][0]].ansible_kernel }}"
-    driver_root: "/opt/weka/dist/drivers"
-  tasks:
-    # tar each driver into file named <driver-name>-<weka-version>-<kernel-version>.<arch>.tar.gz
-    # wekafs(gw|io) are packaged in a single tarball
-    - name: Find wekafs drivers
-      find:
-        patterns:
-          - "wekafs(gw|io).ko"
-          - "igb_uio.ko"
-          - "mpin_user.ko"
-        paths: /opt/weka/data
-        recurse: true
-        use_regex: true
-      register: drivers
-
-    - name: Create driver directory
-      file:
-        path: "{{ driver_root }}"
-        state: directory
-
-    - name: Archive drivers
-      archive:
-        path: "{{ item.path }}"
-        dest: "{{ driver_root }}/{{ item.path | basename | splitext | first }}-{{ weka_version }}-{{ kernel_full_version }}.x86_64.tar.gz"
-        format: gz
-        force_archive: true
-      loop: "{{ drivers.files }}"
-
 # Development Prerequisites in Kubernetes
 # - Operator namespace
 # - Image pull secret
 # - CLI secret, this is used by the agent to authenticate with the Weka cluster
-# - Install OLM
-# - Install KMM
 - name: Configuring Prerequisites in kubernetes
   tags: k8s_prerequisites
   hosts: localhost
@@ -136,16 +99,16 @@
           type: kubernetes.io/dockerconfigjson
           data:
             .dockerconfigjson: "{{ dockerconfigjson_b64 }}"
-    - name: Creating CLI Secret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: weka-cli
-            namespace: weka-operator-system
-          type: kubernetes.io/basic-auth
-          stringData:
-            username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-w1QA') }}"
-            password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-w1QA') }}"
+            #- name: Creating CLI Secret
+          #kubernetes.core.k8s:
+          #state: present
+          #definition:
+          #apiVersion: v1
+          #kind: Secret
+          #metadata:
+          #name: weka-cli
+          #namespace: weka-operator-system
+          #type: kubernetes.io/basic-auth
+          #stringData:
+          #username: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-username-w1QA') }}"
+          #password: "{{ lookup('amazon.aws.aws_secret', 'weka/weka-mpfefferle/weka-password-w1QA') }}"

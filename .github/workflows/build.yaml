@@ -16,10 +16,19 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: '~1.21.0'
-      - name: Test
+
+      - name: Setup go
         run: |
           go version
           go mod download
+
+      - name: Setup envtest
+        run: |
+          make envtest
+          ./bin/setup-envtest use --bin-dir ./bin 1.26.0
+
+      - name: Test
+        run: |
           make test
 
 

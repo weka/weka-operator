@@ -33,7 +33,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kmmv1beta1 "github.com/kubernetes-sigs/kernel-module-management/api/v1beta1"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
@@ -44,8 +43,9 @@ import (
 var (
 	cfg        *rest.Config
 	k8sClient  client.Client
+	k8sManager ctrl.Manager
 	testEnv    *envtest.Environment
-	testCtx    context.Context
+	TestCtx    context.Context
 	testCancel context.CancelFunc
 	kubectlExe string
 )
@@ -57,8 +57,9 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-	testCtx, testCancel = context.WithCancel(context.TODO())
+	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
+	logf.SetLogger(logger.WithName("test"))
+	TestCtx, testCancel = context.WithCancel(context.TODO())
 
 	var err error
 	kubectlExe, err = exec.LookPath("kubectl")
@@ -66,9 +67,9 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
-		UseExistingCluster:    func(b bool) *bool { return &b }(true),
+		UseExistingCluster:    func(b bool) *bool { return &b }(false),
 	}
 
 	// cfg is defined in this file globally.
@@ -79,21 +80,28 @@ var _ = BeforeSuite(func() {
 	err = wekav1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = kmmv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+	ctrl.SetLogger(logger.WithName("controllers"))
+	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (NewClusterReconciler(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (NewBackendReconciler(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(testCtx)
+		err = k8sManager.Start(TestCtx)
 		Expect(err).ToNot(HaveOccurred(), "failed to start manager")
 	}()
 })
