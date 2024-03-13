@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/controllers/resources"
+	"github.com/weka/weka-operator/instrumentation"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"reflect"
@@ -43,7 +43,7 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 }
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	ctx, span := resources.Tracer.Start(ctx, "reconcile_agent")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_agent")
 	defer span.End()
 	span.AddEvent("Reconsiling agent")
 	span.SetAttributes(attribute.String("agent", client.Name))
@@ -103,7 +103,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Cl
 
 // Exec executes a command in the agent pods
 func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stderr bytes.Buffer, err error) {
-	ctx, span := resources.Tracer.Start(ctx, "agent_exec")
+	ctx, span := instrumentation.Tracer.Start(ctx, "agent_exec")
 	defer span.End()
 	span.AddEvent("Fetching agent pods")
 	span.SetAttributes(attribute.StringSlice("cmd", cmd))
@@ -132,7 +132,7 @@ func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 
 // GetAgentPods returns the pods belonging to the daemonset
 func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
-	ctx, span := resources.Tracer.Start(ctx, "get_agent_pods")
+	ctx, span := instrumentation.Tracer.Start(ctx, "get_agent_pods")
 	defer span.End()
 	span.AddEvent("Fetching agent pods")
 	agent, err := r.GetAgentResource(ctx)
@@ -166,7 +166,7 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 
 // GetAgentResource returns the agent DaemonSet resource
 func (r *AgentReconciler) GetAgentResource(ctx context.Context) (*appsv1.DaemonSet, error) {
-	ctx, span := resources.Tracer.Start(ctx, "get_agent_resource")
+	ctx, span := instrumentation.Tracer.Start(ctx, "get_agent_resource")
 	defer span.End()
 	agent := &appsv1.DaemonSet{}
 	key := client.ObjectKeyFromObject(r.Desired)

@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"github.com/weka/weka-operator/controllers/resources"
+	"github.com/weka/weka-operator/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/pkg/errors"
@@ -23,7 +23,7 @@ func NewApiKeyReconciler(c *ClientReconciler, executor Executor) *ApiKeyReconcil
 }
 
 func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	ctx, span := resources.Tracer.Start(ctx, "reconcile_api_key")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_api_key")
 	defer span.End()
 	span.AddEvent("Reconciling api key")
 	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling api key")

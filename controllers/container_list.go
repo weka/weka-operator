@@ -3,7 +3,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"github.com/weka/weka-operator/controllers/resources"
+	"github.com/weka/weka-operator/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	"time"
 
@@ -23,7 +23,7 @@ func NewContainerListReconciler(c *ClientReconciler, executor Executor) *Contain
 }
 
 func (r *ContainerListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
-	ctx, span := resources.Tracer.Start(ctx, "reconcile_container_list")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_container_list")
 	defer span.End()
 	span.AddEvent("Reconsiling container list")
 	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling container list")

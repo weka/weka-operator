@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/instrumentation"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -191,7 +192,7 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, span := resources.Tracer.Start(ctx, "reconcile_client")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_client")
 	defer span.End()
 	span.SetAttributes(attribute.String("name", req.NamespacedName.String()))
 	span.AddEvent("Reconciling client")
@@ -288,7 +289,7 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 }
 
 func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1.Condition) error {
-	ctx, span := resources.Tracer.Start(ctx, "record_condition")
+	ctx, span := instrumentation.Tracer.Start(ctx, "record_condition")
 	defer span.End()
 	span.AddEvent("Recording condition")
 
@@ -311,7 +312,7 @@ func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1
 
 // UpdateStatus sets Status fields on the Client
 func (r *ClientReconciler) UpdateStatus(ctx context.Context, updater func(*wekav1alpha1.ClientStatus)) error {
-	ctx, span := resources.Tracer.Start(ctx, "record_condition")
+	ctx, span := instrumentation.Tracer.Start(ctx, "record_condition")
 	defer span.End()
 	span.AddEvent("Updating status")
 

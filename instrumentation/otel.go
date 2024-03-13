@@ -1,4 +1,4 @@
-package resources
+package instrumentation
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -23,7 +22,6 @@ var (
 	//tracingEndpoint = "https://listener-eu.logz.io:8053"
 	//tracingToken    = "mLuXNMTyFCYiagGxNApjaTMbcHjpPBQq"
 
-	bsp sdktrace.SpanProcessor
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.

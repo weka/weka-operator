@@ -19,7 +19,7 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/weka/weka-operator/controllers/resources"
+	"github.com/weka/weka-operator/instrumentation"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -70,7 +70,7 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	ctx := context.Background()
-	ctx, span := resources.Tracer.Start(ctx, "agent_exec")
+	ctx, span := instrumentation.Tracer.Start(ctx, "agent_exec")
 	span.AddEvent("test")
 	span.End()
 
