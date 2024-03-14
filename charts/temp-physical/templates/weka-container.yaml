@@ -1,0 +1,140 @@
+{{- range $index, $server := .Values.physicalServers }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: weka-container-{{ $index }}
+  labels:
+      app: weka-container
+      weka-server: {{ $server }}
+      weka-index: {{ $index | quote }}
+  namespace: default
+spec:
+  containers:
+    - name: weka-container
+      image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.9
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - name: hugepages
+          mountPath: /dev/hugepages
+        - name: dev
+          mountPath: /dev
+        - name: sys
+          mountPath: /sys
+        - name: host-cgroup
+          mountPath: /sys/fs/cgroup
+        - name: boot-script
+          mountPath: /opt/start-weka-client.sh
+          subPath: boot_script.sh
+        - name: supervisord-conf
+          mountPath: /etc/supervisord/supervisord.conf
+          subPath: supervisord.conf
+        - name: kube-api-access-cxtpl
+          readOnly: true
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      env:
+        - name: NAME
+          value: "backend0"
+        - name: MODE
+          value: "mixed"
+        - name: PORT
+          value: "16001"
+        - name: MEMORY
+          value: "1gib"
+        - name: CORE_IDS
+          value: "auto"
+        - name: CORES
+          value: "1"
+        - name: WEKA_PORT
+          value: "16001"
+      resources:
+        limits:
+          cpu: '4'
+          hugepages-2Mi: 2000Mi
+        requests:
+          cpu: '4'
+          hugepages-2Mi: 2000Mi
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      imagePullPolicy: IfNotPresent
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 30
+  dnsPolicy: ClusterFirst
+  serviceAccountName: default
+  nodeName: {{ $server }}.lan
+  hostNetwork: true
+  securityContext: {}
+  imagePullSecrets:
+    - name: quay-io
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - {{ $server }}.lan
+  schedulerName: default-scheduler
+  tolerations:
+    - key: node.kubernetes.io/not-ready
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+    - key: node.kubernetes.io/unreachable
+      operator: Exists
+      effect: NoExecute
+      tolerationSeconds: 300
+  priority: 0
+  enableServiceLinks: true
+  preemptionPolicy: PreemptLowerPriority
+
+  volumes:
+    - name: hugepages
+      emptyDir:
+        medium: HugePages
+    - name: dev
+      hostPath:
+        path: /dev
+    - name: sys
+      hostPath:
+        path: /sys
+        type: ''
+    - name: host-cgroup
+      hostPath:
+        path: /sys/fs/cgroup
+        type: ''
+    - name: boot-script
+      configMap:
+        name: weka-boot-script
+        items:
+          - key: boot_script.sh
+            path: boot_script.sh
+        defaultMode: 511
+    - name: supervisord-conf
+      configMap:
+        name: weka-supervisord-conf
+        items:
+          - key: supervisord.conf
+            path: supervisord.conf
+        defaultMode: 511
+    - name: kube-api-access-cxtpl
+      projected:
+        sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+        defaultMode: 420
+{{- end }}
