@@ -16,15 +16,20 @@ type Backend struct {
 }
 
 type BackendSpec struct {
-	ClusterName string `json:"clusterName"`
-	NodeName    string `json:"nodeName"`
+	NodeName string `json:"nodeName"`
 }
 
 type BackendStatus struct {
-	DriveCount  int                       `json:"driveCount"`
-	Node        v1.Node                   `json:"node,omitempty"`
-	Assignments map[string]*WekaContainer `json:"assignments,omitempty"`
+	DriveCount       int                                    `json:"driveCount"`
+	Node             v1.Node                                `json:"node,omitempty"`
+	DriveAssignments map[DriveName]*v1.LocalObjectReference `json:"assignments,omitempty"`
+	CoreAssignments  map[CoreId]*v1.LocalObjectReference    `json:"coreAssignments,omitempty"`
 }
+
+type (
+	DriveName string
+	CoreId    string
+)
 
 // +kubebuilder:object:root=true
 

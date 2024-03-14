@@ -29,55 +29,94 @@ func (e *InvalildSizeClassError) Error() string {
 	return "invalid size class"
 }
 
+type InsufficientDrivesError struct{}
+
+func (e *InsufficientDrivesError) Error() string {
+	return "insufficient drives"
+}
+
 type Scheduling struct {
 	cluster  *wekav1alpha1.Cluster
-	nodePool []v1.Node
+	backends []wekav1alpha1.Backend
 }
 
-func ForCluster(cluster *wekav1alpha1.Cluster, nodePool []v1.Node) *Scheduling {
+func ForCluster(cluster *wekav1alpha1.Cluster, backends []wekav1alpha1.Backend) *Scheduling {
 	return &Scheduling{
 		cluster:  cluster,
-		nodePool: nodePool,
+		backends: backends,
 	}
 }
 
-func (s *Scheduling) AssignBackends() error {
-	sizeClass, ok := SizeClasses[s.cluster.Spec.SizeClass]
-	if !ok {
-		return &InvalildSizeClassError{}
+func (s *Scheduling) AssignBackends(container *v1.LocalObjectReference) error {
+	containerCount, err := s.ContainerCount()
+	if err != nil {
+		return err
 	}
 
-	if len(s.nodePool) < sizeClass.ContainerCount {
-		return &InsufficientNodesError{}
-	}
-
-	candidatePool := []v1.Node{}
-	for i, node := range s.nodePool {
-		if i >= sizeClass.ContainerCount {
+	candidatePool := []*wekav1alpha1.Backend{}
+	for i := range s.backends { // use index to avoid copying
+		node := &s.backends[i]
+		if i >= containerCount {
 			break
 		}
 
-		if node.Labels["weka.io/cluster"] != "" {
-			continue
-		}
-		if node.Labels["weka.io/role"] != "backend" {
+		if !s.HasFreeDrives(node) {
 			continue
 		}
 
 		candidatePool = append(candidatePool, node)
 	}
 
-	if len(candidatePool) < sizeClass.ContainerCount {
+	if len(candidatePool) < containerCount {
 		return &InsufficientNodesError{}
 	}
 
-	for _, node := range candidatePool {
-		s.cluster.Status.Nodes = append(s.cluster.Status.Nodes, node.Name)
+	for i := range candidatePool { // use index to avoid copying
+		// TODO: add to assignments
+		backend := candidatePool[i]
+		s.AssignToDrive(backend, container)
+		s.cluster.Status.Backends = append(s.cluster.Status.Backends, candidatePool[i].Name)
 	}
 
 	return nil
 }
 
+func (s *Scheduling) HasFreeDrives(node *wekav1alpha1.Backend) bool {
+	if node.Status.DriveCount <= 0 {
+		return false
+	}
+
+	for _, assignment := range node.Status.DriveAssignments {
+		if assignment.Name == "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Scheduling) AssignToDrive(backend *wekav1alpha1.Backend, container *v1.LocalObjectReference) error {
+	for drive, assignment := range backend.Status.DriveAssignments {
+		if assignment.Name == "" {
+			backend.Status.DriveAssignments[drive] = container
+			return nil
+		}
+	}
+	return &InsufficientDrivesError{}
+}
+
 func (s *Scheduling) Cluster() *wekav1alpha1.Cluster {
 	return s.cluster
+}
+
+func (s *Scheduling) Backends() []wekav1alpha1.Backend {
+	return s.backends
+}
+
+func (s *Scheduling) ContainerCount() (int, error) {
+	sizeClass, ok := SizeClasses[s.cluster.Spec.SizeClass]
+	if !ok {
+		return 0, &InvalildSizeClassError{}
+	}
+	return sizeClass.ContainerCount, nil
 }

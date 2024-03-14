@@ -35,6 +35,9 @@ spec:
             properties:
               backendIP:
                 type: string
+              coreId:
+                format: int32
+                type: integer
               drives:
                 items:
                   type: string
@@ -48,6 +51,8 @@ spec:
               managementPort:
                 format: int32
                 type: integer
+              memory:
+                type: string
               name:
                 type: string
               nodeName:

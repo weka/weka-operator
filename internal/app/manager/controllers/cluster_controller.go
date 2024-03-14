@@ -188,7 +188,6 @@ func (r *iteration) refreshNodes(listNodes listNodes) ([]v1.Node, error) {
 
 	backendNodes := []v1.Node{}
 	for _, node := range nodes.Items {
-		r.cluster.Status.Nodes = append(r.cluster.Status.Nodes, node.Name)
 		if isBackendNode(node) {
 			backendNodes = append(backendNodes, node)
 		}
@@ -222,8 +221,7 @@ func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
 			},
 		},
 		Spec: wekav1alpha1.BackendSpec{
-			ClusterName: cluster.Name,
-			NodeName:    node.Name,
+			NodeName: node.Name,
 		},
 	}
 }

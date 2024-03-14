@@ -26,6 +26,9 @@ type ContainerSpec struct {
 	ManagementPort      int32    `json:"managementPort,omitempty"`
 	InterfaceName       string   `json:"interfaceName,omitempty"`
 
+	CoreId int32  `json:"coreId,omitempty"`
+	Memory string `json:"memory,omitempty"`
+
 	// WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
 	// WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
 }
