@@ -2,6 +2,14 @@
 
 *Caution* This is still a prototype/demonstration
 
+## Branches
+
+Development branch -> `main`
+Omniva 0.11 Hotfixes -> `v0.11`
+
+The `main` branch is diverging from Omniva's installation in order to implement April 2 requirements.
+Bugfixes must be made against the `v0.11` branch until Omniva can be upgraded.
+
 ## Description
 
 This is a prototype of the Operator.
