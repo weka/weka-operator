@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
+	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +35,6 @@ import (
 
 func NewClusterReconciler(mgr ctrl.Manager) *ClusterReconciler {
 	logger := ctrl.Log.WithName("controllers").WithName("Cluster")
-	logger.V(2).Info("NewClusterReconciler() called")
 	return &ClusterReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -77,7 +77,7 @@ type (
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.V(2).Info("ClusterReconciler.Reconcile() called")
+	r.Logger.Info("ClusterReconciler.Reconcile() called")
 
 	cluster, err := r.refreshCluster(ctx, req.NamespacedName)
 	if err != nil {
@@ -96,14 +96,22 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	backendNodes, err := reconciliation.refreshNodes(r.listNodes(ctx))
 	if err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to refresh nodes")
-	}
-	if err := reconciliation.createBackends(backendNodes, r.refreshBackend(ctx), r.createBackend(ctx)); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to create Weka nodes")
+		r.Logger.Error(err, "refreshNodes failed")
+		return ctrl.Result{}, pretty.Errorf("refreshNodes failed", err)
 	}
 
-	if err := r.updateStatus(ctx, reconciliation.cluster); err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "failed to record node names")
+	result, err := reconciliation.createBackends(backendNodes, r.refreshBackend(ctx), r.createBackend(ctx))
+	if err != nil {
+		r.Logger.Error(err, "createBackends failed")
+		return ctrl.Result{}, pretty.Errorf("createBackends failed", err)
+	}
+	if result.Requeue {
+		return result, nil
+	}
+
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		r.Logger.Error(err, "updateStatus failed")
+		return ctrl.Result{}, nil
 	}
 
 	// Assign containers to nodes
@@ -123,7 +131,7 @@ func (r *ClusterReconciler) refreshCluster(ctx context.Context, key types.Namesp
 	return cluster, nil
 }
 
-func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBackend, createBackend createBackend) error {
+func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBackend, createBackend createBackend) (ctrl.Result, error) {
 	cluster := r.cluster
 	namespace := cluster.Namespace
 	for _, node := range nodes {
@@ -134,15 +142,16 @@ func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBacken
 			if apierrors.IsNotFound(err) {
 				backend = r.newBackendForNode(&node)
 				if err := createBackend(backend); err != nil {
-					return errors.Wrap(err, "failed to create backend")
+					return ctrl.Result{}, pretty.Errorf("createBackend failed", err, backend)
 				}
+				return ctrl.Result{Requeue: true}, nil
 			} else {
-				return errors.Wrap(err, "failed to get backend")
+				return ctrl.Result{}, pretty.Errorf("refreshBackend failed", err, backend)
 			}
 		}
 
 	}
-	return nil
+	return ctrl.Result{}, nil
 }
 
 func (r *ClusterReconciler) listNodes(ctx context.Context) listNodes {
@@ -164,7 +173,6 @@ func (r *ClusterReconciler) createBackend(ctx context.Context) createBackend {
 }
 
 func (r *ClusterReconciler) updateStatus(ctx context.Context, cluster *wekav1alpha1.Cluster) error {
-	// Update the status of the cluster
 	return r.Status().Update(ctx, cluster)
 }
 
@@ -192,6 +200,7 @@ func (r *iteration) refreshNodes(listNodes listNodes) ([]v1.Node, error) {
 
 	backendNodes := []v1.Node{}
 	for _, node := range nodes.Items {
+		r.cluster.Status.Nodes = append(r.cluster.Status.Nodes, node.Name)
 		if isBackendNode(node) {
 			backendNodes = append(backendNodes, node)
 		}

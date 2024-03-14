@@ -12,45 +12,76 @@ import (
 )
 
 var _ = Describe("Integration Test", func() {
-	var container *wekav1alpha1.WekaContainer
+	Context("before creating a container", func() {
+		It("should not have a deployment", func() {
+			deployments := &appsv1.DeploymentList{}
+			Expect(k8sClient.List(TestCtx, deployments)).Should(BeNil())
 
-	BeforeEach(func() {
-		container = newTestingContainer()
-		Expect(k8sClient.Create(TestCtx, container)).Should(BeNil())
-		Eventually(func() error {
-			return k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-container", Namespace: "default"}, container)
-		}).Should(BeNil())
-	})
-
-	AfterEach(func() {
-		k8sClient.Delete(TestCtx, container)
-		Eventually(func() bool {
-			dummy := &wekav1alpha1.WekaContainer{}
-			err := k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-container", Namespace: "default"}, dummy)
-			return apierrors.IsNotFound(err)
+			Expect(deployments.Items).Should(HaveLen(0))
 		})
 	})
+	Context("when creating a container", func() {
+		var container *wekav1alpha1.WekaContainer
+		BeforeEach(func() {
+			container = newTestingContainer()
+			Expect(k8sClient.Create(TestCtx, container)).Should(BeNil())
+			Eventually(func() error {
+				return k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-container", Namespace: "default"}, container)
+			}).Should(BeNil())
+		})
 
-	XIt("should create a deployment", func() {
-		deployment := &appsv1.Deployment{}
-		Eventually(func() error {
-			return k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-container", Namespace: "default"}, deployment)
-		}).Should(BeNil())
-		Expect(deployment.Name).Should(Equal("test-container"))
+		AfterEach(func() {
+			k8sClient.Delete(TestCtx, container)
+			Eventually(func() bool {
+				dummy := &wekav1alpha1.WekaContainer{}
+				err := k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-container", Namespace: "default"}, dummy)
+				return apierrors.IsNotFound(err)
+			})
+		})
+
+		It("should create a deployment", func() {
+			deployments := &appsv1.DeploymentList{}
+			Eventually(func() int {
+				err := k8sClient.List(TestCtx, deployments)
+				if err != nil {
+					println(err)
+					return 0
+				}
+				return len(deployments.Items)
+			}).Should(Equal(1))
+		})
 	})
 })
 
-var _ = XDescribe("ContainerController", func() {
+var _ = Describe("ContainerController", func() {
 	var subject *ContainerController
 	BeforeEach(func() {
 		subject = NewContainerController(k8sManager)
 	})
 
+	AfterEach(func() {
+		deployments := &appsv1.DeploymentList{}
+		Expect(k8sClient.List(TestCtx, deployments)).Should(BeNil())
+		for _, deployment := range deployments.Items {
+			k8sClient.Delete(TestCtx, &deployment)
+		}
+		Eventually(func() int {
+			err := k8sClient.List(TestCtx, deployments)
+			if err != nil {
+				println(err)
+				return 0
+			}
+			return len(deployments.Items)
+		}).Should(Equal(0))
+	})
+
 	Describe("updateDeployment", func() {
 		var deployment *appsv1.Deployment
 		var err error
+		name := "update-deployment"
 		BeforeEach(func() {
 			deployment, err = resources.NewContainerFactory(newTestingContainer(), k8sManager.GetLogger()).NewDeployment()
+			deployment.Name = name
 			Expect(err).Should(BeNil())
 
 			Expect(k8sClient.Create(TestCtx, deployment)).Should(BeNil())
@@ -61,24 +92,21 @@ var _ = XDescribe("ContainerController", func() {
 		})
 
 		It("should update a deployment", func() {
-			newDeployment := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-deployment",
-					Namespace: "default",
-					Labels: map[string]string{
-						"deployment": "new-deployment",
-					},
-				},
-			}
+			Expect(deployment.Spec.Template.Spec.Containers[0].Image).Should(Equal("wekaco/weka:latest"))
+
+			newDeployment := deployment.DeepCopy()
+			newDeployment.Spec.Template.Spec.Containers[0].Image = "new-image"
+
 			Expect(subject.updateDeployment(TestCtx, newDeployment)).Should(BeNil())
 			updated := &appsv1.Deployment{}
 			Eventually(func() string {
-				err := k8sClient.Get(TestCtx, types.NamespacedName{Name: "test-deployment", Namespace: "default"}, updated)
+				key := types.NamespacedName{Name: name, Namespace: "default"}
+				err := k8sClient.Get(TestCtx, key, updated)
 				if err != nil {
 					return ""
 				}
-				return updated.Labels["deployment"]
-			}).Should(Equal("new-deployment"))
+				return updated.Spec.Template.Spec.Containers[0].Image
+			}).Should(Equal("new-image"))
 		})
 	})
 })
