@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - fix-release
+      - v0.11
 permissions:
   contents: write
 
