@@ -189,4 +189,9 @@ var _ = Describe("iteration", func() {
 			Expect(backendNodes[0].Name).Should(Equal("test-node"))
 		})
 	})
+
+	Describe("reconcileContainers", func() {
+		BeforeEach(func() {
+		})
+	})
 })

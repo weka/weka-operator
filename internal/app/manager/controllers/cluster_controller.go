@@ -49,18 +49,6 @@ type ClusterReconciler struct {
 	Logger logr.Logger
 }
 
-type SizeClass struct {
-	ContainerCount int
-	DriveCount     int
-}
-
-var SizeClasses = map[string]SizeClass{
-	"dev":    {1, 1},
-	"small":  {3, 3},
-	"medium": {5, 5},
-	"large":  {7, 7},
-}
-
 type (
 	listNodes      = func(list *v1.NodeList) error
 	refreshBackend = func(key types.NamespacedName, backend *wekav1alpha1.Backend) error
