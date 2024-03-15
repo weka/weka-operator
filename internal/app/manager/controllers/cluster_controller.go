@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -82,13 +83,13 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		cluster:        cluster,
 		namespacedName: req.NamespacedName,
 	}
-	backendNodes, err := reconciliation.refreshNodes(r.listNodes(ctx))
+	scheduler, err := reconciliation.schedulerForNodes(r.listNodes(ctx))
 	if err != nil {
-		r.Logger.Error(err, "refreshNodes failed")
-		return ctrl.Result{}, pretty.Errorf("refreshNodes failed", err)
+		r.Logger.Error(err, "schedulerForNodes failed")
+		return ctrl.Result{}, pretty.Errorf("schedulerForNodes failed", err)
 	}
 
-	result, err := reconciliation.createBackends(backendNodes, r.refreshBackend(ctx), r.createBackend(ctx))
+	result, err := reconciliation.createBackends(scheduler.Backends(), r.refreshBackend(ctx), r.createBackend(ctx))
 	if err != nil {
 		r.Logger.Error(err, "createBackends failed")
 		return ctrl.Result{}, pretty.Errorf("createBackends failed", err)
@@ -119,16 +120,15 @@ func (r *ClusterReconciler) refreshCluster(ctx context.Context, key types.Namesp
 	return cluster, nil
 }
 
-func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBackend, createBackend createBackend) (ctrl.Result, error) {
+func (r *iteration) createBackends(backends []*wekav1alpha1.Backend, refreshBackend refreshBackend, createBackend createBackend) (ctrl.Result, error) {
 	cluster := r.cluster
 	namespace := cluster.Namespace
-	for _, node := range nodes {
-		key := client.ObjectKey{Namespace: namespace, Name: node.Name}
+	for i := range backends {
+		backend := backends[i]
+		key := client.ObjectKey{Namespace: namespace, Name: backend.Name}
 
-		backend := &wekav1alpha1.Backend{}
 		if err := refreshBackend(key, backend); err != nil {
 			if apierrors.IsNotFound(err) {
-				backend = r.newBackendForNode(&node)
 				if err := createBackend(backend); err != nil {
 					return ctrl.Result{}, pretty.Errorf("createBackend failed", err, backend)
 				}
@@ -178,7 +178,7 @@ type iteration struct {
 	namespacedName client.ObjectKey
 }
 
-func (r *iteration) refreshNodes(listNodes listNodes) ([]v1.Node, error) {
+func (r *iteration) schedulerForNodes(listNodes listNodes) (*domain.Scheduling, error) {
 	// Reconcile available nodes
 	// List all available nodes
 	nodes := &v1.NodeList{}
@@ -186,14 +186,16 @@ func (r *iteration) refreshNodes(listNodes listNodes) ([]v1.Node, error) {
 		return nil, errors.Wrap(err, "failed to list nodes")
 	}
 
-	backendNodes := []v1.Node{}
+	backends := []*wekav1alpha1.Backend{}
 	for _, node := range nodes.Items {
 		if isBackendNode(node) {
-			backendNodes = append(backendNodes, node)
+			backend := r.newBackendForNode(&node)
+			backends = append(backends, backend)
 		}
 	}
+	scheduler := domain.ForCluster(r.cluster, backends)
 
-	return backendNodes, nil
+	return scheduler, nil
 }
 
 func isBackendNode(node v1.Node) bool {

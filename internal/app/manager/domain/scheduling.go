@@ -37,10 +37,10 @@ func (e *InsufficientDrivesError) Error() string {
 
 type Scheduling struct {
 	cluster  *wekav1alpha1.Cluster
-	backends []wekav1alpha1.Backend
+	backends []*wekav1alpha1.Backend
 }
 
-func ForCluster(cluster *wekav1alpha1.Cluster, backends []wekav1alpha1.Backend) *Scheduling {
+func ForCluster(cluster *wekav1alpha1.Cluster, backends []*wekav1alpha1.Backend) *Scheduling {
 	return &Scheduling{
 		cluster:  cluster,
 		backends: backends,
@@ -55,7 +55,7 @@ func (s *Scheduling) AssignBackends(container *v1.LocalObjectReference) error {
 
 	candidatePool := []*wekav1alpha1.Backend{}
 	for i := range s.backends { // use index to avoid copying
-		node := &s.backends[i]
+		node := s.backends[i]
 		if i >= containerCount {
 			break
 		}
@@ -109,7 +109,7 @@ func (s *Scheduling) Cluster() *wekav1alpha1.Cluster {
 	return s.cluster
 }
 
-func (s *Scheduling) Backends() []wekav1alpha1.Backend {
+func (s *Scheduling) Backends() []*wekav1alpha1.Backend {
 	return s.backends
 }
 

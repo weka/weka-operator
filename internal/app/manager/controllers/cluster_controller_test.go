@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -145,7 +146,7 @@ var _ = Describe("iteration", func() {
 			return nil
 		}
 
-		var backendNodes []v1.Node
+		var scheduler *domain.Scheduling
 		BeforeEach(func() {
 			node := &v1.Node{
 				ObjectMeta: metav1.ObjectMeta{
@@ -162,7 +163,7 @@ var _ = Describe("iteration", func() {
 			nodes.Items = append(nodes.Items, *node)
 
 			var err error
-			backendNodes, err = iteration.refreshNodes(listNodes)
+			scheduler, err = iteration.schedulerForNodes(listNodes)
 			Expect(err).Should(BeNil())
 		})
 
@@ -178,8 +179,8 @@ var _ = Describe("iteration", func() {
 		})
 
 		It("populate backends", func() {
-			Expect(len(backendNodes)).Should(Equal(1))
-			Expect(backendNodes[0].Name).Should(Equal("test-node"))
+			Expect(len(scheduler.Backends())).Should(Equal(1))
+			Expect(scheduler.Backends()[0].Name).Should(Equal("test-node"))
 		})
 	})
 
