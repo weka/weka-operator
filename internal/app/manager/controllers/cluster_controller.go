@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,7 +29,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
-	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -50,9 +51,10 @@ type ClusterReconciler struct {
 }
 
 type (
-	listNodes      = func(list *v1.NodeList) error
-	refreshBackend = func(key types.NamespacedName, backend *wekav1alpha1.Backend) error
-	createBackend  = func(backend *wekav1alpha1.Backend) error
+	createBackend   = func(backend *wekav1alpha1.Backend) error
+	createContainer = func(backend *wekav1alpha1.Backend, container *wekav1alpha1.WekaContainer) (ctrl.Result, error)
+	listNodes       = func(list *v1.NodeList) error
+	refreshBackend  = func(key types.NamespacedName, backend *wekav1alpha1.Backend) error
 )
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -65,32 +67,39 @@ type (
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("ClusterReconciler.Reconcile() called")
+	logger := r.Logger.WithName("Reconcile")
+	logger.Info("Reconcile() called", "name", req.NamespacedName)
 
 	cluster, err := r.refreshCluster(ctx, req.NamespacedName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, errors.Wrap(err, "failed to reconcile cluster")
+		return ctrl.Result{}, pretty.Errorf("refreshCluster failed", err)
 	}
 	if cluster == nil {
 		panic("cluster is nil")
 	}
 
 	reconciliation := iteration{
+		logger:         r.Logger.WithName("iteration"),
 		cluster:        cluster,
 		namespacedName: req.NamespacedName,
+		listNodes:      r.listNodes(ctx),
 	}
-	backendNodes, err := reconciliation.refreshNodes(r.listNodes(ctx))
+	scheduler, err := reconciliation.schedulerForNodes(logger)
 	if err != nil {
-		r.Logger.Error(err, "refreshNodes failed")
-		return ctrl.Result{}, pretty.Errorf("refreshNodes failed", err)
+		var notReadyError *domain.BackendDriveAssignmentsNotReadyError
+		if errors.As(err, &notReadyError) {
+			logger.Info("backends not ready", "error", err)
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, pretty.Errorf("schedulerForNodes failed", err)
 	}
 
-	result, err := reconciliation.createBackends(backendNodes, r.refreshBackend(ctx), r.createBackend(ctx))
+	result, err := reconciliation.createBackends(scheduler.Backends(), r.refreshBackend(ctx), r.createBackend(ctx))
 	if err != nil {
-		r.Logger.Error(err, "createBackends failed")
+		logger.Error(err, "createBackends failed")
 		return ctrl.Result{}, pretty.Errorf("createBackends failed", err)
 	}
 	if result.Requeue {
@@ -98,14 +107,19 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if err := r.Status().Update(ctx, cluster); err != nil {
-		r.Logger.Error(err, "updateStatus failed")
+		logger.Error(err, "updateStatus failed")
 		return ctrl.Result{}, nil
 	}
 
 	// Assign containers to nodes
-	//if err := reconciliation.reconcileContainers(ctx, req); err != nil {
-	//return ctrl.Result{}, errors.Wrap(err, "failed to reconcile containers")
-	//}
+	container := &wekav1alpha1.WekaContainer{}
+	result, err = reconciliation.reconcileContainers(scheduler, container, r.createContainer(ctx))
+	if err != nil {
+		return ctrl.Result{}, pretty.Errorf("reconcileContainers failed", err)
+	}
+	if result.Requeue {
+		return result, nil
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -113,22 +127,23 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *ClusterReconciler) refreshCluster(ctx context.Context, key types.NamespacedName) (*wekav1alpha1.Cluster, error) {
 	cluster := &wekav1alpha1.Cluster{}
 	if err := r.Get(ctx, key, cluster); err != nil {
-		return nil, errors.Wrap(err, "failed to refresh cluster")
+		return nil, err
 	}
 
 	return cluster, nil
 }
 
-func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBackend, createBackend createBackend) (ctrl.Result, error) {
+func (r *iteration) createBackends(backends []*wekav1alpha1.Backend, refreshBackend refreshBackend, createBackend createBackend) (ctrl.Result, error) {
+	logger := r.logger.WithName("createBackends")
 	cluster := r.cluster
 	namespace := cluster.Namespace
-	for _, node := range nodes {
-		key := client.ObjectKey{Namespace: namespace, Name: node.Name}
+	for i := range backends {
+		backend := backends[i]
+		key := client.ObjectKey{Namespace: namespace, Name: backend.Name}
 
-		backend := &wekav1alpha1.Backend{}
 		if err := refreshBackend(key, backend); err != nil {
 			if apierrors.IsNotFound(err) {
-				backend = r.newBackendForNode(&node)
+				logger.Info("creating backend", "name", backend.Name)
 				if err := createBackend(backend); err != nil {
 					return ctrl.Result{}, pretty.Errorf("createBackend failed", err, backend)
 				}
@@ -137,20 +152,50 @@ func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBacken
 				return ctrl.Result{}, pretty.Errorf("refreshBackend failed", err, backend)
 			}
 		}
-
 	}
 	return ctrl.Result{}, nil
 }
 
+func (r *ClusterReconciler) createContainer(ctx context.Context) createContainer {
+	return func(backend *wekav1alpha1.Backend, container *wekav1alpha1.WekaContainer) (ctrl.Result, error) {
+		key := client.ObjectKey{Namespace: backend.Namespace, Name: container.Name}
+		if err := r.Get(ctx, key, container); err != nil {
+			if apierrors.IsNotFound(err) {
+				if err := r.Create(ctx, container); err != nil {
+					return ctrl.Result{}, pretty.Errorf("failed to create container", err)
+				}
+				return ctrl.Result{Requeue: true}, nil
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+}
+
 func (r *ClusterReconciler) listNodes(ctx context.Context) listNodes {
 	return func(list *v1.NodeList) error {
-		return r.List(context.Background(), list)
+		if err := r.List(context.Background(), list); err != nil {
+			r.Logger.Error(err, "failed to list nodes")
+			return err
+		}
+		for _, node := range list.Items {
+			r.Logger.Info("node", "name", node.Name)
+		}
+
+		return nil
 	}
 }
 
 func (r *ClusterReconciler) refreshBackend(ctx context.Context) refreshBackend {
 	return func(key types.NamespacedName, backend *wekav1alpha1.Backend) error {
-		return r.Get(ctx, key, backend)
+		existing := &wekav1alpha1.Backend{}
+		if err := r.Get(ctx, key, existing); err != nil {
+			return err // Preserve the not-found error
+		}
+		backend.DeepCopyInto(existing)
+		if err := r.Update(ctx, existing); err != nil {
+			return pretty.Errorf("Update(backend) failed", err, backend)
+		}
+		return nil
 	}
 }
 
@@ -164,8 +209,9 @@ func (r *ClusterReconciler) updateStatus(ctx context.Context, cluster *wekav1alp
 	return r.Status().Update(ctx, cluster)
 }
 
-func newIteration(req ctrl.Request) *iteration {
+func newIteration(req ctrl.Request, logger logr.Logger) *iteration {
 	return &iteration{
+		logger:         logger.WithName("iteration"),
 		cluster:        &wekav1alpha1.Cluster{},
 		backends:       wekav1alpha1.BackendList{},
 		namespacedName: req.NamespacedName,
@@ -173,27 +219,32 @@ func newIteration(req ctrl.Request) *iteration {
 }
 
 type iteration struct {
+	logger         logr.Logger
 	cluster        *wekav1alpha1.Cluster
 	backends       wekav1alpha1.BackendList
 	namespacedName client.ObjectKey
+	listNodes      listNodes
 }
 
-func (r *iteration) refreshNodes(listNodes listNodes) ([]v1.Node, error) {
+func (r *iteration) schedulerForNodes(logger logr.Logger) (*domain.Scheduling, error) {
 	// Reconcile available nodes
 	// List all available nodes
 	nodes := &v1.NodeList{}
-	if err := listNodes(nodes); err != nil {
-		return nil, errors.Wrap(err, "failed to list nodes")
+	if err := r.listNodes(nodes); err != nil {
+		return nil, pretty.Errorf("listNodes failed", err)
 	}
 
-	backendNodes := []v1.Node{}
+	backends := []*wekav1alpha1.Backend{}
 	for _, node := range nodes.Items {
 		if isBackendNode(node) {
-			backendNodes = append(backendNodes, node)
+			backend, err := r.newBackendForNode(&node)
+			if err != nil {
+				return nil, pretty.Errorf("newBackendForNode failed", err)
+			}
+			backends = append(backends, backend)
 		}
 	}
-
-	return backendNodes, nil
+	return domain.ForCluster(r.cluster, backends, logger)
 }
 
 func isBackendNode(node v1.Node) bool {
@@ -201,8 +252,11 @@ func isBackendNode(node v1.Node) bool {
 	return ok && roleLabel == "backend"
 }
 
-func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
+func (i *iteration) newBackendForNode(node *v1.Node) (*wekav1alpha1.Backend, error) {
+	logger := i.logger.WithName("newBackendForNode")
+	logger.Info("for node", "name", node.Name)
 	cluster := i.cluster
+
 	return &wekav1alpha1.Backend{
 		ObjectMeta: ctrl.ObjectMeta{
 			Name:      node.Name,
@@ -223,92 +277,30 @@ func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
 		Spec: wekav1alpha1.BackendSpec{
 			NodeName: node.Name,
 		},
-	}
+	}, nil
 }
 
-//func (r *iteration) reconcileContainers(ctx context.Context, req ctrl.Request) error {
-//if r.cluster == nil {
-//return errors.New("argument error: cluster is nil")
-//}
-//if r.cluster.Spec.SizeClass == "" {
-//return errors.New("size class not set")
-//}
+func (r *iteration) reconcileContainers(scheduler *domain.Scheduling, container *wekav1alpha1.WekaContainer, createContainer createContainer) (ctrl.Result, error) {
+	if scheduler == nil {
+		return ctrl.Result{}, pretty.Errorf("scheduler is nil")
+	}
 
-//cluster := r.cluster
-//// Number of containers to create determined by the size class
-//sizeClassName := cluster.Spec.SizeClass
-//sizeClass, ok := SizeClasses[sizeClassName]
-//if !ok {
-//return errors.Errorf("invalid size class: %s", sizeClassName)
-//}
+	key := &v1.LocalObjectReference{Name: container.Name}
+	if err := scheduler.AssignBackends(key); err != nil {
+		return ctrl.Result{}, pretty.Errorf("AssignBackends failed", err)
+	}
 
-//var errors error
-//for i := 0; i < sizeClass.ContainerCount; i++ {
-//container := &wekav1alpha1.WekaContainer{
-//ObjectMeta: ctrl.ObjectMeta{
-//Name:      cluster.Name + "-container-" + strconv.Itoa(i),
-//Namespace: cluster.Namespace,
-//Labels: map[string]string{
-//"weka.io/cluster": cluster.Name,
-//},
-//OwnerReferences: []metav1.OwnerReference{
-//{
-//APIVersion: wekav1alpha1.GroupVersion.String(),
-//Kind:       "Cluster",
-//Name:       cluster.Name,
-//UID:        cluster.UID,
-//},
-//},
-//},
-//Spec: wekav1alpha1.ContainerSpec{
-//Name:    cluster.Name + "-container-" + strconv.Itoa(i),
-//Cluster: v1.ObjectReference{Name: cluster.Name, Namespace: cluster.Namespace},
-//},
-//}
-
-//key := client.ObjectKey{Namespace: container.Namespace, Name: container.Name}
-//if err := r.Get(ctx, key, container); err != nil {
-//if apierrors.IsNotFound(err) {
-//if err := r.Create(ctx, container); err != nil {
-//errors = multierror.Append(errors, err)
-//continue
-//}
-//} else {
-//errors = multierror.Append(errors, err)
-//continue
-//}
-//}
-
-//if err := r.assignContainerToNode(ctx, container); err != nil {
-//errors = multierror.Append(errors, err)
-//continue
-//}
-//}
-//return errors
-//}
-
-//func (r *iteration) assignContainerToNode(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-//for _, backend := range r.backends.Items {
-//// Check if the container is already assigned to a node
-//if container.Status.AssignedNode.Name != "" {
-//return nil
-//}
-
-//// Check if there are available drives on the backend
-//for drive, container := range backend.Status.Assignments {
-//if container == nil {
-//backend.Status.Assignments[drive] = container
-//container.Status.AssignedNode = backend.Status.Node
-//if err := r.Status().Update(ctx, container); err != nil {
-//return errors.Wrap(err, "failed to assign container to node")
-//}
-//return nil
-//}
-//}
-//}
-
-//return errors.New("no nodes available for container")
-//}
+	for _, backend := range scheduler.Backends() {
+		result, err := createContainer(backend, container)
+		if err != nil {
+			return ctrl.Result{}, pretty.Errorf("createContainer failed", err)
+		}
+		if result.Requeue {
+			return result, nil
+		}
+	}
+	return ctrl.Result{}, nil
+}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {

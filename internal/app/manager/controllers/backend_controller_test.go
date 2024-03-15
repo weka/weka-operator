@@ -69,17 +69,6 @@ var _ = Describe("Integration Test", func() {
 		})
 	})
 
-	It("should set drive count", func() {
-		actual := &wekav1alpha1.Backend{}
-		Eventually(func() int {
-			key := types.NamespacedName{Name: "test-backend", Namespace: "default"}
-			if err := k8sClient.Get(TestCtx, key, actual); err != nil {
-				return -1
-			}
-			return actual.Status.DriveCount
-		}).Should(Equal(driveCount))
-	})
-
 	It("should label node", func() {
 		Eventually(func() string {
 			updated := &v1.Node{}

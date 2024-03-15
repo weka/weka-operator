@@ -1,8 +1,11 @@
 package domain_test
 
 import (
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap"
 
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -13,17 +16,28 @@ import (
 // TODO: Update scheduling to account for cores
 var _ = Describe("Scheduling", func() {
 	var scheduling *domain.Scheduling
+	var logger logr.Logger
 	container := &v1.LocalObjectReference{Name: "test-container"}
 
+	BeforeEach(func() {
+		zapLog, err := zap.NewDevelopment()
+		Expect(err).ShouldNot(HaveOccurred())
+
+		logger = zapr.NewLogger(zapLog).WithName("Scheduling")
+	})
+
 	Context("when no nodes in use", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var cluster *wekav1alpha1.Cluster
+		var err error
 		BeforeEach(func() {
-			nodePool = []wekav1alpha1.Backend{
+			nodePool = []*wekav1alpha1.Backend{
 				unusedBackend(),
 			}
 			cluster = devCluster()
-			scheduling = domain.ForCluster(cluster, nodePool)
+			logger = logger.WithName("no-nodes-in-use")
+			scheduling, err = domain.ForCluster(cluster, nodePool, logger)
+			Expect(err).ShouldNot(HaveOccurred())
 		})
 
 		Describe("ForCluster", func() {
@@ -54,7 +68,7 @@ var _ = Describe("Scheduling", func() {
 			})
 
 			It("should return true for a node with free drives", func() {
-				Expect(scheduling.HasFreeDrives(&nodePool[0])).Should(BeTrue())
+				Expect(scheduling.HasFreeDrives(nodePool[0])).Should(BeTrue())
 			})
 		})
 
@@ -64,7 +78,7 @@ var _ = Describe("Scheduling", func() {
 			})
 
 			It("should assign a container to a drive", func() {
-				backend := &nodePool[0]
+				backend := nodePool[0]
 				container := &v1.LocalObjectReference{Name: "test-container"}
 				Expect(scheduling.AssignToDrive(backend, container)).Should(BeNil())
 			})
@@ -72,15 +86,18 @@ var _ = Describe("Scheduling", func() {
 	})
 
 	Context("when nodes are in use", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var cluster *wekav1alpha1.Cluster
+		var err error
 		BeforeEach(func() {
-			nodePool = []wekav1alpha1.Backend{
-				unusedBackend(),
+			nodePool = []*wekav1alpha1.Backend{
 				allocatedBackend(),
+				unusedBackend(),
 			}
 			cluster = devCluster()
-			scheduling = domain.ForCluster(cluster, nodePool)
+			logger = logger.WithName("nodes-in-use")
+			scheduling, err = domain.ForCluster(cluster, nodePool, logger)
+			Expect(err).ShouldNot(HaveOccurred())
 		})
 
 		Describe("AssignBackends", func() {
@@ -101,8 +118,8 @@ var _ = Describe("Scheduling", func() {
 			})
 
 			It("should return true for a node with free drives", func() {
-				Expect(scheduling.HasFreeDrives(&nodePool[0])).Should(BeTrue())
-				Expect(scheduling.HasFreeDrives(&nodePool[1])).Should(BeFalse())
+				Expect(scheduling.HasFreeDrives(nodePool[0])).Should(BeFalse())
+				Expect(scheduling.HasFreeDrives(nodePool[1])).Should(BeTrue())
 			})
 		})
 
@@ -113,20 +130,24 @@ var _ = Describe("Scheduling", func() {
 
 			It("should assign a container to a drive", func() {
 				container := &v1.LocalObjectReference{Name: "test-container"}
-				Expect(scheduling.AssignToDrive(&nodePool[0], container)).Should(BeNil())
-				Expect(scheduling.AssignToDrive(&nodePool[1], container)).Should(MatchError(&domain.InsufficientDrivesError{}))
+				Expect(scheduling.AssignToDrive(nodePool[0], container)).Should(MatchError(&domain.InsufficientDrivesError{}))
+				Expect(scheduling.AssignToDrive(nodePool[1], container)).Should(BeNil())
 			})
 		})
 	})
 
 	Context("when too few nodes", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var cluster *wekav1alpha1.Cluster
 		Context("becuase node pool too small", func() {
 			BeforeEach(func() {
-				nodePool = []wekav1alpha1.Backend{}
+				nodePool = []*wekav1alpha1.Backend{}
 				cluster = devCluster()
-				scheduling = domain.ForCluster(cluster, nodePool)
+				logger = logger.WithName("too-few-nodes")
+
+				var err error
+				scheduling, err = domain.ForCluster(cluster, nodePool, logger)
+				Expect(err).ShouldNot(HaveOccurred())
 			})
 
 			Describe("AssignBackends", func() {
@@ -135,7 +156,12 @@ var _ = Describe("Scheduling", func() {
 					Expect(scheduling.Backends()).Should(HaveLen(0))
 					Expect(scheduling.ContainerCount()).Should(Equal(1))
 					Expect(cluster.Status.Backends).Should(HaveLen(0))
-					Expect(scheduling.AssignBackends(container)).Should(MatchError(&domain.InsufficientNodesError{}))
+					Expect(scheduling.AssignBackends(container)).Should(
+						MatchError(
+							&domain.InsufficientNodesError{
+								Wanted: 1,
+								Found:  0,
+							}))
 				})
 				It("should not assign any backends", func() {
 					Expect(cluster.Status.Backends).Should(HaveLen(0))
@@ -145,7 +171,7 @@ var _ = Describe("Scheduling", func() {
 
 		Context("because too many nodes allocated", func() {
 			BeforeEach(func() {
-				nodePool = []wekav1alpha1.Backend{
+				nodePool = []*wekav1alpha1.Backend{
 					unusedBackend(),
 					unusedBackend(),
 					unusedBackend(),
@@ -155,14 +181,22 @@ var _ = Describe("Scheduling", func() {
 					allocatedBackend(),
 				}
 				cluster = largeCluster()
-				scheduling = domain.ForCluster(cluster, nodePool)
+				logger = logger.WithName("too-many-allocated")
+				var err error
+				scheduling, err = domain.ForCluster(cluster, nodePool, logger)
+				Expect(err).ShouldNot(HaveOccurred())
 			})
 
 			Describe("AssignBackends", func() {
 				BeforeEach(func() {
 					Expect(scheduling).ShouldNot(BeNil())
 					Expect(cluster.Status.Backends).Should(HaveLen(0))
-					Expect(scheduling.AssignBackends(container)).Should(MatchError(&domain.InsufficientNodesError{}))
+					Expect(scheduling.AssignBackends(container)).Should(
+						MatchError(
+							&domain.InsufficientNodesError{
+								Wanted: 7,
+								Found:  6,
+							}))
 				})
 				It("should not assign any backends", func() {
 					Expect(cluster.Status.Backends).Should(HaveLen(0))
@@ -172,15 +206,18 @@ var _ = Describe("Scheduling", func() {
 	})
 
 	Context("when too many nodes", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var cluster *wekav1alpha1.Cluster
 		BeforeEach(func() {
-			nodePool = []wekav1alpha1.Backend{
+			nodePool = []*wekav1alpha1.Backend{
 				unusedBackend(),
 				unusedBackend(),
 			}
 			cluster = devCluster()
-			scheduling = domain.ForCluster(cluster, nodePool)
+			logger = logger.WithName("too-many-nodes")
+			var err error
+			scheduling, err = domain.ForCluster(cluster, nodePool, logger)
+			Expect(err).ShouldNot(HaveOccurred())
 		})
 		Describe("AssignBackends", func() {
 			BeforeEach(func() {
@@ -195,19 +232,24 @@ var _ = Describe("Scheduling", func() {
 	})
 
 	Context("when nodes are shared", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var thisCluster *wekav1alpha1.Cluster
 		var otherCluster *wekav1alpha1.Cluster
 		var schedulingThisCluster *domain.Scheduling
 		var schedulingOtherCluster *domain.Scheduling
 		BeforeEach(func() {
-			nodePool = []wekav1alpha1.Backend{
+			nodePool = []*wekav1alpha1.Backend{
 				unusedBackend(),
 			}
 			thisCluster = devCluster()
 			otherCluster = devCluster()
-			schedulingThisCluster = domain.ForCluster(thisCluster, nodePool)
-			schedulingOtherCluster = domain.ForCluster(otherCluster, nodePool)
+			logger = logger.WithName("shared-nodes")
+			var err error
+			schedulingThisCluster, err = domain.ForCluster(thisCluster, nodePool, logger)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			schedulingOtherCluster, err = domain.ForCluster(otherCluster, nodePool, logger)
+			Expect(err).ShouldNot(HaveOccurred())
 		})
 		Describe("AssignBackends", func() {
 			BeforeEach(func() {
@@ -225,10 +267,10 @@ var _ = Describe("Scheduling", func() {
 	})
 
 	Context("when invalid size class", func() {
-		var nodePool []wekav1alpha1.Backend
+		var nodePool []*wekav1alpha1.Backend
 		var cluster *wekav1alpha1.Cluster
 		BeforeEach(func() {
-			nodePool = []wekav1alpha1.Backend{
+			nodePool = []*wekav1alpha1.Backend{
 				unusedBackend(),
 			}
 			cluster = &wekav1alpha1.Cluster{
@@ -240,7 +282,9 @@ var _ = Describe("Scheduling", func() {
 					SizeClass: "invalid",
 				},
 			}
-			scheduling = domain.ForCluster(cluster, nodePool)
+			var err error
+			scheduling, err = domain.ForCluster(cluster, nodePool, logger.WithName("invalid-size-class"))
+			Expect(err).ShouldNot(HaveOccurred())
 		})
 		Describe("AssignBackends", func() {
 			BeforeEach(func() {
@@ -279,8 +323,8 @@ func largeCluster() *wekav1alpha1.Cluster {
 	}
 }
 
-func unusedBackend() wekav1alpha1.Backend {
-	return wekav1alpha1.Backend{
+func unusedBackend() *wekav1alpha1.Backend {
+	return &wekav1alpha1.Backend{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-node-1",
 			Namespace: "default",
@@ -289,7 +333,6 @@ func unusedBackend() wekav1alpha1.Backend {
 			NodeName: "test-node-1",
 		},
 		Status: wekav1alpha1.BackendStatus{
-			DriveCount: 1,
 			DriveAssignments: map[wekav1alpha1.DriveName]*v1.LocalObjectReference{
 				"/dev/nvme0n1": {},
 			},
@@ -300,8 +343,8 @@ func unusedBackend() wekav1alpha1.Backend {
 	}
 }
 
-func allocatedBackend() wekav1alpha1.Backend {
-	return wekav1alpha1.Backend{
+func allocatedBackend() *wekav1alpha1.Backend {
+	return &wekav1alpha1.Backend{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-node-2",
 			Namespace: "default",
@@ -310,7 +353,6 @@ func allocatedBackend() wekav1alpha1.Backend {
 			NodeName: "test-node-2",
 		},
 		Status: wekav1alpha1.BackendStatus{
-			DriveCount: 1,
 			DriveAssignments: map[wekav1alpha1.DriveName]*v1.LocalObjectReference{
 				"/dev/nvme0n1": {
 					Name: "other-cluster-container-0",

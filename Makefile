@@ -125,6 +125,7 @@ dev:
 	$(MAKE) build
 	$(MAKE) docker-push
 	- $(MAKE) undeploy
+	- $(MAKE) uninstall
 	$(MAKE) deploy VERSION=latest
 
 .PHONY: run

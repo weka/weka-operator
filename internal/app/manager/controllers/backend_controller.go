@@ -47,16 +47,6 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	drives := node.Status.Allocatable["drive.weka.io/drive"]
-	if int(drives.Value()) != backend.Status.DriveCount {
-		backend.Status.DriveCount = int(drives.Value())
-		if err := r.Status().Update(ctx, backend); err != nil {
-			return ctrl.Result{}, pretty.Errorf("Status().Update(backend) failed", err, backend)
-		}
-
-		return ctrl.Result{Requeue: true}, nil
-	}
-
 	if err := r.labelNode(ctx, node, backend); err != nil {
 		return ctrl.Result{}, pretty.Errorf("labelNode failed", err, node)
 	}

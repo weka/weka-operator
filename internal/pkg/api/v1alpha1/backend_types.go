@@ -20,7 +20,6 @@ type BackendSpec struct {
 }
 
 type BackendStatus struct {
-	DriveCount       int                                    `json:"driveCount"`
 	Node             v1.Node                                `json:"node,omitempty"`
 	DriveAssignments map[DriveName]*v1.LocalObjectReference `json:"assignments,omitempty"`
 	CoreAssignments  map[CoreId]*v1.LocalObjectReference    `json:"coreAssignments,omitempty"`

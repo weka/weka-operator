@@ -64,8 +64,6 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: object
-              driveCount:
-                type: integer
               node:
                 description: Node is a worker node in Kubernetes. Each node will have
                   a unique identifier in the cache (i.e. in etcd).
@@ -555,8 +553,6 @@ spec:
                         type: array
                     type: object
                 type: object
-            required:
-            - driveCount
             type: object
         type: object
     served: true
