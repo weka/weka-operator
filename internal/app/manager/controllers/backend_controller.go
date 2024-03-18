@@ -6,7 +6,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,17 +50,6 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// The underlying node should have a drive.weka.io/drive allocation
-	// Capture this allocation and create a drive CRD for each
-	node := &v1.Node{}
-	if err := r.Get(ctx, client.ObjectKey{Name: backend.Spec.NodeName}, node); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	if err := r.labelNode(ctx, node, backend); err != nil {
-		return ctrl.Result{}, pretty.Errorf("labelNode failed", err, node)
-	}
-
 	// Refresh drives list
 	if err := r.refreshDrives(ctx, backend); err != nil {
 		var noMatchingDrivesError *NoMatchingDrivesError
@@ -75,21 +63,6 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *BackendReconciler) labelNode(ctx context.Context, node *v1.Node, backend *wekav1alpha1.Backend) error {
-	labels := node.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels["weka.io/backend"] = backend.Name
-	node.SetLabels(labels)
-
-	if err := r.Update(ctx, node); err != nil {
-		return pretty.Errorf("Update(node) failed", err, node)
-	}
-
-	return nil
-}
-
 func (r *BackendReconciler) refreshDrives(ctx context.Context, backend *wekav1alpha1.Backend) error {
 	logger := r.Logger.WithName("refreshDrives")
 	// Gets all drives in the namespace
@@ -101,7 +74,7 @@ func (r *BackendReconciler) refreshDrives(ctx context.Context, backend *wekav1al
 	// Filter drives for this backend
 	backendDrives := wekav1alpha1.DriveList{}
 	for _, drive := range drives.Items {
-		if drive.Status.NodeName == backend.Spec.NodeName {
+		if drive.Spec.NodeName == backend.Spec.NodeName {
 			backendDrives.Items = append(backendDrives.Items, drive)
 			driveName := wekav1alpha1.DriveName(drive.Name)
 			backend.Status.DriveAssignments[driveName] = nil

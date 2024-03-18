@@ -12,7 +12,9 @@ type Drive struct {
 }
 
 type DriveSpec struct {
-	Name string `json:"name"`
+	// Node Name is the name of the node the drive is attached to
+	NodeName string `json:"nodeName"`
+	Name     string `json:"name"`
 }
 
 type DriveStatus struct {
@@ -24,8 +26,6 @@ type DriveStatus struct {
 	UUID string `json:"uuid,omitempty"`
 	// Allocated indicates if the drive is in use by weka
 	Allocated bool `json:"allocated"`
-	// Node Name is the name of the node the drive is attached to
-	NodeName string `json:"nodeName"`
 }
 
 // +kubebuilder:object:root=true

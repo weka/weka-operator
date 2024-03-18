@@ -4,13 +4,14 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	zapr "github.com/go-logr/zapr"
 	"github.com/pkg/errors"
-	"go.uber.org/zap/zapcore"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	zapr "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	nodeLabeller "github.com/weka/weka-operator/internal/app/node-labeller"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -49,7 +50,7 @@ func (a *App) Main() error {
 }
 
 func main() {
-	logger := zapr.New(zapr.UseDevMode(true), zapr.Level(zapcore.DebugLevel))
+	logger := zapr.NewLogger(prettyconsole.NewLogger(zap.DebugLevel))
 
 	nodeName := os.Getenv("NODE_NAME")
 	app := &App{
