@@ -119,7 +119,7 @@ cluster-sample: ## Deploy sample cluster CRD
 
 .PHONY: build
 build: ## Build manager binary.
-	goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
+	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
 
 .PHONY: bundle
@@ -130,6 +130,7 @@ dev:
 	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 	- $(MAKE) undeploy
+	- $(MAKE) uninstall
 	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 
 
