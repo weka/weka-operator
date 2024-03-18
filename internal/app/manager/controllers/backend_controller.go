@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,6 +26,15 @@ type BackendReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Logger logr.Logger
+	Drives wekav1alpha1.DriveList
+}
+
+type NoMatchingDrivesError struct {
+	Backend *wekav1alpha1.Backend
+}
+
+func (e *NoMatchingDrivesError) Error() string {
+	return pretty.Sprintf("no matching drives for backend %s", e.Backend.Name)
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=backends,verbs=get;list;watch;create;update;patch;delete
@@ -33,7 +43,8 @@ type BackendReconciler struct {
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update
 
 func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.Logger.Info("BackendReconciler.Reconcile() called", "name", req.NamespacedName)
+	logger := r.Logger.WithName("Reconcile")
+	logger.Info("BackendReconciler.Reconcile() called", "name", req.NamespacedName)
 
 	backend := &wekav1alpha1.Backend{}
 	if err := r.Get(ctx, req.NamespacedName, backend); err != nil {
@@ -49,6 +60,16 @@ func (r *BackendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.labelNode(ctx, node, backend); err != nil {
 		return ctrl.Result{}, pretty.Errorf("labelNode failed", err, node)
+	}
+
+	// Refresh drives list
+	if err := r.refreshDrives(ctx, backend); err != nil {
+		var noMatchingDrivesError *NoMatchingDrivesError
+		if errors.As(err, &noMatchingDrivesError) {
+			logger.Info("no matching drives", "backend", backend.Name)
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, pretty.Errorf("refreshDrives failed", err, backend)
 	}
 
 	return ctrl.Result{}, nil
@@ -67,6 +88,34 @@ func (r *BackendReconciler) labelNode(ctx context.Context, node *v1.Node, backen
 	}
 
 	return nil
+}
+
+func (r *BackendReconciler) refreshDrives(ctx context.Context, backend *wekav1alpha1.Backend) error {
+	logger := r.Logger.WithName("refreshDrives")
+	// Gets all drives in the namespace
+	drives := &wekav1alpha1.DriveList{}
+	if err := r.List(ctx, drives, client.InNamespace(backend.Namespace)); err != nil {
+		return pretty.Errorf("List(drives) failed", err)
+	}
+
+	// Filter drives for this backend
+	backendDrives := wekav1alpha1.DriveList{}
+	for _, drive := range drives.Items {
+		if drive.Status.NodeName == backend.Spec.NodeName {
+			backendDrives.Items = append(backendDrives.Items, drive)
+			driveName := wekav1alpha1.DriveName(drive.Name)
+			backend.Status.DriveAssignments[driveName] = nil
+		}
+	}
+	if backendDrives.Items == nil {
+		logger.Info("no matching drives", "backend", backend.Name)
+		return &NoMatchingDrivesError{Backend: backend}
+	}
+
+	logger.Info("found drives", "count", len(backendDrives.Items))
+	r.Drives = backendDrives
+
+	return r.Status().Update(ctx, backend)
 }
 
 func (r *BackendReconciler) SetupWithManager(mgr ctrl.Manager) error {
