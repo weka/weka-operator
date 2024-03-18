@@ -1,21 +1,15 @@
 package resources
 
 import (
-	"bytes"
-	"errors"
-	"html/template"
+	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kr/pretty"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/util/yaml"
-
-	_ "embed"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-//go:embed container.yaml.tpl
-var containerTemplate string
 
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
@@ -29,70 +23,230 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger logr.Logg
 	}
 }
 
-// NewDeployment creates a new deployment for the container
-//
-// The deployment creates a single pod locked a specific node
-func (f *ContainerFactory) NewDeployment() (*appsv1.Deployment, error) {
-	if containerTemplate == "" {
-		return nil, errors.New("container template is empty")
-	}
-	deploymentTemplate := template.New("deployment")
-	deploymentTemplate, err := deploymentTemplate.Parse(containerTemplate)
-	if err != nil {
-		return nil, err
+func (f *ContainerFactory) Create() (*corev1.Pod, error) {
+	labels := labelsForWekaContainer(f.container)
+
+	image := f.container.Spec.Image
+
+	hugePagesName := corev1.ResourceName(
+		strings.Join(
+			[]string{corev1.ResourceHugePagesPrefix, "2Mi"},
+			""))
+	resourceRequests := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("2"),
+		hugePagesName:      resource.MustParse("4000Mi"),
 	}
 
-	container := f.container.Spec
-	if container.ImagePullSecretName == "" {
-		container.ImagePullSecretName = "quay-cred"
-	}
-	if container.ManagementPort == 0 {
-		container.ManagementPort = 14000
-	}
-	if container.InterfaceName == "" {
-		container.InterfaceName = "udp"
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      f.container.Name,
+			Namespace: f.container.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PodSpec{
+			Affinity: &corev1.Affinity{
+				NodeAffinity: &corev1.NodeAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+						NodeSelectorTerms: []corev1.NodeSelectorTerm{
+							{
+								MatchExpressions: []corev1.NodeSelectorRequirement{
+									{
+										Key:      "kubernetes.io/hostname",
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{f.container.Spec.NodeAffinity},
+									},
+									{
+										Key:      "kubernetes.io/os",
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{"linux"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Image:           image,
+					Name:            "weka-container",
+					ImagePullPolicy: corev1.PullAlways,
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: &[]bool{true}[0],
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "dev",
+							MountPath: "/dev",
+						},
+						{
+							Name:      "hugepages",
+							MountPath: "/dev/hugepages",
+						},
+						{
+							Name:      "sys",
+							MountPath: "/sys",
+						},
+						{
+							Name:      "weka-agent-start",
+							MountPath: "/opt/start-weka-agent.sh",
+							SubPath:   "start-weka-agent.sh",
+						},
+						{
+							Name:      "weka-container-start",
+							MountPath: "/opt/start-weka-container.sh",
+							SubPath:   "start-weka-container.sh",
+						},
+						{
+							Name:      "supervisord-conf",
+							MountPath: "/etc/supervisord/supervisord.conf",
+							SubPath:   "supervisord.conf",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "AGENT_PORT",
+							Value: strconv.Itoa(f.container.Spec.AgentPort),
+						},
+						{
+							Name:  "NAME",
+							Value: f.container.Spec.WekaContainerName,
+						},
+						{
+							Name:  "MODE",
+							Value: f.container.Spec.Mode,
+						},
+						{
+							Name:  "PORT",
+							Value: strconv.Itoa(f.container.Spec.Port),
+						},
+						{
+							Name:  "MEMORY",
+							Value: "1gib", // TODO: spec
+						},
+						{
+							Name:  "CORES",
+							Value: strconv.Itoa(f.container.Spec.NumCores),
+						},
+						{
+							Name:  "CORE_IDS",
+							Value: comaSeparated(f.container.Spec.CoreIds),
+						},
+						{
+							Name:  "NETWORK_DEVICE",
+							Value: f.container.Spec.Network.EthDevice,
+						},
+						{
+							Name:  "WEKA_PORT",
+							Value: strconv.Itoa(f.container.Spec.Port),
+						},
+						{
+							Name:  "WEKA_CLI_DEBUG",
+							Value: "0",
+						},
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits:   resourceRequests,
+						Requests: resourceRequests,
+					},
+				},
+			},
+			HostNetwork: true,
+			Volumes: []corev1.Volume{
+				{
+					Name: "hugepages",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium: "HugePages-2Mi",
+						},
+					},
+				},
+				{
+					Name: "dev",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/dev",
+						},
+					},
+				},
+				{
+					Name: "sys",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/sys",
+						},
+					},
+				},
+				{
+					Name: "weka-agent-start",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "weka-agent-start",
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "start-weka-agent.sh",
+									Path: "start-weka-agent.sh",
+								},
+							},
+							DefaultMode: &[]int32{0o777}[0],
+						},
+					},
+				},
+				{
+					Name: "weka-container-start",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "weka-container-start",
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "start-weka-container.sh",
+									Path: "start-weka-container.sh",
+								},
+							},
+							DefaultMode: &[]int32{0o777}[0],
+						},
+					},
+				},
+				{
+					Name: "supervisord-conf",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "weka-supervisord-conf",
+							},
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "supervisord.conf",
+									Path: "supervisord.conf",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	namespace := f.container.Namespace
-	var deploymentYaml bytes.Buffer
-	if err := deploymentTemplate.Execute(&deploymentYaml, deployment{
-		Name:                container.Name,
-		Namespace:           namespace,
-		NodeName:            container.NodeName,
-		ImagePullSecretName: container.ImagePullSecretName,
-		Image:               container.Image,
-		WekaVersion:         container.WekaVersion,
-		BackendIP:           container.BackendIP,
-		ManagementPort:      container.ManagementPort,
-		InterfaceName:       container.InterfaceName,
-	}); err != nil {
-		f.logger.Info("deployment yaml", "yaml", deploymentYaml.String())
-		return nil, pretty.Errorf("failed to execute deployment template", err)
-	}
-
-	var deployment appsv1.Deployment
-	if err := yaml.Unmarshal(deploymentYaml.Bytes(), &deployment); err != nil {
-		return nil, err
-	}
-
-	if deployment.Name == "" {
-		return nil, pretty.Errorf("deployment name is empty", deploymentYaml.String())
-	}
-	if deployment.Namespace == "" {
-		return nil, errors.New("deployment namespace is empty")
-	}
-
-	return &deployment, nil
+	return pod, nil
 }
 
-type deployment struct {
-	Name                string
-	Namespace           string
-	NodeName            string
-	ImagePullSecretName string
-	Image               string
-	WekaVersion         string
-	BackendIP           string
-	ManagementPort      int32
-	InterfaceName       string
+func labelsForWekaContainer(container *wekav1alpha1.WekaContainer) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":      "WekaContainer",
+		"app.kubernetes.io/instance":  container.Name,
+		"app.kubernetes.io/part-of":   "weka-operator",
+		"app.kubernetes.io/create-by": "controller-manager",
+	}
+}
+
+func comaSeparated(ints []int) string {
+	var result []string
+	for _, i := range ints {
+		result = append(result, strconv.Itoa(i))
+	}
+	return strings.Join(result, ",")
 }

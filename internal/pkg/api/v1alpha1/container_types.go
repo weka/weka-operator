@@ -1,7 +1,6 @@
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -11,27 +10,28 @@ type WekaContainer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ContainerSpec   `json:"spec,omitempty"`
-	Status ContainerStatus `json:"status,omitempty"`
+	Spec   WekaContainerSpec   `json:"spec,omitempty"`
+	Status WekaContainerStatus `json:"status,omitempty"`
 }
 
-type ContainerSpec struct {
-	NodeName            string   `json:"nodeName"`
-	Drives              []string `json:"drives"`
-	Image               string   `json:"image"`
-	ImagePullSecretName string   `json:"imagePullSecretName,omitempty"`
-	Name                string   `json:"name"`
-	WekaVersion         string   `json:"wekaVersion"`
-	BackendIP           string   `json:"backendIP"`
-	ManagementPort      int32    `json:"managementPort,omitempty"`
-	InterfaceName       string   `json:"interfaceName,omitempty"`
-
-	// WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
-	// WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
+type WekaContainerSpec struct {
+	NodeAffinity      string  `json:"nodeAffinity,omitempty"`
+	Port              int     `json:"port,omitempty"`
+	AgentPort         int     `json:"agentPort,omitempty"`
+	Image             string  `json:"image"`
+	WekaContainerName string  `json:"name"`
+	Mode              string  `json:"mode"` // TODO: How to define as enum?
+	NumCores          int     `json:"numCores"`
+	CoreIds           []int   `json:"coreIds,omitempty"`
+	Network           Network `json:"network,omitempty"`
 }
 
-type ContainerStatus struct {
-	AssignedNode v1.Node `json:"assignedNode"`
+type Network struct {
+	EthDevice string `json:"ethDevice"`
+}
+
+type WekaContainerStatus struct {
+	Status string `json:"status"`
 }
 
 // +kubebuilder:object:root=true

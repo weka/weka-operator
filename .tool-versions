@@ -7,3 +7,4 @@ operator-sdk 1.32.0
 minikube 1.32.0
 goreleaser 1.23.0
 eksctl 0.169.0
+krew 0.4.4
