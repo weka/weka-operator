@@ -23,14 +23,15 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
 # weka.io/weka-operator-bundle:$VERSION and weka.io/weka-operator-catalog:$VERSION.
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
-IMAGE_TAG_BASE ?= quay.io/weka.io/weka-operator
+REGISTRY_ENDPOINT ?= quay.io/weka.io
+VERSION ?= latest
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.32.0
 
 # Image URL to use all building/pushing image targets
-IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
+#IMG ?= $(REGISTRY_ENDPOINT)/weka-operator:$(VERSION)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.26.0
 
@@ -120,21 +121,38 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build manager binary.
 	goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
+
+.PHONY: bundle
+
+
 .PHONY: dev
 dev:
+	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	- $(MAKE) undeploy
+	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+
+
+.PHONY: dev
+devcycle:
 	$(MAKE) build
 	$(MAKE) docker-push
-	- $(MAKE) undeploy
-	$(MAKE) deploy VERSION=latest
+	$(MAKE) deploy
+
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/manager/main.go
 
+
+#.PHONY: docker-build
+#docker-build: ## Build docker image with the manager.
+#	docker buildx build --push --platform linux/x86_64 -t ${IMG} .
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	docker push ${IMAGE_TAG_BASE}:latest
-	docker push ${IMAGE_TAG_BASE}-node-labeller:latest
+	docker push ${REGISTRY_ENDPOINT}/weka-operator:${VERSION}
+	#docker push ${REGISTRY_ENDPOINT}/weka-operator-node-labeller:${VERSION}
 
 ##@ Deployment
 
@@ -151,17 +169,14 @@ uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube
 	kubectl delete --ignore-not-found=$(ignore-not-found) -f charts/weka-operator/crds
 
 NAMESPACE="weka-operator-system"
-VALUES="prefix=weka-operator,image.repository=$(IMAGE_TAG_BASE),image.tag=$(VERSION)"
-HELM_TEMPLATE=$(HELM) --namespace $(NAMESPACE) \
-	template weka-operator charts/weka-operator \
-	--values charts/weka-operator/values.yaml \
-	--set $(VALUES)
+VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
 
 .PHONY: deploy
 deploy: ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	$(HELM) upgrade --install weka-operator charts/weka-operator \
 		--namespace $(NAMESPACE) \
 		--values charts/weka-operator/values.yaml \
+		--create-namespace \
 		--set $(VALUES)
 
 .PHONY: undeploy
