@@ -33,7 +33,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 			[]string{corev1.ResourceHugePagesPrefix, "2Mi"},
 			""))
 	resourceRequests := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("2"),
+		corev1.ResourceCPU: resource.MustParse("2000m"),
 		hugePagesName:      resource.MustParse("4000Mi"),
 	}
 
