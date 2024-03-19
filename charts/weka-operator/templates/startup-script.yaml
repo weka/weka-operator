@@ -1,9 +1,0 @@
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: startup-script
-  namespace: weka-operator-system
-data:
-  startup-script.sh: |-
-{{ .Files.Get "startup-script.sh" | indent 4}}
