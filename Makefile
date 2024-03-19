@@ -136,15 +136,8 @@ dev:
 	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 
 
-.PHONY: dev
-devcycle:
-	$(MAKE) build
-	$(MAKE) docker-push
-	$(MAKE) deploy
-
-
 .PHONY: run
-run: manifests generate fmt vet deploy runcontroller ## Run a controller from your host.
+run: manifests generate install fmt vet deploy runcontroller ## Run a controller from your host.
 	;
 
 .PHONY: runcontroller
