@@ -66,6 +66,8 @@ spec:
             type: object
           status:
             properties:
+              managementIP:
+                type: string
               status:
                 type: string
             required:
