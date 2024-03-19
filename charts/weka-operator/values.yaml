@@ -11,3 +11,4 @@ image:
   tag: "{{ .Chart.Version }}"
 
 imagePullSecret: quay-cred
+deployController: true
