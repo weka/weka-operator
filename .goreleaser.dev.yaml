@@ -8,8 +8,8 @@ before:
     - make manifests
     - make generate
     - go fmt ./...
-#    - go vet ./...
-#    - make test
+    - go vet ./...
+    - make test
 
 builds:
   - id: "weka-operator"
