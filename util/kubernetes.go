@@ -53,7 +53,7 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 		Namespace(e.Pod.Namespace).
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Container: "weka-agent",
+			Container: "weka-container",
 			Command:   command,
 			Stdout:    true,
 			Stderr:    true,

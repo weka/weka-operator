@@ -2,6 +2,9 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"github.com/weka/weka-operator/util"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
@@ -68,7 +71,6 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	// Diff the actual and desired Deploymen
 	hasChanges := desiredPod.Spec.Containers[0].Image !=
 		actualPod.Spec.Containers[0].Image
 
@@ -80,6 +82,27 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		logger.Info("Pod updated", "name", container.Name)
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if container.Status.ManagementIP == "" {
+		executor, err := util.NewExecInPod(actualPod)
+		logger.Info("Updating ManagementIP")
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
+		}
+		if container.Spec.Network.EthDevice == "" {
+			return ctrl.Result{}, errors.New("only ethDevice config is supported")
+		}
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1",
+			container.Spec.Network.EthDevice)})
+		if err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "ClientController.Reconcile.IPResolution: %s", stderr.String())
+		}
+		container.Status.ManagementIP = strings.TrimSpace(stdout.String())
+		logger.Info("Got IP: " + container.Status.ManagementIP)
+		if err := c.Status().Update(ctx, container); err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile.UpdateIp")
+		}
 	}
 
 	logger.Info("Reconcile completed", "name", container.Name)
