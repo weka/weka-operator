@@ -15,7 +15,7 @@ spec:
   selector:
     matchLabels:
       control-plane: controller-manager
-  replicas: 1
+  replicas: {{ if eq .Values.deployController true }} 1 {{else}} 0 {{end}}
   template:
     metadata:
       annotations:

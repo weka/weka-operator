@@ -24,7 +24,9 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # weka.io/weka-operator-bundle:$VERSION and weka.io/weka-operator-catalog:$VERSION.
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
 REGISTRY_ENDPOINT ?= quay.io/weka.io
+GORELEASER_BUILDER ?= docker
 VERSION ?= latest
+DEPLOY_CONTROLLER ?= true
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -119,7 +121,7 @@ cluster-sample: ## Deploy sample cluster CRD
 
 .PHONY: build
 build: ## Build manager binary.
-	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
+	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
 
 .PHONY: bundle
@@ -142,7 +144,11 @@ devcycle:
 
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: manifests generate fmt vet deploy runcontroller ## Run a controller from your host.
+	;
+
+.PHONY: runcontroller
+runcontroller: ## Run a controller from your host.
 	go run ./cmd/manager/main.go
 
 
@@ -173,12 +179,13 @@ NAMESPACE="weka-operator-system"
 VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
 
 .PHONY: deploy
-deploy: ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: generate manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	$(HELM) upgrade --install weka-operator charts/weka-operator \
 		--namespace $(NAMESPACE) \
 		--values charts/weka-operator/values.yaml \
 		--create-namespace \
-		--set $(VALUES)
+		--set $(VALUES) \
+		--set deployController=${DEPLOY_CONTROLLER}
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
