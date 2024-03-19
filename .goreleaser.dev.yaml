@@ -37,6 +37,7 @@ dockers:
       - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Env.VERSION }}"
 
     dockerfile: "Dockerfile.release"
+    use: buildx
 
     build_flag_templates:
       - "--target=manager"
