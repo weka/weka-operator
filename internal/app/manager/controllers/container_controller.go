@@ -201,6 +201,15 @@ func (c *ContainerController) reconcileStatus(ctx context.Context, container *we
 	return ctrl.Result{}, nil
 }
 
+func refreshContainer(r client.Reader, ctx context.Context, container *wekav1alpha1.WekaContainer) (*wekav1alpha1.WekaContainer, error) {
+	ref := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
+	container = &wekav1alpha1.WekaContainer{}
+	if err := r.Get(ctx, ref, container); err != nil {
+		return nil, errors.Wrap(err, "refreshContainer")
+	}
+	return container, nil
+}
+
 func (c *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
 	container := &wekav1alpha1.WekaContainer{}
 	if err := c.Get(ctx, req.NamespacedName, container); err != nil {
