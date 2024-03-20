@@ -110,11 +110,19 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return result, nil
 	}
 
+	result, err = c.reconcileStatus(ctx, container, actualPod)
+	if err != nil {
+		logger.Error(err, "Error reconciling status", "name", container.Name)
+		return ctrl.Result{}, err
+	}
+	if result.Requeue {
+		return result, nil
+	}
+
 	logger.Info("Reconcile completed", "name", container.Name)
 	return ctrl.Result{}, nil
 }
 
-// TODO
 func (c *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
 	logger := c.Logger.WithName("reconcileManagementIP")
 	if container.Status.ManagementIP != "" {
@@ -147,6 +155,38 @@ func (c *ContainerController) reconcileManagementIP(ctx context.Context, contain
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
+	return ctrl.Result{}, nil
+}
+
+func (c *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	logger := c.Logger.WithName("reconcileStatus")
+	logger.Info("Reconciling status", "name", container.Name)
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return ctrl.Result{}, err
+	}
+
+	statusCommand := fmt.Sprintf("weka local status %s -J | jq .%s.internalStatus.state", container.Spec.WekaContainerName, container.Spec.WekaContainerName)
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", statusCommand})
+	if err != nil {
+		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
+		return ctrl.Result{}, err
+	}
+
+	status := strings.TrimSpace(stdout.String())
+	logger.Info("Status", "status", status)
+	if container.Status.Status != status {
+		logger.Info("Updating status", "from", container.Status.Status, "to", status)
+		container.Status.Status = status
+		if err := c.Status().Update(ctx, container); err != nil {
+			logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
