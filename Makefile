@@ -142,7 +142,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	go run ./cmd/manager/main.go
+	OPERATOR_DEV_MODE=true go run ./cmd/manager/main.go
 
 
 #.PHONY: docker-build

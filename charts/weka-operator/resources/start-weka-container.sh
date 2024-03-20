@@ -82,9 +82,7 @@ log_message INFO "CORES=${CORES}"
 log_message INFO "NETWORK_DEVICE=${NETWORK_DEVICE}"
 log_message INFO "WEKA_CLI_DEBUG=${WEKA_CLI_DEBUG}"
 
-WEKA_VERSION=$(weka version)
-log_message INFO "Setting weka version to ${WEKA_VERSION}"
-weka version set ${WEKA_VERSION} 2> >(log_pipe_err >&2) | log_pipe
+weka version set `weka version` 2> >(log_pipe_err >&2) | log_pipe
 
 if [[ -z "${CORE_IDS}" || "$CORE_IDS" == "auto" ]]; then
   log_fatal "CORE_IDS 'auto' is not supported yet. Please specify a comma-separated list of core ids to use."
