@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -189,6 +190,11 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	err = r.CreateCluster(ctx, dummyCluster, containers)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.EnsureClusterContainerIds(ctx, dummyCluster, containers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -396,5 +402,61 @@ func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1a
 		return nil
 	}
 	//return errors.New("not implemented")
+	return nil
+}
+
+func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+	var containersMap resources.ClusterContainersMap
+
+	fetchContainers := func() error {
+		pod, err := resources.NewContainerFactory(containers[0], r.Logger).Create()
+		if err != nil {
+			return errors.Wrap(err, "Could not find executor pod")
+		}
+		clusterizePod := &v1.Pod{}
+		err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: pod.Name}, clusterizePod)
+		executor, err := util.NewExecInPod(clusterizePod)
+		if err != nil {
+			return errors.Wrap(err, "Could not create executor")
+		}
+		cmd := "weka cluster container -J"
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
+		}
+		response := resources.ClusterContainersResponse{}
+		err = json.Unmarshal(stdout.Bytes(), &response)
+		if err != nil {
+			return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
+		}
+		containersMap, err = resources.MapByContainerName(response)
+		if err != nil {
+			return errors.Wrapf(err, "Failed to map containers")
+		}
+		return nil
+	}
+
+	for _, container := range containers {
+		if container.Status.ClusterContainerID == nil {
+			if containersMap == nil {
+				err := fetchContainers()
+				if err != nil {
+					return err
+				}
+			}
+			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
+				return errors.New("Container " + container.Name + " not found in cluster")
+			} else {
+				containerId, err := clusterContainer.ContainerId()
+				if err != nil {
+					return errors.Wrap(err, "Failed to parse container id")
+				}
+				container.Status.ClusterContainerID = &containerId
+				if err := r.Status().Update(ctx, container); err != nil {
+					return errors.Wrap(err, "Failed to update container status")
+				}
+			}
+		}
+	}
 	return nil
 }
