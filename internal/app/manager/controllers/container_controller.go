@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/weka/weka-operator/util"
+	"log"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -17,6 +18,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	return &ContainerController{
@@ -32,6 +35,9 @@ type ContainerController struct {
 	Logger logr.Logger
 }
 
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
+
+// Reconcile reconciles a WekaContainer resource
 func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := c.Logger.WithName("Reconcile")
 	logger.Info("ContainerController.Reconcile() called")
@@ -58,6 +64,11 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := ctrl.SetControllerReference(container, desiredPod, c.Scheme); err != nil {
 		logger.Error(err, "Error setting controller reference")
 		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
+	}
+
+	err = c.ensureBootConfigMapInTargetNamespace(ctx, container)
+	if err != nil {
+		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
 	}
 
 	actualPod, err := c.refreshPod(ctx, container)
@@ -150,4 +161,36 @@ func (c *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 		For(&wekav1alpha1.WekaContainer{}).
 		Owns(&v1.Pod{}).
 		Complete(c)
+}
+
+func (c *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	bundledConfigMap := &v1.ConfigMap{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: util.GetPodNamespace(), Name: bootScriptConfigName}, bundledConfigMap)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Fatalln("Could not find operator-namespaced configmap for boot scripts")
+		}
+		return err
+	}
+
+	bootScripts := &v1.ConfigMap{}
+	err = c.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: bootScriptConfigName}, bootScripts)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			bootScripts.Namespace = container.Namespace
+			bootScripts.Name = bootScriptConfigName
+			bootScripts.Data = bundledConfigMap.Data
+			if err := c.Create(ctx, bootScripts); err != nil {
+				c.Logger.Error(err, "Error creating boot scripts config map")
+			}
+		}
+	}
+
+	if !util.IsEqualConfigMapData(bootScripts, bundledConfigMap) {
+		bootScripts.Data = bundledConfigMap.Data
+		if err := c.Update(ctx, bootScripts); err != nil {
+			c.Logger.Error(err, "Error updating boot scripts config map")
+		}
+	}
+	return nil
 }

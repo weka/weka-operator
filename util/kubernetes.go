@@ -3,8 +3,6 @@ package util
 import (
 	"bytes"
 	"context"
-	"os"
-
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -12,6 +10,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
+	"log"
+	"os"
+	"reflect"
 )
 
 type Exec struct {
@@ -93,4 +94,19 @@ func KubernetesConfiguration() (*rest.Config, error) {
 	} else {
 		return clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	}
+}
+
+func GetPodNamespace() string {
+	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		if os.IsNotExist(err) && os.Getenv("OPERATOR_DEV_MODE") == "true" {
+			return "weka-operator-system"
+		}
+		log.Fatalf("Failed to get Pod namespace: %v", err)
+	}
+	return string(namespace)
+}
+
+func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
+	return reflect.DeepEqual(cm1.Data, cm2.Data)
 }
