@@ -36,7 +36,7 @@ type Network struct {
 type WekaContainerStatus struct {
 	Status             string `json:"status"`
 	ManagementIP       string `json:"managementIP,omitempty"`
-	ClusterContainerID string `json:"containerID,omitempty"`
+	ClusterContainerID *int   `json:"containerID,omitempty"`
 }
 
 // +kubebuilder:object:root=true

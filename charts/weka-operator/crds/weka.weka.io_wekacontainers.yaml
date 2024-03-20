@@ -71,7 +71,7 @@ spec:
           status:
             properties:
               containerID:
-                type: string
+                type: integer
               managementIP:
                 type: string
               status:
