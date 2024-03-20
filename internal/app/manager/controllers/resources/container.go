@@ -112,17 +112,17 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							MountPath: "/sys",
 						},
 						{
-							Name:      "weka-agent-start",
+							Name:      "weka-boot-scripts",
 							MountPath: "/opt/start-weka-agent.sh",
 							SubPath:   "start-weka-agent.sh",
 						},
 						{
-							Name:      "weka-container-start",
+							Name:      "weka-boot-scripts",
 							MountPath: "/opt/start-weka-container.sh",
 							SubPath:   "start-weka-container.sh",
 						},
 						{
-							Name:      "supervisord-conf",
+							Name:      "weka-boot-scripts",
 							MountPath: "/etc/supervisord/supervisord.conf",
 							SubPath:   "supervisord.conf",
 						},
@@ -206,52 +206,13 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 				{
-					Name: "weka-agent-start",
+					Name: "weka-boot-scripts",
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "weka-agent-start",
-							},
-							Items: []corev1.KeyToPath{
-								{
-									Key:  "start-weka-agent.sh",
-									Path: "start-weka-agent.sh",
-								},
+								Name: "weka-boot-scripts",
 							},
 							DefaultMode: &[]int32{0o777}[0],
-						},
-					},
-				},
-				{
-					Name: "weka-container-start",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "weka-container-start",
-							},
-							Items: []corev1.KeyToPath{
-								{
-									Key:  "start-weka-container.sh",
-									Path: "start-weka-container.sh",
-								},
-							},
-							DefaultMode: &[]int32{0o777}[0],
-						},
-					},
-				},
-				{
-					Name: "supervisord-conf",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "weka-supervisord-conf",
-							},
-							Items: []corev1.KeyToPath{
-								{
-									Key:  "supervisord.conf",
-									Path: "supervisord.conf",
-								},
-							},
 						},
 					},
 				},
