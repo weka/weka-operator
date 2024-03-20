@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -15,17 +16,20 @@ type WekaContainer struct {
 }
 
 type WekaContainerSpec struct {
-	NodeAffinity      string  `json:"nodeAffinity,omitempty"`
-	Port              int     `json:"port,omitempty"`
-	AgentPort         int     `json:"agentPort,omitempty"`
-	Image             string  `json:"image"`
-	ImagePullSecret   string  `json:"imagePullSecret,omitempty"`
-	WekaContainerName string  `json:"name"`
-	Mode              string  `json:"mode"` // TODO: How to define as enum?
-	NumCores          int     `json:"numCores"`
-	CoreIds           []int   `json:"coreIds,omitempty"`
-	Network           Network `json:"network,omitempty"`
-	Hugepages         string  `json:"hugepages,omitempty"`
+	NodeAffinity      string              `json:"nodeAffinity,omitempty"`
+	Port              int                 `json:"port,omitempty"`
+	AgentPort         int                 `json:"agentPort,omitempty"`
+	Image             string              `json:"image"`
+	ImagePullSecret   string              `json:"imagePullSecret,omitempty"`
+	WekaContainerName string              `json:"name"`
+	Mode              string              `json:"mode"` // TODO: How to define as enum?
+	NumCores          int                 `json:"numCores"`
+	CoreIds           []int               `json:"coreIds,omitempty"`
+	Network           Network             `json:"network,omitempty"`
+	Hugepages         string              `json:"hugepages,omitempty"`
+	WekaUsername      corev1.EnvVarSource `json:"wekaUsername,omitempty"`
+	WekaPassword      corev1.EnvVarSource `json:"wekaPassword,omitempty"`
+	WekaOrg           string              `json:"wekaOrg,omitempty"`
 }
 
 type Network struct {

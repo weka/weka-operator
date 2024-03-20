@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -33,7 +34,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 
 	image := f.container.Spec.Image
 
-	//TODO: to resolve basing on value from spec
+	// TODO: to resolve basing on value from spec
 	hugePagesNum := f.container.Spec.Hugepages
 	if f.container.Spec.Hugepages == "" {
 		hugePagesNum = "4000Mi"
@@ -53,16 +54,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		imagePullSecrets = []corev1.LocalObjectReference{
 			{Name: f.container.Spec.ImagePullSecret},
 		}
-	}
-
-	netDevice := "udp"
-	udpMode := "false"
-	if f.container.Spec.Network.EthDevice != "" {
-		netDevice = f.container.Spec.Network.EthDevice
-	}
-	if f.container.Spec.Network.UdpMode {
-		netDevice = "udp"
-		udpMode = "true"
 	}
 
 	pod := &corev1.Pod{
@@ -132,52 +123,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							SubPath:   "supervisord.conf",
 						},
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "AGENT_PORT",
-							Value: strconv.Itoa(f.container.Spec.AgentPort),
-						},
-						{
-							Name:  "NAME",
-							Value: f.container.Spec.WekaContainerName,
-						},
-						{
-							Name:  "MODE",
-							Value: f.container.Spec.Mode,
-						},
-						{
-							Name:  "PORT",
-							Value: strconv.Itoa(f.container.Spec.Port),
-						},
-						{
-							Name:  "MEMORY",
-							Value: "1gib", // TODO: spec
-						},
-						{
-							Name:  "CORES",
-							Value: strconv.Itoa(f.container.Spec.NumCores),
-						},
-						{
-							Name:  "CORE_IDS",
-							Value: comaSeparated(f.container.Spec.CoreIds),
-						},
-						{
-							Name:  "NETWORK_DEVICE",
-							Value: netDevice,
-						},
-						{
-							Name:  "UDP_MODE",
-							Value: udpMode,
-						},
-						{
-							Name:  "WEKA_PORT",
-							Value: strconv.Itoa(f.container.Spec.Port),
-						},
-						{
-							Name:  "WEKA_CLI_DEBUG",
-							Value: "0",
-						},
-					},
 					Resources: corev1.ResourceRequirements{
 						Limits:   resourceRequests,
 						Requests: resourceRequests,
@@ -225,6 +170,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		},
 	}
 
+	f.addEnvironmentVariables(pod)
+
 	return pod, nil
 }
 
@@ -243,4 +190,96 @@ func comaSeparated(ints []int) string {
 		result = append(result, strconv.Itoa(i))
 	}
 	return strings.Join(result, ",")
+}
+
+func (f *ContainerFactory) addEnvironmentVariables(pod *v1.Pod) {
+	netDevice := "udp"
+	udpMode := "false"
+	if f.container.Spec.Network.EthDevice != "" {
+		netDevice = f.container.Spec.Network.EthDevice
+	}
+	if f.container.Spec.Network.UdpMode {
+		netDevice = "udp"
+		udpMode = "true"
+	}
+
+	env := []corev1.EnvVar{
+		{
+			Name:  "AGENT_PORT",
+			Value: strconv.Itoa(f.container.Spec.AgentPort),
+		},
+		{
+			Name:  "NAME",
+			Value: f.container.Spec.WekaContainerName,
+		},
+		{
+			Name:  "MODE",
+			Value: f.container.Spec.Mode,
+		},
+		{
+			Name:  "PORT",
+			Value: strconv.Itoa(f.container.Spec.Port),
+		},
+		{
+			Name:  "MEMORY",
+			Value: "1gib", // TODO: spec
+		},
+		{
+			Name:  "CORES",
+			Value: strconv.Itoa(f.container.Spec.NumCores),
+		},
+		{
+			Name:  "CORE_IDS",
+			Value: comaSeparated(f.container.Spec.CoreIds),
+		},
+		{
+			Name:  "NETWORK_DEVICE",
+			Value: netDevice,
+		},
+		{
+			Name:  "UDP_MODE",
+			Value: udpMode,
+		},
+		{
+			Name:  "WEKA_PORT",
+			Value: strconv.Itoa(f.container.Spec.Port),
+		},
+		{
+			Name:  "WEKA_CLI_DEBUG",
+			Value: "0",
+		},
+		{
+			Name:  "WEKA_ORG",
+			Value: f.wekaOrg(),
+		},
+	}
+	env = f.addCredentials(env)
+	pod.Spec.Containers[0].Env = f.addCredentials(env)
+}
+
+func (f *ContainerFactory) addCredentials(env []corev1.EnvVar) []corev1.EnvVar {
+	if f.container.Spec.WekaUsername.SecretKeyRef == nil {
+		return env
+	}
+	if f.container.Spec.WekaPassword.SecretKeyRef == nil {
+		return env
+	}
+
+	env = append(env, corev1.EnvVar{
+		Name:      "WEKA_USERNAME",
+		ValueFrom: &f.container.Spec.WekaUsername,
+	})
+	env = append(env, corev1.EnvVar{
+		Name:      "WEKA_PASSWORD",
+		ValueFrom: &f.container.Spec.WekaPassword,
+	})
+	return env
+}
+
+func (f *ContainerFactory) wekaOrg() string {
+	if f.container.Spec.WekaOrg != "" {
+		return f.container.Spec.WekaOrg
+	} else {
+		return "0"
+	}
 }

@@ -1,0 +1,38 @@
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: clustera
+spec:
+  size: 5
+  drive: /dev/sdd
+  hosts:
+    - wekabox17.lan
+    - wekabox15.lan
+    - wekabox16.lan
+    - wekabox14.lan
+    - wekabox18.lan
+  agentBasePort: 14101
+  containerBasePort: 16001
+  baseCoreId: 2
+  containersNamePrefix: "a"
+  image: localhost:30000/weka-as-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: clusterb
+spec:
+  size: 5
+  drive: /dev/sdc
+  hosts:
+    - wekabox17.lan
+    - wekabox15.lan
+    - wekabox16.lan
+    - wekabox14.lan
+    - wekabox18.lan
+  agentBasePort: 14201
+  containerBasePort: 17001
+  baseCoreId: 4
+  wekaContainerNamePrefix: "b"
+  image: localhost:30000/weka-as-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
