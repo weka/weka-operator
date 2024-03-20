@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -196,13 +197,19 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	err = r.EnsureClusterContainerIds(ctx, dummyCluster, containers)
 	if err != nil {
-		return ctrl.Result{}, err
+		r.Logger.Info("not all containers are up in cluster, requing", "err", err)
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
 	}
 
 	// TODO: This probably a place to start running with conditions, or validate against cluster drive by guids, what was already running
 	// Current state of function definitely is not anywhere close to reliable, and mostly done for happy flows quick deployments
 	// Any failure within AddDrives probably will lead to a bad state
 	err = r.AddDrives(ctx, dummyCluster, containers)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.StartIo(ctx, dummyCluster, containers)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -231,19 +238,6 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 	containerPort := cluster.Spec.ContainerBasePort
 
 	roles := []string{"compute", "drive"}
-	ipPortPairs := []string{}
-
-	HostNameToIp := map[string]string{
-		"wekabox17.lan": "10.222.98.0",
-		"wekabox15.lan": "10.222.98.1",
-		"wekabox14.lan": "10.222.98.2",
-		"wekabox16.lan": "10.222.98.3",
-		"wekabox18.lan": "10.222.98.4",
-	}
-
-	getIpByHostname := func(hostname string) string {
-		return HostNameToIp[hostname]
-	}
 
 	foundContainers := []*wekav1alpha1.WekaContainer{}
 
@@ -257,7 +251,6 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 			}
 			core += cluster.Spec.CoreStep
 
-			ipPortPairs = append(ipPortPairs, fmt.Sprintf("%s:%d", getIpByHostname(cluster.Spec.Hosts[i]), containerPort))
 			agentPort++
 			containerPort += 100
 
@@ -280,35 +273,6 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 			hostList = append(hostList, host)
 		}
 	}
-	spaceSeparatedHostnames := strings.Join(hostList, " ")
-	commaSeparatedIPPort := strings.Join(ipPortPairs, ",")
-
-	clusterCreateCommand := fmt.Sprintf("weka cluster create %s --host-ips %s",
-		spaceSeparatedHostnames,
-		commaSeparatedIPPort,
-	)
-
-	//addDrivesCommand := fmt.Sprintf("weka drive add %d --host-ip %s")
-	// iterate over hosts and build string containing add driver per host
-	resignDrives := ""
-	addDrives := ""
-	for i, _ := range cluster.Spec.Hosts {
-		containerNum := i*2 + 1
-		sgDiskPart := fmt.Sprintf("sgdisk -Z %s\n", cluster.Spec.Drive)
-		reSignPart := fmt.Sprintf("weka local exec --container drive%d /weka/tools/weka_sign_drive %s\n", i, cluster.Spec.Drive)
-		addDrives += fmt.Sprintf("weka drive add %d %s\n", containerNum, cluster.Spec.Drive)
-		resignDrives += sgDiskPart + reSignPart
-	}
-	// create containers
-	// bash helper to erase disks: seq 0 4 | xargs -n1 -P0 -INN kubectl exec clustera-drive-NN -- weka local exec -- sgdisk -Z /dev/sdd
-	// bash helper to sign disks: seq 0 4 | xargs -n1 -P0 -INN kubectl exec clustera-drive-NN -- weka local exec -- /weka/tools/weka_sign_drive /dev/sdd
-	// create cluster
-	// bash helper to add disks: echo {1,3,5,7,9} | xargs -n1 -P5 -INN kubectl exec clustera-drive-0 -- weka cluster drive add NN /dev/sdd
-	// start-io
-
-	startIo := "weka cluster start-io"
-
-	r.Recorder.Event(cluster, "Normal", "Debug", fmt.Sprintf("resign drives: \n%s, run in corresponding containers. \n to clusterize run in any container(assuming disks are erased and signed for weka at this point:\n%s\n%s\n%s", resignDrives, clusterCreateCommand, addDrives, startIo))
 	return foundContainers, nil
 }
 
@@ -398,11 +362,59 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 }
 
 func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+	//TODO: Condition!
+	if cluster.Status.Status == "Unknown" {
+		return errors.New("reached cluster add drive with unknown state, should not be happening")
+	}
 	if cluster.Status.Status != "Configuring" {
 		return nil
 	}
-	//return errors.New("not implemented")
+	//iterate over containers, for drives exec into pod and perform signing and adding
+	// TODO: Parallelize
+	for _, container := range containers {
+		// get executor for container
+		if container.Spec.Mode != "drive" {
+			continue
+		}
+		// TODO: Check if already done, again, Condition
+		executor, err := GetExecutor(container, r.Logger)
+		if err != nil {
+			return errors.Wrap(err, "Error creating executor")
+		}
+		// TODO: Needs more safety!!!!
+		cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", cluster.Spec.Drive)
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to erase disk: %s", stderr.String())
+		}
+
+		cmd = fmt.Sprintf("weka local exec /weka/tools/weka_sign_drive %s", cluster.Spec.Drive)
+		stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
+		}
+
+		cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, cluster.Spec.Drive)
+		stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
+		}
+		r.Logger.Info("drive added", "stderr", stderr.String(), "stdout", stdout.String())
+	}
 	return nil
+}
+
+func GetExecutor(container *wekav1alpha1.WekaContainer, logger logr.Logger) (*util.Exec, error) {
+	pod, err := resources.NewContainerFactory(container, logger).Create()
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not find executor pod")
+
+	}
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return nil, errors.Wrap(err, "Could not create executor")
+	}
+	return executor, nil
 }
 
 func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
@@ -444,8 +456,9 @@ func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, 
 					return err
 				}
 			}
+
 			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
-				return errors.New("Container " + container.Name + " not found in cluster")
+				return errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
 			} else {
 				containerId, err := clusterContainer.ContainerId()
 				if err != nil {
@@ -459,4 +472,59 @@ func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, 
 		}
 	}
 	return nil
+}
+
+func (r *DummyClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+	// CONDITIONS!!!
+	if cluster.Status.Status != "Configuring" && cluster.Status.Status != "Starting IO" {
+		return nil
+	}
+
+	executor, err := GetExecutor(containers[0], r.Logger)
+	if err != nil {
+		return errors.Wrap(err, "Error creating executor")
+	}
+
+	startIo := func() error {
+		cmd := "weka cluster start-io"
+		_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
+		}
+
+		return nil
+	}
+
+	if cluster.Status.Status == "Starting IO" {
+		cmd := "weka status -J"
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to fetch cluster status: %s", stderr.String())
+		}
+		response := resources.WekaStatusResponse{}
+		err = json.Unmarshal(stdout.Bytes(), &response)
+		if err != nil {
+			return errors.Wrapf(err, "Failed to unmarshal cluster status")
+		}
+
+		if response.Status == "OK" {
+			r.Logger.Info("Cluster ready", "status", response.Status)
+			cluster.Status.Status = "OK"
+			if err := r.Status().Update(ctx, cluster); err != nil {
+				return errors.Wrap(err, "Failed to update dummyCluster status")
+			}
+			return nil
+		} else {
+			r.Logger.Info("Cluster not ready yet", "status", response.Status)
+			return startIo()
+		}
+	}
+
+	// Set status to starting IO
+	r.Logger.Info("Starting IO")
+	cluster.Status.Status = "Starting IO"
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		return errors.Wrap(err, "Failed to update dummyCluster status")
+	}
+	return startIo()
 }
