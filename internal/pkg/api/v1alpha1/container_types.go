@@ -34,8 +34,9 @@ type Network struct {
 }
 
 type WekaContainerStatus struct {
-	Status       string `json:"status"`
-	ManagementIP string `json:"managementIP,omitempty"`
+	Status             string `json:"status"`
+	ManagementIP       string `json:"managementIP,omitempty"`
+	ClusterContainerID string `json:"containerID,omitempty"`
 }
 
 // +kubebuilder:object:root=true

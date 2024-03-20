@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -168,14 +169,24 @@ func (c *ContainerController) reconcileStatus(ctx context.Context, container *we
 		return ctrl.Result{}, err
 	}
 
-	statusCommand := fmt.Sprintf("weka local status %s -J | jq .%s.internalStatus.state", container.Spec.WekaContainerName, container.Spec.WekaContainerName)
+	statusCommand := fmt.Sprintf("weka local ps -J")
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", statusCommand})
 	if err != nil {
 		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
 		return ctrl.Result{}, err
 	}
+	response := []resources.WekaContainerResponse{}
+	err = json.Unmarshal(stdout.Bytes(), &response)
+	if err != nil {
+		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
+		return ctrl.Result{}, err
+	}
+	if len(response) != 1 {
+		logger.Error(nil, "Expected exactly one container to be present", "stdout", stdout.String())
+		return ctrl.Result{}, errors.New("expected exactly one container to be present")
+	}
 
-	status := strings.TrimSpace(stdout.String())
+	status := response[0].RunStatus
 	logger.Info("Status", "status", status)
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
