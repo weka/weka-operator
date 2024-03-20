@@ -137,7 +137,7 @@ dev:
 
 
 .PHONY: run
-run: manifests generate install fmt vet deploy runcontroller ## Run a controller from your host.
+run: generate manifests install fmt vet deploy runcontroller ## Run a controller from your host.
 	;
 
 .PHONY: runcontroller

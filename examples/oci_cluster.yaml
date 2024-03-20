@@ -1,0 +1,21 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: clustera
+spec:
+  size: 5
+  hosts:
+    - uba-0
+    - uba-1
+    - uba-2
+    - uba-3
+    - uba-4
+  drive: /dev/oracleoci/oraclevdb
+  agentBasePort: 14101
+  containerBasePort: 16001
+  baseCoreId: 1
+  coreStep: 2
+  wekaContainerNamePrefix: "a"
+  imagePullSecret: "quay-io-robot-secret"
+  hugepages: 2000Mi
+  image: quay.io/weka.io/weka-in-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev

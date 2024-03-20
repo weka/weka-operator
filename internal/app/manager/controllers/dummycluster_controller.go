@@ -20,7 +20,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/util"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -177,11 +181,16 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
-	err = r.ensureWekaContainers(ctx, dummyCluster)
+	containers, err := r.ensureWekaContainers(ctx, dummyCluster)
 	if err != nil {
 		log.Error(err, "Failed to ensure WekaContainers")
 		return ctrl.Result{}, err
 
+	}
+
+	err = r.CreateCluster(ctx, dummyCluster, containers)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -202,7 +211,7 @@ func (r *DummyClusterReconciler) doFinalizerOperationsFordummyCluster(cluster *w
 			cluster.Namespace))
 }
 
-func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.DummyCluster) error {
+func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.DummyCluster) ([]*wekav1alpha1.WekaContainer, error) {
 	//iterate over cluster.Spec.Size, search for WekaContainer object, and create if not found, populating node affinity from spec Hosts list mapping to index
 	agentPort := cluster.Spec.AgentBasePort
 	containerPort := cluster.Spec.ContainerBasePort
@@ -222,20 +231,18 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 		return HostNameToIp[hostname]
 	}
 
-	var core int
+	foundContainers := []*wekav1alpha1.WekaContainer{}
+
 	for i := 0; i < cluster.Spec.Size; i++ {
 		// Check if the WekaContainer object exists
+		core := cluster.Spec.BaseCoreId
 		for _, role := range roles {
-			if role == "compute" {
-				core = cluster.Spec.BaseCoreId
-			} else {
-				core = cluster.Spec.BaseCoreId + 1
-			}
-
 			wekaContainer, err := r.newWekaContainerForDummyCluster(cluster, i, role, containerPort, agentPort, core)
 			if err != nil {
-				return err
+				return nil, err
 			}
+			core += cluster.Spec.CoreStep
+
 			ipPortPairs = append(ipPortPairs, fmt.Sprintf("%s:%d", getIpByHostname(cluster.Spec.Hosts[i]), containerPort))
 			agentPort++
 			containerPort += 100
@@ -246,9 +253,10 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 				// Define a new WekaContainer object
 				err = r.Create(ctx, wekaContainer)
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
+			foundContainers = append(foundContainers, found)
 		}
 	}
 
@@ -287,7 +295,7 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 	startIo := "weka cluster start-io"
 
 	r.Recorder.Event(cluster, "Normal", "Debug", fmt.Sprintf("resign drives: \n%s, run in corresponding containers. \n to clusterize run in any container(assuming disks are erased and signed for weka at this point:\n%s\n%s\n%s", resignDrives, clusterCreateCommand, addDrives, startIo))
-	return nil
+	return foundContainers, nil
 }
 
 func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1alpha1.DummyCluster, i int, role string, port, agentPort, core int) (*wekav1alpha1.WekaContainer, error) {
@@ -309,14 +317,16 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 			NodeAffinity:      cluster.Spec.Hosts[i],
 			Port:              port,
 			AgentPort:         agentPort,
-			Image:             "localhost:30000/weka-as-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev",
+			Image:             cluster.Spec.Image,
+			ImagePullSecret:   cluster.Spec.ImagePullSecret,
 			WekaContainerName: fmt.Sprintf("%s%ss%d", cluster.Spec.WekaContainerNamePrefix, role, i),
 			Mode:              role,
 			NumCores:          1,
 			CoreIds:           []int{core},
 			Network: wekav1alpha1.Network{
-				EthDevice: "mlnx0",
+				EthDevice: cluster.Spec.NetworkSelector.EthDevice,
 			},
+			Hugepages: cluster.Spec.Hugepages,
 		},
 	}
 
@@ -325,4 +335,52 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 	}
 
 	return container, nil
+}
+
+func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+	var hostIps []string
+	var hostnamesList []string
+	for _, container := range containers {
+		if container.GetDeletionTimestamp() != nil {
+			return errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
+		}
+		if container.Status.ManagementIP == "" {
+			return errors.New("ManagementIP is not set for container " + container.Name)
+		}
+		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
+		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
+	}
+	hostIpsStr := strings.Join(hostIps, ",")
+	cmd := fmt.Sprintf("weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr)
+
+	if cluster.Status.Status != "Unknown" {
+		r.Logger.Info("Aborting clusterisation, status is not empty", "status", cluster.Status.Status)
+		return nil // TODO: no yet some "creating" status, so "Unknown"
+	}
+
+	r.Logger.Info("Creating cluster", "cmd", cmd)
+
+	//TODO: Utility func on cluster to get exec command on arbitrary container
+	pod, err := resources.NewContainerFactory(containers[0], r.Logger).Create()
+	if err != nil {
+		return errors.Wrap(err, "Could not find executor pod")
+	}
+	clusterizePod := &v1.Pod{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: pod.Name}, clusterizePod)
+	executor, err := util.NewExecInPod(clusterizePod)
+	if err != nil {
+		return errors.Wrap(err, "Could not create executor")
+	}
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
+	}
+	r.Logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
+
+	//cluster.Status.Status = "Configuring" //TODO: Conditions apparently are mechanism to control state machine and we should adopt instead of this
+	//if err := r.Status().Update(ctx, cluster); err != nil {
+	//	return errors.Wrap(err, "Failed to update dummyCluster status")
+	//}
+
+	return nil
 }

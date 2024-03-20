@@ -1,0 +1,18 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: clustera
+spec:
+  size: 5
+  hosts:
+    - wekabox17.lan
+    - wekabox15.lan
+    - wekabox16.lan
+    - wekabox14.lan
+    - wekabox18.lan
+  drive: /dev/sdd
+  agentBasePort: 14101
+  containerBasePort: 16001
+  baseCoreId: 2
+  wekaContainerNamePrefix: "a"
+  image: "quay.io/weka-as-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev"

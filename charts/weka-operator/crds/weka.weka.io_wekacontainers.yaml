@@ -39,7 +39,11 @@ spec:
                 items:
                   type: integer
                 type: array
+              hugepages:
+                type: string
               image:
+                type: string
+              imagePullSecret:
                 type: string
               mode:
                 type: string
@@ -49,8 +53,8 @@ spec:
                 properties:
                   ethDevice:
                     type: string
-                required:
-                - ethDevice
+                  udpMode:
+                    type: boolean
                 type: object
               nodeAffinity:
                 type: string
