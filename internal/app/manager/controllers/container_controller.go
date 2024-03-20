@@ -3,9 +3,10 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/util"
 	"log"
 	"strings"
+
+	"github.com/weka/weka-operator/util"
 
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
@@ -100,30 +101,92 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if container.Status.ManagementIP == "" {
-		executor, err := util.NewExecInPod(actualPod)
-		logger.Info("Updating ManagementIP")
-		var getIpCmd string
-		if err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
-		}
-		if container.Spec.Network.EthDevice != "" {
-			getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
-		} else {
-			getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
-		}
-		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", getIpCmd})
-		if err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "ClientController.Reconcile.IPResolution: %s", stderr.String())
-		}
-		container.Status.ManagementIP = strings.TrimSpace(stdout.String())
-		logger.Info("Got IP: " + container.Status.ManagementIP)
-		if err := c.Status().Update(ctx, container); err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile.UpdateIp")
-		}
+	result, err := c.reconcileManagementIP(ctx, container, actualPod)
+	if err != nil {
+		logger.Error(err, "Error reconciling management IP", "name", container.Name)
+		return ctrl.Result{}, err
+	}
+	if result.Requeue {
+		return result, nil
+	}
+
+	result, err = c.reconcileStatus(ctx, container, actualPod)
+	if err != nil {
+		logger.Error(err, "Error reconciling status", "name", container.Name)
+		return ctrl.Result{}, err
+	}
+	if result.Requeue {
+		return result, nil
 	}
 
 	logger.Info("Reconcile completed", "name", container.Name)
+	return ctrl.Result{}, nil
+}
+
+func (c *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	logger := c.Logger.WithName("reconcileManagementIP")
+	if container.Status.ManagementIP != "" {
+		return ctrl.Result{}, nil
+	}
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return ctrl.Result{}, err
+	}
+
+	var getIpCmd string
+	if container.Spec.Network.EthDevice != "" {
+		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
+	} else {
+		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
+	}
+
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", getIpCmd})
+	if err != nil {
+		logger.Error(err, "Error executing command", "stderr", stderr.String())
+		return ctrl.Result{}, err
+	}
+	ipAddress := strings.TrimSpace(stdout.String())
+	if container.Status.ManagementIP != ipAddress {
+		container.Status.ManagementIP = ipAddress
+		if err := c.Status().Update(ctx, container); err != nil {
+			logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+func (c *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	logger := c.Logger.WithName("reconcileStatus")
+	logger.Info("Reconciling status", "name", container.Name)
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return ctrl.Result{}, err
+	}
+
+	statusCommand := fmt.Sprintf("weka local status %s -J | jq .%s.internalStatus.state", container.Spec.WekaContainerName, container.Spec.WekaContainerName)
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", statusCommand})
+	if err != nil {
+		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
+		return ctrl.Result{}, err
+	}
+
+	status := strings.TrimSpace(stdout.String())
+	logger.Info("Status", "status", status)
+	if container.Status.Status != status {
+		logger.Info("Updating status", "from", container.Status.Status, "to", status)
+		container.Status.Status = status
+		if err := c.Status().Update(ctx, container); err != nil {
+			logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 

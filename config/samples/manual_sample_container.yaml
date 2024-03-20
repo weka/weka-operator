@@ -1,0 +1,16 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: wekacontainercompute0
+spec:
+  agentPort: 14101
+  nodeAffinity: "wekabox17.lan"
+  coreIds:
+    - 2
+  image: localhost:30000/weka-as-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev
+  mode: "compute"
+  name: wekacontainercompute0
+  network:
+    ethDevice: mlnx0
+  numCores: 1
+  port: 16001
