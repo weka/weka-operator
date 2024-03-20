@@ -193,6 +193,14 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
+	// TODO: This probably a place to start running with conditions, or validate against cluster drive by guids, what was already running
+	// Current state of function definitely is not anywhere close to reliable, and mostly done for happy flows quick deployments
+	// Any failure within AddDrives probably will lead to a bad state
+	err = r.AddDrives(ctx, dummyCluster, containers)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -354,10 +362,8 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 	cmd := fmt.Sprintf("weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr)
 
 	if cluster.Status.Status != "Unknown" {
-		r.Logger.Info("Aborting clusterisation, status is not empty", "status", cluster.Status.Status)
 		return nil // TODO: no yet some "creating" status, so "Unknown"
 	}
-
 	r.Logger.Info("Creating cluster", "cmd", cmd)
 
 	//TODO: Utility func on cluster to get exec command on arbitrary container
@@ -377,10 +383,18 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 	}
 	r.Logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
 
-	//cluster.Status.Status = "Configuring" //TODO: Conditions apparently are mechanism to control state machine and we should adopt instead of this
-	//if err := r.Status().Update(ctx, cluster); err != nil {
-	//	return errors.Wrap(err, "Failed to update dummyCluster status")
-	//}
+	cluster.Status.Status = "Configuring" //TODO: Conditions apparently are mechanism to control state machine and we should adopt instead of this
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		return errors.Wrap(err, "Failed to update dummyCluster status")
+	}
 
+	return nil
+}
+
+func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+	if cluster.Status.Status != "Configuring" {
+		return nil
+	}
+	//return errors.New("not implemented")
 	return nil
 }

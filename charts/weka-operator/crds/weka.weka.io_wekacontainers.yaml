@@ -70,6 +70,8 @@ spec:
             type: object
           status:
             properties:
+              containerID:
+                type: string
               managementIP:
                 type: string
               status:

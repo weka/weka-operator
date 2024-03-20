@@ -11,6 +11,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type WekaContainerResponse struct {
+	RunStatus       string `json:"runStatus"`
+	LastFailureText string `json:"lastFailureText"`
+}
+
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
 	logger    logr.Logger
