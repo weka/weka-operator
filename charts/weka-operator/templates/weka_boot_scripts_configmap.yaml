@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weka-boot-scripts
+  namespace: {{ .Release.Namespace }}
+data:
+  start-weka-agent.sh: |
+{{ .Files.Get "resources/start-weka-agent.sh" | indent 4 }}
+  start-weka-container.sh: |
+{{ .Files.Get "resources/start-weka-container.sh" | indent 4 }}
+  supervisord.conf: |
+{{ .Files.Get "resources/supervisord.conf" | indent 4 }}
+
