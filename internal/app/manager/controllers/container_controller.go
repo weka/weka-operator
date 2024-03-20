@@ -45,6 +45,11 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
 
+	if container.GetDeletionTimestamp() != nil {
+		logger.Info("Container is being deleted", "name", container.Name)
+		return ctrl.Result{}, nil
+	}
+
 	desiredPod, err := resources.NewContainerFactory(container, logger).Create()
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
@@ -87,14 +92,16 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if container.Status.ManagementIP == "" {
 		executor, err := util.NewExecInPod(actualPod)
 		logger.Info("Updating ManagementIP")
+		var getIpCmd string
 		if err != nil {
 			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 		}
-		if container.Spec.Network.EthDevice == "" {
-			return ctrl.Result{}, errors.New("only ethDevice config is supported")
+		if container.Spec.Network.EthDevice != "" {
+			getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
+		} else {
+			getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
 		}
-		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1",
-			container.Spec.Network.EthDevice)})
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", getIpCmd})
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "ClientController.Reconcile.IPResolution: %s", stderr.String())
 		}

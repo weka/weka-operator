@@ -19,15 +19,18 @@ type WekaContainerSpec struct {
 	Port              int     `json:"port,omitempty"`
 	AgentPort         int     `json:"agentPort,omitempty"`
 	Image             string  `json:"image"`
+	ImagePullSecret   string  `json:"imagePullSecret,omitempty"`
 	WekaContainerName string  `json:"name"`
 	Mode              string  `json:"mode"` // TODO: How to define as enum?
 	NumCores          int     `json:"numCores"`
 	CoreIds           []int   `json:"coreIds,omitempty"`
 	Network           Network `json:"network,omitempty"`
+	Hugepages         string  `json:"hugepages,omitempty"`
 }
 
 type Network struct {
-	EthDevice string `json:"ethDevice"`
+	EthDevice string `json:"ethDevice,omitempty"`
+	UdpMode   bool   `json:"udpMode,omitempty"`
 }
 
 type WekaContainerStatus struct {

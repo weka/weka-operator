@@ -28,13 +28,36 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 
 	image := f.container.Spec.Image
 
+	//TODO: to resolve basing on value from spec
+	hugePagesNum := f.container.Spec.Hugepages
+	if f.container.Spec.Hugepages == "" {
+		hugePagesNum = "4000Mi"
+	}
 	hugePagesName := corev1.ResourceName(
 		strings.Join(
 			[]string{corev1.ResourceHugePagesPrefix, "2Mi"},
 			""))
+
 	resourceRequests := corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("2000m"),
-		hugePagesName:      resource.MustParse("4000Mi"),
+		hugePagesName:      resource.MustParse(hugePagesNum),
+	}
+
+	imagePullSecrets := []corev1.LocalObjectReference{}
+	if f.container.Spec.ImagePullSecret != "" {
+		imagePullSecrets = []corev1.LocalObjectReference{
+			{Name: f.container.Spec.ImagePullSecret},
+		}
+	}
+
+	netDevice := "udp"
+	udpMode := "false"
+	if f.container.Spec.Network.EthDevice != "" {
+		netDevice = f.container.Spec.Network.EthDevice
+	}
+	if f.container.Spec.Network.UdpMode {
+		netDevice = "udp"
+		udpMode = "true"
 	}
 
 	pod := &corev1.Pod{
@@ -66,6 +89,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 			},
+			ImagePullSecrets: imagePullSecrets,
 			Containers: []corev1.Container{
 				{
 					Image:           image,
@@ -134,7 +158,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:  "NETWORK_DEVICE",
-							Value: f.container.Spec.Network.EthDevice,
+							Value: netDevice,
+						},
+						{
+							Name:  "UDP_MODE",
+							Value: udpMode,
 						},
 						{
 							Name:  "WEKA_PORT",

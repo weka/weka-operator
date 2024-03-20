@@ -1,0 +1,18 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: wekacontainercompute0
+spec:
+  agentPort: 14101
+  nodeAffinity: "uba-0"
+  coreIds:
+    - 1
+  image: quay.io/weka.io/weka-in-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "compute"
+  name: wekacontainercompute0
+  numCores: 1
+  port: 16001
+  hugepages: 2000Mi
+  network:
+    udpMode: true

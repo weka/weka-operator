@@ -41,12 +41,27 @@ spec:
                 type: integer
               containerBasePort:
                 type: integer
+              coreStep:
+                type: integer
               drive:
                 type: string
               hosts:
                 items:
                   type: string
                 type: array
+              hugepages:
+                type: string
+              image:
+                type: string
+              imagePullSecret:
+                type: string
+              network:
+                properties:
+                  ethdevice:
+                    type: string
+                  udpMode:
+                    type: boolean
+                type: object
               size:
                 description: Foo is an example field of DummyCluster. Edit dummycluster_types.go
                   to remove/update
@@ -58,6 +73,7 @@ spec:
             - containerBasePort
             - drive
             - hosts
+            - image
             - size
             - wekaContainerNamePrefix
             type: object
