@@ -145,8 +145,23 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("/opt/weka/%s", f.container.Name),
+							MountPath: fmt.Sprintf("/opt/weka/data/%s", f.container.Name),
 							SubPath:   "container",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: fmt.Sprintf("/opt/weka/%s/events", f.container.Name),
+							SubPath:   "events",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: fmt.Sprintf("/opt/weka/%s/analytics", f.container.Name),
+							SubPath:   "analytics",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: fmt.Sprintf("/opt/weka/%s/support", f.container.Name),
+							SubPath:   "support",
 						},
 						{
 							Name:      "weka-container-data-dir",
