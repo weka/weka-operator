@@ -22,7 +22,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type ClusterNetwork struct {
-	EthDevice string `json:"ethdevice,omitempty"`
+	EthDevice string `json:"ethDevice,omitempty"`
 	UdpMode   bool   `json:"udpMode,omitempty"`
 }
 

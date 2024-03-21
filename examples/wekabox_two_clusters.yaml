@@ -14,7 +14,12 @@ spec:
   agentBasePort: 14101
   containerBasePort: 16001
   baseCoreId: 2
-  containersNamePrefix: "a"
+  wekaContainerNamePrefix: "a"
+  image: localhost:30000/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  network:
+    ethDevice: mlnx0
+  hugepages: 5000Mi
+  coreStep: 1
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: DummyCluster
@@ -33,3 +38,8 @@ spec:
   containerBasePort: 17001
   baseCoreId: 4
   wekaContainerNamePrefix: "b"
+  image: localhost:30000/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  network:
+    ethDevice: mlnx0
+  hugepages: 5000Mi
+  coreStep: 1
