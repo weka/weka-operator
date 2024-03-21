@@ -34,46 +34,25 @@ spec:
           spec:
             description: DummyClusterSpec defines the desired state of DummyCluster
             properties:
-              agentBasePort:
-                type: integer
-              baseCoreId:
-                type: integer
-              containerBasePort:
-                type: integer
-              coreStep:
-                type: integer
-              drive:
-                type: string
-              hosts:
-                items:
-                  type: string
-                type: array
-              hugepages:
-                type: string
               image:
                 type: string
               imagePullSecret:
                 type: string
-              network:
-                properties:
-                  ethDevice:
-                    type: string
-                  udpMode:
-                    type: boolean
-                type: object
               size:
                 description: Foo is an example field of DummyCluster. Edit dummycluster_types.go
                   to remove/update
                 type: integer
+              template:
+                type: string
+              topology:
+                type: string
               wekaContainerNamePrefix:
                 type: string
             required:
-            - agentBasePort
-            - containerBasePort
-            - drive
-            - hosts
             - image
             - size
+            - template
+            - topology
             - wekaContainerNamePrefix
             type: object
           status:

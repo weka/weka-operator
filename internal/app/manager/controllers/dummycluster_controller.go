@@ -25,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/util"
+	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -70,6 +71,7 @@ const (
 // +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get,list
 func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithName("Reconcile")
 	logger.Info("Reconcile() called")
@@ -191,7 +193,10 @@ func (r *DummyClusterReconciler) handleDeletion(ctx context.Context, dummyCluste
 
 		// Perform all operations required before remove the finalizer and allow
 		// the Kubernetes API to remove the custom resource.
-		r.doFinalizerOperationsFordummyCluster(dummyCluster)
+		err := r.doFinalizerOperationsFordummyCluster(ctx, dummyCluster)
+		if err != nil {
+			return err
+		}
 
 		r.Logger.Info("Removing Finalizer for dummyCluster after successfully perform the operations")
 		if ok := controllerutil.RemoveFinalizer(dummyCluster, wekaContainerFinalizer); !ok {
@@ -282,60 +287,155 @@ func (r *DummyClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *DummyClusterReconciler) doFinalizerOperationsFordummyCluster(cluster *wekav1alpha1.DummyCluster) {
+func (r *DummyClusterReconciler) doFinalizerOperationsFordummyCluster(ctx context.Context, cluster *wekav1alpha1.DummyCluster) error {
+	if cluster.Spec.Topology == "" {
+		return nil
+	}
+	topology, err := Topologies[cluster.Spec.Topology](ctx, r)
+	if err != nil {
+		return err
+	}
+	allocator := NewAllocator(r.Logger, topology)
+	allocMap, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	if err != nil {
+		r.Logger.Error(err, "Failed to get alloc map")
+		return err
+	}
+
+	changed := allocator.DeallocateCluster(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocMap)
+	if changed {
+		if err := r.UpdateAllocationMap(ctx, allocMap, allocConfigMap); err != nil {
+			r.Logger.Error(err, "Failed to update alloc map")
+			return err
+		}
+	}
 	r.Recorder.Event(cluster, "Warning", "Deleting",
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			cluster.Name,
 			cluster.Namespace))
+	return nil
 }
 
 func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.DummyCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	//iterate over cluster.Spec.Size, search for WekaContainer object, and create if not found, populating node affinity from spec Hosts list mapping to index
-	agentPort := cluster.Spec.AgentBasePort
-	containerPort := cluster.Spec.ContainerBasePort
-
-	roles := []string{"compute", "drive"}
+	allocMap, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	foundContainers := []*wekav1alpha1.WekaContainer{}
+	template := WekaClusterTemplates[cluster.Spec.Template]
+	topology, err := Topologies[cluster.Spec.Topology](ctx, r)
+	allocator := NewAllocator(r.Logger, topology)
+	allocMap, err, changed := allocator.Allocate(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, template, allocMap, cluster.Spec.Size)
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		if err := r.UpdateAllocationMap(ctx, allocMap, allocConfigMap); err != nil {
+			return nil, err
+		}
+	}
 
-	for i := 0; i < cluster.Spec.Size; i++ {
-		// Check if the WekaContainer object exists
-		core := cluster.Spec.BaseCoreId
-		for _, role := range roles {
-			wekaContainer, err := r.newWekaContainerForDummyCluster(cluster, i, role, containerPort, agentPort, core)
+	size := cluster.Spec.Size
+	if size == 0 {
+		size = 1
+	}
+
+	ensureContainers := func(role string, containersNum int) error {
+		for i := 0; i < containersNum; i++ {
+			// Check if the WekaContainer object exists
+			owner := Owner{OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
+				fmt.Sprintf("%s%d", role, i), role} // apparently need helper function with a role.
+
+			ownedResources, _ := GetOwnedResources(owner, allocMap)
+			wekaContainer, err := r.newWekaContainerForDummyCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			core += cluster.Spec.CoreStep
-
-			agentPort++
-			containerPort += 100
 
 			found := &wekav1alpha1.WekaContainer{}
-			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: fmt.Sprintf("%s-%s-%d", cluster.Name, role, i)}, found)
+			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
 			if err != nil && apierrors.IsNotFound(err) {
 				// Define a new WekaContainer object
 				err = r.Create(ctx, wekaContainer)
 				if err != nil {
-					return nil, err
+					return err
 				}
+				foundContainers = append(foundContainers, wekaContainer)
+			} else {
+				foundContainers = append(foundContainers, found)
 			}
-			foundContainers = append(foundContainers, found)
 		}
+		return nil
 	}
-
-	hostList := []string{}
-	for _, host := range cluster.Spec.Hosts {
-		for i := 0; i < 2; i++ {
-			hostList = append(hostList, host)
-		}
+	if err := ensureContainers("drive", template.DriveContainers); err != nil {
+		return nil, err
+	}
+	if err := ensureContainers("compute", template.ComputeContainers); err != nil {
+		return nil, err
 	}
 	return foundContainers, nil
 }
 
-func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1alpha1.DummyCluster, i int, role string, port, agentPort, core int) (*wekav1alpha1.WekaContainer, error) {
+func (r *DummyClusterReconciler) GetOrInitAllocMap(ctx context.Context) (AllocationsMap, *v1.ConfigMap, error) {
+	// fetch alloc map from configmap
+	allocMap := AllocationsMap{}
+	yamlData, err := yaml.Marshal(&allocMap)
+
+	allocMapConfigMap := &v1.ConfigMap{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: util.GetPodNamespace(), Name: "weka-operator-allocmap"}, allocMapConfigMap)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new ConfigMap
+		allocMapConfigMap = &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "weka-operator-allocmap",
+				Namespace: util.GetPodNamespace(),
+			},
+			Data: map[string]string{
+				"allocmap.yaml": string(yamlData),
+			},
+		}
+		err = r.Create(ctx, allocMapConfigMap)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err != nil {
+			return nil, nil, err
+		}
+		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocMap)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return allocMap, allocMapConfigMap, nil
+}
+
+func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1alpha1.DummyCluster,
+	ownedResources OwnedResources,
+	template ClusterTemplate,
+	topology Topology,
+	role string, i int) (*wekav1alpha1.WekaContainer, error) {
 	labels := map[string]string{
 		"app": cluster.Name,
+	}
+
+	var hugePagesNum int
+	if role == "drive" {
+		hugePagesNum = template.DriveHugepages
+	} else {
+		hugePagesNum = template.ComputeHugepages
+	}
+	hugepages := fmt.Sprintf("%dMi", hugePagesNum)
+
+	network := wekav1alpha1.Network{}
+	// These are on purpose different types
+	// Network selector might be "Aws" or "auto" and that will prepare EthDevice for container-level, which will be simpler
+	if topology.Network.EthDevice != "" {
+		network.EthDevice = topology.Network.EthDevice
+	}
+	if topology.Network.UdpMode {
+		network.UdpMode = true
 	}
 
 	container := &wekav1alpha1.WekaContainer{
@@ -349,19 +449,18 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 			Labels:    labels,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:      cluster.Spec.Hosts[i],
-			Port:              port,
-			AgentPort:         agentPort,
+			NodeAffinity:      ownedResources.Node,
+			Port:              ownedResources.Port,
+			AgentPort:         ownedResources.AgentPort,
 			Image:             cluster.Spec.Image,
 			ImagePullSecret:   cluster.Spec.ImagePullSecret,
 			WekaContainerName: fmt.Sprintf("%s%ss%d", cluster.Spec.WekaContainerNamePrefix, role, i),
 			Mode:              role,
-			NumCores:          1,
-			CoreIds:           []int{core},
-			Network: wekav1alpha1.Network{
-				EthDevice: cluster.Spec.NetworkSelector.EthDevice,
-			},
-			Hugepages: cluster.Spec.Hugepages,
+			NumCores:          len(ownedResources.CoreIds),
+			CoreIds:           ownedResources.CoreIds,
+			Network:           network,
+			Hugepages:         hugepages,
+			Drives:            ownedResources.Drives,
 		},
 	}
 
@@ -376,6 +475,7 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 
 	var hostIps []string
 	var hostnamesList []string
+	r.Logger.Info("Creating cluster", "totalContainers", len(containers))
 	for _, container := range containers {
 		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
 		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
@@ -403,7 +503,7 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 }
 
 func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
-	// TODO: Parallelize
+	// TODO: Parallelize by moving into weka container responsibility
 	for _, container := range containers {
 		// get executor for container
 		if container.Spec.Mode != "drive" {
@@ -414,25 +514,28 @@ func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1a
 		if err != nil {
 			return errors.Wrap(err, "Error creating executor")
 		}
-		// TODO: Needs more safety!!!!
-		cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", cluster.Spec.Drive)
-		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
-		if err != nil {
-			return errors.Wrapf(err, "Failed to erase disk: %s", stderr.String())
-		}
+		for _, drive := range container.Spec.Drives {
+			// TODO: Needs more safety!!!!
+			cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", drive)
+			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			if err != nil {
+				return errors.Wrapf(err, "Failed to erase disk: %s", stderr.String())
+			}
 
-		cmd = fmt.Sprintf("weka local exec /weka/tools/weka_sign_drive %s", cluster.Spec.Drive)
-		stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
-		if err != nil {
-			return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
-		}
+			cmd = fmt.Sprintf("weka local exec /weka/tools/weka_sign_drive %s", drive)
+			stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			if err != nil {
+				return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
+			}
 
-		cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, cluster.Spec.Drive)
-		stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
-		if err != nil {
-			return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
+			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
+			stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			if err != nil {
+				return errors.Wrapf(err, "Failed to sign disk: %s", stderr.String())
+			}
+			r.Logger.Info("drive added", "stderr", stderr.String(), "stdout", stdout.String())
+
 		}
-		r.Logger.Info("drive added", "stderr", stderr.String(), "stdout", stdout.String())
 	}
 	return nil
 }
@@ -537,4 +640,17 @@ func (r *DummyClusterReconciler) isContainersReady(containers []*wekav1alpha1.We
 		}
 	}
 	return true, nil
+}
+
+func (r *DummyClusterReconciler) UpdateAllocationMap(ctx context.Context, allocMap AllocationsMap, configMap *v1.ConfigMap) error {
+	yamlData, err := yaml.Marshal(&allocMap)
+	if err != nil {
+		return err
+	}
+	configMap.Data["allocmap.yaml"] = string(yamlData)
+	err = r.Update(ctx, configMap)
+	if err != nil {
+		return err
+	}
+	return nil
 }

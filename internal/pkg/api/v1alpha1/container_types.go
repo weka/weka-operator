@@ -15,17 +15,18 @@ type WekaContainer struct {
 }
 
 type WekaContainerSpec struct {
-	NodeAffinity      string  `json:"nodeAffinity,omitempty"`
-	Port              int     `json:"port,omitempty"`
-	AgentPort         int     `json:"agentPort,omitempty"`
-	Image             string  `json:"image"`
-	ImagePullSecret   string  `json:"imagePullSecret,omitempty"`
-	WekaContainerName string  `json:"name"`
-	Mode              string  `json:"mode"` // TODO: How to define as enum?
-	NumCores          int     `json:"numCores"`
-	CoreIds           []int   `json:"coreIds,omitempty"`
-	Network           Network `json:"network,omitempty"`
-	Hugepages         string  `json:"hugepages,omitempty"`
+	NodeAffinity      string   `json:"nodeAffinity,omitempty"`
+	Port              int      `json:"port,omitempty"`
+	AgentPort         int      `json:"agentPort,omitempty"`
+	Image             string   `json:"image"`
+	ImagePullSecret   string   `json:"imagePullSecret,omitempty"`
+	WekaContainerName string   `json:"name"`
+	Mode              string   `json:"mode"` // TODO: How to define as enum?
+	NumCores          int      `json:"numCores"`
+	CoreIds           []int    `json:"coreIds,omitempty"`
+	Network           Network  `json:"network,omitempty"`
+	Hugepages         string   `json:"hugepages,omitempty"`
+	Drives            []string `json:"drive,omitempty"`
 }
 
 type Network struct {

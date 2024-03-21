@@ -68,6 +68,10 @@ spec:
                           items:
                             type: integer
                           type: array
+                        drive:
+                          items:
+                            type: string
+                          type: array
                         hugepages:
                           type: string
                         image:
