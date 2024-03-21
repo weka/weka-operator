@@ -21,13 +21,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"github.com/rs/zerolog/log"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/util"
@@ -107,22 +104,28 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	containers, err := r.ensureWekaContainers(ctx, dummyCluster)
 	if err != nil {
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
-			Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error()})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondPodsCreated,
+			Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 		r.Logger.Error(err, "Failed to ensure WekaContainers")
 		return ctrl.Result{}, err
 	}
-	meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
-		Status: metav1.ConditionTrue, Reason: "Success", Message: "All pods are created"})
+	meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+		Type:   CondPodsCreated,
+		Status: metav1.ConditionTrue, Reason: "Success", Message: "All pods are created",
+	})
 	_ = r.Status().Update(ctx, dummyCluster)
 
 	if meta.IsStatusConditionFalse(dummyCluster.Status.Conditions, CondPodsRead) {
 		if ready, err := r.isContainersReady(containers); !ready {
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "All weka containers are ready for clusterization"})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondPodsRead,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "All weka containers are ready for clusterization",
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
@@ -131,8 +134,10 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "Cluster is formed"})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondClusterCreated,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "Cluster is formed",
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
@@ -152,7 +157,8 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if !meta.IsStatusConditionFalse(dummyCluster.Status.Conditions, CondDrivesAdded) {
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:    CondDrivesAdded,
 			Status:  metav1.ConditionUnknown,
 			Reason:  "Adding",
 			Message: fmt.Sprintf("Drives are being added to the cluster, op_id %s", uuid.NewUUID()),
@@ -167,22 +173,28 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drives are added to the cluster"})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondDrivesAdded,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drives are added to the cluster",
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
 	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondIoStarted) {
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
-			Status: metav1.ConditionUnknown, Reason: "Starting", Message: "Starting IO"})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondIoStarted,
+			Status: metav1.ConditionUnknown, Reason: "Starting", Message: "Starting IO",
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 		err = r.StartIo(ctx, dummyCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		r.Logger.Info("IO Started")
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "IO is started"})
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondIoStarted,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "IO is started",
+		})
 		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
@@ -218,25 +230,35 @@ func (r *DummyClusterReconciler) initState(ctx context.Context, dummyCluster *we
 		dummyCluster.Status.Conditions = []metav1.Condition{}
 
 		// Set Predefined conditions to explicit False for visibility
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondPodsCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "The pods for the custom resource are not created yet"})
+			Message: "The pods for the custom resource are not created yet",
+		})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondPodsRead,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "The pods for the custom resource are not ready yet"})
+			Message: "The pods for the custom resource are not ready yet",
+		})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondClusterCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "Cluster is not created yet"})
+			Message: "Cluster is not created yet",
+		})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondDrivesAdded,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "Drives are not added yet"})
+			Message: "Drives are not added yet",
+		})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
+		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{
+			Type:   CondIoStarted,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "Weka Cluster IO is not started"})
+			Message: "Weka Cluster IO is not started",
+		})
 
 		err := r.Status().Update(ctx, dummyCluster)
 		if err != nil {
@@ -275,121 +297,7 @@ func GetCluster(ctx context.Context, req ctrl.Request, r client.Reader, logger l
 		logger.Error(err, "Failed to get dummyCluster")
 		return nil, err
 	}
-
-	if dummyCluster.Status.Status == "" {
-		dummyCluster.Status.Status = "Unknown"
-		if err := r.Status().Update(ctx, dummyCluster); err != nil {
-			log.Error(err, "Failed to update dummyCluster direct status field")
-			return ctrl.Result{}, err
-		}
-	}
-
-	if dummyCluster.Status.Conditions == nil || len(dummyCluster.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: "Unknown", Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
-		if err = r.Status().Update(ctx, dummyCluster); err != nil {
-			log.Error(err, "Failed to update dummyCluster status as conditions")
-			return ctrl.Result{}, err
-		}
-
-		// data refresh (user updates? other processes can update?
-		if err := r.Get(ctx, req.NamespacedName, dummyCluster); err != nil {
-			log.Error(err, "Failed to re-fetch dummyCluster")
-			return ctrl.Result{}, err
-		}
-	}
-
-	if !controllerutil.ContainsFinalizer(dummyCluster, wekaContainerFinalizer) {
-		log.Info("Adding Finalizer for wekaContaner")
-		if ok := controllerutil.AddFinalizer(dummyCluster, wekaContainerFinalizer); !ok {
-			log.Error(err, "Failed to add finalizer into the custom resource")
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		if err = r.Update(ctx, dummyCluster); err != nil {
-			log.Error(err, "Failed to update custom resource to add finalizer")
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Check if the dummyCluster instance is marked to be deleted, which is
-	// indicated by the deletion timestamp being set.
-	isdummyClusterMarkedToBeDeleted := dummyCluster.GetDeletionTimestamp() != nil
-	if isdummyClusterMarkedToBeDeleted {
-		if controllerutil.ContainsFinalizer(dummyCluster, wekaContainerFinalizer) {
-			log.Info("Performing Finalizer Operations for dummyCluster before delete CR")
-
-			// Let's add here an status "Downgrade" to define that this resource begin its process to be terminated.
-			meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: "finalizing",
-				Status: metav1.ConditionUnknown, Reason: "Finalizing",
-				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", dummyCluster.Name)})
-
-			if err := r.Status().Update(ctx, dummyCluster); err != nil {
-				log.Error(err, "Failed to update dummyCluster status")
-				return ctrl.Result{}, err
-			}
-
-			// Perform all operations required before remove the finalizer and allow
-			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsFordummyCluster(dummyCluster)
-
-			// TODO(user): If you add operations to the doFinalizerOperationsFordummyCluster method
-			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
-			// otherwise, you should requeue here.
-
-			// Re-fetch the dummyCluster Custom Resource before update the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
-			// raise the issue "the object has been modified, please apply
-			// your changes to the latest version and try again" which would re-trigger the reconciliation
-			if err := r.Get(ctx, req.NamespacedName, dummyCluster); err != nil {
-				log.Error(err, "Failed to re-fetch dummyCluster")
-				return ctrl.Result{}, err
-			}
-
-			meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: "finalizing",
-				Status: metav1.ConditionTrue, Reason: "Finalizing",
-				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", dummyCluster.Name)})
-
-			if err := r.Status().Update(ctx, dummyCluster); err != nil {
-				log.Error(err, "Failed to update dummyCluster status")
-				return ctrl.Result{}, err
-			}
-
-			log.Info("Removing Finalizer for dummyCluster after successfully perform the operations")
-			if ok := controllerutil.RemoveFinalizer(dummyCluster, wekaContainerFinalizer); !ok {
-				log.Error(err, "Failed to remove finalizer for dummyCluster")
-				return ctrl.Result{Requeue: true}, nil
-			}
-
-			if err := r.Update(ctx, dummyCluster); err != nil {
-				log.Error(err, "Failed to remove finalizer for dummyCluster")
-				return ctrl.Result{}, err
-			}
-
-		}
-		return ctrl.Result{}, nil
-	}
-
-	containers, err := r.ensureWekaContainers(ctx, dummyCluster)
-	if err != nil {
-		log.Error(err, "Failed to ensure WekaContainers")
-		return ctrl.Result{}, err
-
-	}
-
-	err = r.CreateCluster(ctx, dummyCluster, containers)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	// TODO: This probably a place to start running with conditions, or validate against cluster drive by guids, what was already running
-	// Current state of function definitely is not anywhere close to reliable, and mostly done for happy flows quick deployments
-	// Any failure within AddDrives probably will lead to a bad state
-	err = r.AddDrives(ctx, dummyCluster, containers)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	return dummyCluster, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -456,11 +364,11 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 		commaSeparatedIPPort,
 	)
 
-	//addDrivesCommand := fmt.Sprintf("weka drive add %d --host-ip %s")
+	// addDrivesCommand := fmt.Sprintf("weka drive add %d --host-ip %s")
 	// iterate over hosts and build string containing add driver per host
 	resignDrives := ""
 	addDrives := ""
-	for i, _ := range cluster.Spec.Hosts {
+	for i := range cluster.Spec.Hosts {
 		containerNum := i*2 + 1
 		sgDiskPart := fmt.Sprintf("sgdisk -Z %s\n", cluster.Spec.Drive)
 		reSignPart := fmt.Sprintf("weka local exec --container drive%d /weka/tools/weka_sign_drive %s\n", i, cluster.Spec.Drive)
@@ -687,7 +595,6 @@ func GetExecutor(container *wekav1alpha1.WekaContainer, logger logr.Logger) (*ut
 	pod, err := resources.NewContainerFactory(container, logger).Create()
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not find executor pod")
-
 	}
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {

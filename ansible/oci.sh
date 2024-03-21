@@ -60,5 +60,7 @@ ANSIBLE_COMMAND+=(
   "${ANSIBLE_DIR}/oci.yaml"
 )
 
+echo "Running Ansible command: ${ANSIBLE_COMMAND[*]}"
+
 # Run ANSIBLE_COMMAND
 "${ANSIBLE_COMMAND[@]}"

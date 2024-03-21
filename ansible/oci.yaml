@@ -7,7 +7,7 @@
     - debug:
         var: frontend_lab_name
     - name: Lookup existing labs
-      shell: "{{ teka }} lab list {{ frontend_lab_name }} --name-only || /usr/bin/true"
+      shell: "{{ teka }} lab list {{ frontend_lab_name }} --name-only"
       args:
         chdir: "{{ wekapp_root }}"
       register: frontend_list
@@ -26,7 +26,7 @@
       when: create_frontent_lab_output is not skipped
 
     - name: Lookup existing backend lab
-      shell: "{{ teka }} lab list {{ backend_lab_name }} --name-only || /usr/bin/true"
+      shell: "{{ teka }} lab list {{ backend_lab_name }} --name-only"
       args:
         chdir: "{{ wekapp_root }}"
       register: backend_list
