@@ -48,18 +48,13 @@ type DummyClusterSpec struct {
 
 // DummyClusterStatus defines the observed state of DummyCluster
 type DummyClusterStatus struct {
-
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	Status     string             `json:"status"`
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	Throughput string             `json:"throughput"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// DummyCluster is the Schema for the dummyclusters API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 type DummyCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -68,9 +63,7 @@ type DummyCluster struct {
 	Status DummyClusterStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-
-// DummyClusterList contains a list of DummyCluster
+// +kubebuilder:object:root=true
 type DummyClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
