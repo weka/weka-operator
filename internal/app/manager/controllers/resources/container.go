@@ -70,6 +70,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		udpMode = "true"
 	}
 
+	var terminationGracePeriodSeconds int64 = 10
+	if f.container.Spec.Mode == "drive" {
+		terminationGracePeriodSeconds = 60
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -99,7 +104,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 			},
-			ImagePullSecrets: imagePullSecrets,
+			ImagePullSecrets:              imagePullSecrets,
+			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
 				{
 					Image:           image,
