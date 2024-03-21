@@ -141,6 +141,26 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							MountPath: "/etc/syslog-ng/syslog-ng.conf",
 							SubPath:   "syslog-ng.conf",
 						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: fmt.Sprintf("/opt/weka/%s", f.container.Name),
+							SubPath:   "container",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: "/opt/weka/traces",
+							SubPath:   "traces",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: "/opt/weka/diags",
+							SubPath:   "diags",
+						},
+						{
+							Name:      "weka-container-data-dir",
+							MountPath: fmt.Sprintf("/opt/weka/logs/%s", f.container.Name),
+							SubPath:   "logs",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -228,6 +248,15 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 								Name: "weka-boot-scripts",
 							},
 							DefaultMode: &[]int32{0o777}[0],
+						},
+					},
+				},
+				{
+					Name: "weka-container-data-dir",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: fmt.Sprintf("/opt/k8s-weka/%s", f.container.Name),
+							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 						},
 					},
 				},
