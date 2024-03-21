@@ -56,7 +56,7 @@ spec:
                 type: string
               network:
                 properties:
-                  ethdevice:
+                  ethDevice:
                     type: string
                   udpMode:
                     type: boolean

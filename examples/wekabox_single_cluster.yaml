@@ -15,4 +15,7 @@ spec:
   containerBasePort: 16001
   baseCoreId: 2
   wekaContainerNamePrefix: "a"
-  image: "quay.io/weka-as-container:4.2.10.242-0a86a9fde4f362c16a8d3dffc9bf5e07-dev"
+  image: localhost:30000/weka-as-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  network:
+    ethDevice: mlnx0
+  hugepages: 5000Mi
