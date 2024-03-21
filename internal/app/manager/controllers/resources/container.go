@@ -146,22 +146,22 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						{
 							Name:      "weka-container-data-dir",
 							MountPath: fmt.Sprintf("/opt/weka/data/%s", f.container.Spec.WekaContainerName),
-							SubPath:   "container",
+							SubPath:   fmt.Sprintf("data/%s", f.container.Spec.WekaContainerName),
 						},
 						{
 							Name:      "weka-container-data-dir",
 							MountPath: fmt.Sprintf("/opt/weka/%s/events", f.container.Spec.WekaContainerName),
-							SubPath:   "events",
+							SubPath:   fmt.Sprintf("%s/events", f.container.Spec.WekaContainerName),
 						},
 						{
 							Name:      "weka-container-data-dir",
 							MountPath: fmt.Sprintf("/opt/weka/%s/analytics", f.container.Spec.WekaContainerName),
-							SubPath:   "analytics",
+							SubPath:   fmt.Sprintf("%s/analytics", f.container.Spec.WekaContainerName),
 						},
 						{
 							Name:      "weka-container-data-dir",
 							MountPath: fmt.Sprintf("/opt/weka/%s/support", f.container.Spec.WekaContainerName),
-							SubPath:   "support",
+							SubPath:   fmt.Sprintf("%s/support", f.container.Spec.WekaContainerName),
 						},
 						{
 							Name:      "weka-container-data-dir",
@@ -175,7 +175,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("/opt/weka/logs/%s", f.container.Spec.WekaContainerName),
+							MountPath: "/opt/weka/logs",
 							SubPath:   "logs",
 						},
 					},
