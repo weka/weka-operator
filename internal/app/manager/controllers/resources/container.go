@@ -136,6 +136,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							MountPath: "/etc/supervisord/supervisord.conf",
 							SubPath:   "supervisord.conf",
 						},
+						{
+							Name:      "weka-boot-scripts",
+							MountPath: "/etc/syslog-ng/syslog-ng.conf",
+							SubPath:   "syslog-ng.conf",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
