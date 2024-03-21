@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -43,8 +44,12 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 			[]string{corev1.ResourceHugePagesPrefix, "2Mi"},
 			""))
 
-	resourceRequests := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("2000m"),
+	resourceLimit := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))),
+		hugePagesName:      resource.MustParse(hugePagesNum),
+	}
+	resourceRequest := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
 		hugePagesName:      resource.MustParse(hugePagesNum),
 	}
 
@@ -179,8 +184,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 					},
 					Resources: corev1.ResourceRequirements{
-						Limits:   resourceRequests,
-						Requests: resourceRequests,
+						Limits:   resourceLimit,
+						Requests: resourceRequest,
 					},
 				},
 			},

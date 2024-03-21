@@ -21,7 +21,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type ClusterNetwork struct {
+type NetworkSelector struct {
 	EthDevice string `json:"ethDevice,omitempty"`
 	UdpMode   bool   `json:"udpMode,omitempty"`
 }
@@ -32,18 +32,12 @@ type DummyClusterSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of DummyCluster. Edit dummycluster_types.go to remove/update
-	Size                    int            `json:"size"`
-	Drive                   string         `json:"drive"`
-	Hosts                   []string       `json:"hosts"`
-	AgentBasePort           int            `json:"agentBasePort"`
-	ContainerBasePort       int            `json:"containerBasePort"`
-	BaseCoreId              int            `json:"baseCoreId,omitempty"`
-	CoreStep                int            `json:"coreStep,omitempty"`
-	WekaContainerNamePrefix string         `json:"wekaContainerNamePrefix"`
-	NetworkSelector         ClusterNetwork `json:"network,omitempty"`
-	Image                   string         `json:"image"`
-	ImagePullSecret         string         `json:"imagePullSecret,omitempty"`
-	Hugepages               string         `json:"hugepages,omitempty"`
+	Size                    int    `json:"size"`
+	Template                string `json:"template"`
+	Topology                string `json:"topology"`
+	Image                   string `json:"image"`
+	ImagePullSecret         string `json:"imagePullSecret,omitempty"`
+	WekaContainerNamePrefix string `json:"wekaContainerNamePrefix"`
 }
 
 // DummyClusterStatus defines the observed state of DummyCluster
