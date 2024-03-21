@@ -177,11 +177,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							MountPath: "/opt/weka/diags",
 							SubPath:   "diags",
 						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: "/opt/weka/logs",
-							SubPath:   "logs",
-						},
 					},
 					Env: []corev1.EnvVar{
 						{
