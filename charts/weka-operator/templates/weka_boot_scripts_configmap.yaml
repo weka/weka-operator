@@ -10,4 +10,6 @@ data:
 {{ .Files.Get "resources/start-weka-container.sh" | indent 4 }}
   supervisord.conf: |
 {{ .Files.Get "resources/supervisord.conf" | indent 4 }}
+  syslog-ng.conf: |
+{{ .Files.Get "resources/syslog-ng.conf" | indent 4 }}
 
