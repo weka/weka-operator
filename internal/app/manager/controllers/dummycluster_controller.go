@@ -30,9 +30,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,6 +66,7 @@ const (
 	CondClusterCreated = "ClusterCreated"
 	CondDrivesAdded    = "DrivesAdded"
 	CondIoStarted      = "IoStarted"
+	CondJoinedCluster  = "JoinedCluster"
 )
 
 // +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters,verbs=get;list;watch;create;update;patch;delete
@@ -134,40 +135,37 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
+	// Ensure all containers are up in the cluster
+	for _, container := range containers {
+		if !meta.IsStatusConditionTrue(container.Status.Conditions, CondJoinedCluster) {
+			r.Logger.Info("Container has not joined the cluster yet", "container", container.Name)
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
+		} else {
+			if dummyCluster.Status.ClusterID == "" {
+				dummyCluster.Status.ClusterID = container.Status.ClusterID
+				err := r.Status().Update(ctx, dummyCluster)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
 	err = r.EnsureClusterContainerIds(ctx, dummyCluster, containers)
 	if err != nil {
 		r.Logger.Info("not all containers are up in the cluster", "err", err)
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
 	}
 
-	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondDrivesAdded) {
-		// TODO: Move responsibility to weka container to parallelize and watch for their statuses
-		if err = r.Get(ctx, client.ObjectKey{Namespace: dummyCluster.Namespace, Name: dummyCluster.Name}, dummyCluster); err != nil {
-			return ctrl.Result{}, err
+	// Ensure all containers are up in the cluster
+	for _, container := range containers {
+		if container.Spec.Mode != "drive" {
+			continue
 		}
-		// TODO: this might stack if original thread crashed, release "lease" from the one that failed, and wait for ttl if it was a crash
-		// Moving responsibility to weka container is preferable
-		if !meta.IsStatusConditionFalse(dummyCluster.Status.Conditions, CondDrivesAdded) {
-			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
+		if !meta.IsStatusConditionTrue(container.Status.Conditions, CondDrivesAdded) {
+			r.Logger.Info("Containers did not add drives yet", "container", container.Name)
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Adding",
-			Message: fmt.Sprintf("Drives are being added to the cluster, op_id %s", uuid.NewUUID()),
-			// Update ensures we are up to date, meaning being leader here,
-		})
-		err = r.Status().Update(ctx, dummyCluster)
-		if err != nil {
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		err = r.AddDrives(ctx, dummyCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drives are added to the cluster"})
-		_ = r.Status().Update(ctx, dummyCluster)
 	}
 
 	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondIoStarted) {
@@ -178,7 +176,7 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		r.Logger.Info("IO Started")
+		r.Logger.Info("IO Started, time since create:" + time.Since(dummyCluster.CreationTimestamp.Time).String())
 		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: "IO is started"})
 		_ = r.Status().Update(ctx, dummyCluster)
@@ -426,7 +424,6 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 	} else {
 		hugePagesNum = template.ComputeHugepages
 	}
-	hugepages := fmt.Sprintf("%dMi", hugePagesNum)
 
 	network := wekav1alpha1.Network{}
 	// These are on purpose different types
@@ -437,6 +434,16 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 	if topology.Network.UdpMode {
 		network.UdpMode = true
 	}
+
+	potentialDrives := ownedResources.Drives[:]
+	availableDrives := topology.GetAllNodesDrives(ownedResources.Node)
+	for i := 0; i < len(availableDrives); i++ {
+		if slices.Contains(potentialDrives, availableDrives[i]) {
+			continue
+		}
+		potentialDrives = append(potentialDrives, availableDrives[i])
+	}
+	// Selected by ownership drives are first in the list and will be attempted first, granting happy flow
 
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -459,8 +466,11 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 			NumCores:          len(ownedResources.CoreIds),
 			CoreIds:           ownedResources.CoreIds,
 			Network:           network,
-			Hugepages:         hugepages,
-			Drives:            ownedResources.Drives,
+			Hugepages:         hugePagesNum,
+			HugepagesSize:     template.HugePageSize,
+			HugepagesOverride: template.HugePagesOverride,
+			NumDrives:         len(ownedResources.Drives),
+			PotentialDrives:   potentialDrives,
 		},
 	}
 
@@ -514,7 +524,7 @@ func (r *DummyClusterReconciler) AddDrives(ctx context.Context, cluster *wekav1a
 		if err != nil {
 			return errors.Wrap(err, "Error creating executor")
 		}
-		for _, drive := range container.Spec.Drives {
+		for _, drive := range container.Spec.PotentialDrives[:container.Spec.NumDrives] {
 			// TODO: Needs more safety!!!!
 			cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", drive)
 			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})

@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"strings"
-
 	"github.com/weka/weka-operator/util"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"log"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
@@ -22,6 +25,8 @@ import (
 )
 
 const bootScriptConfigName = "weka-boot-scripts"
+
+const ()
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	return &ContainerController{
@@ -40,10 +45,10 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
 
 // Reconcile reconciles a WekaContainer resource
-func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := c.Logger.WithName("Reconcile")
+func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := r.Logger.WithName("Reconcile")
 	logger.Info("ContainerController.Reconcile() called")
-	container, err := c.refreshContainer(ctx, req)
+	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Container not found", "name", req.Name)
@@ -63,21 +68,21 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
-	if err := ctrl.SetControllerReference(container, desiredPod, c.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		logger.Error(err, "Error setting controller reference")
 		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
 	}
 
-	err = c.ensureBootConfigMapInTargetNamespace(ctx, container)
+	err = r.ensureBootConfigMapInTargetNamespace(ctx, container)
 	if err != nil {
 		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
 	}
 
-	actualPod, err := c.refreshPod(ctx, container)
+	actualPod, err := r.refreshPod(ctx, container)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating pod", "name", container.Name)
-			if err := c.Create(ctx, desiredPod); err != nil {
+			if err := r.Create(ctx, desiredPod); err != nil {
 				return ctrl.Result{},
 					pretty.Errorf("Error creating pod", err, desiredPod)
 			}
@@ -89,20 +94,7 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	hasChanges := desiredPod.Spec.Containers[0].Image !=
-		actualPod.Spec.Containers[0].Image
-
-	if hasChanges {
-		logger.Info("Updating pod", "name", container.Name)
-		if err := c.updatePod(ctx, desiredPod); err != nil {
-			logger.Error(err, "Error updating pod", "name", container.Name)
-			return ctrl.Result{}, err
-		}
-		logger.Info("Pod updated", "name", container.Name)
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	result, err := c.reconcileManagementIP(ctx, container, actualPod)
+	result, err := r.reconcileManagementIP(ctx, container, actualPod)
 	if err != nil {
 		logger.Error(err, "Error reconciling management IP", "name", container.Name)
 		return ctrl.Result{}, err
@@ -111,7 +103,8 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return result, nil
 	}
 
-	result, err = c.reconcileStatus(ctx, container, actualPod)
+	// pre-clusterize
+	result, err = r.reconcileStatus(ctx, container, actualPod)
 	if err != nil {
 		logger.Error(err, "Error reconciling status", "name", container.Name)
 		return ctrl.Result{}, err
@@ -120,12 +113,46 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return result, nil
 	}
 
+	// post-clusterize
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, CondJoinedCluster) {
+		retry, err := r.reconcileClusterStatus(ctx, container, actualPod)
+		if retry || err != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: CondJoinedCluster,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Joined cluster %s", container.Status.ClusterID)})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			r.Logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+
+		}
+	}
+
+	container, err = r.refreshContainer(ctx, req)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
+	}
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, CondDrivesAdded) && container.Spec.NumDrives > 0 {
+		retry, err := r.ensureDrives(ctx, container, actualPod)
+		if retry || err != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Added %d drives", container.Spec.NumDrives)})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			r.Logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+		}
+	}
+
 	logger.Info("Reconcile completed", "name", container.Name)
 	return ctrl.Result{}, nil
 }
 
-func (c *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	logger := c.Logger.WithName("reconcileManagementIP")
+func (r *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	logger := r.Logger.WithName("reconcileManagementIP")
 	if container.Status.ManagementIP != "" {
 		return ctrl.Result{}, nil
 	}
@@ -150,7 +177,7 @@ func (c *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	ipAddress := strings.TrimSpace(stdout.String())
 	if container.Status.ManagementIP != ipAddress {
 		container.Status.ManagementIP = ipAddress
-		if err := c.Status().Update(ctx, container); err != nil {
+		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
@@ -159,8 +186,8 @@ func (c *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	return ctrl.Result{}, nil
 }
 
-func (c *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	logger := c.Logger.WithName("reconcileStatus")
+func (r *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	logger := r.Logger.WithName("reconcileStatus")
 	logger.Info("Reconciling status", "name", container.Name)
 
 	executor, err := util.NewExecInPod(pod)
@@ -175,7 +202,7 @@ func (c *ContainerController) reconcileStatus(ctx context.Context, container *we
 		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
 		return ctrl.Result{}, err
 	}
-	response := []resources.WekaContainerResponse{}
+	response := []resources.WekaLocalPs{}
 	err = json.Unmarshal(stdout.Bytes(), &response)
 	if err != nil {
 		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
@@ -191,7 +218,7 @@ func (c *ContainerController) reconcileStatus(ctx context.Context, container *we
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
-		if err := c.Status().Update(ctx, container); err != nil {
+		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
@@ -210,19 +237,19 @@ func refreshContainer(r client.Reader, ctx context.Context, container *wekav1alp
 	return container, nil
 }
 
-func (c *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
+func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
 	container := &wekav1alpha1.WekaContainer{}
-	if err := c.Get(ctx, req.NamespacedName, container); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, container); err != nil {
 		return nil, errors.Wrap(err, "refreshContainer")
 	}
 	return container, nil
 }
 
-func (c *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
-	logger := c.Logger.WithName("refreshPod")
+func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
+	logger := r.Logger.WithName("refreshPod")
 	pod := &v1.Pod{}
 	key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
-	if err := c.Get(ctx, key, pod); err != nil {
+	if err := r.Get(ctx, key, pod); err != nil {
 		logger.Error(err, "Error refreshing pod", "key", key)
 		return nil, err
 	}
@@ -230,25 +257,26 @@ func (c *ContainerController) refreshPod(ctx context.Context, container *wekav1a
 	return pod, nil
 }
 
-func (c *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error {
-	logger := c.Logger.WithName("updatePod")
-	if err := c.Update(ctx, pod); err != nil {
+func (r *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error {
+	logger := r.Logger.WithName("updatePod")
+	if err := r.Update(ctx, pod); err != nil {
 		logger.Error(err, "Error updating pod", "pod", pod)
 		return err
 	}
 	return nil
 }
 
-func (c *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaContainer{}).
 		Owns(&v1.Pod{}).
-		Complete(c)
+		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		Complete(r)
 }
 
-func (c *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	bundledConfigMap := &v1.ConfigMap{}
-	err := c.Get(ctx, client.ObjectKey{Namespace: util.GetPodNamespace(), Name: bootScriptConfigName}, bundledConfigMap)
+	err := r.Get(ctx, client.ObjectKey{Namespace: util.GetPodNamespace(), Name: bootScriptConfigName}, bundledConfigMap)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Fatalln("Could not find operator-namespaced configmap for boot scripts")
@@ -257,23 +285,230 @@ func (c *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 	}
 
 	bootScripts := &v1.ConfigMap{}
-	err = c.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: bootScriptConfigName}, bootScripts)
+	err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: bootScriptConfigName}, bootScripts)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			bootScripts.Namespace = container.Namespace
 			bootScripts.Name = bootScriptConfigName
 			bootScripts.Data = bundledConfigMap.Data
-			if err := c.Create(ctx, bootScripts); err != nil {
-				c.Logger.Error(err, "Error creating boot scripts config map")
+			if err := r.Create(ctx, bootScripts); err != nil {
+				r.Logger.Error(err, "Error creating boot scripts config map")
 			}
 		}
 	}
 
 	if !util.IsEqualConfigMapData(bootScripts, bundledConfigMap) {
 		bootScripts.Data = bundledConfigMap.Data
-		if err := c.Update(ctx, bootScripts); err != nil {
-			c.Logger.Error(err, "Error updating boot scripts config map")
+		if err := r.Update(ctx, bootScripts); err != nil {
+			r.Logger.Error(err, "Error updating boot scripts config map")
 		}
 	}
 	return nil
+}
+
+func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return true, nil
+	}
+	stdout, _, err := executor.Exec(ctx, []string{"bash", "-ce", "weka local status -J"})
+	response := resources.WekaLocalStatusResponse{}
+	err = json.Unmarshal(stdout.Bytes(), &response)
+	if err != nil {
+		return true, err
+	}
+
+	if _, ok := response[container.Spec.WekaContainerName]; !ok {
+		return true, errors.New("container not found")
+	}
+	if len(response[container.Spec.WekaContainerName].Slots) == 0 {
+		return true, errors.New("slots not found")
+	}
+	clusterId := response[container.Spec.WekaContainerName].Slots[0].ClusterID
+	if clusterId == "" || clusterId == "00000000-0000-0000-0000-000000000000" {
+		return true, nil
+	}
+
+	container.Status.ClusterID = clusterId
+	if err := r.Status().Update(ctx, container); err != nil {
+		return true, err
+	}
+	return false, nil
+}
+
+func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
+	if container.Status.ClusterContainerID == nil {
+		return true, nil
+	}
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return true, err
+	}
+
+	numAdded := 0
+	driveCursor := 0
+DRIVES:
+	for i := 0; i < container.Spec.NumDrives; i++ {
+		for driveCursor < len(container.Spec.PotentialDrives) {
+			r.Logger.Info("Adding drive", "drive", container.Spec.PotentialDrives[driveCursor],
+				"position", i, "total", container.Spec.NumDrives)
+
+			drive := container.Spec.PotentialDrives[driveCursor]
+			driveSignTarget := getSignatureDevice(drive)
+
+			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
+			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			if err != nil {
+				if strings.Contains(stderr.String(), "No such file or directory") {
+					r.Logger.Info("Drive is not presigned, moving to next", "drive", drive)
+					driveCursor++
+					continue
+				} else {
+					return true, errors.Wrap(err, stderr.String()+"\n"+stdout.String())
+				}
+			}
+
+			// Validate that disk is weka-signed
+			presigned, err := r.isDrivePresigned(ctx, executor, drive)
+			if !presigned {
+				r.Logger.Info("Drive is not presigned, moving to next", "drive", drive)
+				driveCursor++
+				continue
+			}
+
+			if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
+				exists, err := r.isExistingCluster(ctx, stdout.String())
+				if err != nil {
+					return true, err
+				}
+				if exists {
+					r.Logger.Info("Drive is already signed and cluster exists, moving to next", "drive", drive, "clusterId", stdout.String())
+					driveCursor++
+					continue
+				} else {
+					r.Logger.Info("Drive is already signed, but cluster does not exist, resigning", "drive", drive, "clusterId", stdout.String())
+					err2 := r.reSignDrive(ctx, executor, drive)
+					if err2 != nil {
+						return true, err2
+					}
+				}
+			}
+
+			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
+			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			if err != nil {
+				if strings.Contains(stderr.String(), "Device is already in use") {
+					belongs, err := r.isDriveBelongsTo(ctx, drive, container, executor)
+					if err != nil {
+						return true, err
+					}
+					if belongs {
+						goto DRIVEADDED // recovery of previous add
+					} else {
+						r.Logger.Error(err, "Drive is already in use", "drive", drive, "stderr", stderr.String())
+						driveCursor++
+						continue
+					}
+				}
+				return true, errors.Wrap(err, stderr.String())
+			} else {
+				r.Logger.Info("Drive added into system", "drive", drive)
+			}
+		DRIVEADDED:
+			numAdded++
+			driveCursor++
+			continue DRIVES
+		}
+		return true, errors.New(fmt.Sprintf("Could not allocate drive %d", i))
+	}
+	return false, nil
+}
+
+func getSignatureDevice(drive string) string {
+	driveSignTarget := fmt.Sprintf("%s1", drive) //HACK: Does not work with nvme now
+	if strings.Contains(drive, "nvme") {
+		return fmt.Sprintf("%sp1", drive)
+	}
+	return driveSignTarget
+}
+
+func (r *ContainerController) eraseDrive(ctx context.Context, executor *util.Exec, drive string) error {
+	cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", drive)
+	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		r.Logger.Error(err, "Error erasing drive", "drive", drive, "stderr", stderr.String())
+	}
+	return err
+}
+
+func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Exec, drive string) error {
+	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
+	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		r.Logger.Error(err, "Error signing drive", "drive", drive, "stderr", stderr.String())
+	}
+	return err
+}
+
+func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (bool, error) {
+	// TODO: Query by status?
+	// TODO: Cache?
+
+	clusterList := wekav1alpha1.DummyClusterList{}
+	err := r.List(ctx, &clusterList)
+	if err != nil {
+		return false, err
+	}
+	for _, cluster := range clusterList.Items {
+		// strip `-` from saved cluster name
+		stripped := strings.ReplaceAll(cluster.Status.ClusterID, "-", "")
+		if stripped == s {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *ContainerController) isDriveBelongsTo(ctx context.Context, drive string, container *wekav1alpha1.WekaContainer, executor *util.Exec) (bool, error) {
+	cmd := fmt.Sprintf("blkid -o value %s", getSignatureDevice(drive))
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		return false, err
+	}
+
+	cmd = fmt.Sprintf("weka cluster drive -J %s", stdout.String())
+	stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		r.Logger.Error(err, "Error getting drive", "stderr", stderr.String())
+		return false, err
+	}
+	driveResponse := []resources.WekaDriveResponse{}
+	err = json.Unmarshal(stdout.Bytes(), &driveResponse)
+	if err != nil {
+		r.Logger.Error(err, "Error unmarshalling drive response", "stdout", stdout.String())
+		return false, err
+	}
+
+	currentContainerId, err := driveResponse[0].ContainerId()
+	if err != nil {
+		return false, err
+	}
+	if len(driveResponse) == 0 {
+		return false, nil
+	}
+	return currentContainerId == *container.Status.ClusterContainerID, nil
+
+}
+
+func (r *ContainerController) validateNotMounted(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
+	return false, nil
+}
+
+func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
+	if err != nil {
+		return false, errors.Wrap(err, stderr.String())
+	}
+	const WEKA_SIGNATURE = "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
+	return strings.TrimSpace(stdout.String()) == WEKA_SIGNATURE, nil
 }

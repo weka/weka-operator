@@ -12,14 +12,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type WekaContainerResponse struct {
+type WekaLocalPs struct {
 	RunStatus       string `json:"runStatus"`
 	LastFailureText string `json:"lastFailureText"`
 }
 
+type WekaLocalStatusSlot struct {
+	ClusterID string `json:"cluster_guid"`
+}
+
+type WekaLocalStatusContainer struct {
+	Slots []WekaLocalStatusSlot `json:"slots"`
+}
+
+type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
+
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
 	logger    logr.Logger
+}
+
+type WekaDriveResponse struct {
+	HostId string `json:"host_id"`
+}
+
+func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
+	return HostIdToContainerId(driveResponse.HostId)
 }
 
 func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger logr.Logger) *ContainerFactory {
@@ -35,22 +53,37 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	image := f.container.Spec.Image
 
 	//TODO: to resolve basing on value from spec
-	hugePagesNum := f.container.Spec.Hugepages
-	if f.container.Spec.Hugepages == "" {
-		hugePagesNum = "4000Mi"
+	//hugePagesNum := f.container.Spec.Hugepages
+
+	hugePagesStr := ""
+	hugePagesK8sSuffix := "2Mi"
+	wekaMemoryString := ""
+	if f.container.Spec.HugepagesSize == "1Gi" {
+		hugePagesK8sSuffix = f.container.Spec.HugepagesSize
+		hugePagesStr = fmt.Sprintf("%dGi", f.container.Spec.Hugepages/1000)
+		wekaMemoryString = fmt.Sprintf("%dGiB", f.container.Spec.Hugepages/1000)
+	} else {
+		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
+		hugePagesK8sSuffix = "2Mi"
+		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages)
 	}
+
+	if f.container.Spec.HugepagesOverride != "" {
+		wekaMemoryString = f.container.Spec.HugepagesOverride
+	}
+
 	hugePagesName := corev1.ResourceName(
 		strings.Join(
-			[]string{corev1.ResourceHugePagesPrefix, "2Mi"},
+			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
 			""))
 
 	resourceLimit := corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))),
-		hugePagesName:      resource.MustParse(hugePagesNum),
+		hugePagesName:      resource.MustParse(hugePagesStr),
 	}
 	resourceRequest := corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
-		hugePagesName:      resource.MustParse(hugePagesNum),
+		hugePagesName:      resource.MustParse(hugePagesStr),
 	}
 
 	imagePullSecrets := []corev1.LocalObjectReference{}
@@ -172,8 +205,9 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Value: strconv.Itoa(f.container.Spec.Port),
 						},
 						{
-							Name:  "MEMORY",
-							Value: "1gib", // TODO: spec
+							Name: "MEMORY",
+							//Value: fmt.Sprintf("%dMiB", hugePagesNum-200), // TODO: spec, -2is a hack to force 2MiB
+							Value: wekaMemoryString, // TODO: spec, -2is a hack to force 2MiB
 						},
 						{
 							Name:  "CORES",
@@ -212,7 +246,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					Name: "hugepages",
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{
-							Medium: "HugePages-2Mi",
+							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", hugePagesK8sSuffix)),
 						},
 					},
 				},

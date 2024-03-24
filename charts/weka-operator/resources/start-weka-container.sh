@@ -148,4 +148,6 @@ fi
 log_message NOTICE "Successfully started weka container."
 
 # Sleep forever
+#bash -ce "tail -F /opt/weka/logs/${NAME}/weka/output.log | tee -a $LOG_FILE" &
+
 exec sleep infinity

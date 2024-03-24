@@ -1,7 +1,7 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: DummyCluster
 metadata:
-  name: clustera
+  name: cluster-a
 spec:
   size: 1
   template: dev

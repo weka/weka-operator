@@ -21,13 +21,7 @@ type ClusterContainer struct {
 }
 
 func (c ClusterContainer) ContainerId() (int, error) {
-	hostId := strings.Replace(c.HostId, "HostId<", "", 1)
-	hostId = strings.Replace(hostId, ">", "", 1)
-	id, err := strconv.Atoi(hostId)
-	if err != nil {
-		return 0, err
-	}
-	return id, nil
+	return HostIdToContainerId(c.HostId)
 }
 
 type ClusterContainersResponse []ClusterContainer
@@ -43,4 +37,14 @@ func MapByContainerName(containers ClusterContainersResponse) (ClusterContainers
 		result[container.ContainerName] = container
 	}
 	return result, nil
+}
+
+func HostIdToContainerId(hostId string) (int, error) {
+	hostId = strings.Replace(hostId, "HostId<", "", 1)
+	hostId = strings.Replace(hostId, ">", "", 1)
+	id, err := strconv.Atoi(hostId)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }

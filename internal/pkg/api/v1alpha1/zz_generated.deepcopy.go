@@ -698,8 +698,8 @@ func (in *WekaContainerSpec) DeepCopyInto(out *WekaContainerSpec) {
 		copy(*out, *in)
 	}
 	out.Network = in.Network
-	if in.Drives != nil {
-		in, out := &in.Drives, &out.Drives
+	if in.PotentialDrives != nil {
+		in, out := &in.PotentialDrives, &out.PotentialDrives
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -722,6 +722,13 @@ func (in *WekaContainerStatus) DeepCopyInto(out *WekaContainerStatus) {
 		in, out := &in.ClusterContainerID, &out.ClusterContainerID
 		*out = new(int)
 		**out = **in
+	}
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]v1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
