@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
+	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"testing"
@@ -22,8 +23,19 @@ func TestAllocatePort(t *testing.T) {
 		Namespace:   "testNamespace",
 	}
 
+	testTopology := Topology{
+		Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
+		Nodes:  []string{"wekabox14.lan", "wekabox15.lan", "wekabox16.lan", "wekabox17.lan", "wekabox18.lan"},
+		// TODO: Get from k8s instead, but having it here helps for now with testing, minimizing relying on k8s
+		MinCore:  2,
+		CoreStep: 1,
+		MaxCore:  11,
+		Network: v1alpha1.NetworkSelector{
+			EthDevice: "mlnx0",
+		},
+	}
+
 	allocMap := AllocationsMap{}
-	clusterConfig := DevboxWekabox
 
 	template := ClusterTemplate{
 		DriveCores:        1,
@@ -34,7 +46,7 @@ func TestAllocatePort(t *testing.T) {
 		MaxFdsPerNode:     1,
 	}
 
-	allocator := NewAllocator(log, clusterConfig)
+	allocator := NewAllocator(log, testTopology)
 
 	owner.ClusterName = "a"
 	newMap, err, _ := allocator.Allocate(owner, template, allocMap, 1)

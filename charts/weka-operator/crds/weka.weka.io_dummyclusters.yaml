@@ -58,6 +58,8 @@ spec:
           status:
             description: DummyClusterStatus defines the observed state of DummyCluster
             properties:
+              clusterID:
+                type: string
               conditions:
                 items:
                   description: "Condition contains details for one aspect of the current
@@ -131,6 +133,7 @@ spec:
               throughput:
                 type: string
             required:
+            - clusterID
             - status
             - throughput
             type: object

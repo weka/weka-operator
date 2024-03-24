@@ -45,6 +45,7 @@ type DummyClusterStatus struct {
 	Status     string             `json:"status"`
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	Throughput string             `json:"throughput"`
+	ClusterID  string             `json:"clusterID"`
 }
 
 // +kubebuilder:object:root=true

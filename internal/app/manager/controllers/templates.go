@@ -16,6 +16,8 @@ type ClusterTemplate struct {
 	MaxFdsPerNode     int
 	DriveHugepages    int
 	ComputeHugepages  int
+	HugePageSize      string
+	HugePagesOverride string
 }
 
 // Topology is a stub of all information we require to make a scheduling
@@ -41,7 +43,8 @@ func (k *Topology) GetAvailableCpus() []int {
 
 // NewK8sClusterLevelConfig creates a new Topology
 var DevboxWekabox = Topology{
-	Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
+	//Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
+	Drives: []string{"/dev/nvme0n1", "/dev/nvme2n1", "/dev/nvme3n1"}, //skipping N1, since it's used for local storage
 	Nodes:  []string{"wekabox14.lan", "wekabox15.lan", "wekabox16.lan", "wekabox17.lan", "wekabox18.lan"},
 	// TODO: Get from k8s instead, but having it here helps for now with testing, minimizing relying on k8s
 	MinCore:  2,
@@ -60,8 +63,34 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		DriveContainers:   5,
 		NumDrives:         1,
 		MaxFdsPerNode:     1,
-		DriveHugepages:    1200,
-		ComputeHugepages:  1200,
+		DriveHugepages:    4000,
+		ComputeHugepages:  4000,
+		HugePageSize:      "2Mi",
+		HugePagesOverride: "1GiB",
+	},
+	"demo_2mib": {
+		DriveCores:        1,
+		ComputeCores:      1,
+		ComputeContainers: 5,
+		DriveContainers:   5,
+		NumDrives:         1,
+		MaxFdsPerNode:     1,
+		DriveHugepages:    4000,
+		ComputeHugepages:  4000,
+		HugePageSize:      "2Mi",
+		HugePagesOverride: "3000MiB",
+	},
+	"demo_1G": {
+		DriveCores:        1,
+		ComputeCores:      1,
+		ComputeContainers: 5,
+		DriveContainers:   5,
+		NumDrives:         1,
+		MaxFdsPerNode:     1,
+		DriveHugepages:    4000,
+		ComputeHugepages:  4000,
+		HugePageSize:      "1Gi",
+		HugePagesOverride: "3GiB",
 	},
 }
 
@@ -99,4 +128,9 @@ func getNodeNames(ctx context.Context, reader client.Reader) ([]string, error) {
 		nodeNames = append(nodeNames, node.Name)
 	}
 	return nodeNames, nil
+}
+
+func (t *Topology) GetAllNodesDrives(nodeName string) []string {
+	// TODO: Replace all usages with this, stub to allow more dynamic allocations
+	return t.Drives
 }

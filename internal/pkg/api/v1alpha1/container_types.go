@@ -25,8 +25,11 @@ type WekaContainerSpec struct {
 	NumCores          int      `json:"numCores"`
 	CoreIds           []int    `json:"coreIds,omitempty"`
 	Network           Network  `json:"network,omitempty"`
-	Hugepages         string   `json:"hugepages,omitempty"`
-	Drives            []string `json:"drive,omitempty"`
+	Hugepages         int      `json:"hugepages,omitempty"`
+	HugepagesSize     string   `json:"hugepagesSize,omitempty"`
+	HugepagesOverride string   `json:"hugepagesSizeOverride,omitempty"`
+	PotentialDrives   []string `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
+	NumDrives         int      `json:"numDrives,omitempty"`
 }
 
 type Network struct {
@@ -35,9 +38,11 @@ type Network struct {
 }
 
 type WekaContainerStatus struct {
-	Status             string `json:"status"`
-	ManagementIP       string `json:"managementIP,omitempty"`
-	ClusterContainerID *int   `json:"containerID,omitempty"`
+	Status             string             `json:"status"`
+	ManagementIP       string             `json:"managementIP,omitempty"`
+	ClusterContainerID *int               `json:"containerID,omitempty"`
+	ClusterID          string             `json:"clusterID,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 // +kubebuilder:object:root=true
