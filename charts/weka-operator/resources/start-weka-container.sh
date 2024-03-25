@@ -47,7 +47,7 @@ log_message() {
     ERROR | CRITICAL) COLOR="$LIGHT_RED" ;;
   esac
 
-  ts "$(echo -e "$COLOR") $(echo -e "${LEVEL}$NO_COLOUR")"$'\t' <<<"$*" | tee -a $LOG_FILE
+  ts "$(echo -e "$COLOR") $(echo -e "${LEVEL}$NO_COLOUR") [$MYNAME]"$'\t' <<<"$*" | tee -a $LOG_FILE
 }
 
 
