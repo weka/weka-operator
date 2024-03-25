@@ -95,6 +95,7 @@ echo '{"agent": {"port": '${AGENT_PORT}'}}' > /etc/wekaio/service.json
 WEKA_AGENT_PID=$!
 log_message NOTICE "Weka Agent started with PID $WEKA_AGENT_PID"
 
+echo $WEKA_AGENT_PID > /var/run/weka-agent.pid
 
 wait $WEKA_AGENT_PID
 log_message NOTICE "Weka Agent exited with code $?"
