@@ -96,6 +96,6 @@ WEKA_AGENT_PID=$!
 log_message NOTICE "Weka Agent started with PID $WEKA_AGENT_PID"
 
 
-wait WEKA_AGENT_PID
+wait $WEKA_AGENT_PID
 log_message NOTICE "Weka Agent exited with code $?"
 
