@@ -79,8 +79,9 @@ trap stop SIGTERM SIGINT
 if [ -d "$WEKA_PERSISTENCE_DIR" ]; then
   log_message INFO "Weka data will be stored in $WEKA_PERSISTENCE_DIR, remounting"
    time mv /opt/weka /opt/weka-preinstalled 2> >(log_pipe_err >&2) | log_pipe
-   mkdir -p /opt/weka/dist
+   mkdir -p /opt/weka
    mount -o bind $WEKA_PERSISTENCE_DIR /opt/weka 2> >(log_pipe_err >&2) | log_pipe
+   mkdir /opt/weka/dist
    mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist 2> >(log_pipe_err >&2) | log_pipe
 else
   log_message INFO "Weka software was not preinstalled in $WEKA_WEKA_PERSISTENCE_DIR"
