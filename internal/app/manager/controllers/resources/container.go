@@ -75,7 +75,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		terminationGracePeriodSeconds = 60
 	}
 
-	wekaDir := "opt/weka"
+	wekaPersistenceDir := "/opt/weka-persistence"
 	persistentPathBase := fmt.Sprintf("/opt/k8s-weka/%s", f.container.Name)
 
 	pod := &corev1.Pod{
@@ -151,39 +151,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							SubPath:   "syslog-ng.conf",
 						},
 						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/data/%s", wekaDir, f.container.Spec.WekaContainerName),
-							SubPath:   fmt.Sprintf("data/%s", f.container.Spec.WekaContainerName),
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/data/agent", wekaDir),
-							SubPath:   "data/agent",
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/%s/events", wekaDir, f.container.Spec.WekaContainerName),
-							SubPath:   fmt.Sprintf("%s/events", f.container.Spec.WekaContainerName),
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/%s/analytics", wekaDir, f.container.Spec.WekaContainerName),
-							SubPath:   fmt.Sprintf("%s/analytics", f.container.Spec.WekaContainerName),
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/%s/support", wekaDir, f.container.Spec.WekaContainerName),
-							SubPath:   fmt.Sprintf("%s/support", f.container.Spec.WekaContainerName),
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/traces", wekaDir),
-							SubPath:   "traces",
-						},
-						{
-							Name:      "weka-container-data-dir",
-							MountPath: fmt.Sprintf("%s/diags", wekaDir),
-							SubPath:   "diags",
+							Name:      "weka-container-persistence-dir",
+							MountPath: wekaPersistenceDir,
 						},
 					},
 					Env: []corev1.EnvVar{
@@ -276,7 +245,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 				{
-					Name: "weka-container-data-dir",
+					Name: "weka-container-persistence-dir",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: persistentPathBase,
