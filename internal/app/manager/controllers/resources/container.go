@@ -72,7 +72,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	}
 
 	wekaPersistenceDir := "/opt/weka-persistence"
-	persistentPathBase := fmt.Sprintf("/opt/k8s-weka/%s", f.container.GetUID())
+	persistentPathBase := fmt.Sprintf("/opt/k8s-weka/containers/%s", f.container.GetUID())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
