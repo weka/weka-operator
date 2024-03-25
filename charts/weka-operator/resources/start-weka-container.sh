@@ -71,7 +71,7 @@ exec 1> >(tee -a /tmp/start-stdout)
 
 wait_for_agent() {
   while ! [ -f /var/run/weka-agent.pid ]; do
-    sleep 1
+    sleep 5
     echo "Waiting for weka-agent to start"
   done
 }

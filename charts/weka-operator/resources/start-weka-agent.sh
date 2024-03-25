@@ -2,6 +2,7 @@
 
 
 AGENT_PORT=${AGENT_PORT}
+WEKA_PERSISTENCE_DIR=/opt/weka-persistence
 
 OS=$(uname)
 
@@ -75,10 +76,15 @@ stop() {
 
 trap stop SIGTERM SIGINT
 
-
-log_message INFO "Weka software was preinstalled in $WEKA_FACTORY_DIR"
-
-ln -sf $WEKA_FACTORY_DIR/dist /opt/weka/dist
+if [ -d "$WEKA_PERSISTENCE_DIR" ]; then
+  log_message INFO "Weka data will be stored in $WEKA_PERSISTENCE_DIR, remounting"
+   time mv /opt/weka /opt/weka-preinstalled 2> >(log_pipe_err >&2) | log_pipe
+   mkdir -p /opt/weka/dist
+   mount -o bind $WEKA_PERSISTENCE_DIR /opt/weka 2> >(log_pipe_err >&2) | log_pipe
+   mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist 2> >(log_pipe_err >&2) | log_pipe
+else
+  log_message INFO "Weka software was not preinstalled in $WEKA_WEKA_PERSISTENCE_DIR"
+fi
 
 log_message INFO "Starting Weka Agent"
 
