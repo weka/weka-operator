@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,6 +27,10 @@ type WekaContainerSpec struct {
 	CoreIds           []int   `json:"coreIds,omitempty"`
 	Network           Network `json:"network,omitempty"`
 	Hugepages         string  `json:"hugepages,omitempty"`
+
+	WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
+	WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
+	WekaOrg      string              `json:"wekaOrg,omitempty"`
 }
 
 type Network struct {
