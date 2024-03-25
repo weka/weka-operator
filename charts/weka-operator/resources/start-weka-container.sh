@@ -59,11 +59,11 @@ log_fatal() {
 }
 
 log_pipe() {
-  ts "$(echo -e "$LIGHT_CYAN") $(echo -e "STDOUT${NO_COLOUR}")"$'\t' | tee -a $LOG_FILE
+  ts "$(echo -e "$LIGHT_CYAN") $(echo -e "STDOUT${NO_COLOUR}") [$MYNAME]"$'\t' | tee -a $LOG_FILE
 }
 
 log_pipe_err() {
-  ts "$(echo -e "$LIGHT_RED") $(echo -e "STDERR${NO_COLOUR}")"$'\t' | tee -a $LOG_FILE
+  ts "$(echo -e "$LIGHT_RED") $(echo -e "STDERR${NO_COLOUR}") [$MYNAME]"$'\t' | tee -a $LOG_FILE
 }
 
 exec 2> >(tee -a /tmp/start-stderr >&2)
