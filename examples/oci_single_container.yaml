@@ -4,7 +4,7 @@ metadata:
   name: wekacontainercompute0
 spec:
   agentPort: 14101
-  nodeAffinity: "uba-0"
+  nodeAffinity: "serjo-0"
   coreIds:
     - 2
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
