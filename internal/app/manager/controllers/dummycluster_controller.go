@@ -482,7 +482,6 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 }
 
 func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
-
 	var hostIps []string
 	var hostnamesList []string
 	r.Logger.Info("Creating cluster", "totalContainers", len(containers))
