@@ -1,0 +1,21 @@
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: mbpk8soci-sample
+spec:
+  size: 5
+  hosts:
+    - mbp-k8s-oci-0
+    - mbp-k8s-oci-1
+    - mbp-k8s-oci-2
+    - mbp-k8s-oci-3
+    - mbp-k8s-oci-4
+  drive: /dev/sdb
+  agentBasePort: 14101
+  containerBasePort: 16001
+  baseCoreId: 2
+  wekaContainerNamePrefix: "a"
+  image: quay.io/weka.io/weka-in-container:4.2.10.405-01b0c67a7ba81986a218b55c6d08f150-dev
+  imagePullSecret: quay-io-robot-secret
+  hugepages: 5000Mi

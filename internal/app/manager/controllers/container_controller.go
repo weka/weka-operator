@@ -126,7 +126,11 @@ func (c *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 func (c *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
 	logger := c.Logger.WithName("reconcileManagementIP")
+	logger.Info("Reconciling management IP", "name", container.Name)
+	defer logger.Info("Reconcile management IP completed", "name", container.Name)
+
 	if container.Status.ManagementIP != "" {
+		logger.Info("Management IP already set", "ip", container.Status.ManagementIP)
 		return ctrl.Result{}, nil
 	}
 	executor, err := util.NewExecInPod(pod)
@@ -141,6 +145,7 @@ func (c *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	} else {
 		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
 	}
+	logger.Info("Executing command", "command", getIpCmd)
 
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", getIpCmd})
 	if err != nil {
@@ -154,7 +159,10 @@ func (c *ContainerController) reconcileManagementIP(ctx context.Context, contain
 			logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
+		logger.Info("Updated management IP", "from", container.Status.ManagementIP, "to", ipAddress)
 		return ctrl.Result{Requeue: true}, nil
+	} else {
+		logger.Info("Management IP already set", "ip", ipAddress)
 	}
 	return ctrl.Result{}, nil
 }
