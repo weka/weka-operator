@@ -34,6 +34,8 @@ export YELLOW="\033[1;33m"
 export LIGHT_RED="\033[1;31m"
 export NO_COLOUR="\033[0m"
 
+MYNAME=$(basename $0)
+
 log_message() {
   # just add timestamp and some coloring
   local LEVEL COLOR
