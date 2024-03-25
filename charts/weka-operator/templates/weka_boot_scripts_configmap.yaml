@@ -12,4 +12,5 @@ data:
 {{ .Files.Get "resources/supervisord.conf" | indent 4 }}
   syslog-ng.conf: |
 {{ .Files.Get "resources/syslog-ng.conf" | indent 4 }}
-
+  start-syslog-ng.sh: |
+{{ .Files.Get "resources/start-syslog-ng.sh" | indent 4 }}

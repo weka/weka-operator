@@ -150,6 +150,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							SubPath:   "syslog-ng.conf",
 						},
 						{
+							Name:      "weka-boot-scripts",
+							MountPath: "/opt/start-syslog-ng.sh",
+							SubPath:   "start-syslog-ng.sh",
+						},
+						{
 							Name:      "weka-container-persistence-dir",
 							MountPath: wekaPersistenceDir,
 						},
