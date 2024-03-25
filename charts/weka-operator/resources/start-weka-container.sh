@@ -69,6 +69,15 @@ log_pipe_err() {
 exec 2> >(tee -a /tmp/start-stderr >&2)
 exec 1> >(tee -a /tmp/start-stdout)
 
+wait_for_agent() {
+  while ! [ -f /var/run/weka-agent.pid ]; do
+    sleep 1
+    echo "Waiting for weka-agent to start"
+  done
+}
+
+time wait_for_agent 2> >(log_pipe_err >&2) | log_pipe
+
 log_message INFO "Starting WEKA-CONTAINER"
 # should be param from outside, not part of generic configmap
 
