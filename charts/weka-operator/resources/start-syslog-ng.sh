@@ -83,5 +83,3 @@ trap stop SIGINT SIGTERM
 wait $SYSLOG_PID
 
 rm /var/run/syslog-ng.pid
-
-exec sleep 10

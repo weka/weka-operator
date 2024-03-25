@@ -71,6 +71,7 @@ stop() {
   kill -SIGINT $WEKA_AGENT_PID
   wait $WEKA_AGENT_PID
   log_message NOTICE "Weka Agent stopped"
+  rm /var/run/weka-agent.pid
   exit 127
 }
 

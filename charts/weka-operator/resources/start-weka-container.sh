@@ -101,12 +101,19 @@ log_message INFO "CORES=${CORES}"
 log_message INFO "NETWORK_DEVICE=${NETWORK_DEVICE}"
 log_message INFO "WEKA_CLI_DEBUG=${WEKA_CLI_DEBUG}"
 
-while true; do
-  if weka version set `weka version` 2> >(log_pipe_err >&2) | log_pipe; then
-    break
-  fi
+while ! weka local ps; do
+  log_message INFO "Waiting for agent to start"
   sleep 1
 done
+
+if [[ $(weka local ps | sed 1d | wc -l) != "0" ]]; then
+  log_message INFO "Weka container already exists, doing nothing, as agent will start it"
+  exec sleep infinity # prevents this script from existing, so supervisor wont restart it (could be one-shot in systemd)
+  exit 1
+fi
+
+
+weka version set `weka version`
 
 if [[ -z "${CORE_IDS}" || "$CORE_IDS" == "auto" ]]; then
   log_fatal "CORE_IDS 'auto' is not supported yet. Please specify a comma-separated list of core ids to use."
@@ -161,7 +168,6 @@ fi
 log_message NOTICE "Successfully started weka container."
 
 cleanup() {
-    weka local stop
     exit
 }
 
@@ -169,5 +175,5 @@ trap cleanup SIGINT SIGTERM
 
 # Sleep forever
 #bash -ce "tail -F /opt/weka/logs/${NAME}/weka/output.log | tee -a $LOG_FILE" &
-
-sleep infinity
+sleep infinity &
+wait

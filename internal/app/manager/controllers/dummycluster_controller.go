@@ -172,6 +172,7 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
 			Status: metav1.ConditionUnknown, Reason: "Starting", Message: "Starting IO"})
 		_ = r.Status().Update(ctx, dummyCluster)
+		r.Logger.Info("Starting IO")
 		err = r.StartIo(ctx, dummyCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -631,7 +632,6 @@ func (r *DummyClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alp
 		return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
 	}
 
-	r.Logger.Info("Starting IO")
 	return nil
 }
 
