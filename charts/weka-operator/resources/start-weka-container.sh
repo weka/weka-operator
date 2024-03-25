@@ -139,6 +139,7 @@ case "$MODE" in
 esac
 
 log_message INFO "Starting weka container with the following configuration:"
+log_message INFO weka local setup container --name ${NAME} --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS}
 weka local setup container --name ${NAME} --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} 2> >(log_pipe >&2) | log_pipe
 
 if [[ $? -ne 0 ]]; then
