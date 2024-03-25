@@ -49,7 +49,7 @@ log_message() {
     ERROR | CRITICAL) COLOR="$LIGHT_RED" ;;
   esac
 
-  ts "$(echo -e "$COLOR") $(echo -e "${LEVEL}$NO_COLOUR") [$MYNAME]"$'\t' <<<"$*" | tee -a $LOG_FILE
+  ts "$(echo -e "$COLOR") $(echo -e "${LEVEL}$NO_COLOUR") [$MYNAME:${BASH_LINENO[$((${#BASH_LINENO[@]} - 2))]}]"$'\t' <<<"$*" | tee -a $LOG_FILE
 }
 
 
@@ -76,6 +76,14 @@ wait_for_agent() {
   done
 }
 
+wait_for_syslog() {
+  while ! [ -f /var/run/syslog-ng.pid ]; do
+    sleep 5
+    echo "Waiting for syslog-ng to start"
+  done
+}
+
+time wait_for_syslog 2> >(log_pipe_err >&2) | log_pipe
 time wait_for_agent 2> >(log_pipe_err >&2) | log_pipe
 
 log_message INFO "Starting WEKA-CONTAINER"
