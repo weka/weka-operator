@@ -139,15 +139,27 @@ case "$MODE" in
 esac
 
 log_message INFO "Starting weka container with the following configuration:"
-log_message INFO weka local setup container --name ${NAME} --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS}
-weka local setup container --name ${NAME} --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} 2> >(log_pipe >&2) | log_pipe
+log_message INFO weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS}
+weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} 2> >(log_pipe >&2) | log_pipe
+weka local resources --json | jq ".reserve_1g_hugepages=false" > /tmp/new_resources.json
+weka local resources import --force /tmp/new_resources.json
+weka local resources apply --force
+#weka local start || true
+# ~5-10 seconds wasted to re-apply since weka local setup container does not support direct settings of hugepages reserve
 
 if [[ $? -ne 0 ]]; then
   log_fatal "Failed to start weka container"
 fi
 log_message NOTICE "Successfully started weka container."
 
+cleanup() {
+    weka local stop
+    exit
+}
+
+trap cleanup SIGINT SIGTERM
+
 # Sleep forever
 #bash -ce "tail -F /opt/weka/logs/${NAME}/weka/output.log | tee -a $LOG_FILE" &
 
-exec sleep infinity
+sleep infinity
