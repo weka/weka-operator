@@ -2,64 +2,66 @@ package restapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 
+	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/go-logr/logr"
+	"github.com/kr/pretty"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewClusterAPI(mgr ctrl.Manager) *ClusterAPI {
-	ctx, cancel := context.WithCancel(context.Background())
-	mux := http.NewServeMux()
-	api := &ClusterAPI{
-		logger: mgr.GetLogger().WithName("ClusterAPI"),
-		cancel: cancel,
-		mux:    mux,
-		server: &http.Server{
-			Addr:    ":8082",
-			Handler: mux,
-			BaseContext: func(listener net.Listener) context.Context {
-				return context.WithValue(ctx, "serverAddr", listener.Addr().String())
-			},
-		},
-		client: mgr.GetClient(),
+func NewClusterAPI(client client.Client, logger logr.Logger) *ClusterAPI {
+	api := rest.NewApi()
+	api.Use(rest.DefaultDevStack...)
+
+	clusterAPI := &ClusterAPI{
+		client: client,
+		logger: logger.WithName("ClusterAPI"),
+		api:    api,
 	}
-	api.registerRoutes()
-	return api
+
+	clusterAPI.registerRoutes()
+	return clusterAPI
 }
 
 type ClusterAPI struct {
-	logger logr.Logger
-	ctx    context.Context
-	cancel context.CancelFunc
-	mux    *http.ServeMux
-	server *http.Server
 	client client.Client
+	logger logr.Logger
+	api    *rest.Api
+	cancel context.CancelFunc
 }
 
-func (api *ClusterAPI) StartServer(mgr ctrl.Manager) {
+func (api *ClusterAPI) IsStarted() bool {
+	return api.cancel != nil
+}
+
+func (api *ClusterAPI) StartServer(ctx context.Context) {
 	logger := api.logger.WithName("StartServer")
 	logger.Info("Starting Cluster API server", "port", 8082)
-	err := api.server.ListenAndServe()
+
+	_, api.cancel = context.WithCancel(ctx)
+	server := &http.Server{
+		Addr:    ":8082",
+		Handler: api.api.MakeHandler(),
+	}
+	err := server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		logger.Error(err, "Server closed")
 	} else if err != nil {
 		logger.Error(err, "Failed to start server")
 	}
 	api.cancel()
+	api.cancel = nil
 }
 
-func (api *ClusterAPI) index(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, World!"))
+func (api *ClusterAPI) index(w rest.ResponseWriter, r *rest.Request) {
+	w.WriteJson(map[string]string{"message": "Welcome to the Weka Operator Cluster API"})
 }
 
-func (api *ClusterAPI) getCluster(w http.ResponseWriter, r *http.Request) {
+func (api *ClusterAPI) getCluster(w rest.ResponseWriter, r *rest.Request) {
 	logger := api.logger.WithName("getCluster")
 
 	// Get the cluster object
@@ -68,8 +70,9 @@ func (api *ClusterAPI) getCluster(w http.ResponseWriter, r *http.Request) {
 	namespace := r.URL.Query().Get("namespace")
 
 	if name == "" || namespace == "" {
-		logger.Error(errors.New("name and namespace are required"), "Name and namespace are required")
-		http.Error(w, "Name and namespace are required", http.StatusBadRequest)
+		err := pretty.Errorf("name and namespace are required")
+		logger.Error(err, "Name and namespace are required")
+		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -79,29 +82,28 @@ func (api *ClusterAPI) getCluster(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Error(err, "Cluster not found")
-			http.Error(w, "Cluster not found", http.StatusNotFound)
+			rest.Error(w, "Cluster not found", http.StatusNotFound)
 			return
 		}
 		logger.Error(err, "Failed to get cluster")
-		http.Error(w, "Failed to get cluster", http.StatusInternalServerError)
-		return
-	}
-
-	// Marshal the cluster object to JSON
-	data, err := json.Marshal(cluster)
-	if err != nil {
-		logger.Error(err, "Failed to marshal cluster")
-		http.Error(w, "Failed to marshal cluster", http.StatusInternalServerError)
+		rest.Error(w, "Failed to get cluster", http.StatusInternalServerError)
 		return
 	}
 
 	// Write the JSON response
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	w.WriteJson(cluster)
 	return
 }
 
 func (api *ClusterAPI) registerRoutes() {
-	api.mux.HandleFunc("/", api.index)
-	api.mux.HandleFunc("/cluster", api.getCluster)
+	router, err := rest.MakeRouter(
+		rest.Get("/", api.index),
+		rest.Get("/cluster", api.getCluster),
+	)
+	if err != nil {
+		api.logger.Error(err, "Failed to create router")
+		return
+	}
+	api.api.SetApp(router)
 }
