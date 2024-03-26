@@ -209,7 +209,7 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 		return ctrl.Result{}, err
 	}
 	if len(response) != 1 {
-		logger.Error(nil, "Expected exactly one container to be present", "stdout", stdout.String())
+		logger.Info("Expected exactly one container to be present, found ", len(response))
 		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 

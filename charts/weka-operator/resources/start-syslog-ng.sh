@@ -64,7 +64,7 @@ log_pipe_err() {
 stop() {
   log_message WARNING "Received a stop signal. Waiting for all processes to go down"
   while [ -f /var/run/weka-agent.pid ]; do
-    sleep 1
+    sleep 0.1
   done
 
   log_message WARNING "Weka agent appears to be shut down. Resuming with own shutdown"
