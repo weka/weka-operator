@@ -31,30 +31,26 @@ type ClusterAPI struct {
 	client client.Client
 	logger logr.Logger
 	api    *rest.Api
-	cancel context.CancelFunc
-}
-
-func (api *ClusterAPI) IsStarted() bool {
-	return api.cancel != nil
 }
 
 func (api *ClusterAPI) StartServer(ctx context.Context) {
 	logger := api.logger.WithName("StartServer")
 	logger.Info("Starting Cluster API server", "port", 8082)
 
-	_, api.cancel = context.WithCancel(ctx)
 	server := &http.Server{
 		Addr:    ":8082",
 		Handler: api.api.MakeHandler(),
 	}
-	err := server.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		logger.Error(err, "Server closed")
-	} else if err != nil {
-		logger.Error(err, "Failed to start server")
-	}
-	api.cancel()
-	api.cancel = nil
+
+	go func() {
+		err := server.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			logger.Error(err, "Server closed")
+		} else if err != nil {
+			logger.Error(err, "Failed to start server")
+		}
+		logger.Info("Server stopped")
+	}()
 }
 
 func (api *ClusterAPI) index(w rest.ResponseWriter, r *rest.Request) {
