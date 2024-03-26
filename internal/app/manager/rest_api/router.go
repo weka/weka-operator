@@ -33,6 +33,11 @@ type ClusterAPI struct {
 	api    *rest.Api
 }
 
+type UsernamePassword struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 func (api *ClusterAPI) StartServer(ctx context.Context) {
 	logger := api.logger.WithName("StartServer")
 	logger.Info("Starting Cluster API server", "port", 8082)
@@ -57,14 +62,13 @@ func (api *ClusterAPI) index(w rest.ResponseWriter, r *rest.Request) {
 	w.WriteJson(map[string]string{"message": "Welcome to the Weka Operator Cluster API"})
 }
 
-func (api *ClusterAPI) getCluster(w rest.ResponseWriter, r *rest.Request) {
-	logger := api.logger.WithName("getCluster")
+func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Request) {
+	logger := api.logger.WithName("updateClusterPassword")
 
-	// Get the cluster object
 	ctx := r.Context()
 	name := r.PathParam("name")
 	namespace := r.PathParam("namespace")
-	logger.Info("Getting cluster", "name", name, "namespace", namespace)
+	logger.Info("Change password", "name", name, "namespace", namespace)
 
 	if name == "" || namespace == "" {
 		err := pretty.Errorf("name and namespace are required")
@@ -87,63 +91,18 @@ func (api *ClusterAPI) getCluster(w rest.ResponseWriter, r *rest.Request) {
 		return
 	}
 
-	// Write the JSON response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(cluster)
-	return
-}
-
-func (api *ClusterAPI) getClusterStatus(w rest.ResponseWriter, r *rest.Request) {
-	logger := api.logger.WithName("getClusterStatus")
-
-	ctx := r.Context()
-	name := r.PathParam("name")
-	namespace := r.PathParam("namespace")
-	logger.Info("Getting cluster status", "name", name, "namespace", namespace)
-
-	if name == "" || namespace == "" {
-		err := pretty.Errorf("name and namespace are required")
-		logger.Error(err, "Name and namespace are required")
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cluster := &wekav1alpha1.DummyCluster{}
-	key := client.ObjectKey{Name: name, Namespace: namespace}
-	err := api.client.Get(ctx, key, cluster)
+	// Update the password
+	credentials := &UsernamePassword{}
+	err = r.DecodeJsonPayload(credentials)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "Cluster not found")
-			rest.Error(w, "Cluster not found", http.StatusNotFound)
-			return
-		}
-		logger.Error(err, "Failed to get cluster")
-		rest.Error(w, "Failed to get cluster", http.StatusInternalServerError)
+		logger.Error(err, "Failed to decode JSON payload")
+		rest.Error(w, "Failed to decode JSON payload", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(cluster.Status)
-}
+	// TODO: Update the password in the cluster
 
-func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
-	logger := api.logger.WithName("listClusters")
-	logger.Info("Listing clusters")
-
-	// List all clusters
-	ctx := r.Context()
-	clusters := &wekav1alpha1.DummyClusterList{}
-	err := api.client.List(ctx, clusters)
-	if err != nil {
-		logger.Error(err, "Failed to list clusters")
-		rest.Error(w, "Failed to list clusters", http.StatusInternalServerError)
-		return
-	}
-
-	// Write the JSON response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteJson(clusters)
-	return
+	w.WriteHeader(http.StatusOK)
 }
 
 func (api *ClusterAPI) registerRoutes() {
@@ -152,6 +111,7 @@ func (api *ClusterAPI) registerRoutes() {
 		rest.Get("/clusters/:namespace/:name", api.getCluster),
 		rest.Get("/clusters/:namespace/:name/status", api.getClusterStatus),
 		rest.Get("/clusters", api.listClusters),
+		rest.Put("/clusters/:namespace/:name/password", api.updateClusterPassword),
 	)
 	if err != nil {
 		api.logger.Error(err, "Failed to create router")
