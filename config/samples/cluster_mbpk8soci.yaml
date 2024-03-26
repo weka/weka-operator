@@ -1,0 +1,12 @@
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: DummyCluster
+metadata:
+  name: mbpk8soci-sample
+spec:
+  size: 5
+  template: dev
+  topology: "discover_oci"
+  image: quay.io/weka.io/weka-in-container:4.2.10.405-01b0c67a7ba81986a218b55c6d08f150-dev
+  imagePullSecret: quay-io-robot-secret
+  wekaContainerNamePrefix: "mbp"
