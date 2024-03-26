@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	uzap "go.uber.org/zap"
@@ -37,6 +38,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers"
+	restapi "github.com/weka/weka-operator/internal/app/manager/rest_api"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -115,6 +117,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "DummyCluster")
 		os.Exit(1)
 	}
+
+	// Start REST API server
+	go restapi.NewClusterAPI(mgr).StartServer(mgr)
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
