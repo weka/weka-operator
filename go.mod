@@ -5,6 +5,7 @@ go 1.21
 toolchain go1.21.3
 
 require (
+	github.com/ant0ine/go-json-rest v3.3.2+incompatible
 	github.com/go-logr/logr v1.3.0
 	github.com/go-logr/zapr v1.2.4
 	github.com/hashicorp/go-multierror v1.1.1
