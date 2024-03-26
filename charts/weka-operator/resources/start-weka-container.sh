@@ -1,12 +1,9 @@
 #!/bin/bash
 
 set -o pipefail
-# Starts weka client (user mode components)
-STATUS_FILE=/opt/weka-status  # this file may be used to check the status of the weka container
-WEKACMD=/usr/bin/weka
+# Starts weka container user mode components (frontend, compute, drive). Agent assumed to be running.
 
 # Path to the directory housing the scripts
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 
 OS=$(uname)
 
@@ -71,14 +68,14 @@ exec 1> >(tee -a /tmp/start-stdout)
 
 wait_for_agent() {
   while ! [ -f /var/run/weka-agent.pid ]; do
-    sleep 5
+    sleep 1
     echo "Waiting for weka-agent to start"
   done
 }
 
 wait_for_syslog() {
   while ! [ -f /var/run/syslog-ng.pid ]; do
-    sleep 5
+    sleep 0.1
     echo "Waiting for syslog-ng to start"
   done
 }
@@ -101,6 +98,13 @@ log_message INFO "CORES=${CORES}"
 log_message INFO "NETWORK_DEVICE=${NETWORK_DEVICE}"
 log_message INFO "WEKA_CLI_DEBUG=${WEKA_CLI_DEBUG}"
 
+stop() {
+  log_message WARNING "Received a stop signal. Exiting, Weka Container will be stopped by Agent"
+  exit 127
+}
+
+trap stop SIGINT SIGTERM
+
 while ! weka local ps; do
   log_message INFO "Waiting for agent to start"
   sleep 1
@@ -108,12 +112,13 @@ done
 
 if [[ $(weka local ps | sed 1d | wc -l) != "0" ]]; then
   log_message INFO "Weka container already exists, doing nothing, as agent will start it"
-  exec sleep infinity # prevents this script from existing, so supervisor wont restart it (could be one-shot in systemd)
-  exit 1
+  sleep infinity &
+  wait
+  exit 0
 fi
 
 
-weka version set `weka version`
+weka version set $(weka version | tee /dev/stderr) 2> >(log_pipe_err >&2) | log_pipe
 
 if [[ -z "${CORE_IDS}" || "$CORE_IDS" == "auto" ]]; then
   log_fatal "CORE_IDS 'auto' is not supported yet. Please specify a comma-separated list of core ids to use."
@@ -159,21 +164,13 @@ weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --c
 weka local resources --json | jq ".reserve_1g_hugepages=false" > /tmp/new_resources.json
 weka local resources import --force /tmp/new_resources.json
 weka local resources apply --force
-#weka local start || true
-# ~5-10 seconds wasted to re-apply since weka local setup container does not support direct settings of hugepages reserve
 
 if [[ $? -ne 0 ]]; then
   log_fatal "Failed to start weka container"
 fi
 log_message NOTICE "Successfully started weka container."
 
-cleanup() {
-    exit
-}
-
-trap cleanup SIGINT SIGTERM
-
 # Sleep forever
 #bash -ce "tail -F /opt/weka/logs/${NAME}/weka/output.log | tee -a $LOG_FILE" &
 sleep infinity &
-wait
+wait $!
