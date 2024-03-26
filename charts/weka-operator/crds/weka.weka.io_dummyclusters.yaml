@@ -133,7 +133,6 @@ spec:
               throughput:
                 type: string
             required:
-            - clusterID
             - status
             - throughput
             type: object
