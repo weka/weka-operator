@@ -33,8 +33,7 @@ type ClusterAPI struct {
 	api    *rest.Api
 }
 
-type UsernamePassword struct {
-	Username string `json:"username"`
+type UpdateCredentialsPayload struct {
 	Password string `json:"password"`
 }
 
@@ -92,15 +91,13 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 	}
 
 	// Update the password
-	credentials := &UsernamePassword{}
+	credentials := &UpdateCredentialsPayload{}
 	err = r.DecodeJsonPayload(credentials)
 	if err != nil {
 		logger.Error(err, "Failed to decode JSON payload")
 		rest.Error(w, "Failed to decode JSON payload", http.StatusBadRequest)
 		return
 	}
-
-	// TODO: Update the password in the cluster
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -110,6 +107,7 @@ func (api *ClusterAPI) registerRoutes() {
 		rest.Get("/", api.index),
 		rest.Get("/clusters/:namespace/:name", api.getCluster),
 		rest.Get("/clusters/:namespace/:name/status", api.getClusterStatus),
+		rest.Post("/clusters/:namespace/:name", api.createCluster),
 		rest.Get("/clusters", api.listClusters),
 		rest.Put("/clusters/:namespace/:name/password", api.updateClusterPassword),
 	)

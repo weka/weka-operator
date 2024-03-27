@@ -45,7 +45,7 @@ func (k *Topology) GetAvailableCpus() []int {
 var DevboxWekabox = Topology{
 	//Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
 	//Drives: []string{"/dev/nvme0n1", "/dev/nvme2n1", "/dev/nvme3n1"}, //skipping N1, since it's used for local storage
-	Drives: []string{"/dev/nvme0n1", "/dev/sdc", "/dev/sdb"}, //skipping N1, since it's used for local storage
+	Drives: []string{"/dev/nvme0n1", "/dev/sdc", "/dev/sdb", "/dev/sdd", "/dev/sde", "/dev/sdf"}, //skipping N1, since it's used for local storage
 	Nodes:  []string{"wekabox14.lan", "wekabox15.lan", "wekabox16.lan", "wekabox17.lan", "wekabox18.lan"},
 	// TODO: Get from k8s instead, but having it here helps for now with testing, minimizing relying on k8s
 	MinCore:  2,

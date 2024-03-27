@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/util"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -114,12 +115,12 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// post-clusterize
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, CondJoinedCluster) {
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 		retry, err := r.reconcileClusterStatus(ctx, container, actualPod)
 		if retry || err != nil {
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
 		}
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: CondJoinedCluster,
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondJoinedCluster,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Joined cluster %s", container.Status.ClusterID)})
 		err = r.Status().Update(ctx, container)
 		if err != nil {
@@ -133,12 +134,12 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
 	}
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, CondDrivesAdded) && container.Spec.NumDrives > 0 {
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) && container.Spec.NumDrives > 0 {
 		retry, err := r.ensureDrives(ctx, container, actualPod)
 		if retry || err != nil {
 			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, err
 		}
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondDrivesAdded,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Added %d drives", container.Spec.NumDrives)})
 		err = r.Status().Update(ctx, container)
 		if err != nil {

@@ -1,7 +1,14 @@
 package restapi
 
 import (
+	"context"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net/http"
+	"time"
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/kr/pretty"
@@ -99,15 +106,32 @@ func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
 	return
 }
 
+type CreateClusterApiResponse struct {
+	Message  string `json:"message"`
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
 func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 	logger := api.logger.WithName("createCluster")
 
 	// Parse the request body
-	cluster := wekav1alpha1.WekaCluster{}
-	if err := r.DecodeJsonPayload(&cluster); err != nil {
+	clusterSpec := wekav1alpha1.WekaClusterSpec{}
+	if err := r.DecodeJsonPayload(&clusterSpec); err != nil {
 		logger.Error(err, "Failed to decode request body")
 		rest.Error(w, "Failed to decode request body", http.StatusBadRequest)
 		return
+	}
+
+	name := r.PathParam("name")
+	namespace := r.PathParam("namespace")
+
+	cluster := wekav1alpha1.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: clusterSpec,
 	}
 
 	// Create the cluster object
@@ -126,5 +150,47 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(180*time.Second))
+	defer cancel()
+
+	for {
+		cluster := &wekav1alpha1.WekaCluster{}
+		key := client.ObjectKey{Name: name, Namespace: namespace}
+		err := api.client.Get(ctx, key, cluster)
+		if err != nil {
+			if ctx.Err() != nil {
+				rest.Error(w, "cluster was not created within 30 seconds, aborting", http.StatusInternalServerError)
+			}
+			if apierrors.IsNotFound(err) {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			logger.Error(err, "Unexpected error")
+			rest.Error(w, "Unexpected error", http.StatusInternalServerError)
+		}
+
+		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsCreated) {
+			secret := &corev1.Secret{}
+			key := client.ObjectKey{Name: resources.GetUserSecretName(cluster), Namespace: cluster.Namespace}
+			err := api.client.Get(ctx, key, secret)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					logger.Error(err, "debug-msg-to-delete")
+					continue
+				}
+				logger.Error(err, "Failed to get secret")
+				rest.Error(w, "Failed to get secret", http.StatusInternalServerError)
+				return
+			}
+
+			w.WriteJson(&CreateClusterApiResponse{
+				Message:  "Cluster created successfully, password is not available on any other API, other than this specific response, unless directly using k8s API for secrets",
+				Username: string(secret.Data["username"]),
+				Password: string(secret.Data["password"]),
+			})
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+	//w.WriteHeader(http.StatusCreated)
 }
