@@ -3,6 +3,7 @@ package nodeLabeller
 import (
 	"context"
 	"fmt"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/disabled"
 	"os"
 	"strconv"
 
@@ -16,8 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
 type Controller struct {

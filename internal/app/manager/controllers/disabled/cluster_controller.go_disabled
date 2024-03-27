@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package disabled
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/pkg/api/disabled"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,8 +64,8 @@ var SizeClasses = map[string]SizeClass{
 
 type (
 	listNodes      = func(list *v1.NodeList) error
-	refreshBackend = func(key types.NamespacedName, backend *wekav1alpha1.Backend) error
-	createBackend  = func(backend *wekav1alpha1.Backend) error
+	refreshBackend = func(key types.NamespacedName, backend *disabled.Backend) error
+	createBackend  = func(backend *disabled.Backend) error
 )
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -122,8 +123,8 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) refreshCluster(ctx context.Context, key types.NamespacedName) (*wekav1alpha1.Cluster, error) {
-	cluster := &wekav1alpha1.Cluster{}
+func (r *ClusterReconciler) refreshCluster(ctx context.Context, key types.NamespacedName) (*disabled.Cluster, error) {
+	cluster := &disabled.Cluster{}
 	if err := r.Get(ctx, key, cluster); err != nil {
 		return nil, errors.Wrap(err, "failed to refresh cluster")
 	}
@@ -137,7 +138,7 @@ func (r *iteration) createBackends(nodes []v1.Node, refreshBackend refreshBacken
 	for _, node := range nodes {
 		key := client.ObjectKey{Namespace: namespace, Name: node.Name}
 
-		backend := &wekav1alpha1.Backend{}
+		backend := &disabled.Backend{}
 		if err := refreshBackend(key, backend); err != nil {
 			if apierrors.IsNotFound(err) {
 				backend = r.newBackendForNode(&node)
@@ -161,32 +162,32 @@ func (r *ClusterReconciler) listNodes(ctx context.Context) listNodes {
 }
 
 func (r *ClusterReconciler) refreshBackend(ctx context.Context) refreshBackend {
-	return func(key types.NamespacedName, backend *wekav1alpha1.Backend) error {
+	return func(key types.NamespacedName, backend *disabled.Backend) error {
 		return r.Get(ctx, key, backend)
 	}
 }
 
 func (r *ClusterReconciler) createBackend(ctx context.Context) createBackend {
-	return func(backend *wekav1alpha1.Backend) error {
+	return func(backend *disabled.Backend) error {
 		return r.Create(ctx, backend)
 	}
 }
 
-func (r *ClusterReconciler) updateStatus(ctx context.Context, cluster *wekav1alpha1.Cluster) error {
+func (r *ClusterReconciler) updateStatus(ctx context.Context, cluster *disabled.Cluster) error {
 	return r.Status().Update(ctx, cluster)
 }
 
 func newIteration(req ctrl.Request) *iteration {
 	return &iteration{
-		cluster:        &wekav1alpha1.Cluster{},
-		backends:       wekav1alpha1.BackendList{},
+		cluster:        &disabled.Cluster{},
+		backends:       disabled.BackendList{},
 		namespacedName: req.NamespacedName,
 	}
 }
 
 type iteration struct {
-	cluster        *wekav1alpha1.Cluster
-	backends       wekav1alpha1.BackendList
+	cluster        *disabled.Cluster
+	backends       disabled.BackendList
 	namespacedName client.ObjectKey
 }
 
@@ -214,9 +215,9 @@ func isBackendNode(node v1.Node) bool {
 	return ok && roleLabel == "backend"
 }
 
-func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
+func (i *iteration) newBackendForNode(node *v1.Node) *disabled.Backend {
 	cluster := i.cluster
-	return &wekav1alpha1.Backend{
+	return &disabled.Backend{
 		ObjectMeta: ctrl.ObjectMeta{
 			Name:      node.Name,
 			Namespace: cluster.Namespace,
@@ -233,7 +234,7 @@ func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
 				},
 			},
 		},
-		Spec: wekav1alpha1.BackendSpec{
+		Spec: disabled.BackendSpec{
 			ClusterName: cluster.Name,
 			NodeName:    node.Name,
 		},
@@ -327,6 +328,6 @@ func (i *iteration) newBackendForNode(node *v1.Node) *wekav1alpha1.Backend {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&wekav1alpha1.Cluster{}).
+		For(&disabled.Cluster{}).
 		Complete(r)
 }

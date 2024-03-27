@@ -1,5 +1,5 @@
 apiVersion: weka.weka.io/v1alpha1
-kind: DummyCluster
+kind: WekaCluster
 metadata:
   name: clustera
 spec:
@@ -21,7 +21,7 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
 ---
 apiVersion: weka.weka.io/v1alpha1
-kind: DummyCluster
+kind: WekaCluster
 metadata:
   name: clusterb
 spec:
@@ -43,7 +43,7 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
 ---
 apiVersion: weka.weka.io/v1alpha1
-kind: DummyCluster
+kind: WekaCluster
 metadata:
   name: clusterc
 spec:

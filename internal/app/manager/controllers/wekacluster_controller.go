@@ -43,20 +43,20 @@ import (
 
 const wekaContainerFinalizer = "weka.weka.io/finalizer"
 
-// DummyClusterReconciler reconciles a DummyCluster object
-type DummyClusterReconciler struct {
+// WekaClusterReconciler reconciles a WekaCluster object
+type WekaClusterReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 	Logger   logr.Logger
 }
 
-func NewDummyClusterController(mgr ctrl.Manager) *DummyClusterReconciler {
-	return &DummyClusterReconciler{
+func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
+	return &WekaClusterReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Logger:   mgr.GetLogger().WithName("controllers").WithName("DummyCluster"),
-		Recorder: mgr.GetEventRecorderFor("dummycluster-controller"),
+		Logger:   mgr.GetLogger().WithName("controllers").WithName("WekaCluster"),
+		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 	}
 }
 
@@ -71,82 +71,82 @@ const (
 	CondJoinedCluster         = "JoinedCluster"
 )
 
-// +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=weka.weka.io,resources=dummyclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get,list
-func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithName("Reconcile")
 	logger.Info("Reconcile() called")
 	defer logger.Info("Reconcile() finished")
-	// Fetch the DummyCluster instance
-	dummyCluster, err := GetCluster(ctx, req, r.Client, r.Logger)
+	// Fetch the WekaCluster instance
+	wekaCluster, err := GetCluster(ctx, req, r.Client, r.Logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if dummyCluster == nil {
+	if wekaCluster == nil {
 		return ctrl.Result{}, nil
 	}
 
-	err = r.initState(ctx, dummyCluster)
+	err = r.initState(ctx, wekaCluster)
 	if err != nil {
 		logger.Error(err, "Failed to initialize state")
 		return ctrl.Result{}, err
 	}
 
-	if dummyCluster.GetDeletionTimestamp() != nil {
-		err = r.handleDeletion(ctx, dummyCluster)
+	if wekaCluster.GetDeletionTimestamp() != nil {
+		err = r.handleDeletion(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		logger.Info("Deleting dummyCluster")
+		logger.Info("Deleting wekaCluster")
 		return ctrl.Result{}, nil
 	}
 
 	// generate login credentials
 
-	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondClusterSecretsCreated) {
-		err = r.ensureLoginCredentials(ctx, dummyCluster)
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, CondClusterSecretsCreated) {
+		err = r.ensureLoginCredentials(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsCreated,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "Cluster secrets are created"})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 	}
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
 	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
 
-	containers, err := r.ensureWekaContainers(ctx, dummyCluster)
+	containers, err := r.ensureWekaContainers(ctx, wekaCluster)
 	if err != nil {
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
 			Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error()})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 		r.Logger.Error(err, "Failed to ensure WekaContainers")
 		return ctrl.Result{}, err
 	}
-	meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
+	meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
 		Status: metav1.ConditionTrue, Reason: "Init", Message: "All pods are created"})
-	_ = r.Status().Update(ctx, dummyCluster)
+	_ = r.Status().Update(ctx, wekaCluster)
 
-	if meta.IsStatusConditionFalse(dummyCluster.Status.Conditions, CondPodsRead) {
+	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, CondPodsRead) {
 		if ready, err := r.isContainersReady(containers); !ready {
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "All weka containers are ready for clusterization"})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 	}
 
-	if meta.IsStatusConditionFalse(dummyCluster.Status.Conditions, CondClusterCreated) {
-		err = r.CreateCluster(ctx, dummyCluster, containers)
+	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, CondClusterCreated) {
+		err = r.CreateCluster(ctx, wekaCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "Cluster is formed"})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 	}
 
 	// Ensure all containers are up in the cluster
@@ -155,9 +155,9 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.Logger.Info("Container has not joined the cluster yet", "container", container.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		} else {
-			if dummyCluster.Status.ClusterID == "" {
-				dummyCluster.Status.ClusterID = container.Status.ClusterID
-				err := r.Status().Update(ctx, dummyCluster)
+			if wekaCluster.Status.ClusterID == "" {
+				wekaCluster.Status.ClusterID = container.Status.ClusterID
+				err := r.Status().Update(ctx, wekaCluster)
 				if err != nil {
 					return ctrl.Result{}, err
 				}
@@ -165,7 +165,7 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	err = r.EnsureClusterContainerIds(ctx, dummyCluster, containers)
+	err = r.EnsureClusterContainerIds(ctx, wekaCluster, containers)
 	if err != nil {
 		r.Logger.Info("not all containers are up in the cluster", "err", err)
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
@@ -182,30 +182,30 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondIoStarted) {
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, CondIoStarted) {
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
 			Status: metav1.ConditionUnknown, Reason: "Init", Message: "Starting IO"})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 		r.Logger.Info("Starting IO")
-		err = r.StartIo(ctx, dummyCluster, containers)
+		err = r.StartIo(ctx, wekaCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		r.Logger.Info("IO Started, time since create:" + time.Since(dummyCluster.CreationTimestamp.Time).String())
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
+		r.Logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "IO is started"})
-		_ = r.Status().Update(ctx, dummyCluster)
+		_ = r.Status().Update(ctx, wekaCluster)
 	}
 
-	if !meta.IsStatusConditionTrue(dummyCluster.Status.Conditions, CondClusterSecretsApplied) {
-		err = r.applyClusterCredentials(ctx, dummyCluster, containers)
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, CondClusterSecretsApplied) {
+		err = r.applyClusterCredentials(ctx, wekaCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsApplied,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsApplied,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "Applied cluster secrets"})
-		err = r.Status().Update(ctx, dummyCluster)
+		err = r.Status().Update(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -214,25 +214,25 @@ func (r *DummyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *DummyClusterReconciler) handleDeletion(ctx context.Context, dummyCluster *wekav1alpha1.DummyCluster) error {
-	if controllerutil.ContainsFinalizer(dummyCluster, wekaContainerFinalizer) {
-		r.Logger.Info("Performing Finalizer Operations for dummyCluster before delete CR")
+func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+	if controllerutil.ContainsFinalizer(wekaCluster, wekaContainerFinalizer) {
+		r.Logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
 		// Perform all operations required before remove the finalizer and allow
 		// the Kubernetes API to remove the custom resource.
-		err := r.doFinalizerOperationsFordummyCluster(ctx, dummyCluster)
+		err := r.doFinalizerOperationsForwekaCluster(ctx, wekaCluster)
 		if err != nil {
 			return err
 		}
 
-		r.Logger.Info("Removing Finalizer for dummyCluster after successfully perform the operations")
-		if ok := controllerutil.RemoveFinalizer(dummyCluster, wekaContainerFinalizer); !ok {
-			err := errors.New("Failed to remove finalizer for dummyCluster")
+		r.Logger.Info("Removing Finalizer for wekaCluster after successfully perform the operations")
+		if ok := controllerutil.RemoveFinalizer(wekaCluster, wekaContainerFinalizer); !ok {
+			err := errors.New("Failed to remove finalizer for wekaCluster")
 			return err
 		}
 
-		if err := r.Update(ctx, dummyCluster); err != nil {
-			r.Logger.Error(err, "Failed to remove finalizer for dummyCluster")
+		if err := r.Update(ctx, wekaCluster); err != nil {
+			r.Logger.Error(err, "Failed to remove finalizer for wekaCluster")
 			return err
 		}
 
@@ -240,89 +240,89 @@ func (r *DummyClusterReconciler) handleDeletion(ctx context.Context, dummyCluste
 	return nil
 }
 
-func (r *DummyClusterReconciler) initState(ctx context.Context, dummyCluster *wekav1alpha1.DummyCluster) error {
-	if !controllerutil.ContainsFinalizer(dummyCluster, wekaContainerFinalizer) {
+func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+	if !controllerutil.ContainsFinalizer(wekaCluster, wekaContainerFinalizer) {
 
-		dummyCluster.Status.Conditions = []metav1.Condition{}
+		wekaCluster.Status.Conditions = []metav1.Condition{}
 
 		// Set Predefined conditions to explicit False for visibility
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondPodsCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "The pods for the custom resource are not created yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondPodsRead,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "The pods for the custom resource are not ready yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "Secrets are not created yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsApplied,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterSecretsApplied,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "Secrets are not applied yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondClusterCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "Secrets are not applied yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondDrivesAdded,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "Drives are not added yet"})
 
-		meta.SetStatusCondition(&dummyCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: CondIoStarted,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "Weka Cluster IO is not started"})
 
-		err := r.Status().Update(ctx, dummyCluster)
+		err := r.Status().Update(ctx, wekaCluster)
 		if err != nil {
 			r.Logger.Error(err, "failed to init states")
 		}
 
 		r.Logger.Info("Adding Finalizer for weka cluster")
-		if ok := controllerutil.AddFinalizer(dummyCluster, wekaContainerFinalizer); !ok {
-			r.Logger.Info("Failed to add finalizer for dummyCluster")
-			return errors.New("Failed to add finalizer for dummyCluster")
+		if ok := controllerutil.AddFinalizer(wekaCluster, wekaContainerFinalizer); !ok {
+			r.Logger.Info("Failed to add finalizer for wekaCluster")
+			return errors.New("Failed to add finalizer for wekaCluster")
 		}
 
-		if err := r.Update(ctx, dummyCluster); err != nil {
+		if err := r.Update(ctx, wekaCluster); err != nil {
 			r.Logger.Error(err, "Failed to update custom resource to add finalizer")
 			return err
 		}
 
-		if err := r.Get(ctx, client.ObjectKey{Namespace: dummyCluster.Namespace, Name: dummyCluster.Name}, dummyCluster); err != nil {
+		if err := r.Get(ctx, client.ObjectKey{Namespace: wekaCluster.Namespace, Name: wekaCluster.Name}, wekaCluster); err != nil {
 			r.Logger.Error(err, "Failed to re-fetch data")
 			return err
 		}
-		r.Logger.Info("Finalizer added for dummyCluster", "conditions", len(dummyCluster.Status.Conditions))
+		r.Logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
 	}
 	return nil
 }
 
-func GetCluster(ctx context.Context, req ctrl.Request, r client.Reader, logger logr.Logger) (*wekav1alpha1.DummyCluster, error) {
-	dummyCluster := &wekav1alpha1.DummyCluster{}
-	err := r.Get(ctx, req.NamespacedName, dummyCluster)
+func GetCluster(ctx context.Context, req ctrl.Request, r client.Reader, logger logr.Logger) (*wekav1alpha1.WekaCluster, error) {
+	wekaCluster := &wekav1alpha1.WekaCluster{}
+	err := r.Get(ctx, req.NamespacedName, wekaCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("dummyCluster resource not found. Ignoring since object must be deleted")
+			logger.Info("wekaCluster resource not found. Ignoring since object must be deleted")
 			return nil, nil
 		}
 		// Error reading the object - requeue the request.
-		logger.Error(err, "Failed to get dummyCluster")
+		logger.Error(err, "Failed to get wekaCluster")
 		return nil, err
 	}
-	return dummyCluster, nil
+	return wekaCluster, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DummyClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&wekav1alpha1.DummyCluster{}).
+		For(&wekav1alpha1.WekaCluster{}).
 		Owns(&wekav1alpha1.WekaContainer{}).
 		Complete(r)
 }
 
-func (r *DummyClusterReconciler) doFinalizerOperationsFordummyCluster(ctx context.Context, cluster *wekav1alpha1.DummyCluster) error {
+func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
 	if cluster.Spec.Topology == "" {
 		return nil
 	}
@@ -351,7 +351,7 @@ func (r *DummyClusterReconciler) doFinalizerOperationsFordummyCluster(ctx contex
 	return nil
 }
 
-func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.DummyCluster) ([]*wekav1alpha1.WekaContainer, error) {
+func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
 	allocMap, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
 		return nil, err
@@ -383,7 +383,7 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 				fmt.Sprintf("%s%d", role, i), role} // apparently need helper function with a role.
 
 			ownedResources, _ := GetOwnedResources(owner, allocMap)
-			wekaContainer, err := r.newWekaContainerForDummyCluster(cluster, ownedResources, template, topology, role, i)
+			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				return err
 			}
@@ -412,7 +412,7 @@ func (r *DummyClusterReconciler) ensureWekaContainers(ctx context.Context, clust
 	return foundContainers, nil
 }
 
-func (r *DummyClusterReconciler) GetOrInitAllocMap(ctx context.Context) (AllocationsMap, *v1.ConfigMap, error) {
+func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (AllocationsMap, *v1.ConfigMap, error) {
 	// fetch alloc map from configmap
 	allocMap := AllocationsMap{}
 	yamlData, err := yaml.Marshal(&allocMap)
@@ -446,7 +446,7 @@ func (r *DummyClusterReconciler) GetOrInitAllocMap(ctx context.Context) (Allocat
 	return allocMap, allocMapConfigMap, nil
 }
 
-func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1alpha1.DummyCluster,
+func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	ownedResources OwnedResources,
 	template ClusterTemplate,
 	topology Topology,
@@ -521,7 +521,7 @@ func (r *DummyClusterReconciler) newWekaContainerForDummyCluster(cluster *wekav1
 	return container, nil
 }
 
-func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	var hostIps []string
 	var hostnamesList []string
 	r.Logger.Info("Creating cluster", "totalContainers", len(containers))
@@ -545,7 +545,7 @@ func (r *DummyClusterReconciler) CreateCluster(ctx context.Context, cluster *wek
 	r.Logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
 
 	if err := r.Status().Update(ctx, cluster); err != nil {
-		return errors.Wrap(err, "Failed to update dummyCluster status")
+		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
 
 	return nil
@@ -564,7 +564,7 @@ func GetExecutor(container *wekav1alpha1.WekaContainer, logger logr.Logger) (*ut
 	return executor, nil
 }
 
-func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	var containersMap resources.ClusterContainersMap
 
 	fetchContainers := func() error {
@@ -621,7 +621,7 @@ func (r *DummyClusterReconciler) EnsureClusterContainerIds(ctx context.Context, 
 	return nil
 }
 
-func (r *DummyClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	executor, err := GetExecutor(containers[0], r.Logger)
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")
@@ -636,7 +636,7 @@ func (r *DummyClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alp
 	return nil
 }
 
-func (r *DummyClusterReconciler) isContainersReady(containers []*wekav1alpha1.WekaContainer) (bool, error) {
+func (r *WekaClusterReconciler) isContainersReady(containers []*wekav1alpha1.WekaContainer) (bool, error) {
 	for _, container := range containers {
 		if container.GetDeletionTimestamp() != nil {
 			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
@@ -652,7 +652,7 @@ func (r *DummyClusterReconciler) isContainersReady(containers []*wekav1alpha1.We
 	return true, nil
 }
 
-func (r *DummyClusterReconciler) UpdateAllocationMap(ctx context.Context, allocMap AllocationsMap, configMap *v1.ConfigMap) error {
+func (r *WekaClusterReconciler) UpdateAllocationMap(ctx context.Context, allocMap AllocationsMap, configMap *v1.ConfigMap) error {
 	yamlData, err := yaml.Marshal(&allocMap)
 	if err != nil {
 		return err
@@ -672,7 +672,7 @@ type loginDetails struct {
 	SecretName string
 }
 
-func (r *DummyClusterReconciler) ensureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.DummyCluster) error {
+func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
 	secret := &v1.Secret{}
 
 	// generate random password
@@ -731,7 +731,7 @@ func (r *DummyClusterReconciler) ensureLoginCredentials(ctx context.Context, clu
 	return nil
 }
 
-func (r *DummyClusterReconciler) applyClusterCredentials(ctx context.Context, cluster *wekav1alpha1.DummyCluster, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	executor, err := GetExecutor(containers[0], r.Logger)
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")

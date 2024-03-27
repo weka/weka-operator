@@ -26,7 +26,7 @@ func (api *ClusterAPI) getCluster(w rest.ResponseWriter, r *rest.Request) {
 		return
 	}
 
-	cluster := &wekav1alpha1.DummyCluster{}
+	cluster := &wekav1alpha1.WekaCluster{}
 	key := client.ObjectKey{Name: name, Namespace: namespace}
 	err := api.client.Get(ctx, key, cluster)
 	if err != nil {
@@ -61,7 +61,7 @@ func (api *ClusterAPI) getClusterStatus(w rest.ResponseWriter, r *rest.Request) 
 		return
 	}
 
-	cluster := &wekav1alpha1.DummyCluster{}
+	cluster := &wekav1alpha1.WekaCluster{}
 	key := client.ObjectKey{Name: name, Namespace: namespace}
 	err := api.client.Get(ctx, key, cluster)
 	if err != nil {
@@ -85,7 +85,7 @@ func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
 
 	// List all clusters
 	ctx := r.Context()
-	clusters := &wekav1alpha1.DummyClusterList{}
+	clusters := &wekav1alpha1.WekaClusterList{}
 	err := api.client.List(ctx, clusters)
 	if err != nil {
 		logger.Error(err, "Failed to list clusters")

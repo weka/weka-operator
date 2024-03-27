@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package disabled
 
 import (
+	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -60,5 +61,5 @@ type ClusterList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
+	v1alpha1.SchemeBuilder.Register(&Cluster{}, &ClusterList{})
 }

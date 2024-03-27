@@ -52,6 +52,8 @@ spec:
                 type: string
               imagePullSecretName:
                 type: string
+              interfaceName:
+                type: string
               managementPortBase:
                 format: int32
                 type: integer

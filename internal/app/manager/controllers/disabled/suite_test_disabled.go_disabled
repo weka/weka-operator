@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package disabled
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -101,7 +102,7 @@ var _ = BeforeSuite(func() {
 	err = (NewBackendReconciler(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (NewContainerController(k8sManager).SetupWithManager(k8sManager))
+	err = (controllers.NewContainerController(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

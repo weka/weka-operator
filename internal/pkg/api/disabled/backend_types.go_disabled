@@ -1,6 +1,7 @@
-package v1alpha1
+package disabled
 
 import (
+	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -22,8 +23,8 @@ type BackendSpec struct {
 
 type BackendStatus struct {
 	DriveCount  int                       `json:"driveCount"`
-	Node        v1.Node                   `json:"node,omitempty"`
-	Assignments map[string]*WekaContainer `json:"assignments,omitempty"`
+	Node        v1.Node                            `json:"node,omitempty"`
+	Assignments map[string]*v1alpha1.WekaContainer `json:"assignments,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -35,5 +36,5 @@ type BackendList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Backend{}, &BackendList{})
+	v1alpha1.SchemeBuilder.Register(&Backend{}, &BackendList{})
 }

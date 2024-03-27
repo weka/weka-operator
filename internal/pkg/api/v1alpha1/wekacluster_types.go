@@ -26,12 +26,12 @@ type NetworkSelector struct {
 	UdpMode   bool   `json:"udpMode,omitempty"`
 }
 
-// DummyClusterSpec defines the desired state of DummyCluster
-type DummyClusterSpec struct {
+// WekaClusterSpec defines the desired state of WekaCluster
+type WekaClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of DummyCluster. Edit dummycluster_types.go to remove/update
+	// Foo is an example field of WekaCluster. Edit dummycluster_types.go to remove/update
 	Size                    int    `json:"size"`
 	Template                string `json:"template"`
 	Topology                string `json:"topology"`
@@ -40,8 +40,8 @@ type DummyClusterSpec struct {
 	WekaContainerNamePrefix string `json:"wekaContainerNamePrefix"`
 }
 
-// DummyClusterStatus defines the observed state of DummyCluster
-type DummyClusterStatus struct {
+// WekaClusterStatus defines the observed state of WekaCluster
+type WekaClusterStatus struct {
 	Status     string             `json:"status"`
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	Throughput string             `json:"throughput"`
@@ -50,21 +50,21 @@ type DummyClusterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-type DummyCluster struct {
+type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DummyClusterSpec   `json:"spec,omitempty"`
-	Status DummyClusterStatus `json:"status,omitempty"`
+	Spec   WekaClusterSpec   `json:"spec,omitempty"`
+	Status WekaClusterStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type DummyClusterList struct {
+type WekaClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []DummyCluster `json:"items"`
+	Items           []WekaCluster `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&DummyCluster{}, &DummyClusterList{})
+	SchemeBuilder.Register(&WekaCluster{}, &WekaClusterList{})
 }

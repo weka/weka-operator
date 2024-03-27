@@ -77,7 +77,7 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 		return
 	}
 
-	cluster := &wekav1alpha1.DummyCluster{}
+	cluster := &wekav1alpha1.WekaCluster{}
 	key := client.ObjectKey{Name: name, Namespace: namespace}
 	err := api.client.Get(ctx, key, cluster)
 	if err != nil {

@@ -1,6 +1,9 @@
-package v1alpha1
+package disabled
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -34,5 +37,5 @@ type DriveList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Drive{}, &DriveList{})
+	v1alpha1.SchemeBuilder.Register(&Drive{}, &DriveList{})
 }

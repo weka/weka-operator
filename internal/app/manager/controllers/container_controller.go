@@ -446,7 +446,7 @@ func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (
 	// TODO: Query by status?
 	// TODO: Cache?
 
-	clusterList := wekav1alpha1.DummyClusterList{}
+	clusterList := wekav1alpha1.WekaClusterList{}
 	err := r.List(ctx, &clusterList)
 	if err != nil {
 		return false, err

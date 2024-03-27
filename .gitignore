@@ -38,6 +38,6 @@ config/rbac/role.yaml
 .direnv
 temp.json
 charts/weka-operator/templates/role.yaml
-charts/weka-operator/crds/weka.weka.io_clients.yaml
+charts/weka-operator/disabled/weka.weka.io_clients.yaml
 k3s.yaml
 /drivers

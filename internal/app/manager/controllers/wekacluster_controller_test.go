@@ -58,7 +58,7 @@ var _ = Describe("DummyCluster Controller", func() {
 	//	})
 	//	It("should successfully reconcile the resource", func() {
 	//		By("Reconciling the created resource")
-	//		controllerReconciler := &DummyClusterReconciler{
+	//		controllerReconciler := &WekaClusterReconciler{
 	//			Client: k8sClient,
 	//			Scheme: k8sClient.Scheme(),
 	//		}

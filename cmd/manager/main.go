@@ -100,20 +100,20 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Client")
 		os.Exit(1)
 	}
-	if err = (controllers.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
-		os.Exit(1)
-	}
-	if err = (controllers.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Backend")
-		os.Exit(1)
-	}
+	//if err = (disabled.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
+	//	setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+	//	os.Exit(1)
+	//}
+	//if err = (disabled.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
+	//	setupLog.Error(err, "unable to create controller", "controller", "Backend")
+	//	os.Exit(1)
+	//}
 	if err = (controllers.NewContainerController(mgr)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Container")
 		os.Exit(1)
 	}
-	if err = (controllers.NewDummyClusterController(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "DummyCluster")
+	if err = (controllers.NewWekaClusterController(mgr)).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "WekaCluster")
 		os.Exit(1)
 	}
 	if err = (controllers.NewClusterApiController(mgr)).SetupWithManager(mgr); err != nil {
