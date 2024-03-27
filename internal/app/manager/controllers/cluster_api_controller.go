@@ -11,11 +11,14 @@ import (
 
 func NewClusterApiController(mgr ctrl.Manager) *ClusterApiController {
 	logger := mgr.GetLogger().WithName("controllers").WithName("ClusterApiController")
-	return &ClusterApiController{
+	apiController := &ClusterApiController{
 		Client:     mgr.GetClient(),
 		logger:     logger,
 		clusterAPI: clusterApi.NewClusterAPI(mgr.GetClient(), logger),
 	}
+	// TODO: Move to main-level to have runtime-scoped context and not reconcile request scoped
+	go apiController.clusterAPI.StartServer(context.Background())
+	return apiController
 }
 
 type ClusterApiController struct {
