@@ -360,7 +360,7 @@ DRIVES:
 			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
 				if strings.Contains(stderr.String(), "No such file or directory") {
-					r.Logger.Info("Drive is not presigned, moving to next", "drive", drive)
+					r.Logger.Info("Drive does not exist or not pre-signed", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
 					driveCursor++
 					continue
 				} else {
@@ -387,34 +387,32 @@ DRIVES:
 					continue
 				} else {
 					r.Logger.Info("Drive is already signed, but cluster does not exist, resigning", "drive", drive, "clusterId", stdout.String())
-					err2 := r.reSignDrive(ctx, executor, drive)
+					err2 := r.claimDrive(ctx, container, executor, drive)
+					if err2 == nil {
+						driveCursor++
+						continue
+					}
+					err2 = r.reSignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
 					if err2 != nil {
-						return true, err2
+						driveCursor++
+						continue
 					}
 				}
+			}
+
+			err = r.claimDrive(ctx, container, executor, drive)
+			if err != nil {
+				driveCursor++
+				continue
 			}
 
 			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
-				if strings.Contains(stderr.String(), "Device is already in use") {
-					belongs, err := r.isDriveBelongsTo(ctx, drive, container, executor)
-					if err != nil {
-						return true, err
-					}
-					if belongs {
-						goto DRIVEADDED // recovery of previous add
-					} else {
-						r.Logger.Error(err, "Drive is already in use", "drive", drive, "stderr", stderr.String())
-						driveCursor++
-						continue
-					}
-				}
 				return true, errors.Wrap(err, stderr.String())
 			} else {
 				r.Logger.Info("Drive added into system", "drive", drive)
 			}
-		DRIVEADDED:
 			numAdded++
 			driveCursor++
 			continue DRIVES
@@ -425,7 +423,7 @@ DRIVES:
 }
 
 func getSignatureDevice(drive string) string {
-	driveSignTarget := fmt.Sprintf("%s1", drive) //HACK: Does not work with nvme now
+	driveSignTarget := fmt.Sprintf("%s1", drive)
 	if strings.Contains(drive, "nvme") {
 		return fmt.Sprintf("%sp1", drive)
 	}
@@ -469,37 +467,6 @@ func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (
 	return false, nil
 }
 
-func (r *ContainerController) isDriveBelongsTo(ctx context.Context, drive string, container *wekav1alpha1.WekaContainer, executor *util.Exec) (bool, error) {
-	cmd := fmt.Sprintf("blkid -o value %s", getSignatureDevice(drive))
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
-	if err != nil {
-		return false, err
-	}
-
-	cmd = fmt.Sprintf("weka cluster drive -J %s", stdout.String())
-	stdout, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
-	if err != nil {
-		r.Logger.Error(err, "Error getting drive", "stderr", stderr.String())
-		return false, err
-	}
-	driveResponse := []resources.WekaDriveResponse{}
-	err = json.Unmarshal(stdout.Bytes(), &driveResponse)
-	if err != nil {
-		r.Logger.Error(err, "Error unmarshalling drive response", "stdout", stdout.String())
-		return false, err
-	}
-
-	currentContainerId, err := driveResponse[0].ContainerId()
-	if err != nil {
-		return false, err
-	}
-	if len(driveResponse) == 0 {
-		return false, nil
-	}
-	return currentContainerId == *container.Status.ClusterContainerID, nil
-
-}
-
 func (r *ContainerController) validateNotMounted(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
 	return false, nil
 }
@@ -507,8 +474,49 @@ func (r *ContainerController) validateNotMounted(ctx context.Context, executor *
 func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
 	if err != nil {
+		r.Logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
 		return false, errors.Wrap(err, stderr.String())
 	}
 	const WEKA_SIGNATURE = "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
 	return strings.TrimSpace(stdout.String()) == WEKA_SIGNATURE, nil
+}
+
+func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
+	r.Logger.Info("Claiming drive", "drive", drive)
+	serialNum, err := r.getDriveUUID(ctx, executor, drive)
+	if err != nil {
+		return err
+	}
+	r.Logger.Info("Claimed drive with number", "drive", drive, "serialNum", serialNum)
+
+	claim := wekav1alpha1.DriveClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: container.Namespace,
+			Name:      fmt.Sprintf("%s", serialNum),
+		},
+		Spec:   wekav1alpha1.DriveClaimSpec{},
+		Status: wekav1alpha1.DriveClaimStatus{},
+	}
+
+	err = ctrl.SetControllerReference(container, &claim, r.Scheme)
+	if err != nil {
+		return err
+	}
+	r.Logger.Info("Set owner", "drive", drive, "serialNum", serialNum)
+
+	return r.Create(ctx, &claim)
+}
+
+func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {
+	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", getSignatureDevice(drive))
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		return "", errors.Wrap(err, stderr.String())
+	}
+	serial := strings.TrimSpace(stdout.String())
+	if serial == "" {
+		r.Logger.Info("uuid not found for drive", "drive", drive, "usedCommand", cmd, "stdout", stdout.String(), "stderr", stderr.String())
+		return "", errors.New("uuid not found")
+	}
+	return serial, nil
 }

@@ -63,8 +63,8 @@ log_pipe_err() {
   ts "$(echo -e "$LIGHT_RED") $(echo -e "STDERR${NO_COLOUR}") [$MYNAME]"$'\t' | tee -a $LOG_FILE
 }
 
-exec 2> >(tee -a /tmp/start-stderr >&2)
-exec 1> >(tee -a /tmp/start-stdout)
+#exec 2> >(tee -a /tmp/start-stderr >&2)
+#exec 1> >(tee -a /tmp/start-stdout)
 
 wait_for_agent() {
   while ! [ -f /var/run/weka-agent.pid ]; do
