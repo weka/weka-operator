@@ -3,6 +3,7 @@ apiVersion: weka.weka.io/v1alpha1
 kind: DummyCluster
 metadata:
   name: mbpk8soci-sample
+  namespace: default
 spec:
   size: 5
   template: dev
