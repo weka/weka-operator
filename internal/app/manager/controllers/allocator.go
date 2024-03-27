@@ -2,9 +2,10 @@ package controllers
 
 import (
 	"fmt"
-	"github.com/go-logr/logr"
 	"slices"
 	"strings"
+
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -125,13 +126,12 @@ OUTER:
 
 func (n *NodeAllocations) NumComputeContainerOwnedByCluster(owner Owner) int {
 	count := 0
-	for resourceOwner, _ := range n.Cpu {
+	for resourceOwner := range n.Cpu {
 		if resourceOwner.IsSameOwner(owner) && resourceOwner.Role == "compute" {
 			count++
 		}
 	}
 	return count
-
 }
 
 func (n *NodeAllocations) GetFreeCpus(cpus []int) []int {
@@ -157,8 +157,10 @@ func contains(alloc []string, searchstring string) bool {
 	return false
 }
 
-type NodeName string
-type AllocationsMap map[NodeName]NodeAllocations
+type (
+	NodeName       string
+	AllocationsMap map[NodeName]NodeAllocations
+)
 
 type Allocator struct {
 	Logger       logr.Logger
@@ -183,6 +185,7 @@ func (a *Allocator) Allocate(
 	allocationsMap AllocationsMap,
 	size int, // Size is multiplication of template
 ) (AllocationsMap, error, bool) {
+	logger := a.Logger.WithName("Allocate")
 	if size == 0 {
 		size = 1
 	}
@@ -190,6 +193,7 @@ func (a *Allocator) Allocate(
 		template.MaxFdsPerNode = 1
 	}
 	initAllocationsMap(allocationsMap, a.ClusterLevel.Nodes)
+	logger.Info("clusterLevel", "clusterLevel", a.ClusterLevel)
 	nodes := a.ClusterLevel.Nodes
 	slices.SortFunc(nodes, func(i, j string) int {
 		iAlloc := allocationsMap[NodeName(i)]
@@ -215,6 +219,7 @@ func (a *Allocator) Allocate(
 			owner := Owner{ownerCluster, containerName, role}
 			_, found := GetOwnedResources(owner, allocationsMap)
 			if found {
+				logger.Info("Container already allocated", "role", role, "owner", owner)
 				continue
 			}
 			for _, node := range nodes {
@@ -223,13 +228,17 @@ func (a *Allocator) Allocate(
 				if role == "drive" {
 					availableDrives = nodeAlloc.GetFreeDrives(a.ClusterLevel.Drives)
 					if len(availableDrives) < template.NumDrives {
+						logger.Info("Not enough drives to allocate request", "role", role, "availableDrives", availableDrives, "template.NumDrives", template.NumDrives, "topology drives", a.ClusterLevel.Drives)
+						logger.Info("NodeAlloc", "nodeAlloc", nodeAlloc)
 						continue
 					}
 					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
+						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
 						continue
 					}
 				} else if role == "compute" {
 					if nodeAlloc.NumComputeContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
+						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
 						continue
 					}
 					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) < 1 {
@@ -239,6 +248,7 @@ func (a *Allocator) Allocate(
 				freeCpus := nodeAlloc.GetFreeCpus(a.ClusterLevel.GetAvailableCpus())
 				requiredCpus := template.ComputeCores
 				if len(freeCpus) < requiredCpus {
+					logger.Info("Not enough CPUs to allocate request", "role", role, "freeCpus", freeCpus, "requiredCpus", requiredCpus)
 					continue
 				}
 				// All looks good, allocating
@@ -263,7 +273,6 @@ func (a *Allocator) Allocate(
 
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
 		return allocationsMap, err, changed
-
 	}
 	return allocationsMap, nil, changed
 }
@@ -271,7 +280,7 @@ func (a *Allocator) Allocate(
 func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocMap AllocationsMap) bool {
 	changed := false
 	for _, alloc := range allocMap {
-		for owner, _ := range alloc.Cpu {
+		for owner := range alloc.Cpu {
 			if owner.ClusterName == cluster.ClusterName && owner.Namespace == cluster.Namespace {
 				changed = true
 				delete(alloc.Cpu, owner)

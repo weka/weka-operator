@@ -1,4 +1,4 @@
-package controllers
+package domain
 
 import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
