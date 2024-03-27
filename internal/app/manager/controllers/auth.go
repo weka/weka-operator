@@ -9,10 +9,6 @@ func GetOperatorSecretName(cluster *wekav1alpha1.WekaCluster) string {
 	return string("weka-operator-" + cluster.GetUID())
 }
 
-func GetUserSecretName(cluster *wekav1alpha1.WekaCluster) string {
-	return "weka-cluster-" + cluster.Name
-}
-
 func GetLastGuidPart(cluster *wekav1alpha1.WekaCluster) string {
 	guidLastPart := string(cluster.GetUID()[strings.LastIndex(string(cluster.GetUID()), "-")+1:])
 	return guidLastPart

@@ -342,3 +342,7 @@ func comaSeparated(ints []int) string {
 	}
 	return strings.Join(result, ",")
 }
+
+func GetContainerName(cluster *wekav1alpha1.WekaCluster, role string, i int) string {
+	return fmt.Sprintf("%s-%s-%d", cluster.Name, role, i)
+}
