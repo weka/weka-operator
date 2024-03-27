@@ -98,12 +98,21 @@ log_message INFO "CORES=${CORES}"
 log_message INFO "NETWORK_DEVICE=${NETWORK_DEVICE}"
 log_message INFO "WEKA_CLI_DEBUG=${WEKA_CLI_DEBUG}"
 
+EXITING=0
 stop() {
   log_message WARNING "Received a stop signal. Exiting, Weka Container will be stopped by Agent"
+  EXITING=1
   exit 127
 }
 
 trap stop SIGINT SIGTERM
+
+wait_for_shutdown() {
+  while [ $EXITING -eq 0 ]; do
+    sleep 1 &
+    wait
+  done
+}
 
 while ! weka local ps; do
   log_message INFO "Waiting for agent to start"
@@ -112,8 +121,7 @@ done
 
 if [[ $(weka local ps | sed 1d | wc -l) != "0" ]]; then
   log_message INFO "Weka container already exists, doing nothing, as agent will start it"
-  sleep infinity &
-  wait
+  wait_for_shutdown
   exit 0
 fi
 
@@ -172,5 +180,4 @@ log_message NOTICE "Successfully started weka container."
 
 # Sleep forever
 #bash -ce "tail -F /opt/weka/logs/${NAME}/weka/output.log | tee -a $LOG_FILE" &
-sleep infinity &
-wait $!
+wait_for_shutdown
