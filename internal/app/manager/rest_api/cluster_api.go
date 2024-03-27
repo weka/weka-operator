@@ -146,12 +146,43 @@ func (api *ClusterAPI) listClusters(w rest.ResponseWriter, r *rest.Request) {
 	return
 }
 
+func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
+	logger := api.logger.WithName("createCluster")
+
+	// Parse the request body
+	cluster := wekav1alpha1.DummyCluster{}
+	if err := r.DecodeJsonPayload(&cluster); err != nil {
+		logger.Error(err, "Failed to decode request body")
+		rest.Error(w, "Failed to decode request body", http.StatusBadRequest)
+		return
+	}
+
+	// Create the cluster object
+	logger.Info("Creating cluster", "name", cluster.Name, "namespace", cluster.Namespace)
+	ctx := r.Context()
+	key := client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}
+	if err := api.client.Get(ctx, key, &wekav1alpha1.DummyCluster{}); err == nil {
+		logger.Error(err, "Cluster already exists")
+		rest.Error(w, "Cluster already exists", http.StatusConflict)
+		return
+	}
+
+	if err := api.client.Create(ctx, &cluster); err != nil {
+		logger.Error(err, "Failed to create cluster")
+		rest.Error(w, "Failed to create cluster", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
 func (api *ClusterAPI) registerRoutes() {
 	router, err := rest.MakeRouter(
 		rest.Get("/", api.index),
 		rest.Get("/clusters/:namespace/:name", api.getCluster),
 		rest.Get("/clusters/:namespace/:name/status", api.getClusterStatus),
 		rest.Get("/clusters", api.listClusters),
+		rest.Put("/clusters", api.createCluster),
 	)
 	if err != nil {
 		api.logger.Error(err, "Failed to create router")
