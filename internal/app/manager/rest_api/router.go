@@ -7,9 +7,6 @@ import (
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/go-logr/logr"
-	"github.com/kr/pretty"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -59,47 +56,6 @@ func (api *ClusterAPI) StartServer(ctx context.Context) {
 
 func (api *ClusterAPI) index(w rest.ResponseWriter, r *rest.Request) {
 	w.WriteJson(map[string]string{"message": "Welcome to the Weka Operator Cluster API"})
-}
-
-func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Request) {
-	logger := api.logger.WithName("updateClusterPassword")
-
-	ctx := r.Context()
-	name := r.PathParam("name")
-	namespace := r.PathParam("namespace")
-	logger.Info("Change password", "name", name, "namespace", namespace)
-
-	if name == "" || namespace == "" {
-		err := pretty.Errorf("name and namespace are required")
-		logger.Error(err, "Name and namespace are required")
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cluster := &wekav1alpha1.WekaCluster{}
-	key := client.ObjectKey{Name: name, Namespace: namespace}
-	err := api.client.Get(ctx, key, cluster)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "Cluster not found")
-			rest.Error(w, "Cluster not found", http.StatusNotFound)
-			return
-		}
-		logger.Error(err, "Failed to get cluster")
-		rest.Error(w, "Failed to get cluster", http.StatusInternalServerError)
-		return
-	}
-
-	// Update the password
-	credentials := &UpdateCredentialsPayload{}
-	err = r.DecodeJsonPayload(credentials)
-	if err != nil {
-		logger.Error(err, "Failed to decode JSON payload")
-		rest.Error(w, "Failed to decode JSON payload", http.StatusBadRequest)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func (api *ClusterAPI) registerRoutes() {

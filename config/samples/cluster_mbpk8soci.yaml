@@ -1,6 +1,6 @@
 ---
 apiVersion: weka.weka.io/v1alpha1
-kind: DummyCluster
+kind: WekaCluster
 metadata:
   name: mbpk8soci-sample
   namespace: default
