@@ -388,12 +388,14 @@ DRIVES:
 				} else {
 					r.Logger.Info("Drive is already signed, but cluster does not exist, resigning", "drive", drive, "clusterId", stdout.String())
 					err2 := r.claimDrive(ctx, container, executor, drive)
-					if err2 == nil {
+					if err2 != nil {
+						r.Logger.Error(err2, "Error claiming drive for resigning", "drive", drive)
 						driveCursor++
 						continue
 					}
 					err2 = r.reSignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
 					if err2 != nil {
+						r.Logger.Error(err2, "Error resigning drive", "drive", drive)
 						driveCursor++
 						continue
 					}
@@ -402,6 +404,7 @@ DRIVES:
 
 			err = r.claimDrive(ctx, container, executor, drive)
 			if err != nil {
+				r.Logger.Error(err, "Error claiming drive", "drive", drive, "containerName", container.Name)
 				driveCursor++
 				continue
 			}
@@ -428,15 +431,6 @@ func getSignatureDevice(drive string) string {
 		return fmt.Sprintf("%sp1", drive)
 	}
 	return driveSignTarget
-}
-
-func (r *ContainerController) eraseDrive(ctx context.Context, executor *util.Exec, drive string) error {
-	cmd := fmt.Sprintf("weka local exec sgdisk -Z %s", drive)
-	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
-	if err != nil {
-		r.Logger.Error(err, "Error erasing drive", "drive", drive, "stderr", stderr.String())
-	}
-	return err
 }
 
 func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Exec, drive string) error {
@@ -483,16 +477,17 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 
 func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
 	r.Logger.Info("Claiming drive", "drive", drive)
-	serialNum, err := r.getDriveUUID(ctx, executor, drive)
+	driveUuid, err := r.getDriveUUID(ctx, executor, drive)
 	if err != nil {
+		r.Logger.Error(err, "Error getting drive UUID", "drive", drive)
 		return err
 	}
-	r.Logger.Info("Claimed drive with number", "drive", drive, "serialNum", serialNum)
+	r.Logger.Info("Claimed drive with number", "drive", drive, "UUID", driveUuid)
 
 	claim := wekav1alpha1.DriveClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: container.Namespace,
-			Name:      fmt.Sprintf("%s", serialNum),
+			Name:      fmt.Sprintf("%s", driveUuid),
 		},
 		Spec:   wekav1alpha1.DriveClaimSpec{},
 		Status: wekav1alpha1.DriveClaimStatus{},
@@ -500,11 +495,27 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 
 	err = ctrl.SetControllerReference(container, &claim, r.Scheme)
 	if err != nil {
+		r.Logger.Error(err, "Error setting owner reference", "drive", drive, "UUID", driveUuid)
 		return err
 	}
-	r.Logger.Info("Set owner", "drive", drive, "serialNum", serialNum)
+	r.Logger.Info("Set owner", "drive", drive, "UUID", driveUuid)
 
-	return r.Create(ctx, &claim)
+	err = r.Create(ctx, &claim)
+	if err != nil {
+		// get eixsting
+		existingClaim := wekav1alpha1.DriveClaim{}
+		err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: fmt.Sprintf("%s", driveUuid)}, &existingClaim)
+		if err != nil {
+			r.Logger.Error(err, "Error getting existing claim", "drive", drive, "UUID", driveUuid)
+			return err
+		}
+		if existingClaim.OwnerReferences[0].UID != container.UID {
+			r.Logger.Info("Drive already claimed by another container", "drive", drive, "UUID", driveUuid, "existingClaim", existingClaim)
+			return errors.New("drive already claimed by another container")
+		}
+		return nil
+	}
+	return nil
 }
 
 func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {

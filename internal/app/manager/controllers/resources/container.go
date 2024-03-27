@@ -36,6 +36,17 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
+type WekaUsersResponse struct {
+	//OrgId    int    `json:"org_id"`
+	//PosixGid string `json:"posix_gid"`
+	//PosixUid string `json:"posix_uid"`
+	//Role     string `json:"role"`
+	//S3Policy string `json:"s3_policy"`
+	//Source   string `json:"source"`
+	//Uid      string `json:"uid"`
+	Username string `json:"username"`
+}
+
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -188,8 +199,17 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							SubPath:   "start-syslog-ng.sh",
 						},
 						{
+							Name:      "weka-boot-scripts",
+							MountPath: "/usr/local/bin/wekaauthcli",
+							SubPath:   "run-weka-cli.sh",
+						},
+						{
 							Name:      "weka-container-persistence-dir",
 							MountPath: wekaPersistenceDir,
+						},
+						{
+							Name:      "weka-credentials",
+							MountPath: "/var/run/secrets/weka-operator/operator-user",
 						},
 					},
 					Env: []corev1.EnvVar{
@@ -279,6 +299,14 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 								Name: "weka-boot-scripts",
 							},
 							DefaultMode: &[]int32{0o777}[0],
+						},
+					},
+				},
+				{
+					Name: "weka-credentials",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: f.container.Spec.WekaSecretRef.SecretKeyRef.Key,
 						},
 					},
 				},
