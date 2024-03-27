@@ -5,5 +5,5 @@ USER 65532:65532
 FROM builder as manager
 COPY manager /manager
 
-FROM builder as node-labeller
-COPY node-labeller /node-labeller
+#FROM builder as node-labeller
+#COPY node-labeller /node-labeller

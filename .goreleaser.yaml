@@ -42,15 +42,15 @@ dockers:
     build_flag_templates:
       - "--target=manager"
 
-  - image_templates:
-      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Tag }}"
-      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}"
-      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}"
-      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
-      - "quay.io/weka.io/weka-operator-node-labeller:latest"
-    dockerfile: "Dockerfile.release"
-    build_flag_templates:
-      - "--target=node-labeller"
+#  - image_templates:
+#      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Tag }}"
+#      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}"
+#      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}"
+#      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+#      - "quay.io/weka.io/weka-operator-node-labeller:latest"
+#    dockerfile: "Dockerfile.release"
+#    build_flag_templates:
+#      - "--target=node-labeller"
 
 archives:
   - format: tar.gz
