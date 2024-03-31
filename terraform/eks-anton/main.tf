@@ -1,10 +1,10 @@
 terraform {
-  required_version = ">= 1.4.6"
+  required_version = ">= 1.7.5"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.5.0"
+      version = ">= 5.43.0"
     }
     kubectl = {
       source  = "gavinbunney/kubectl"
@@ -14,8 +14,10 @@ terraform {
 }
 
 provider "aws" {
-  region  = "us-east-2"
-  profile = "devkube"
+  region  = "eu-west-1"
+  assume_role {
+    role_arn = "arn:aws:iam::381492135989:role/Root"
+  }
 }
 
 provider "kubernetes" {
@@ -31,24 +33,24 @@ provider "kubernetes" {
 
 provider "kubectl" {}
 
-#provider "helm" {
-#  kubernetes {
-#    config_path = "~/.kube/config"
-#  }
-#
-#  registry {
-#    url      = "oci://quay.io/weka.io/helm"
-#    username = "matthew_pfefferle_weka"
-#    password = "t/leZi8upBj5sxf9X9DY++HxEIU5D6XUQLr13m7dsDv9ArZhQmTuTrWPdsIsMGF3r5S03YqnK6Jd6LxANnv1dA=="
-#  }
-#}
-#
+provider "helm" {
+  kubernetes {
+    config_path = "~/.kube/config"
+  }
+
+  registry {
+    url      = "oci://quay.io/weka.io/helm"
+    username = "matthew_pfefferle_weka"
+    password = "t/leZi8upBj5sxf9X9DY++HxEIU5D6XUQLr13m7dsDv9ArZhQmTuTrWPdsIsMGF3r5S03YqnK6Jd6LxANnv1dA=="
+  }
+}
+
 data "aws_caller_identity" "current" {}
 data "aws_availability_zones" "available" {}
 
 locals {
   prefix             = "weka"
-  cluster_name       = "mpfefferle"
+  cluster_name       = "anton"
   kubernetes_version = "1.29"
 }
 
