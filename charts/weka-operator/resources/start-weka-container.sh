@@ -155,6 +155,7 @@ load_drivers(){
   lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-$IGB_UIO_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
   lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-$MPIN_USER_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
   lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-$UIO_PCI_GENERIC_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+  echo "drivers_loaded"  > /tmp/weka-drivers-loader
 }
 
 

@@ -28,21 +28,21 @@ spec:
     targetPort: 60002
   selector:
     app: weka-driver-builder
----
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaContainer
-metadata:
-  name: weka-test-container
-  namespace: default
-spec:
-  agentPort: 50001
-  nodeSelector:
-    weka.io/role: backend
-  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
-  mode: "compute"
-  name: compute
-  coreIds:
-    - 2
-  numCores: 1
-  port: 55001
-  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+#---
+#apiVersion: weka.weka.io/v1alpha1
+#kind: WekaContainer
+#metadata:
+#  name: weka-test-container
+#  namespace: default
+#spec:
+#  agentPort: 50001
+#  nodeSelector:
+#    weka.io/role: backend
+#  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
+#  mode: "compute"
+#  name: compute
+#  coreIds:
+#    - 2
+#  numCores: 1
+#  port: 55001
+#  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
