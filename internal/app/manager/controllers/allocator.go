@@ -58,6 +58,16 @@ func (o Owner) IsSameClusterAndRole(owner Owner) bool {
 	return true
 }
 
+func (o Owner) IsSameOwner(owner Owner) bool {
+	if owner.Namespace != o.Namespace {
+		return false
+	}
+	if owner.ClusterName != o.ClusterName {
+		return false
+	}
+	return true
+}
+
 type NodeAllocations struct {
 	Cpu                map[Owner][]int
 	Drives             map[Owner][]string
@@ -82,7 +92,7 @@ AVAILABLE:
 func (n *NodeAllocations) NumDriveContainerOwnedByCluster(owner Owner) int {
 	count := 0
 	for resourceOwner, driveAlloc := range n.Drives {
-		if resourceOwner.IsSameClusterAndRole(owner) {
+		if resourceOwner.IsSameOwner(owner) {
 			count += len(driveAlloc)
 		}
 	}
@@ -116,7 +126,7 @@ OUTER:
 func (n *NodeAllocations) NumComputeContainerOwnedByCluster(owner Owner) int {
 	count := 0
 	for resourceOwner, _ := range n.Cpu {
-		if resourceOwner.IsSameClusterAndRole(owner) {
+		if resourceOwner.IsSameOwner(owner) && resourceOwner.Role == "compute" {
 			count++
 		}
 	}
@@ -180,6 +190,20 @@ func (a *Allocator) Allocate(
 		template.MaxFdsPerNode = 1
 	}
 	initAllocationsMap(allocationsMap, a.ClusterLevel.Nodes)
+	nodes := a.ClusterLevel.Nodes
+	slices.SortFunc(nodes, func(i, j string) int {
+		iAlloc := allocationsMap[NodeName(i)]
+		iDrives := iAlloc.GetFreeDrives(a.ClusterLevel.Drives)
+		jAlloc := allocationsMap[NodeName(j)]
+		jDrives := jAlloc.GetFreeDrives(a.ClusterLevel.Drives)
+		if len(iDrives) < len(jDrives) {
+			return 1
+		} else if len(iDrives) == len(jDrives) {
+			return 0
+		} else {
+			return -1
+		}
+	})
 
 	changed := false
 	// Code Improvements post existing tests...might need to change even more
@@ -193,7 +217,7 @@ func (a *Allocator) Allocate(
 			if found {
 				continue
 			}
-			for _, node := range a.ClusterLevel.Nodes {
+			for _, node := range nodes {
 				nodeAlloc := allocationsMap[NodeName(node)]
 				var availableDrives []string
 				if role == "drive" {
@@ -204,8 +228,11 @@ func (a *Allocator) Allocate(
 					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
 						continue
 					}
-				} else {
+				} else if role == "compute" {
 					if nodeAlloc.NumComputeContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
+						continue
+					}
+					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) < 1 {
 						continue
 					}
 				}
