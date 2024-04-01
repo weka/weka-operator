@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.1
   creationTimestamp: null
-  name: clients.weka.weka.io
+  name: wekaclients.weka.weka.io
 spec:
   group: weka.weka.io
   names:
-    kind: Client
-    listKind: ClientList
-    plural: clients
-    singular: client
+    kind: WekaClient
+    listKind: WekaClientList
+    plural: wekaclients
+    singular: wekaclient
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Client is the Schema for the clients API
+        description: WekaClient is the Schema for the clients API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,34 +33,34 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClientSpec defines the desired state of Client
+            description: ClientSpec defines the desired state of WekaClient
             properties:
-              agent:
-                properties:
-                  debug:
-                    type: boolean
-                type: object
-              backendIP:
-                type: string
-              client:
-                properties:
-                  debug:
-                    type: boolean
-                type: object
-              image:
-                default: quay.io/weka.io/weka-in-container
-                type: string
-              imagePullSecretName:
-                type: string
-              interfaceName:
-                type: string
-              managementPortBase:
-                format: int32
+              agentPort:
                 type: integer
-              version:
-                description: 'Example: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f'
-                pattern: ^([0-9]{1,3}\.){2}[0-9]{1,3}(\..*)?$
+              driversDistService:
                 type: string
+              image:
+                description: Used in new format
+                type: string
+              imagePullSecret:
+                type: string
+              joinIpPorts:
+                items:
+                  type: string
+                type: array
+              network:
+                properties:
+                  ethDevice:
+                    type: string
+                  udpMode:
+                    type: boolean
+                type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                type: object
+              port:
+                type: integer
               wekaOrg:
                 type: string
               wekaPassword:
@@ -148,6 +148,8 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+              wekaSecretRef:
+                type: string
               wekaUsername:
                 description: EnvVarSource represents a source for the value of an
                   EnvVar.
@@ -233,9 +235,11 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
+            required:
+            - image
             type: object
           status:
-            description: ClientStatus defines the observed state of Client
+            description: ClientStatus defines the observed state of WekaClient
             properties:
               conditions:
                 items:

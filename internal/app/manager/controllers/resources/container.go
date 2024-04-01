@@ -140,11 +140,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							{
 								MatchExpressions: []corev1.NodeSelectorRequirement{
 									{
-										Key:      "kubernetes.io/hostname",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{f.container.Spec.NodeAffinity},
-									},
-									{
 										Key:      "kubernetes.io/os",
 										Operator: corev1.NodeSelectorOpIn,
 										Values:   []string{"linux"},
@@ -318,6 +313,32 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 			},
 		},
 	}
+
+	if len(f.container.Spec.JoinIps) != 0 {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "JOIN_IPS",
+			Value: strings.Join(f.container.Spec.JoinIps, ","),
+		})
+	}
+
+	matchExpression := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+	if f.container.Spec.NodeAffinity != "" {
+		matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
+			Key:      "kubernetes.io/hostname",
+			Operator: corev1.NodeSelectorOpIn,
+			Values:   []string{f.container.Spec.NodeAffinity},
+		})
+	}
+	if f.container.Spec.NodeSelector != nil {
+		for k, v := range f.container.Spec.NodeSelector {
+			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
+				Key:      k,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{v},
+			})
+		}
+	}
+	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{

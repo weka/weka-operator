@@ -20,9 +20,9 @@ func NewApiKeyReconciler(c *ClientReconciler, executor Executor) *ApiKeyReconcil
 	return &ApiKeyReconciler{c, executor, ""}
 }
 
-func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+func (r *ApiKeyReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
 	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling api key")
-	// Client generates a key at startup and puts it in a well known location
+	// WekaClient generates a key at startup and puts it in a well known location
 	// In order to read this file, we need to use Exec to run cat on the container and then read STDOUT
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"cat", "/root/.weka/auth-token.json"})
 	if err != nil {

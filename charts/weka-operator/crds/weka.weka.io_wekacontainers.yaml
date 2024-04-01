@@ -55,6 +55,10 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              joinIpPorts:
+                items:
+                  type: string
+                type: array
               mode:
                 type: string
               name:
@@ -68,6 +72,10 @@ spec:
                 type: object
               nodeAffinity:
                 type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                type: object
               numCores:
                 type: integer
               numDrives:

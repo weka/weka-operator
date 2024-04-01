@@ -1,9 +1,9 @@
 package resources
 
 import (
-	"fmt"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,12 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*appsv1.DaemonSet, error) {
+func AgentResource(client *wekav1alpha1.WekaClient, key types.NamespacedName) (*appsv1.DaemonSet, error) {
 	runAsNonRoot := false
 	privileged := true
 	runAsUser := int64(0)
 
-	image := fmt.Sprintf("%s:%s", client.Spec.Image, client.Spec.Version)
+	//image := fmt.Sprintf("%s:%s", client.Spec.Image, client.Spec.Version)
+	image := "tmp-stub-review-detached-code"
 
 	ls := map[string]string{
 		"app.kubernetes.io": "weka-agent",
@@ -56,7 +57,7 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 					},
 					ImagePullSecrets: []corev1.LocalObjectReference{
 						{
-							Name: client.Spec.ImagePullSecretName,
+							Name: client.Spec.ImagePullSecret,
 						},
 					},
 					Containers: []corev1.Container{
@@ -115,7 +116,7 @@ func AgentResource(client *wekav1alpha1.Client, key types.NamespacedName) (*apps
 	return dep, nil
 }
 
-func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+func wekaAgentContainer(client *wekav1alpha1.WekaClient, image string) corev1.Container {
 	container := corev1.Container{
 		Image:           image,
 		Name:            "weka-agent",
@@ -173,19 +174,19 @@ func wekaAgentContainer(client *wekav1alpha1.Client, image string) corev1.Contai
 	return container
 }
 
-func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
+func environmentVariables(client *wekav1alpha1.WekaClient) []corev1.EnvVar {
 	variables := []corev1.EnvVar{
-		{
-			Name:  "WEKA_VERSION",
-			Value: client.Spec.Version,
-		},
-		{
-			Name:  "DRIVERS_VERSION",
-			Value: client.Spec.Version,
-		},
+		//{
+		//	Name:  "WEKA_VERSION",
+		//	Value: client.Spec.Version,
+		//},
+		//{
+		//	Name:  "DRIVERS_VERSION",
+		//	Value: client.Spec.Version,
+		//},
 		{
 			Name:  "BACKEND_PRIVATE_IP",
-			Value: client.Spec.BackendIP,
+			Value: strings.Join(client.Spec.JoinIps, ","),
 		},
 		{
 			Name: "MANAGEMENT_IPS",
@@ -195,10 +196,10 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 				},
 			},
 		},
-		{
-			Name:  "WEKA_CLI_DEBUG",
-			Value: wekaCliDebug(client.Spec.Agent.Debug),
-		},
+		//{
+		//	Name:  "WEKA_CLI_DEBUG",
+		//	Value: wekaCliDebug(client.Spec.Agent.Debug),
+		//},
 		{
 			Name:      "WEKA_USERNAME",
 			ValueFrom: &client.Spec.WekaUsername,
@@ -213,12 +214,12 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 		},
 		{
 			Name:  "MANAGEMENT_PORT",
-			Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
+			Value: strconv.Itoa(int(managementPort(client.Spec.Port, 0))),
 		},
-		{
-			Name:  "BACKEND_NET",
-			Value: client.Spec.InterfaceName,
-		},
+		//{
+		//	Name:  "BACKEND_NET",
+		//	Value: client.Spec.InterfaceName,
+		//},
 	}
 
 	return variables
@@ -227,7 +228,7 @@ func environmentVariables(client *wekav1alpha1.Client) []corev1.EnvVar {
 // driverInitContainer creates an init container that loads the weka driver
 //
 // This is based on the same agent image
-func driverInitContainer(client *wekav1alpha1.Client, image string) corev1.Container {
+func driverInitContainer(client *wekav1alpha1.WekaClient, image string) corev1.Container {
 	container := corev1.Container{
 		Image:           image,
 		Name:            "weka-driver-loader",
@@ -249,17 +250,17 @@ func driverInitContainer(client *wekav1alpha1.Client, image string) corev1.Conta
 			},
 		},
 		Env: []corev1.EnvVar{
-			{
-				Name:  "WEKA_VERSION",
-				Value: client.Spec.Version,
-			},
-			{
-				Name:  "BACKEND_PRIVATE_IP",
-				Value: client.Spec.BackendIP,
-			},
+			//{
+			//	Name:  "WEKA_VERSION",
+			//	Value: client.Spec.Version,
+			//},
+			//{
+			//	Name:  "BACKEND_PRIVATE_IP",
+			//	Value: client.Spec.JoinIp,
+			//},
 			{
 				Name:  "BACKEND_PORT",
-				Value: strconv.Itoa(int(managementPort(client.Spec.ManagementPortBase, 0))),
+				Value: strconv.Itoa(managementPort(client.Spec.Port, 0)),
 			},
 		},
 		VolumeMounts: []corev1.VolumeMount{},
@@ -276,7 +277,7 @@ func wekaCliDebug(debug bool) string {
 	}
 }
 
-func wekaOrg(client *wekav1alpha1.Client) string {
+func wekaOrg(client *wekav1alpha1.WekaClient) string {
 	if client.Spec.WekaOrg != "" {
 		return client.Spec.WekaOrg
 	} else {
@@ -284,7 +285,7 @@ func wekaOrg(client *wekav1alpha1.Client) string {
 	}
 }
 
-func managementPort(base, offset int32) int32 {
+func managementPort(base, offset int) int {
 	if base == 0 {
 		base = 14000
 	}

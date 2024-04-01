@@ -54,7 +54,7 @@ func GetUserSecretName(cluster *v1alpha1.WekaCluster) string {
 	return "weka-cluster-" + cluster.Name
 }
 
-//func NewExecInCluster(recon client.Client, cluster v1alpha1.WekaCluster) (*util.Exec, error) {
+//func NewExecInCluster(recon client.WekaClient, cluster v1alpha1.WekaCluster) (*util.Exec, error) {
 //	// fetch container
 //
 //	//TODO: Actual return

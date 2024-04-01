@@ -40,6 +40,10 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                type: object
               size:
                 description: Foo is an example field of WekaCluster. Edit dummycluster_types.go
                   to remove/update

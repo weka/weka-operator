@@ -20,7 +20,7 @@ func NewContainerListReconciler(c *ClientReconciler, executor Executor) *Contain
 	return &ContainerListReconciler{c, executor}
 }
 
-func (r *ContainerListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+func (r *ContainerListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
 	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling container list")
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"/usr/bin/weka", "cluster", "container", "-J"})
 	var podNotFound *PodNotFound
