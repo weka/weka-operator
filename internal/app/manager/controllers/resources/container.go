@@ -76,7 +76,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	} else {
 		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
-		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages)
+		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {
@@ -117,6 +117,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	var terminationGracePeriodSeconds int64 = 10
 	if f.container.Spec.Mode == "drive" {
 		terminationGracePeriodSeconds = 60
+	}
+
+	hostNetwork := true
+	if f.container.Spec.Mode == "dist" || f.container.Spec.Mode == "drivers-loader" {
+		hostNetwork = false
 	}
 
 	wekaPersistenceDir := "/opt/weka-persistence"
@@ -207,10 +212,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Name:      "weka-container-persistence-dir",
 							MountPath: wekaPersistenceDir,
 						},
-						{
-							Name:      "weka-credentials",
-							MountPath: "/var/run/secrets/weka-operator/operator-user",
-						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -230,9 +231,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Value: strconv.Itoa(f.container.Spec.Port),
 						},
 						{
-							Name: "MEMORY",
-							//Value: fmt.Sprintf("%dMiB", hugePagesNum-200), // TODO: spec, -2is a hack to force 2MiB
-							Value: wekaMemoryString, // TODO: spec, -2is a hack to force 2MiB
+							Name:  "MEMORY",
+							Value: wekaMemoryString,
 						},
 						{
 							Name:  "CORES",
@@ -258,6 +258,10 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Name:  "WEKA_CLI_DEBUG",
 							Value: "0",
 						},
+						{
+							Name:  "DIST_SERVICE",
+							Value: f.container.Spec.DriversDistService,
+						},
 					},
 					Resources: corev1.ResourceRequirements{
 						Limits:   resourceLimit,
@@ -265,7 +269,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 			},
-			HostNetwork: true,
+			HostNetwork: hostNetwork,
 			Volumes: []corev1.Volume{
 				{
 					Name: "hugepages",
@@ -303,14 +307,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					},
 				},
 				{
-					Name: "weka-credentials",
-					VolumeSource: corev1.VolumeSource{
-						Secret: &corev1.SecretVolumeSource{
-							SecretName: f.container.Spec.WekaSecretRef.SecretKeyRef.Key,
-						},
-					},
-				},
-				{
 					Name: "weka-container-persistence-dir",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
@@ -323,16 +319,51 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		},
 	}
 
+	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "weka-credentials",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: f.container.Spec.WekaSecretRef.SecretKeyRef.Key,
+				},
+			},
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-credentials",
+			MountPath: "/var/run/secrets/weka-operator/operator-user",
+		})
+	}
+
+	if f.container.Spec.Mode == "dist" || f.container.Spec.Mode == "drivers-loader" {
+		// adding mount of headers only for case of dist service container
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "libmodules",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/lib/modules",
+				},
+			},
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "libmodules",
+			MountPath: "/lib/modules",
+		})
+	}
+
 	return pod, nil
 }
 
 func labelsForWekaContainer(container *wekav1alpha1.WekaContainer) map[string]string {
-	return map[string]string{
+	labels := map[string]string{
 		"app.kubernetes.io/name":      "WekaContainer",
 		"app.kubernetes.io/instance":  container.Name,
 		"app.kubernetes.io/part-of":   "weka-operator",
 		"app.kubernetes.io/create-by": "controller-manager",
 	}
+	for k, v := range container.ObjectMeta.Labels {
+		labels[k] = v
+	}
+	return labels
 }
 
 func comaSeparated(ints []int) string {

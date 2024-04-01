@@ -94,16 +94,61 @@ else
   log_message INFO "Weka software was not preinstalled in $WEKA_WEKA_PERSISTENCE_DIR"
 fi
 
+if [[ "${MODE}" == "drivers-loader" ]]; then
+  exit 0 # we dont need agent in this mode
+
+fi
+
 log_message INFO "Starting Weka Agent"
 
 log_message DEBUG "Disabling cgroups"
 sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
+
+
+if [[ "${MODE}" == "dist" ]]; then
+  IGNORE_DRIVERS="false"
+else
+  IGNORE_DRIVERS="true"
+fi
+
+log_message DEBUG "Configuring drivers mode to ${IGNORE_DRIVERS}"
+sed -i "s/ignore_driver_spec=true/ignore_driver_spec=${IGNORE_DRIVERS}/g" /etc/wekaio/service.conf || true
 
 log_message DEBUG "Setting agent port to ${AGENT_PORT}"
 sed -i "s/port=14100/port=${AGENT_PORT}/g" /etc/wekaio/service.conf || true
 
 log_message DEBUG "Setting wekanode to communicate with agent on port ${AGENT_PORT}"
 echo '{"agent": {"port": '${AGENT_PORT}'}}' > /etc/wekaio/service.json
+
+
+ensure_driver() {
+  if lsmod | grep -q $1; then
+    return 0
+  fi
+  return 1
+}
+
+if [[ "$MODE" != "dist" ]]; then
+  while true; do
+    notLoaded="0"
+    for driver in wekafsio wekafsgw igb_uio mpin_user uio_pci_generic; do
+      echo "validating driver $driver"
+      if ! ensure_driver $driver; then
+        notLoaded="1"
+        echo $driver > /tmp/weka-drivers.log
+        log_message INFO "Driver $driver not loaded, refusing to start agent and waiting for drivers to load"
+        break
+      fi
+      echo "driver $driver was fond"
+    done
+    if [[ $notLoaded == "1" ]]; then
+      sleep 1
+      continue
+    fi
+    echo "" > /tmp/weka-drivers.log
+    break
+  done
+fi
 
 /usr/bin/weka --agent --socket-name weka_agent_ud_socket_${AGENT_PORT} &
 WEKA_AGENT_PID=$!

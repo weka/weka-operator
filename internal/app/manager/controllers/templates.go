@@ -69,6 +69,17 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		HugePageSize:      "2Mi",
 		HugePagesOverride: "1GiB",
 	},
+	"small": {
+		DriveCores:        1,
+		ComputeCores:      1,
+		ComputeContainers: 5,
+		DriveContainers:   5,
+		NumDrives:         1,
+		MaxFdsPerNode:     1,
+		DriveHugepages:    1500,
+		ComputeHugepages:  3000,
+		HugePageSize:      "2Mi",
+	},
 	"demo_2mib": {
 		DriveCores:        1,
 		ComputeCores:      1,
@@ -101,7 +112,8 @@ var Topologies = map[string]topologyGetter{
 	"dev_wekabox": func(ctx context.Context, reader client.Reader) (Topology, error) {
 		return DevboxWekabox, nil
 	},
-	"discover_oci": getOciDev,
+	"discover_oci":        getOciDev,
+	"discover_aws_i3en6x": getAwsI3en6x,
 }
 
 func getOciDev(ctx context.Context, reader client.Reader) (Topology, error) {
@@ -119,9 +131,40 @@ func getOciDev(ctx context.Context, reader client.Reader) (Topology, error) {
 	}, nil
 }
 
+func getAwsI3en6x(ctx context.Context, reader client.Reader) (Topology, error) {
+	// get nodes via reader
+	nodeNames, err := getNodeByAwsType(ctx, reader, "i3en.6xlarge")
+	if err != nil {
+		return Topology{}, err
+	}
+	return Topology{
+		Drives:   []string{"aws_0", "aws_1"}, // container-side discovery by slot num
+		Nodes:    nodeNames,
+		MinCore:  2, // TODO: How to determine, other then querying machines?
+		CoreStep: 1,
+		MaxCore:  11,
+	}, nil
+}
+
 func getNodeNames(ctx context.Context, reader client.Reader) ([]string, error) {
 	nodes := &v1.NodeList{}
 	if err := reader.List(ctx, nodes); err != nil {
+		return nil, err
+	}
+	var nodeNames []string
+	for _, node := range nodes.Items {
+		nodeNames = append(nodeNames, node.Name)
+	}
+	return nodeNames, nil
+}
+
+func getNodeByAwsType(ctx context.Context, reader client.Reader, instanceType string) ([]string, error) {
+	nodes := &v1.NodeList{}
+	listOpts := []client.ListOption{
+		client.MatchingLabels{"node.kubernetes.io/instance-type": instanceType},
+	}
+
+	if err := reader.List(context.Background(), nodes, listOpts...); err != nil {
 		return nil, err
 	}
 	var nodeNames []string

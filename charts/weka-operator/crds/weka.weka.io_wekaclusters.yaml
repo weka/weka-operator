@@ -34,6 +34,8 @@ spec:
           spec:
             description: WekaClusterSpec defines the desired state of WekaCluster
             properties:
+              driversDistService:
+                type: string
               image:
                 type: string
               imagePullSecret:
@@ -46,14 +48,11 @@ spec:
                 type: string
               topology:
                 type: string
-              wekaContainerNamePrefix:
-                type: string
             required:
             - image
             - size
             - template
             - topology
-            - wekaContainerNamePrefix
             type: object
           status:
             description: WekaClusterStatus defines the observed state of WekaCluster

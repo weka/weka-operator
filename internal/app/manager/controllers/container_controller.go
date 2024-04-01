@@ -8,8 +8,10 @@ import (
 	"github.com/weka/weka-operator/util"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/strings/slices"
 	"log"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +45,25 @@ type ContainerController struct {
 	Logger logr.Logger
 }
 
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -58,6 +78,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Error refreshing container")
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
+
+	r.initState(ctx, container)
 
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
@@ -95,6 +117,21 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
+		err := r.reconcileDriversStatus(ctx, container, actualPod)
+		if err != nil {
+			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
+			return ctrl.Result{}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured"})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error updating status for drivers ensured")
+			return ctrl.Result{}, err
+		}
+	}
+
 	result, err := r.reconcileManagementIP(ctx, container, actualPod)
 	if err != nil {
 		logger.Error(err, "Error reconciling management IP", "name", container.Name)
@@ -112,6 +149,10 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	if result.Requeue {
 		return result, nil
+	}
+
+	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+		return ctrl.Result{}, nil
 	}
 
 	// post-clusterize
@@ -188,6 +229,9 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 }
 
 func (r *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+		return ctrl.Result{}, nil
+	}
 	logger := r.Logger.WithName("reconcileStatus")
 	logger.Info("Reconciling status", "name", container.Name)
 
@@ -355,13 +399,20 @@ DRIVES:
 				"position", i, "total", container.Spec.NumDrives)
 
 			drive := container.Spec.PotentialDrives[driveCursor]
+			drive = r.discoverDrive(ctx, executor, drive)
 			driveSignTarget := getSignatureDevice(drive)
 
 			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
 			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
 				if strings.Contains(stderr.String(), "No such file or directory") {
-					r.Logger.Info("Drive does not exist or not pre-signed", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
+					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") {
+						r.Logger.Info("Drive is not presigned, signing adhocy", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
+						if err := r.initSignAwsDrives(ctx, executor, drive); err != nil {
+							return true, err
+						}
+					}
+					r.Logger.Info("Drive does not exist or not pre-signed", "drive", drive, "signTarget", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
 					driveCursor++
 					continue
 				} else {
@@ -428,6 +479,9 @@ DRIVES:
 
 func getSignatureDevice(drive string) string {
 	driveSignTarget := fmt.Sprintf("%s1", drive)
+	if strings.Contains(drive, "/dev/disk/by-path/pci-") {
+		return fmt.Sprintf("%s-part1", drive)
+	}
 	if strings.Contains(drive, "nvme") {
 		return fmt.Sprintf("%sp1", drive)
 	}
@@ -531,4 +585,104 @@ func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.E
 		return "", errors.New("uuid not found")
 	}
 	return serial, nil
+}
+
+func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) {
+	if container.Status.Conditions == nil {
+		container.Status.Conditions = []metav1.Condition{}
+	}
+
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init"})
+		_ = r.Status().Update(ctx, container)
+	}
+
+}
+
+func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
+	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+		return nil
+	}
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return err
+	}
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
+	if err != nil {
+		return errors.Wrap(err, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) == "" {
+		return nil
+	}
+
+	return r.ensureDriversLoader(ctx, container)
+
+}
+
+func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	loaderContainer := &wekav1alpha1.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "weka-drivers-loader-" + container.Spec.NodeAffinity,
+			Namespace: "weka-operator-system",
+		},
+		Spec: wekav1alpha1.WekaContainerSpec{
+			Image:              container.Spec.Image,
+			Mode:               "drivers-loader",
+			ImagePullSecret:    container.Spec.ImagePullSecret,
+			Hugepages:          0,
+			NodeAffinity:       container.Spec.NodeAffinity,
+			DriversDistService: container.Spec.DriversDistService,
+		},
+	}
+
+	found := &wekav1alpha1.WekaContainer{}
+	err := r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			err = r.Create(ctx, loaderContainer)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if found != nil {
+		return nil // TODO: Update handling?
+	}
+	// Should we have an owner? Or should we just delete it once done? We cant have owner in different namespace
+	// It would be convenient, if container would just exit.
+	// Maybe, we should just replace this with completely different entry point and consolidate everything under single script
+	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
+	return nil
+}
+
+func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
+	if strings.HasPrefix(drive, "aws_") {
+		// aws discovery log, relying on PCI address as more persistent than device name, worth 1 hop
+		slot := strings.TrimPrefix(drive, "aws_")
+		slotInt, err := strconv.Atoi(slot)
+		if err != nil {
+			r.Logger.Error(err, "Error parsing slot", "slot", slot)
+			return drive
+		}
+		cmd := fmt.Sprintf("lspci -d 1d0f:cd01 | awk '{print $1}' | head -n" + strconv.Itoa(slotInt+1) +
+			" | tail -n1")
+		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		if err != nil {
+			r.Logger.Error(err, "Error executing command", "cmd", cmd, "stderr", stderr.String())
+			return drive
+		}
+		return fmt.Sprintf("/dev/disk/by-path/pci-0000:%s-nvme-1", strings.TrimSpace(stdout.String()))
+	}
+	return drive
+}
+
+func (r *ContainerController) initSignAwsDrives(ctx context.Context, executor *util.Exec, drive string) error {
+	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
+	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		r.Logger.Error(err, "Error presigning drive", "drive", drive, "stderr", stderr.String())
+		return err
+	}
+	return nil
 }
