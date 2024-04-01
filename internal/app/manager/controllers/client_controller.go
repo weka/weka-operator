@@ -170,14 +170,6 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 	return NewAgentReconciler(r, desired, name), nil
 }
 
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
-
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by

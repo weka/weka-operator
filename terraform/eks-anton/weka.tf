@@ -3,7 +3,8 @@
 locals {
   user_data = <<-EOF
               #!/bin/bash
-              echo "vm.nr_hugepages=1024" >> /etc/sysctl.conf
+              echo 6000 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+              echo "vm.nr_hugepages=6000" >> /etc/sysctl.conf
               /usr/sbin/sysctl --system
               /etc/eks/bootstrap.sh ${aws_eks_cluster.eks.name} \
                 --kubelet-extra-args '--cpu-manager-policy=static'
@@ -11,15 +12,16 @@ locals {
 }
 
 resource "aws_eks_node_group" "weka_backend" {
+  count = var.create_backend_node_group ? 1 : 0
   cluster_name    = aws_eks_cluster.eks.name
-  node_group_name = "${local.prefix}-${local.cluster_name}-weka-backend-node-group"
+  node_group_name = "${local.prefix}-${local.cluster_name}-weka-backend-node-group-${count.index}"
   node_role_arn   = aws_iam_role.eks_role.arn
   subnet_ids      = [aws_subnet.weka_subnet1.id, aws_subnet.weka_subnet2.id]
 
   scaling_config {
-    desired_size = 1
-    max_size     = 1
-    min_size     = 1
+    desired_size = 5
+    max_size     = 5
+    min_size     = 5
   }
 
   launch_template {
@@ -37,11 +39,11 @@ resource "aws_eks_node_group" "weka_backend" {
 resource "aws_launch_template" "backend" {
   name_prefix   = "${local.prefix}-${local.cluster_name}-backend"
   image_id      = local.image_id
-  instance_type = "i3en.2xlarge"
+  instance_type = "i3en.6xlarge"
   key_name      = aws_key_pair.eks_key_pair.key_name
 
   block_device_mappings {
-    device_name = "/dev/sdp"
+    device_name = "/dev/sda1"
     ebs {
       volume_size           = 150
       volume_type           = "gp3"

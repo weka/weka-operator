@@ -1,6 +1,13 @@
 terraform {
   required_version = ">= 1.7.5"
 
+  cloud {
+    organization = "wekaio"
+    workspaces {
+      name = "eks-anton"
+    }
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"

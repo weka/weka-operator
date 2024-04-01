@@ -5,9 +5,9 @@ resource "aws_eks_node_group" "weka_node_group" {
   node_role_arn   = aws_iam_role.eks_role.arn
   subnet_ids      = [aws_subnet.weka_subnet1.id, aws_subnet.weka_subnet2.id]
   scaling_config {
-    desired_size = 0
-    max_size     = 0
-    min_size     = 0
+    desired_size = 1
+    max_size     = 1
+    min_size     = 1
   }
   depends_on = [aws_eks_cluster.eks]
 
@@ -24,7 +24,7 @@ resource "aws_eks_node_group" "weka_node_group" {
 
 resource "aws_launch_template" "worker_nodes" {
   name_prefix   = "${local.prefix}-${local.cluster_name}-eks-"
-  instance_type = "i3en.6xlarge"
+  instance_type = "m6a.4xlarge"
   image_id      = local.image_id
   key_name      = aws_key_pair.eks_key_pair.key_name
 

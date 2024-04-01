@@ -16,22 +16,23 @@ type WekaContainer struct {
 }
 
 type WekaContainerSpec struct {
-	NodeAffinity      string          `json:"nodeAffinity,omitempty"`
-	Port              int             `json:"port,omitempty"`
-	AgentPort         int             `json:"agentPort,omitempty"`
-	Image             string          `json:"image"`
-	ImagePullSecret   string          `json:"imagePullSecret,omitempty"`
-	WekaContainerName string          `json:"name"`
-	Mode              string          `json:"mode"` // TODO: How to define as enum?
-	NumCores          int             `json:"numCores"`
-	CoreIds           []int           `json:"coreIds,omitempty"`
-	Network           Network         `json:"network,omitempty"`
-	Hugepages         int             `json:"hugepages,omitempty"`
-	HugepagesSize     string          `json:"hugepagesSize,omitempty"`
-	HugepagesOverride string          `json:"hugepagesSizeOverride,omitempty"`
-	PotentialDrives   []string        `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
-	NumDrives         int             `json:"numDrives,omitempty"`
-	WekaSecretRef     v1.EnvVarSource `json:"wekaSecretRef,omitempty"`
+	NodeAffinity       string          `json:"nodeAffinity,omitempty"`
+	Port               int             `json:"port,omitempty"`
+	AgentPort          int             `json:"agentPort,omitempty"`
+	Image              string          `json:"image"`
+	ImagePullSecret    string          `json:"imagePullSecret,omitempty"`
+	WekaContainerName  string          `json:"name"`
+	Mode               string          `json:"mode"` // TODO: How to define as enum?
+	NumCores           int             `json:"numCores"`
+	CoreIds            []int           `json:"coreIds,omitempty"`
+	Network            Network         `json:"network,omitempty"`
+	Hugepages          int             `json:"hugepages,omitempty"`
+	HugepagesSize      string          `json:"hugepagesSize,omitempty"`
+	HugepagesOverride  string          `json:"hugepagesSizeOverride,omitempty"`
+	PotentialDrives    []string        `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
+	NumDrives          int             `json:"numDrives,omitempty"`
+	DriversDistService string          `json:"driversDistService,omitempty"`
+	WekaSecretRef      v1.EnvVarSource `json:"wekaSecretRef,omitempty"`
 }
 
 type Network struct {

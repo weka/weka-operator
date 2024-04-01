@@ -36,13 +36,13 @@ spec:
                     operator: In
                     values:
                       - amd64
-                      - arm64
-                      - ppc64le
-                      - s390x
                   - key: kubernetes.io/os
                     operator: In
                     values:
                       - linux
+      volumes:
+        - name: tmpdir
+          emptyDir: {}
       containers:
         - args:
             - --secure-listen-address=0.0.0.0:8443
@@ -75,6 +75,9 @@ spec:
             - --leader-elect
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmpdir
           name: manager
           securityContext:
             allowPrivilegeEscalation: false

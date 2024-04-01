@@ -61,10 +61,6 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	}
 }
 
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaClusters/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get,list
 func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Logger.WithName("Reconcile")
 	logger.Info("Reconcile() called")
@@ -169,6 +165,14 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) {
 			r.Logger.Info("Containers did not add drives yet", "container", container.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
+		}
+	}
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDrivesAdded) {
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: condition.CondDrivesAdded,
+			Status: metav1.ConditionTrue, Reason: "Init", Message: "All drives are added"})
+		err = r.Status().Update(ctx, wekaCluster)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -474,7 +478,8 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	}
 	// Selected by ownership drives are first in the list and will be attempted first, granting happy flow
 
-	secretKey := fmt.Sprintf("weka-operator-%s", cluster.GetUID())
+	secretKey := GetOperatorSecretName(cluster)
+	containerPrefix := GetLastGuidPart(cluster)
 
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -487,22 +492,23 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			Labels:    labels,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:      ownedResources.Node,
-			Port:              ownedResources.Port,
-			AgentPort:         ownedResources.AgentPort,
-			Image:             cluster.Spec.Image,
-			ImagePullSecret:   cluster.Spec.ImagePullSecret,
-			WekaContainerName: fmt.Sprintf("%s%ss%d", cluster.Spec.WekaContainerNamePrefix, role, i),
-			Mode:              role,
-			NumCores:          len(ownedResources.CoreIds),
-			CoreIds:           ownedResources.CoreIds,
-			Network:           network,
-			Hugepages:         hugePagesNum,
-			HugepagesSize:     template.HugePageSize,
-			HugepagesOverride: template.HugePagesOverride,
-			NumDrives:         len(ownedResources.Drives),
-			PotentialDrives:   potentialDrives,
-			WekaSecretRef:     v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
+			NodeAffinity:       ownedResources.Node,
+			Port:               ownedResources.Port,
+			AgentPort:          ownedResources.AgentPort,
+			Image:              cluster.Spec.Image,
+			ImagePullSecret:    cluster.Spec.ImagePullSecret,
+			WekaContainerName:  fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
+			Mode:               role,
+			NumCores:           len(ownedResources.CoreIds),
+			CoreIds:            ownedResources.CoreIds,
+			Network:            network,
+			Hugepages:          hugePagesNum,
+			HugepagesSize:      template.HugePageSize,
+			HugepagesOverride:  template.HugePagesOverride,
+			NumDrives:          len(ownedResources.Drives),
+			PotentialDrives:    potentialDrives,
+			WekaSecretRef:      v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
+			DriversDistService: cluster.Spec.DriversDistService,
 		},
 	}
 

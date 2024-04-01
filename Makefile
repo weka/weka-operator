@@ -74,7 +74,8 @@ help: ## Display this help.
 CRD = charts/weka-operator/crds/weka.weka.io_clients.yaml
 CRD_TYPES = internal/pkg/api/v1alpha1/client_types.go \
 		internal/pkg/api/v1alpha1/driveclaims_types.go \
-		internal/pkg/api/v1alpha1/container_types.go 
+		internal/pkg/api/v1alpha1/container_types.go \
+		internal/pkg/api/v1alpha1/wekacluster_types.go
 
 $(CRD): controller-gen $(CRD_TYPES)
 

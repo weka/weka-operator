@@ -1,0 +1,46 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+  labels:
+    app: weka-driver-builder
+spec:
+  agentPort: 60001
+  nodeAffinity: "ip-10-0-1-92.eu-west-1.compute.internal"
+  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
+  mode: "dist"
+  name: dist
+  numCores: 1
+  port: 60002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+spec:
+  type: ClusterIP
+  ports:
+  - name: weka-driver-builder
+    port: 60002
+    targetPort: 60002
+  selector:
+    app: weka-driver-builder
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-test-container
+  namespace: default
+spec:
+  agentPort: 50001
+  nodeAffinity: "ip-10-0-1-92.eu-west-1.compute.internal"
+  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
+  mode: "compute"
+  name: compute
+  coreIds:
+    - 2
+  numCores: 1
+  port: 55001
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"

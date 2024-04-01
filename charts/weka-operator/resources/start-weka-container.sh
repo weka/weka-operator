@@ -1,9 +1,16 @@
 #!/bin/bash
 
 set -o pipefail
+set -e
 # Starts weka container user mode components (frontend, compute, drive). Agent assumed to be running.
 
 # Path to the directory housing the scripts
+
+# Hacks around drivers compilation
+WEKA_DRIVER_VERSION="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86"
+IGB_UIO_DRIVER_VERSION="weka1.0.2"
+MPIN_USER_DRIVER_VERSION="1.0.1"
+UIO_PCI_GENERIC_DRIVER_VERSION=5f49bb7dc1b5d192fb01b442b17ddc0451313ea2
 
 OS=$(uname)
 
@@ -66,13 +73,6 @@ log_pipe_err() {
 #exec 2> >(tee -a /tmp/start-stderr >&2)
 #exec 1> >(tee -a /tmp/start-stdout)
 
-wait_for_agent() {
-  while ! [ -f /var/run/weka-agent.pid ]; do
-    sleep 1
-    echo "Waiting for weka-agent to start"
-  done
-}
-
 wait_for_syslog() {
   while ! [ -f /var/run/syslog-ng.pid ]; do
     sleep 0.1
@@ -81,10 +81,20 @@ wait_for_syslog() {
 }
 
 time wait_for_syslog 2> >(log_pipe_err >&2) | log_pipe
-time wait_for_agent 2> >(log_pipe_err >&2) | log_pipe
 
 log_message INFO "Starting WEKA-CONTAINER"
 # should be param from outside, not part of generic configmap
+
+# Define used variables/defaults
+MODE=${MODE}
+PORT=${PORT}
+MEMORY=${MEMORY}
+CORE_IDS=${CORE_IDS}
+CORES=${CORES}
+NAME=${NAME}
+NETWORK_DEVICE=${NETWORK_DEVICE}
+DIST_SERVICE=${DIST_SERVICE:-"http://localhost:60002"}
+
 
 # Print out parameters from environment variables.
 log_message INFO "NAME=${NAME}"
@@ -114,22 +124,90 @@ wait_for_shutdown() {
   done
 }
 
+# Logic start
+
+copy_drivers(){
+#  ALL_DRIVERS=`curl localhost:14000/dist/v1/release/$(weka version current).spec | jq -r '.containers.weka.images | keys | .[]'`
+#  LOCAL_DRIVERS=`find /opt/weka/data -name "*.ko" | grep $(uname -r)`
+
+#  WEKA_DRIVER=`echo -n $ALL_DRIVERS | xargs -n1 echo | grep weka-driver-` # broke
+  # wekafs driver is the only that somehow keeps versioning betweeen data dir and spec.
+#  WEKAFS_BUILD_DIR=`echo -n $WEKA_DRIVER | sed -e 's/weka-driver-//g' -e 's/.squashfs//g'` # 1.0.0-995f26b334137fd78d57c264d5b19852
+
+  cp /opt/weka/data/weka_driver/${WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+  cp /opt/weka/data/weka_driver/${WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+
+  cp /opt/weka/data/igb_uio/${IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-$IGB_UIO_DRIVER_VERSION-`uname -r`.`uname -m`.ko
+  cp /opt/weka/data/mpin_user/${MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-$MPIN_USER_DRIVER_VERSION-`uname -r`.`uname -m`.ko
+  cp /opt/weka/data/uio_generic/${UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-$UIO_PCI_GENERIC_DRIVER_VERSION-`uname -r`.`uname -m`.ko
+}
+
+load_drivers(){
+  curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko ${DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko || return 1
+  curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko ${DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko || return 1
+  curl -fo /opt/weka/dist/drivers/igb_uio-$IGB_UIO_DRIVER_VERSION-`uname -r`.`uname -m`.ko ${DIST_SERVICE}/dist/v1/drivers/igb_uio-$IGB_UIO_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+  curl -fo /opt/weka/dist/drivers/mpin_user-$MPIN_USER_DRIVER_VERSION-`uname -r`.`uname -m`.ko ${DIST_SERVICE}/dist/v1/drivers/mpin_user-$MPIN_USER_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+  curl -fo /opt/weka/dist/drivers/uio_pci_generic-$UIO_PCI_GENERIC_DRIVER_VERSION-`uname -r`.`uname -m`.ko ${DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-$UIO_PCI_GENERIC_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+
+  lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko || return 1
+  lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko || return 1
+  lsmod | grep uio || modprobe uio
+  lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-$IGB_UIO_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+  lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-$MPIN_USER_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+  lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-$UIO_PCI_GENERIC_DRIVER_VERSION-`uname -r`.`uname -m`.ko || return 1
+}
+
+
+if [[ "$MODE" == "drivers-loader" ]]; then
+  while ! load_drivers; do
+    sleep 1
+    echo "Retrying drivers load"
+  done
+  echo "Drivers loaded successfully"
+  wait_for_shutdown
+  exit 0
+fi
+
+wait_for_agent() {
+  while ! [ -f /var/run/weka-agent.pid ]; do
+    sleep 1
+    echo "Waiting for weka-agent to start"
+  done
+}
+
+# weka container start
+
 while ! weka local ps; do
   log_message INFO "Waiting for agent to start"
   sleep 1
 done
 
+
 if [[ $(weka local ps | sed 1d | wc -l) != "0" ]]; then
   log_message INFO "Weka container already exists, doing nothing, as agent will start it"
+  if [[ "$MODE" == "dist" ]]; then
+    copy_drivers # this is getting out of hand, need completely separate scripts/set of functions with switch per case
+  fi
   wait_for_shutdown
   exit 0
 fi
 
 
+time wait_for_agent 2> >(log_pipe_err >&2) | log_pipe
 weka version set $(weka version | tee /dev/stderr) 2> >(log_pipe_err >&2) | log_pipe
 
+if [[ "$MODE" == "dist" ]]; then
+    weka version prepare `weka version current` || weka local setup container --name dist --net udp --base-port ${PORT}
+    copy_drivers
+    wait_for_shutdown
+    exit 0
+fi
+
+
 if [[ -z "${CORE_IDS}" || "$CORE_IDS" == "auto" ]]; then
-  log_fatal "CORE_IDS 'auto' is not supported yet. Please specify a comma-separated list of core ids to use."
+  if [[ "$MODE" != "dist" ]]; then
+    log_fatal "CORE_IDS 'auto' is not supported yet. Please specify a comma-separated list of core ids to use."
+  fi
 fi
 #
 #CURRENT_CORE=""
@@ -150,6 +228,7 @@ fi
 #    IFS=' ' read -r -a core_array <<< "$CORE_IDS"
 #fi
 
+
 # Differentiate between different execution modes
 case "$MODE" in
   "drive")
@@ -160,6 +239,14 @@ case "$MODE" in
     ;;
   "client")
     MODE_SELECTOR="--only-frontend-cores"
+    ;;
+  "dist")
+    echo "dist should not enter standard flow and handled earlier"
+    exit 1
+    ;;
+  "drivers-loader")
+    echo "drivers-loader should not enter standard flow and handled earlier"
+    exit 1
     ;;
   *)
     log_fatal "Invalid mode ($MODE) specified. Please use either 'drive', 'compute', 'client' only."
