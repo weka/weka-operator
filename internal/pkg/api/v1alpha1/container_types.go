@@ -1,7 +1,9 @@
 package v1alpha1
 
 import (
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -80,4 +82,30 @@ func (c CpuPolicy) IsValid() bool {
 
 func init() {
 	SchemeBuilder.Register(&WekaContainer{}, &WekaContainerList{})
+}
+
+func (w *WekaContainer) DriversReady() bool {
+	return meta.IsStatusConditionTrue(w.Status.Conditions, condition.CondEnsureDrivers)
+}
+
+func (w *WekaContainer) IsDistMode() bool {
+	return w.Spec.Mode == "dist"
+}
+
+func (w *WekaContainer) IsDriversLoaderMode() bool {
+	return w.Spec.Mode == "drivers-loader"
+}
+
+func (w *WekaContainer) SupportsEnsureDriversCondition() bool {
+	return !w.IsDistMode() && !w.IsDriversLoaderMode()
+}
+
+func (w *WekaContainer) InitEnsureDriversCondition() {
+	if !w.DriversReady() && w.SupportsEnsureDriversCondition() {
+		meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+			Type:    condition.CondEnsureDrivers,
+			Status:  metav1.ConditionFalse,
+			Message: "Init",
+		})
+	}
 }

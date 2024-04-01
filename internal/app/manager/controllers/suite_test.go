@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/zapr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	prettyconsole "github.com/thessem/zap-prettyconsole"
 	uzap "go.uber.org/zap"
 
 	"k8s.io/client-go/kubernetes/scheme"
@@ -60,8 +59,12 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	// logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true))
-	logger := zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
+	// Debug logger
+	// logger := zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
+
+	// Logger that drops/silences messages for unit testing
+	logger := zapr.NewLogger(uzap.NewNop())
+
 	logf.SetLogger(logger.WithName("test"))
 	TestCtx, testCancel = context.WithCancel(context.TODO())
 
@@ -98,6 +101,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = (NewWekaClusterController(k8sManager).SetupWithManager(k8sManager))
+	Expect(err).NotTo(HaveOccurred())
+
+	err = (NewContainerController(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

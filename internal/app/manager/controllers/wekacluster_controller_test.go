@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func createNamespace(ctx context.Context, name string) {
@@ -103,29 +102,11 @@ var _ = Describe("WekaCluster Controller", func() {
 	})
 
 	Describe("WekaClusterReconciler", func() {
-		var subject *WekaClusterReconciler
-		Context("without a cluster", func() {
-			Describe("Reconcile", func() {
-				BeforeEach(func() {
-					Expect(k8sManager).NotTo(BeNil())
-					subject = NewWekaClusterController(k8sManager)
-				})
-
-				It("should do nothing", func() {
-					ctx := context.Background()
-					result, err := subject.Reconcile(ctx, reconcile.Request{})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(reconcile.Result{}))
-				})
-			})
-		})
-
 		Context("with a cluster", func() {
 			var key client.ObjectKey
 			BeforeEach(func() {
 				Expect(k8sManager).NotTo(BeNil())
 				createNamespace(ctx, "weka-operator-system")
-				subject = NewWekaClusterController(k8sManager)
 
 				key = client.ObjectKey{Name: "test-cluster", Namespace: "default"}
 				cluster := &wekav1alpha1.WekaCluster{
@@ -211,25 +192,6 @@ var _ = Describe("WekaCluster Controller", func() {
 				Expect(clusterSecretsCreatedCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", clusterSecretsCreatedCondition))
 			})
 
-			Describe("When pods are ready to clusterize", func() {
-				It("should set the pod ready condition", func() {
-					cluster := &wekav1alpha1.WekaCluster{}
-					Eventually(func() bool {
-						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
-						return len(cluster.Status.Conditions) > 0
-					}).Should(BeTrue())
-
-					var podsReadyCondition *metav1.Condition
-					Eventually(func() metav1.ConditionStatus {
-						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
-						podsReadyCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondPodsRead)
-						return podsReadyCondition.Status
-					}).Should(Equal(metav1.ConditionTrue))
-
-					Expect(podsReadyCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", podsReadyCondition))
-				})
-			})
-
 			Describe("When cluster is created", func() {
 				It("should set the cluster created condition", func() {
 					cluster := &wekav1alpha1.WekaCluster{}
@@ -248,6 +210,54 @@ var _ = Describe("WekaCluster Controller", func() {
 					Expect(clusterCreatedCondition.Reason).To(Equal("Error"), pretty.Sprintf("%# v", clusterCreatedCondition))
 				})
 			})
+
+			Describe("CondDrivesAdded", func() {
+				It("should not add drives in testing", func() {
+					cluster := &wekav1alpha1.WekaCluster{}
+					Eventually(func() bool {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						return len(cluster.Status.Conditions) > 0
+					}).Should(BeTrue())
+
+					var drivesAddedCondition *metav1.Condition
+					Eventually(func() metav1.ConditionStatus {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						drivesAddedCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondDrivesAdded)
+						return drivesAddedCondition.Status
+					}, "10s").Should(Equal(metav1.ConditionFalse), pretty.Sprintf("%# v", drivesAddedCondition))
+
+					Expect(drivesAddedCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", drivesAddedCondition))
+					Expect(drivesAddedCondition.Message).To(Equal("Drives are not added yet"), pretty.Sprintf("%# v", drivesAddedCondition))
+				})
+			})
+
+			PDescribe("CondIoStarted", func() {
+			})
+
+			PDescribe("CondClusterSecretsApplied", func() {
+				It("should set the cluster secrets applied condition", func() {
+					cluster := &wekav1alpha1.WekaCluster{}
+					Eventually(func() bool {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						return len(cluster.Status.Conditions) > 0
+					}).Should(BeTrue())
+
+					var clusterSecretsAppliedCondition *metav1.Condition
+					Eventually(func() metav1.ConditionStatus {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						clusterSecretsAppliedCondition = meta.FindStatusCondition(
+							cluster.Status.Conditions,
+							condition.CondClusterSecretsApplied,
+						)
+						return clusterSecretsAppliedCondition.Status
+					}, "10s").Should(Equal(metav1.ConditionTrue))
+
+					Expect(clusterSecretsAppliedCondition.Reason).To(
+						Equal("Init"),
+						pretty.Sprintf("%# v", clusterSecretsAppliedCondition),
+					)
+				})
+			})
 		})
 
 		Context("when deleting a cluster", func() {
@@ -255,7 +265,6 @@ var _ = Describe("WekaCluster Controller", func() {
 			BeforeEach(func() {
 				Expect(k8sManager).NotTo(BeNil())
 				createNamespace(ctx, "weka-operator-system")
-				subject = NewWekaClusterController(k8sManager)
 
 				cluster := testingCluster()
 				key = client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}

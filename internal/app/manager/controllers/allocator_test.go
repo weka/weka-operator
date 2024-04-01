@@ -107,7 +107,7 @@ func TestAllocatePort(t *testing.T) {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 
-	printAsYaml(allocations)
+	// printAsYaml(allocations) // for debugging only
 }
 
 func printAsYaml(allocations *Allocations) {

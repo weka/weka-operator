@@ -85,12 +85,6 @@ func (status *WekaClusterStatus) InitStatus() {
 	})
 
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsRead,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "The pods for the custom resource are not ready yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:   condition.CondClusterSecretsCreated,
 		Status: metav1.ConditionFalse, Reason: "Init",
 		Message: "Secrets are not created yet",

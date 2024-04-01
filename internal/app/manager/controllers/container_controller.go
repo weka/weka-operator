@@ -65,12 +65,14 @@ type ContainerController struct {
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Logger.WithName("Reconcile")
-	logger.Info("ContainerController.Reconcile() called")
+	logger := r.Logger.WithName("Reconcile").WithValues("name", req.Name)
+	logger.Info("Enter")
+	defer logger.Info("Exit")
+
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("Container not found", "name", req.Name)
+			logger.Error(err, "Container not found", "name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error refreshing container")
@@ -305,9 +307,11 @@ func refreshContainer(r client.Reader, ctx context.Context, container *wekav1alp
 }
 
 func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
+	logger := r.Logger.WithName("refreshContainer")
 	container := &wekav1alpha1.WekaContainer{}
 	if err := r.Get(ctx, req.NamespacedName, container); err != nil {
-		return nil, errors.Wrap(err, "refreshContainer")
+		logger.Error(err, "Error refreshing container", "name", req.NamespacedName)
+		return nil, err
 	}
 	return container, nil
 }
@@ -343,6 +347,9 @@ func (r *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	log := r.Logger.WithName("ensureBootConfigMapInTargetNamespace")
+	log.Info("Enter", "container", container.Name)
+	defer log.Info("Exit", "container", container.Name)
+
 	bundledConfigMap := &v1.ConfigMap{}
 	podNamespace, err := util.GetPodNamespace()
 	if err != nil {
@@ -367,7 +374,8 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 			bootScripts.Name = bootScriptConfigName
 			bootScripts.Data = bundledConfigMap.Data
 			if err := r.Create(ctx, bootScripts); err != nil {
-				r.Logger.Error(err, "Error creating boot scripts config map")
+				log.Error(err, "Error creating boot scripts config map")
+				return err
 			}
 		}
 	}
@@ -375,7 +383,8 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 	if !util.IsEqualConfigMapData(bootScripts, bundledConfigMap) {
 		bootScripts.Data = bundledConfigMap.Data
 		if err := r.Update(ctx, bootScripts); err != nil {
-			r.Logger.Error(err, "Error updating boot scripts config map")
+			log.Error(err, "Error updating boot scripts config map")
+			return err
 		}
 	}
 	return nil
@@ -625,7 +634,10 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 		container.Status.Conditions = []metav1.Condition{}
 	}
 
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) && !slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+	// All container types are being set to False on init
+	// This includes types not listed here (beyond dist and drivers-loader)
+	// TODO: Is this expected?
+	if !container.DriversReady() && container.SupportsEnsureDriversCondition() {
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init"})
 		_ = r.Status().Update(ctx, container)
 	}
