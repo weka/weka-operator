@@ -17,58 +17,281 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
+
+	"github.com/kr/pretty"
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var _ = Describe("DummyCluster Controller", func() {
-	//Context("When reconciling a resource", func() {
-	//	const resourceName = "test-resource"
-	//
-	//	ctx := context.Background()
-	//
-	//	typeNamespacedName := types.NamespacedName{
-	//		Name:      resourceName,
-	//		Namespace: "default", // TODO(user):Modify as needed
-	//	}
-	//	dummycluster := &wekav1alpha1.DummyCluster{}
-	//
-	//	BeforeEach(func() {
-	//		By("creating the custom resource for the Kind DummyCluster")
-	//		err := k8sClient.Get(ctx, typeNamespacedName, dummycluster)
-	//		if err != nil && errors.IsNotFound(err) {
-	//			resource := &wekav1alpha1.DummyCluster{
-	//				ObjectMeta: metav1.ObjectMeta{
-	//					Name:      resourceName,
-	//					Namespace: "default",
-	//				},
-	//				// TODO(user): Specify other spec details if needed.
-	//			}
-	//			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-	//		}
-	//	})
-	//
-	//	AfterEach(func() {
-	//		// TODO(user): Cleanup logic after each test, like removing the resource instance.
-	//		resource := &wekav1alpha1.DummyCluster{}
-	//		err := k8sClient.Get(ctx, typeNamespacedName, resource)
-	//		Expect(err).NotTo(HaveOccurred())
-	//
-	//		By("Cleanup the specific resource instance DummyCluster")
-	//		Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-	//	})
-	//	It("should successfully reconcile the resource", func() {
-	//		By("Reconciling the created resource")
-	//		controllerReconciler := &WekaClusterReconciler{
-	//			Client: k8sClient,
-	//			Scheme: k8sClient.Scheme(),
-	//		}
-	//
-	//		_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-	//			NamespacedName: typeNamespacedName,
-	//		})
-	//		Expect(err).NotTo(HaveOccurred())
-	//		// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-	//		// Example: If you expect a certain status condition after reconciliation, verify it here.
-	//	})
-	//})
+func createNamespace(ctx context.Context, name string) {
+	key := client.ObjectKey{Name: name}
+	namespace := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+	if err := k8sClient.Get(ctx, key, namespace); err != nil {
+		if apierrors.IsNotFound(err) {
+			Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+		}
+	}
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, key, namespace)
+		return err == nil
+	})
+}
+
+func deleteNamespace(ctx context.Context, name string) {
+	key := client.ObjectKey{Name: name}
+	namespace := &v1.Namespace{}
+	Expect(k8sClient.Get(ctx, key, namespace)).To(Succeed())
+	Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, key, namespace)
+		return apierrors.IsNotFound(err)
+	})
+}
+
+func testingCluster() *wekav1alpha1.WekaCluster {
+	key := client.ObjectKey{Name: "test-cluster", Namespace: "default"}
+	cluster := &wekav1alpha1.WekaCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+		},
+		Spec: wekav1alpha1.WekaClusterSpec{
+			Size:     1,
+			Template: "test-template",
+			Topology: "discover_oci",
+			Image:    "test-image",
+		},
+	}
+	return cluster
+}
+
+var _ = Describe("WekaCluster Controller", func() {
+	var ctx context.Context
+	BeforeEach(func() {
+		ctx = context.Background()
+
+		Expect(k8sManager).NotTo(BeNil())
+	})
+
+	_ = Describe("NewWekaClusterReconciler", func() {
+		var subject *WekaClusterReconciler
+		BeforeEach(func() {
+			Expect(k8sManager).NotTo(BeNil())
+			subject = NewWekaClusterController(k8sManager)
+		})
+		It("should return a new WekaClusterReconciler", func() {
+			Expect(subject).NotTo(BeNil())
+			Expect(subject.Client).NotTo(BeNil())
+			Expect(subject.Scheme).NotTo(BeNil())
+			Expect(subject.Logger).NotTo(BeNil())
+			Expect(subject.Recorder).NotTo(BeNil())
+		})
+	})
+
+	Describe("WekaClusterReconciler", func() {
+		var subject *WekaClusterReconciler
+		Context("without a cluster", func() {
+			Describe("Reconcile", func() {
+				BeforeEach(func() {
+					Expect(k8sManager).NotTo(BeNil())
+					subject = NewWekaClusterController(k8sManager)
+				})
+
+				It("should do nothing", func() {
+					ctx := context.Background()
+					result, err := subject.Reconcile(ctx, reconcile.Request{})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(reconcile.Result{}))
+				})
+			})
+		})
+
+		Context("with a cluster", func() {
+			var key client.ObjectKey
+			BeforeEach(func() {
+				Expect(k8sManager).NotTo(BeNil())
+				createNamespace(ctx, "weka-operator-system")
+				subject = NewWekaClusterController(k8sManager)
+
+				key = client.ObjectKey{Name: "test-cluster", Namespace: "default"}
+				cluster := &wekav1alpha1.WekaCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      key.Name,
+						Namespace: key.Namespace,
+					},
+					Spec: wekav1alpha1.WekaClusterSpec{
+						Size:     1,
+						Template: "test-template",
+						Topology: "discover_oci",
+						Image:    "test-image",
+					},
+				}
+
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)
+				}).Should(Succeed())
+			})
+
+			AfterEach(func() {
+				Expect(key.Name).NotTo(BeEmpty())
+				cluster := &wekav1alpha1.WekaCluster{}
+				if err := k8sClient.Get(ctx, key, cluster); err == nil {
+					Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+				}
+
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, key, cluster)
+					return apierrors.IsNotFound(err)
+				}).Should(BeTrue())
+				deleteNamespace(ctx, "weka-operator-system")
+			})
+
+			It("should set a finalizer", func() {
+				cluster := &wekav1alpha1.WekaCluster{}
+				Eventually(func() bool {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					return controllerutil.ContainsFinalizer(cluster, WekaFinalizer)
+				}).Should(BeTrue())
+			})
+
+			It("should initialize the status", func() {
+				cluster := &wekav1alpha1.WekaCluster{}
+				Eventually(func() bool {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					return len(cluster.Status.Conditions) > 0
+				}).Should(BeTrue())
+			})
+
+			It("should create pods", func() {
+				cluster := &wekav1alpha1.WekaCluster{}
+				Eventually(func() bool {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					return len(cluster.Status.Conditions) > 0
+				}).Should(BeTrue())
+
+				var podsCreatedCondition *metav1.Condition
+				Eventually(func() metav1.ConditionStatus {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					podsCreatedCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondPodsCreated)
+					return podsCreatedCondition.Status
+				}).Should(Equal(metav1.ConditionTrue), pretty.Sprintf("%# v", podsCreatedCondition))
+
+				Expect(podsCreatedCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", podsCreatedCondition))
+			})
+
+			It("should generate login credentials", func() {
+				cluster := &wekav1alpha1.WekaCluster{}
+				Eventually(func() bool {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					return len(cluster.Status.Conditions) > 0
+				}).Should(BeTrue())
+
+				var clusterSecretsCreatedCondition *metav1.Condition
+				Eventually(func() metav1.ConditionStatus {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					clusterSecretsCreatedCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondClusterSecretsCreated)
+					return clusterSecretsCreatedCondition.Status
+				}).Should(Equal(metav1.ConditionTrue))
+
+				Expect(clusterSecretsCreatedCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", clusterSecretsCreatedCondition))
+			})
+
+			Describe("When pods are ready to clusterize", func() {
+				It("should set the pod ready condition", func() {
+					cluster := &wekav1alpha1.WekaCluster{}
+					Eventually(func() bool {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						return len(cluster.Status.Conditions) > 0
+					}).Should(BeTrue())
+
+					var podsReadyCondition *metav1.Condition
+					Eventually(func() metav1.ConditionStatus {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						podsReadyCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondPodsRead)
+						return podsReadyCondition.Status
+					}).Should(Equal(metav1.ConditionTrue))
+
+					Expect(podsReadyCondition.Reason).To(Equal("Init"), pretty.Sprintf("%# v", podsReadyCondition))
+				})
+			})
+
+			Describe("When cluster is created", func() {
+				It("should set the cluster created condition", func() {
+					cluster := &wekav1alpha1.WekaCluster{}
+					Eventually(func() bool {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						return len(cluster.Status.Conditions) > 0
+					}).Should(BeTrue())
+
+					var clusterCreatedCondition *metav1.Condition
+					Eventually(func() string {
+						Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+						clusterCreatedCondition = meta.FindStatusCondition(cluster.Status.Conditions, condition.CondClusterCreated)
+						return clusterCreatedCondition.Reason
+					}, "10s").Should(Equal("Error"), pretty.Sprintf("%# v", clusterCreatedCondition))
+
+					Expect(clusterCreatedCondition.Reason).To(Equal("Error"), pretty.Sprintf("%# v", clusterCreatedCondition))
+				})
+			})
+		})
+
+		Context("when deleting a cluster", func() {
+			var key client.ObjectKey
+			BeforeEach(func() {
+				Expect(k8sManager).NotTo(BeNil())
+				createNamespace(ctx, "weka-operator-system")
+				subject = NewWekaClusterController(k8sManager)
+
+				cluster := testingCluster()
+				key = client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}
+				Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)
+				}).Should(Succeed())
+			})
+
+			AfterEach(func() {
+				Expect(key.Name).NotTo(BeEmpty())
+				cluster := &wekav1alpha1.WekaCluster{}
+				if err := k8sClient.Get(ctx, key, cluster); err == nil {
+					Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+				}
+
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, key, cluster)
+					return apierrors.IsNotFound(err)
+				}).Should(BeTrue())
+				deleteNamespace(ctx, "weka-operator-system")
+			})
+
+			It("should remove finalizer", func() {
+				cluster := &wekav1alpha1.WekaCluster{}
+				Eventually(func() bool {
+					Expect(k8sClient.Get(ctx, key, cluster)).To(Succeed())
+					return controllerutil.ContainsFinalizer(cluster, WekaFinalizer)
+				}).Should(BeTrue())
+
+				Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
+
+				Eventually(func() bool {
+					return apierrors.IsNotFound(k8sClient.Get(ctx, key, cluster))
+				}).Should(BeTrue())
+			})
+		})
+	})
 })

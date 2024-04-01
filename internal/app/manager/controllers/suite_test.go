@@ -14,11 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package disabled
+package controllers
 
 import (
 	"context"
-	"github.com/weka/weka-operator/internal/app/manager/controllers"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -70,6 +70,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("bootstrapping test environment")
+	Expect(os.Setenv("OPERATOR_DEV_MODE", "true")).To(Succeed())
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
@@ -96,13 +97,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (NewClusterReconciler(k8sManager).SetupWithManager(k8sManager))
-	Expect(err).NotTo(HaveOccurred())
-
-	err = (NewBackendReconciler(k8sManager).SetupWithManager(k8sManager))
-	Expect(err).NotTo(HaveOccurred())
-
-	err = (controllers.NewContainerController(k8sManager).SetupWithManager(k8sManager))
+	err = (NewWekaClusterController(k8sManager).SetupWithManager(k8sManager))
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
