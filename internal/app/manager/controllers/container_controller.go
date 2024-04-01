@@ -117,7 +117,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
+		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
@@ -142,13 +143,28 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// pre-clusterize
-	result, err = r.reconcileStatus(ctx, container, actualPod)
-	if err != nil {
-		logger.Error(err, "Error reconciling status", "name", container.Name)
-		return ctrl.Result{}, err
+	if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+		result, err = r.reconcileStatus(ctx, container, actualPod)
+		if err != nil {
+			logger.Error(err, "Error reconciling status", "name", container.Name)
+			return ctrl.Result{}, err
+		}
+		if result.Requeue {
+			return result, nil
+		}
 	}
-	if result.Requeue {
-		return result, nil
+
+	if container.Spec.Mode == "drivers-loader" {
+		err := r.checkIfLoaderFinished(ctx, actualPod)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Second * 3, Requeue: true}, err
+		} else {
+			// if drivers loaded we can delete this weka container
+			err := r.Delete(ctx, container)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 	}
 
 	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
@@ -167,7 +183,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			r.Logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
-
 		}
 	}
 
@@ -232,8 +247,8 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
 	}
-	logger := r.Logger.WithName("reconcileStatus")
-	logger.Info("Reconciling status", "name", container.Name)
+	logger := r.Logger.WithName(fmt.Sprintf("reconcileStatus-%s", container.Name))
+	logger.Info("Reconciling status")
 
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
@@ -352,6 +367,8 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 }
 
 func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
+	logger := r.Logger.WithName(fmt.Sprintf("reconcileClusterStatus-%s", container.Name))
+	logger.Info("Reconciling cluster status")
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
 		return true, nil
@@ -592,7 +609,7 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 		container.Status.Conditions = []metav1.Condition{}
 	}
 
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) && !slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init"})
 		_ = r.Status().Update(ctx, container)
 	}
@@ -689,4 +706,21 @@ func (r *ContainerController) initSignAwsDrives(ctx context.Context, executor *u
 		return err
 	}
 	return nil
+}
+
+func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return err
+	}
+	cmd := "cat /tmp/weka-drivers-loader"
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		r.Logger.Error(err, "Error checking if loader finished", "stderr", stderr.String)
+		return err
+	}
+	if strings.TrimSpace(stdout.String()) == "drivers_loaded" {
+		return nil
+	}
+	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
 }
