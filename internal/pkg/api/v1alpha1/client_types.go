@@ -35,34 +35,28 @@ type AgentContainerSpec struct {
 	Debug bool `json:"debug,omitempty"`
 }
 
-// ClientSpec defines the desired state of Client
+// ClientSpec defines the desired state of WekaClient
 type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Example: 4.2.6.3212-61e9145d99a867bf6aab053cd75ea77f
-	// +kubebuilder:validation:Pattern=`^([0-9]{1,3}\.){2}[0-9]{1,3}(\..*)?$`
-	Version string `json:"version,omitempty"`
-
-	// +kubebuilder:default:="quay.io/weka.io/weka-in-container"
-	// +optional
-	Image string `json:"image,omitempty"`
-
-	BackendIP          string `json:"backendIP,omitempty"`
-	ManagementPortBase int32  `json:"managementPortBase,omitempty"`
-	InterfaceName      string `json:"interfaceName,omitempty"`
-
-	ImagePullSecretName string `json:"imagePullSecretName,omitempty"`
-
-	Client ClientContainerSpec `json:"client,omitempty"`
-	Agent  AgentContainerSpec  `json:"agent,omitempty"`
+	// Used in new format
+	Image              string            `json:"image"`
+	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
+	Port               int               `json:"port,omitempty"`
+	AgentPort          int               `json:"agentPort,omitempty"`
+	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
+	WekaSecretRef      string            `json:"wekaSecretRef,omitempty"`
+	NetworkSelector    NetworkSelector   `json:"network,omitempty"`
+	DriversDistService string            `json:"driversDistService,omitempty"`
+	JoinIps            []string          `json:"joinIpPorts,omitempty"`
 
 	WekaUsername corev1.EnvVarSource `json:"wekaUsername,omitempty"`
 	WekaPassword corev1.EnvVarSource `json:"wekaPassword,omitempty"`
 	WekaOrg      string              `json:"wekaOrg,omitempty"`
 }
 
-// ClientStatus defines the observed state of Client
+// ClientStatus defines the observed state of WekaClient
 type ClientStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -161,8 +155,8 @@ func (s *ClientStatus) SetCondition(condition metav1.Condition) {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// Client is the Schema for the clients API
-type Client struct {
+// WekaClient is the Schema for the clients API
+type WekaClient struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
@@ -172,13 +166,13 @@ type Client struct {
 
 //+kubebuilder:object:root=true
 
-// ClientList contains a list of Client
-type ClientList struct {
+// WekaClientList contains a list of WekaClient
+type WekaClientList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Client `json:"items"`
+	Items           []WekaClient `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Client{}, &ClientList{})
+	SchemeBuilder.Register(&WekaClient{}, &WekaClientList{})
 }

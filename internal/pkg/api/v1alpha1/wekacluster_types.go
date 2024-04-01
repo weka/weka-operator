@@ -32,12 +32,13 @@ type WekaClusterSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of WekaCluster. Edit dummycluster_types.go to remove/update
-	Size               int    `json:"size"`
-	Template           string `json:"template"`
-	Topology           string `json:"topology"`
-	Image              string `json:"image"`
-	ImagePullSecret    string `json:"imagePullSecret,omitempty"`
-	DriversDistService string `json:"driversDistService,omitempty"`
+	Size               int               `json:"size"`
+	Template           string            `json:"template"`
+	Topology           string            `json:"topology"`
+	Image              string            `json:"image"`
+	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
+	DriversDistService string            `json:"driversDistService,omitempty"`
+	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster

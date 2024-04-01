@@ -230,6 +230,8 @@ fi
 
 
 # Differentiate between different execution modes
+CLI=weka
+JOIN_IPS_BLOCK=""
 case "$MODE" in
   "drive")
     MODE_SELECTOR="--only-drives-cores"
@@ -239,6 +241,7 @@ case "$MODE" in
     ;;
   "client")
     MODE_SELECTOR="--only-frontend-cores"
+    JOIN_IPS_BLOCK="--join-ips ${JOIN_IPS}"
     ;;
   "dist")
     echo "dist should not enter standard flow and handled earlier"
@@ -254,8 +257,8 @@ case "$MODE" in
 esac
 
 log_message INFO "Starting weka container with the following configuration:"
-log_message INFO weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS}
-weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} 2> >(log_pipe >&2) | log_pipe
+log_message INFO weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} ${JOIN_IPS_BLOCK}
+weka local setup container --name ${NAME} --no-start --net ${NETWORK_DEVICE} --cores ${CORES} ${MODE_SELECTOR} --base-port ${PORT} --memory ${MEMORY} --core-ids ${CORE_IDS} ${JOIN_IPS_BLOCK} 2> >(log_pipe >&2) | log_pipe
 weka local resources --json | jq ".reserve_1g_hugepages=false" > /tmp/new_resources.json
 weka local resources import --force /tmp/new_resources.json
 weka local resources apply --force

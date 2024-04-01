@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -13,6 +14,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"strings"
 )
 
 type Exec struct {
@@ -105,6 +107,11 @@ func GetPodNamespace() string {
 		log.Fatalf("Failed to get Pod namespace: %v", err)
 	}
 	return string(namespace)
+}
+
+func GetLastGuidPart(uid types.UID) string {
+	guidLastPart := string(uid[strings.LastIndex(string(uid), "-")+1:])
+	return guidLastPart
 }
 
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {

@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const wekaContainerFinalizer = "weka.weka.io/finalizer"
+const WekaFinalizer = "weka.weka.io/finalizer"
 
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
@@ -210,7 +210,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
-	if controllerutil.ContainsFinalizer(wekaCluster, wekaContainerFinalizer) {
+	if controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 		r.Logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
 		// Perform all operations required before remove the finalizer and allow
@@ -221,7 +221,7 @@ func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster 
 		}
 
 		r.Logger.Info("Removing Finalizer for wekaCluster after successfully perform the operations")
-		if ok := controllerutil.RemoveFinalizer(wekaCluster, wekaContainerFinalizer); !ok {
+		if ok := controllerutil.RemoveFinalizer(wekaCluster, WekaFinalizer); !ok {
 			err := errors.New("Failed to remove finalizer for wekaCluster")
 			return err
 		}
@@ -236,7 +236,7 @@ func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster 
 }
 
 func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
-	if !controllerutil.ContainsFinalizer(wekaCluster, wekaContainerFinalizer) {
+	if !controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 
 		wekaCluster.Status.Conditions = []metav1.Condition{}
 
@@ -260,7 +260,7 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: condition.CondClusterCreated,
 			Status: metav1.ConditionFalse, Reason: "Init",
-			Message: "Secrets are not applied yet"})
+			Message: "Cluster is not formed yet"})
 
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: condition.CondDrivesAdded,
 			Status: metav1.ConditionFalse, Reason: "Init",
@@ -276,7 +276,7 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 		}
 
 		r.Logger.Info("Adding Finalizer for weka cluster")
-		if ok := controllerutil.AddFinalizer(wekaCluster, wekaContainerFinalizer); !ok {
+		if ok := controllerutil.AddFinalizer(wekaCluster, WekaFinalizer); !ok {
 			r.Logger.Info("Failed to add finalizer for wekaCluster")
 			return errors.New("Failed to add finalizer for wekaCluster")
 		}
@@ -322,7 +322,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 	if cluster.Spec.Topology == "" {
 		return nil
 	}
-	topology, err := Topologies[cluster.Spec.Topology](ctx, r)
+	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 
 	foundContainers := []*wekav1alpha1.WekaContainer{}
 	template := WekaClusterTemplates[cluster.Spec.Template]
-	topology, err := Topologies[cluster.Spec.Topology](ctx, r)
+	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
 	allocator := NewAllocator(r.Logger, topology)
 	allocMap, err, changed := allocator.Allocate(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, template, allocMap, cluster.Spec.Size)
 	if err != nil {

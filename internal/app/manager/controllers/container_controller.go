@@ -48,9 +48,9 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=clients/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/finalizers,verbs=update
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/finalizers,verbs=update
@@ -621,9 +621,13 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	pod, err := r.refreshPod(ctx, container)
+	if err != nil {
+		return err
+	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "weka-drivers-loader-" + container.Spec.NodeAffinity,
+			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
 			Namespace: "weka-operator-system",
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
@@ -637,7 +641,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	}
 
 	found := &wekav1alpha1.WekaContainer{}
-	err := r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
+	err = r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			err = r.Create(ctx, loaderContainer)

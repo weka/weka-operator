@@ -6,11 +6,11 @@ import (
 )
 
 type ClientRecorder struct {
-	Client   *wekav1alpha1.Client
+	Client   *wekav1alpha1.WekaClient
 	Recorder record.EventRecorder
 }
 
-func NewClientRecorder(c *wekav1alpha1.Client, recorder record.EventRecorder) *ClientRecorder {
+func NewClientRecorder(c *wekav1alpha1.WekaClient, recorder record.EventRecorder) *ClientRecorder {
 	return &ClientRecorder{c, recorder}
 }
 

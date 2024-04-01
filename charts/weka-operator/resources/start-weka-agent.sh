@@ -139,7 +139,7 @@ if [[ "$MODE" != "dist" ]]; then
         log_message INFO "Driver $driver not loaded, refusing to start agent and waiting for drivers to load"
         break
       fi
-      echo "driver $driver was fond"
+      echo "driver $driver was found"
     done
     if [[ $notLoaded == "1" ]]; then
       sleep 1

@@ -20,7 +20,7 @@ func NewProcessListReconciler(c *ClientReconciler, executor Executor) *ProcessLi
 	return &ProcessListReconciler{c, executor}
 }
 
-func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.Client) (ctrl.Result, error) {
+func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
 	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling process list")
 	stdout, stderr, err := r.Executor.Exec(ctx, []string{"/usr/bin/weka", "local", "ps", "-J"})
 	var podNotFound *PodNotFound
@@ -57,6 +57,6 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 	return ctrl.Result{}, nil
 }
 
-func (r *ProcessListReconciler) recorder(client *wekav1alpha1.Client) *ClientRecorder {
+func (r *ProcessListReconciler) recorder(client *wekav1alpha1.WekaClient) *ClientRecorder {
 	return NewClientRecorder(client, r.Recorder)
 }

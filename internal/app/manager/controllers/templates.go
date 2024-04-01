@@ -106,17 +106,17 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 	},
 }
 
-type topologyGetter func(ctx context.Context, reader client.Reader) (Topology, error)
+type topologyGetter func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error)
 
 var Topologies = map[string]topologyGetter{
-	"dev_wekabox": func(ctx context.Context, reader client.Reader) (Topology, error) {
+	"dev_wekabox": func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 		return DevboxWekabox, nil
 	},
 	"discover_oci":        getOciDev,
 	"discover_aws_i3en6x": getAwsI3en6x,
 }
 
-func getOciDev(ctx context.Context, reader client.Reader) (Topology, error) {
+func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 	// get nodes via reader
 	nodeNames, err := getNodeNames(ctx, reader)
 	if err != nil {
@@ -131,9 +131,9 @@ func getOciDev(ctx context.Context, reader client.Reader) (Topology, error) {
 	}, nil
 }
 
-func getAwsI3en6x(ctx context.Context, reader client.Reader) (Topology, error) {
+func getAwsI3en6x(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 	// get nodes via reader
-	nodeNames, err := getNodeByAwsType(ctx, reader, "i3en.6xlarge")
+	nodeNames, err := getNodeByAwsType(ctx, reader, "i3en.6xlarge", nodeSelector)
 	if err != nil {
 		return Topology{}, err
 	}
@@ -158,13 +158,41 @@ func getNodeNames(ctx context.Context, reader client.Reader) ([]string, error) {
 	return nodeNames, nil
 }
 
-func getNodeByAwsType(ctx context.Context, reader client.Reader, instanceType string) ([]string, error) {
+func getNodesByLabels(ctx context.Context, reader client.Reader, selector map[string]string) ([]string, error) {
 	nodes := &v1.NodeList{}
+	labels := client.MatchingLabels{}
+	if selector != nil {
+		for k, v := range selector {
+			labels[k] = v
+		}
+	}
 	listOpts := []client.ListOption{
-		client.MatchingLabels{"node.kubernetes.io/instance-type": instanceType},
+		labels,
 	}
 
-	if err := reader.List(context.Background(), nodes, listOpts...); err != nil {
+	if err := reader.List(ctx, nodes, listOpts...); err != nil {
+		return nil, err
+	}
+	var nodeNames []string
+	for _, node := range nodes.Items {
+		nodeNames = append(nodeNames, node.Name)
+	}
+	return nodeNames, nil
+}
+
+func getNodeByAwsType(ctx context.Context, reader client.Reader, instanceType string, selector map[string]string) ([]string, error) {
+	nodes := &v1.NodeList{}
+	labels := client.MatchingLabels{"node.kubernetes.io/instance-type": instanceType}
+	if selector != nil {
+		for k, v := range selector {
+			labels[k] = v
+		}
+	}
+	listOpts := []client.ListOption{
+		labels,
+	}
+
+	if err := reader.List(ctx, nodes, listOpts...); err != nil {
 		return nil, err
 	}
 	var nodeNames []string

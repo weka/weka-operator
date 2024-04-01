@@ -97,7 +97,7 @@ func main() {
 	}
 
 	if err = (controllers.NewClientReconciler(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Client")
+		setupLog.Error(err, "unable to create controller", "controller", "WekaClient")
 		os.Exit(1)
 	}
 	//if err = (disabled.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
