@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/part-of: weka-operator
     control-plane: controller-manager
   name: "{{ .Values.prefix }}-controller-manager-metrics-service"
-  namespace: "{{ .Values.prefix }}-system"
+  namespace: "{{ .Release.Namespace }}"
 spec:
   ports:
     - name: https
