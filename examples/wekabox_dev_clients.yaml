@@ -1,0 +1,12 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+spec:
+  image: localhost:30000/weka-in-container:4.2.7.64-k8so-beta.10
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-cluster-cluster-dev
+  joinIpPorts: ["10.222.98.2:16101"]
+  network:
+    ethDevice: mlnx0

@@ -53,7 +53,6 @@ type ClientReconciler struct {
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
-	Builder        *resources.Builder
 	ConditionReady *condition.Ready
 
 	Logger logr.Logger
@@ -375,8 +374,11 @@ func (r *ClientReconciler) ensureWekaContainers(ctx context.Context, wekaClient 
 	}
 
 	for _, node := range nodes {
-		wekaContainer := r.buildClientWekaContainer(wekaClient, node)
-		err := ctrl.SetControllerReference(wekaClient, wekaContainer, r.Scheme)
+		wekaContainer, err := r.buildClientWekaContainer(wekaClient, node)
+		if err != nil {
+			return ctrl.Result{}, nil, err
+		}
+		err = ctrl.SetControllerReference(wekaClient, wekaContainer, r.Scheme)
 		if err != nil {
 			return ctrl.Result{Requeue: true}, nil, err
 		}
@@ -398,11 +400,15 @@ func (r *ClientReconciler) ensureWekaContainers(ctx context.Context, wekaClient 
 	return ctrl.Result{}, foundContainers, nil
 }
 
-func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.WekaClient, node string) *wekav1alpha1.WekaContainer {
+func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
 	//clientRandomPart, err := password.Generate(10, 3, 0, true, true)
 	//if err != nil {
 	//	return nil, err
 	//}
+	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
+	if err != nil {
+		return nil, err
+	}
 
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -415,18 +421,16 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:      node,
-			Port:              wekaClient.Spec.Port,
-			AgentPort:         wekaClient.Spec.AgentPort,
-			Image:             wekaClient.Spec.Image,
-			ImagePullSecret:   wekaClient.Spec.ImagePullSecret,
-			WekaContainerName: fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
-			Mode:              "client",
-			NumCores:          1,
-			CoreIds:           []int{3},
-			Network: wekav1alpha1.Network{
-				UdpMode: true,
-			},
+			NodeAffinity:       node,
+			Port:               wekaClient.Spec.Port,
+			AgentPort:          wekaClient.Spec.AgentPort,
+			Image:              wekaClient.Spec.Image,
+			ImagePullSecret:    wekaClient.Spec.ImagePullSecret,
+			WekaContainerName:  fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
+			Mode:               "client",
+			NumCores:           1,
+			CoreIds:            []int{3},
+			Network:            network,
 			Hugepages:          1600,
 			HugepagesSize:      "2Mi",
 			WekaSecretRef:      v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
@@ -434,7 +438,7 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 			JoinIps:            wekaClient.Spec.JoinIps,
 		},
 	}
-	return container
+	return container, nil
 }
 
 func GetClient(ctx context.Context, req ctrl.Request, r client.Reader, logger logr.Logger) (*wekav1alpha1.WekaClient, error) {

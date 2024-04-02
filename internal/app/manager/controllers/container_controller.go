@@ -686,7 +686,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 			r.Logger.Error(err, "Error parsing slot", "slot", slot)
 			return drive
 		}
-		cmd := fmt.Sprintf("lspci -d 1d0f:cd01 | awk '{print $1}' | head -n" + strconv.Itoa(slotInt+1) +
+		cmd := fmt.Sprintf("lspci -d 1d0f:cd01 | sort | awk '{print $1}' | head -n" + strconv.Itoa(slotInt+1) +
 			" | tail -n1")
 		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 		if err != nil {

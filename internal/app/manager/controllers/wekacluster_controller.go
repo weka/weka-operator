@@ -358,15 +358,15 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 		return err
 	}
 	allocator := NewAllocator(r.Logger, topology)
-	allocMap, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
 		r.Logger.Error(err, "Failed to get alloc map")
 		return err
 	}
 
-	changed := allocator.DeallocateCluster(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocMap)
+	changed := allocator.DeallocateCluster(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
 	if changed {
-		if err := r.UpdateAllocationMap(ctx, allocMap, allocConfigMap); err != nil {
+		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
 			r.Logger.Error(err, "Failed to update alloc map")
 			return err
 		}
@@ -379,8 +379,9 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 }
 
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	allocMap, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
+		r.Logger.Error(err, "could not init allocmap")
 		return nil, err
 	}
 
@@ -388,12 +389,12 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	template := WekaClusterTemplates[cluster.Spec.Template]
 	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
 	allocator := NewAllocator(r.Logger, topology)
-	allocMap, err, changed := allocator.Allocate(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, template, allocMap, cluster.Spec.Size)
+	allocations, err, changed := allocator.Allocate(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, template, allocations, cluster.Spec.Size)
 	if err != nil {
 		return nil, err
 	}
 	if changed {
-		if err := r.UpdateAllocationMap(ctx, allocMap, allocConfigMap); err != nil {
+		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
 			return nil, err
 		}
 	}
@@ -411,7 +412,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 				fmt.Sprintf("%s%d", role, i), role,
 			} // apparently need helper function with a role.
 
-			ownedResources, _ := GetOwnedResources(owner, allocMap)
+			ownedResources, _ := GetOwnedResources(owner, allocations)
 			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				return err
@@ -441,9 +442,12 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	return foundContainers, nil
 }
 
-func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (AllocationsMap, *v1.ConfigMap, error) {
+func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*Allocations, *v1.ConfigMap, error) {
 	// fetch alloc map from configmap
-	allocMap := AllocationsMap{}
+	allocations := &Allocations{
+		NodeMap: AllocationsMap{},
+	}
+	allocMap := allocations.NodeMap
 	yamlData, err := yaml.Marshal(&allocMap)
 
 	allocMapConfigMap := &v1.ConfigMap{}
@@ -467,12 +471,12 @@ func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (Allocati
 		if err != nil {
 			return nil, nil, err
 		}
-		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocMap)
+		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocations)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	return allocMap, allocMapConfigMap, nil
+	return allocations, allocMapConfigMap, nil
 }
 
 func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
@@ -492,14 +496,9 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 		hugePagesNum = template.ComputeHugepages
 	}
 
-	network := wekav1alpha1.Network{}
-	// These are on purpose different types
-	// Network selector might be "Aws" or "auto" and that will prepare EthDevice for container-level, which will be simpler
-	if topology.Network.EthDevice != "" {
-		network.EthDevice = topology.Network.EthDevice
-	}
-	if topology.Network.UdpMode {
-		network.UdpMode = true
+	network, err := resources.GetContainerNetwork(topology.Network)
+	if err != nil {
+		return nil, err
 	}
 
 	potentialDrives := ownedResources.Drives[:]
@@ -575,6 +574,14 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
 	}
 	r.Logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
+
+	// update cluster name
+	clusterName := cluster.GetUID()
+	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
+	_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
+	}
 
 	if err := r.Status().Update(ctx, cluster); err != nil {
 		return errors.Wrap(err, "Failed to update wekaCluster status")
@@ -683,8 +690,8 @@ func (r *WekaClusterReconciler) isContainersReady(containers []*wekav1alpha1.Wek
 	return true, nil
 }
 
-func (r *WekaClusterReconciler) UpdateAllocationMap(ctx context.Context, allocMap AllocationsMap, configMap *v1.ConfigMap) error {
-	yamlData, err := yaml.Marshal(&allocMap)
+func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, allocations *Allocations, configMap *v1.ConfigMap) error {
+	yamlData, err := yaml.Marshal(&allocations)
 	if err != nil {
 		return err
 	}

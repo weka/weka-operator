@@ -38,7 +38,9 @@ func TestAllocatePort(t *testing.T) {
 		},
 	}
 
-	allocMap := AllocationsMap{}
+	allocations := &Allocations{
+		NodeMap: AllocationsMap{},
+	}
 
 	template := ClusterTemplate{
 		DriveCores:        1,
@@ -52,8 +54,8 @@ func TestAllocatePort(t *testing.T) {
 	allocator := NewAllocator(log, testTopology)
 
 	owner.ClusterName = "a"
-	newMap, err, _ := allocator.Allocate(owner, template, allocMap, 1)
-	newMap, err, changed := allocator.Allocate(owner, template, allocMap, 1)
+	newMap, err, _ := allocator.Allocate(owner, template, allocations, 1)
+	newMap, err, changed := allocator.Allocate(owner, template, allocations, 1)
 	if err != nil {
 		t.Errorf("re-allocate should not fail: %v", err)
 	}
@@ -66,7 +68,7 @@ func TestAllocatePort(t *testing.T) {
 
 	// ensure that all 10 hosts are filled
 	for i, node := range testTopology.Nodes {
-		nodeAlloc := newMap[NodeName(node)]
+		nodeAlloc := newMap.NodeMap[NodeName(node)]
 		freeDrives := nodeAlloc.GetFreeDrives(testTopology.Drives)
 		if len(freeDrives) == len(testTopology.Drives) {
 			t.Errorf("Node %d is not filled", i)
@@ -98,10 +100,10 @@ func TestAllocatePort(t *testing.T) {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 
-	printAsYaml(newMap)
+	printAsYaml(allocations)
 }
 
-func printAsYaml(newMap AllocationsMap) {
-	data, _ := yaml.Marshal(newMap)
+func printAsYaml(allocations *Allocations) {
+	data, _ := yaml.Marshal(allocations)
 	fmt.Println(string(data))
 }
