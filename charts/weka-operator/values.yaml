@@ -4,11 +4,11 @@
 # Declare variables to be passed into your templates.
 
 # Prefix for all resources created by the operator
-prefix: "{{ .Release.Name }}"
+prefix: "weka-operator"
 
 image:
   repository: quay.io/weka.io/weka-operator
-  tag: "{{ .Chart.Version }}"
+  tag: 0.40.0
 
 imagePullSecret: quay-cred
 deployController: true
