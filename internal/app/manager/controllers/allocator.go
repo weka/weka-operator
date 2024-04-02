@@ -69,6 +69,42 @@ func (o Owner) IsSameOwner(owner Owner) bool {
 	return true
 }
 
+func (c Owner) ToOwnerRole() OwnerRole {
+	return OwnerRole{
+		OwnerCluster: c.OwnerCluster,
+		Role:         c.Role,
+	}
+}
+
+type OwnerRole struct {
+	OwnerCluster
+	Role string
+}
+
+// MarshalYAML implements the yaml.Marshaler interface for CustomType.
+func (c OwnerRole) MarshalYAML() (interface{}, error) {
+	return fmt.Sprintf("%s;%s;%s", c.ClusterName, c.Namespace, c.Role), nil
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface for CustomType.
+func (c *OwnerRole) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Temporary variable to hold the combined value during unmarshalling.
+	var combined string
+	if err := unmarshal(&combined); err != nil {
+		return err
+	}
+
+	// Custom unmarshalling logic to split the combined string back into FieldA and FieldB.
+	parts := strings.Split(combined, ";")
+	if len(parts) != 3 {
+		return fmt.Errorf("invalid OwnerRole format: %s", combined)
+	}
+	c.ClusterName = parts[0]
+	c.Namespace = parts[1]
+	c.Role = parts[2]
+	return nil
+}
+
 type NodeAllocations struct {
 	Cpu                map[Owner][]int
 	Drives             map[Owner][]string
@@ -148,6 +184,35 @@ CPULOOP:
 	return freeCpus
 }
 
+func (n *NodeAllocations) AllocateClusterWideRolePort(owner OwnerRole, port int, step int, ports AllocRoleMap) {
+	if _, ok := ports[owner]; ok {
+		return
+	}
+	allocatedList := []int{}
+	for _, allocatedPort := range ports {
+		allocatedList = append(allocatedList, allocatedPort)
+	}
+	slices.Sort(allocatedList)
+
+	scanPosition := 0
+OUTER:
+	for targetPort := port; targetPort < 60000; targetPort += step {
+		for i, allocatedPort := range allocatedList[scanPosition:] {
+			if targetPort == allocatedPort {
+				scanPosition = i
+				continue OUTER
+			}
+			if targetPort < allocatedPort {
+				break
+			}
+		}
+		ports[owner] = targetPort
+		return
+
+	}
+
+}
+
 func contains(alloc []string, searchstring string) bool {
 	for _, d := range alloc {
 		if d == searchstring {
@@ -161,6 +226,18 @@ type (
 	NodeName       string
 	AllocationsMap map[NodeName]NodeAllocations
 )
+
+type AllocRoleMap map[OwnerRole]int
+
+type GlobalAllocations struct {
+	AgentPorts         AllocRoleMap
+	WekaContainerPorts AllocRoleMap
+}
+
+type Allocations struct {
+	Global  GlobalAllocations
+	NodeMap AllocationsMap
+}
 
 type Allocator struct {
 	Logger       logr.Logger
@@ -179,12 +256,35 @@ type OwnerCluster struct {
 	Namespace   string
 }
 
+// MarshalYAML implements the yaml.Marshaler interface for CustomType.
+func (c OwnerCluster) MarshalYAML() (interface{}, error) {
+	return fmt.Sprintf("%s;%s", c.ClusterName, c.Namespace), nil
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface for CustomType.
+func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Temporary variable to hold the combined value during unmarshalling.
+	var combined string
+	if err := unmarshal(&combined); err != nil {
+		return err
+	}
+
+	// Custom unmarshalling logic to split the combined string back into FieldA and FieldB.
+	parts := strings.Split(combined, ";")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid OwnerCluster format: %s", combined)
+	}
+	c.ClusterName = parts[0]
+	c.Namespace = parts[1]
+	return nil
+}
+
 func (a *Allocator) Allocate(
 	ownerCluster OwnerCluster,
 	template ClusterTemplate,
-	allocationsMap AllocationsMap,
+	allocations *Allocations,
 	size int, // Size is multiplication of template
-) (AllocationsMap, error, bool) {
+) (*Allocations, error, bool) {
 	logger := a.Logger.WithName("Allocate")
 	if size == 0 {
 		size = 1
@@ -192,8 +292,8 @@ func (a *Allocator) Allocate(
 	if template.MaxFdsPerNode == 0 {
 		template.MaxFdsPerNode = 1
 	}
-	initAllocationsMap(allocationsMap, a.ClusterLevel.Nodes)
-	logger.Info("clusterLevel", "clusterLevel", a.ClusterLevel)
+	initAllocationsMap(allocations, a.ClusterLevel.Nodes)
+	allocationsMap := allocations.NodeMap
 	nodes := a.ClusterLevel.Nodes
 	slices.SortFunc(nodes, func(i, j string) int {
 		iAlloc := allocationsMap[NodeName(i)]
@@ -217,9 +317,8 @@ func (a *Allocator) Allocate(
 		for i := 0; i < numContainers; i++ {
 			containerName := fmt.Sprintf("%s%d", role, i)
 			owner := Owner{ownerCluster, containerName, role}
-			_, found := GetOwnedResources(owner, allocationsMap)
+			_, found := GetOwnedResources(owner, allocations)
 			if found {
-				logger.Info("Container already allocated", "role", role, "owner", owner)
 				continue
 			}
 			for _, node := range nodes {
@@ -257,8 +356,8 @@ func (a *Allocator) Allocate(
 					nodeAlloc.Drives[owner] = append(allocationsMap[NodeName(node)].Drives[owner], availableDrives[0:template.NumDrives]...)
 				}
 				nodeAlloc.Cpu[owner] = append(allocationsMap[NodeName(node)].Cpu[owner], freeCpus[0:requiredCpus]...)
-				nodeAlloc.AllocatePort(owner, baseAgentPort, agentPortStep, allocationsMap[NodeName(node)].AgentPorts)
-				nodeAlloc.AllocatePort(owner, baseWekaContainerPort, wekaContainerPortStep, allocationsMap[NodeName(node)].WekaContainerPorts)
+				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseAgentPort, agentPortStep, allocations.Global.AgentPorts)
+				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseWekaContainerPort, wekaContainerPortStep, allocations.Global.WekaContainerPorts)
 				continue CONTAINERS
 			}
 			a.Logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "allocationsMap", allocationsMap, "changed", changed, "containerName", containerName, "owner", owner, "allocMap", allocationsMap)
@@ -268,16 +367,17 @@ func (a *Allocator) Allocate(
 	}
 
 	if err := allocateResources("drive", template.DriveContainers*size); err != nil {
-		return allocationsMap, err, changed
+		return allocations, err, changed
 	}
 
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
-		return allocationsMap, err, changed
+		return allocations, err, changed
 	}
-	return allocationsMap, nil, changed
+	return allocations, nil, changed
 }
 
-func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocMap AllocationsMap) bool {
+func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocations *Allocations) bool {
+	allocMap := allocations.NodeMap
 	changed := false
 	for _, alloc := range allocMap {
 		for owner := range alloc.Cpu {
@@ -285,20 +385,51 @@ func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocMap Allocations
 				changed = true
 				delete(alloc.Cpu, owner)
 				delete(alloc.Drives, owner)
-				delete(alloc.AgentPorts, owner)
-				delete(alloc.WekaContainerPorts, owner)
 			}
 		}
 	}
+
+	for owner := range allocations.Global.AgentPorts {
+		if owner.OwnerCluster == cluster {
+			changed = true
+			delete(allocations.Global.AgentPorts, owner)
+		}
+	}
+
+	clearRoleAllocations := func(roleAllocations AllocRoleMap) {
+		for owner := range roleAllocations {
+			if owner.OwnerCluster == cluster {
+				changed = true
+				delete(roleAllocations, owner)
+			}
+		}
+	}
+
+	clearRoleAllocations(allocations.Global.AgentPorts)
+	clearRoleAllocations(allocations.Global.WekaContainerPorts)
+
 	return changed
 }
 
-func initAllocationsMap(allocationsMap AllocationsMap, nodes []string) {
+func initAllocationsMap(allocations *Allocations, nodes []string) {
+	if allocations == nil {
+		panic("allocations is nil")
+	}
+	if allocations.NodeMap == nil {
+		allocations.NodeMap = AllocationsMap{}
+	}
+	if allocations.Global.AgentPorts == nil {
+		allocations.Global.AgentPorts = AllocRoleMap{}
+	}
+	if allocations.Global.WekaContainerPorts == nil {
+		allocations.Global.WekaContainerPorts = AllocRoleMap{}
+	}
+
 	for _, node := range nodes {
-		if _, ok := allocationsMap[NodeName(node)]; ok {
+		if _, ok := allocations.NodeMap[NodeName(node)]; ok {
 			continue
 		}
-		allocationsMap[NodeName(node)] = NodeAllocations{
+		allocations.NodeMap[NodeName(node)] = NodeAllocations{
 			Cpu:                map[Owner][]int{},
 			Drives:             map[Owner][]string{},
 			AgentPorts:         map[Owner]int{},
@@ -315,7 +446,8 @@ type OwnedResources struct {
 	Node      string
 }
 
-func GetOwnedResources(owner Owner, allocMap AllocationsMap) (OwnedResources, bool) {
+func GetOwnedResources(owner Owner, allocations *Allocations) (OwnedResources, bool) {
+	allocMap := allocations.NodeMap
 	resources := OwnedResources{}
 	for node, alloc := range allocMap {
 		if _, ok := alloc.Cpu[owner]; ok {
@@ -324,10 +456,18 @@ func GetOwnedResources(owner Owner, allocMap AllocationsMap) (OwnedResources, bo
 			resources.Port = alloc.WekaContainerPorts[owner]
 			resources.AgentPort = alloc.AgentPorts[owner]
 			resources.Drives = append(resources.Drives, alloc.Drives[owner]...)
-			return resources, true
+			break
 		}
 	}
-	return resources, false
+	if resources.Node == "" {
+		return resources, false
+	}
+
+	// Assuming that IF we have a node, we have all the resources
+	resources.Port = allocations.Global.WekaContainerPorts[owner.ToOwnerRole()]
+	resources.AgentPort = allocations.Global.AgentPorts[owner.ToOwnerRole()]
+
+	return resources, true
 }
 
 func prettyPrintMap(newMap AllocationsMap) {
