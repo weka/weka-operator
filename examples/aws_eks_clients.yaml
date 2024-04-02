@@ -3,7 +3,7 @@ kind: WekaClient
 metadata:
   name: cluster-dev-clients
 spec:
-  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   port: 45001
   agentPort: 45000
