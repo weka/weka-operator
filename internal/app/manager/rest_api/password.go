@@ -132,6 +132,7 @@ func (api *ClusterAPI) validateClusterExists(ctx context.Context, name string, n
 
 // getPodForCluster finds a pod belonging to a cluster
 func (api *ClusterAPI) getPodForCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) (*v1.Pod, error) {
+	panic("not implemented")
 	pods := &v1.PodList{}
 	inNamespace := client.InNamespace(cluster.Namespace)
 	matchLabels := client.MatchingLabels{"app.kubernetes.io/name": "WekaContainer"}
