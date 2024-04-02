@@ -10,4 +10,3 @@ spec:
   topology: "discover_oci"
   image: quay.io/weka.io/weka-in-container:4.2.10.405-01b0c67a7ba81986a218b55c6d08f150-dev
   imagePullSecret: quay-io-robot-secret
-  wekaContainerNamePrefix: "mbp"

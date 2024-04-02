@@ -39,13 +39,13 @@ type WekaDriveResponse struct {
 }
 
 type WekaUsersResponse struct {
-	//OrgId    int    `json:"org_id"`
-	//PosixGid string `json:"posix_gid"`
-	//PosixUid string `json:"posix_uid"`
-	//Role     string `json:"role"`
-	//S3Policy string `json:"s3_policy"`
-	//Source   string `json:"source"`
-	//Uid      string `json:"uid"`
+	// OrgId    int    `json:"org_id"`
+	// PosixGid string `json:"posix_gid"`
+	// PosixUid string `json:"posix_uid"`
+	// Role     string `json:"role"`
+	// S3Policy string `json:"s3_policy"`
+	// Source   string `json:"source"`
+	// Uid      string `json:"uid"`
 	Username string `json:"username"`
 }
 
@@ -206,6 +206,10 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						{
 							Name:  "WEKA_PERSISTENCE_DIR",
 							Value: containerPathPersistence,
+						},
+						{
+							Name:  "APPEND_SETUP_COMMAND",
+							Value: f.container.Spec.AppendSetupCommand,
 						},
 					},
 				},

@@ -40,6 +40,7 @@ type WekaContainerSpec struct {
 	DriversDistService string          `json:"driversDistService,omitempty"`
 	WekaSecretRef      v1.EnvVarSource `json:"wekaSecretRef,omitempty"`
 	JoinIps            []string        `json:"joinIpPorts,omitempty"`
+	AppendSetupCommand string          `json:"appendSetupCommand,omitempty"`
 }
 
 type Network struct {

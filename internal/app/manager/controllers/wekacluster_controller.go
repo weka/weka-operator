@@ -478,10 +478,13 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	}
 
 	var hugePagesNum int
+	var appendSetupCommand string
 	if role == "drive" {
 		hugePagesNum = template.DriveHugepages
+		appendSetupCommand = cluster.Spec.DriveAppendSetupCommand
 	} else {
 		hugePagesNum = template.ComputeHugepages
+		appendSetupCommand = cluster.Spec.ComputeAppendSetupCommand
 	}
 
 	network, err := resources.GetContainerNetwork(topology.Network)
@@ -539,6 +542,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			WekaSecretRef:      v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService: cluster.Spec.DriversDistService,
 			CpuPolicy:          cluster.Spec.CpuPolicy,
+			AppendSetupCommand: appendSetupCommand,
 		},
 	}
 

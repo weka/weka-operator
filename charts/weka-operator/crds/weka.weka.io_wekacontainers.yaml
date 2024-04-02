@@ -35,6 +35,8 @@ spec:
             properties:
               agentPort:
                 type: integer
+              appendSetupCommand:
+                type: string
               coreIds:
                 items:
                   type: integer
