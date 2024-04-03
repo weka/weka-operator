@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -62,9 +63,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	labels := labelsForWekaContainer(f.container)
 
 	image := f.container.Spec.Image
-
-	//TODO: to resolve basing on value from spec
-	//hugePagesNum := f.container.Spec.Hugepages
 
 	hugePagesStr := ""
 	hugePagesK8sSuffix := "2Mi"
@@ -230,14 +228,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Value: wekaMemoryString,
 						},
 						{
-							Name:  "CORES",
-							Value: strconv.Itoa(f.container.Spec.NumCores),
-						},
-						{
-							Name:  "CORE_IDS",
-							Value: comaSeparated(f.container.Spec.CoreIds),
-						},
-						{
 							Name:  "NETWORK_DEVICE",
 							Value: netDevice,
 						},
@@ -314,6 +304,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		},
 	}
 
+	err := f.setResources(pod)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(f.container.Spec.JoinIps) != 0 {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "JOIN_IPS",
@@ -372,6 +367,128 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	}
 
 	return pod, nil
+}
+
+type HugePagesDetails struct {
+	HugePagesStr          string
+	HugePagesK8sSuffix    string
+	WekaMemoryString      string
+	HugePagesResourceName corev1.ResourceName
+}
+
+func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
+	hugePagesStr := ""
+	hugePagesK8sSuffix := "2Mi"
+	wekaMemoryString := ""
+	if f.container.Spec.HugepagesSize == "1Gi" {
+		hugePagesK8sSuffix = f.container.Spec.HugepagesSize
+		hugePagesStr = fmt.Sprintf("%dGi", f.container.Spec.Hugepages/1000)
+		wekaMemoryString = fmt.Sprintf("%dGiB", f.container.Spec.Hugepages/1000)
+	} else {
+		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
+		hugePagesK8sSuffix = "2Mi"
+		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
+	}
+
+	if f.container.Spec.HugepagesOverride != "" {
+		wekaMemoryString = f.container.Spec.HugepagesOverride
+	}
+
+	hugePagesName := corev1.ResourceName(
+		strings.Join(
+			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
+			""))
+
+	return HugePagesDetails{
+		HugePagesStr:          hugePagesStr,
+		HugePagesK8sSuffix:    hugePagesK8sSuffix,
+		WekaMemoryString:      wekaMemoryString,
+		HugePagesResourceName: hugePagesName,
+	}
+}
+
+func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
+	cpuPolicy := f.container.Spec.CpuPolicy
+	if !cpuPolicy.IsValid() {
+		return fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
+	}
+
+	hgDetails := f.getHugePagesDetails()
+
+	if cpuPolicy == wekav1alpha1.CpuPolicyAuto {
+		if len(f.container.Spec.CoreIds) > 0 {
+			cpuPolicy = wekav1alpha1.CpuPolicyManual
+		} else {
+			return errors.New("CPU policy auto is not supported without coreIds")
+		}
+	}
+
+	if cpuPolicy == wekav1alpha1.CpuPolicyShared {
+		cpuPolicy = wekav1alpha1.CpuPolicyManual // shared is a special case of manual, where topology/allocmap keeps track of affinities
+	}
+
+	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+		Name:  "CORES",
+		Value: strconv.Itoa(f.container.Spec.NumCores),
+	})
+
+	var cpuRequestStr string
+
+	switch cpuPolicy {
+	case wekav1alpha1.CpuPolicyDedicatedHT:
+		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
+	case wekav1alpha1.CpuPolicyDedicated:
+		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores)
+	case wekav1alpha1.CpuPolicyManual:
+		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores)
+	}
+
+	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "CORE_IDS",
+			Value: "static_ht",
+		})
+
+		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
+	}
+
+	if cpuPolicy == wekav1alpha1.CpuPolicyDedicated {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "CORE_IDS",
+			Value: "static",
+		})
+	}
+
+	if cpuPolicy == wekav1alpha1.CpuPolicyManual {
+		if len(f.container.Spec.CoreIds) == 0 {
+			return errors.New("CPU policy manual is not supported without coreIds")
+		}
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "CORE_IDS",
+			Value: comaSeparated(f.container.Spec.CoreIds),
+		})
+
+		resourceLimit := corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))),
+			hugePagesName:      resource.MustParse(hugePagesStr),
+		}
+		resourceRequest := corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
+			hugePagesName:      resource.MustParse(hugePagesStr),
+		}
+	}
+
+	// since this is HT, we are doubling num of cores on allocation
+	resourceLimit := corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+		hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
+	}
+	resourceRequest := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
+		hgDetails:          resource.MustParse(hgDetails.HugePagesStr),
+	}
+
+	return nil
 }
 
 func labelsForWekaContainer(container *wekav1alpha1.WekaContainer) map[string]string {
