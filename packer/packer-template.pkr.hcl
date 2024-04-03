@@ -8,8 +8,12 @@ packer {
 }
 
 source "amazon-ebs" "weka-eks" {
-  region        = "eu-west-1"
-  source_ami    = "ami-0cca685d73cf4fd6b"
+#  region        = "eu-west-1" #TODO: templating
+#  region        = "us-east-1"
+  region        = "us-west-2"
+  #source_ami    = "ami-0cca685d73cf4fd6b" # europe
+#  source_ami    = "ami-0757bdb3268077f9f" #us-east-1
+  source_ami    = "ami-09d72b72587e6e07c" #us-west-2
   instance_type = "m6a.4xlarge"
   ssh_username  = "ubuntu"
   ami_name      = "weka-eks-${formatdate("YYYYMMDDHHmmss", timestamp())}"
