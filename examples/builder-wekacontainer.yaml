@@ -9,7 +9,8 @@ spec:
   agentPort: 60001
   nodeSelector:
     weka.io/role: builder
-  image: quay.io/weka.io/weka-in-container:4.2.10.621-649ace549fc60a95a4c169caf364392f-ubuntu22
+  image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist
   numCores: 1
