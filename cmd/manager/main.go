@@ -17,9 +17,7 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -78,10 +76,6 @@ func main() {
 
 	logger := prettyconsole.NewLogger(uzap.DebugLevel)
 	ctrl.SetLogger(zapr.NewLogger(logger))
-	ctx := context.Background()
-	ctx, span := instrumentation.Tracer.Start(ctx, "agent_exec")
-	span.AddEvent("test")
-	span.End()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
