@@ -4,7 +4,7 @@ const (
 	CondPodsCreated           = "PodsCreated"
 	CondClusterSecretsCreated = "ClusterSecretsCreated"
 	CondClusterSecretsApplied = "ClusterSecretsApplied"
-	CondPodsRead              = "PodsReady"
+	CondPodsReady             = "PodsReady"
 	CondClusterCreated        = "ClusterCreated"
 	CondDrivesAdded           = "DrivesAdded"
 	CondIoStarted             = "IoStarted"
