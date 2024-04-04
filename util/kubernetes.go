@@ -3,7 +3,11 @@ package util
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -50,6 +54,14 @@ func NewExecInPod(pod *v1.Pod) (*Exec, error) {
 }
 
 func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+	ctx, span := instrumentation.Tracer.Start(ctx, "Exec")
+	defer span.End()
+	//TODO: hide sensitive data
+	span.SetAttributes(
+		attribute.String("pod", e.Pod.Name),
+		attribute.String("namespace", e.Pod.Namespace),
+	)
+	span.AddEvent(fmt.Sprintf("Executing command %s", strings.Join(command, " ")))
 	podExec := e.ClientSet.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(e.Pod.Name).
@@ -63,21 +75,33 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(e.Config, "POST", podExec.URL())
+	executor, err := remotecommand.NewSPDYExecutor(e.Config, "POST", podExec.URL())
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Exec failed to create executor")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to create executor")
 	}
 
-	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdout: &stdout,
 		Stderr: &stderr,
 		Tty:    false,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Exec failed to stream")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to stream")
 	}
+	//if err != nil {
+	//	switch err := err.(type) {
+	//	case exec.ExitError:
+	//		return stdout, stderr, errors.Wrap(err, "Command failed to run with code ")
+	//	default:
+	//		return stdout, stderr, err
+	//	}
+	//}
 
-	return stdout, stderr, nil
+	return stdout, stderr, err
 }
 
 func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {

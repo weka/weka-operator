@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
@@ -54,8 +55,9 @@ func TestAllocatePort(t *testing.T) {
 	allocator := NewAllocator(log, testTopology)
 
 	owner.ClusterName = "a"
-	newMap, err, _ := allocator.Allocate(owner, template, allocations, 1)
-	newMap, err, changed := allocator.Allocate(owner, template, allocations, 1)
+	ctx := context.Background()
+	newMap, err, _ := allocator.Allocate(ctx, owner, template, allocations, 1)
+	newMap, err, changed := allocator.Allocate(context.Background(), owner, template, allocations, 1)
 	if err != nil {
 		t.Errorf("re-allocate should not fail: %v", err)
 	}
@@ -64,7 +66,7 @@ func TestAllocatePort(t *testing.T) {
 		t.Errorf("re-allocation should not change the map")
 	}
 	owner.ClusterName = "b"
-	newMap, err, _ = allocator.Allocate(owner, template, newMap, 1)
+	newMap, err, _ = allocator.Allocate(ctx, owner, template, newMap, 1)
 
 	// ensure that all 10 hosts are filled
 	for i, node := range testTopology.Nodes {
@@ -76,26 +78,26 @@ func TestAllocatePort(t *testing.T) {
 	}
 
 	owner.ClusterName = "c"
-	newMap, err, _ = allocator.Allocate(owner, template, newMap, 1)
+	newMap, err, _ = allocator.Allocate(ctx, owner, template, newMap, 1)
 	if err != nil {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 
 	owner.ClusterName = "d"
-	newMap, err, _ = allocator.Allocate(owner, template, newMap, 1)
+	newMap, err, _ = allocator.Allocate(ctx, owner, template, newMap, 1)
 	if err != nil {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 
 	owner.ClusterName = "e"
-	newMap, err, _ = allocator.Allocate(owner, template, newMap, 1)
+	newMap, err, _ = allocator.Allocate(ctx, owner, template, newMap, 1)
 	if err != nil {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 	// recycle validation
 	_ = allocator.DeallocateCluster(owner, newMap)
 
-	newMap, err, _ = allocator.Allocate(owner, template, newMap, 1)
+	newMap, err, _ = allocator.Allocate(ctx, owner, template, newMap, 1)
 	if err != nil {
 		t.Errorf("Failed to allocate: %v", err)
 	}

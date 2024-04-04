@@ -1,7 +1,10 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"go.opentelemetry.io/otel/codes"
 	"slices"
 	"strings"
 
@@ -279,13 +282,18 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func (a *Allocator) Allocate(
+func (a *Allocator) Allocate(ctx context.Context,
 	ownerCluster OwnerCluster,
 	template ClusterTemplate,
 	allocations *Allocations,
 	size int, // Size is multiplication of template
 ) (*Allocations, error, bool) {
-	logger := a.Logger.WithName("Allocate")
+	ctx, span := instrumentation.Tracer.Start(ctx, "Allocate")
+	defer span.End()
+	logger := a.Logger.
+		WithName("Allocate").
+		WithValues("ownerCluster", ownerCluster, "template", template, "size", size).
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	if size == 0 {
 		size = 1
 	}
@@ -373,6 +381,7 @@ func (a *Allocator) Allocate(
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
 		return allocations, err, changed
 	}
+	span.SetStatus(codes.Ok, "Allocation successful")
 	return allocations, nil, changed
 }
 

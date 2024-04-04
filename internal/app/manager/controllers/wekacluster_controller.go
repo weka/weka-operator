@@ -20,6 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"slices"
 	"strings"
 	"time"
@@ -64,30 +68,46 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 }
 
 func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Logger.WithName("Reconcile")
+	ctx, span := instrumentation.Tracer.Start(ctx, "WekaClusterReconcile")
+	defer span.End()
+	logger := r.Logger.WithName("Reconcile").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+
 	logger.Info("Reconcile() called")
 	defer logger.Info("Reconcile() finished")
 	// Fetch the WekaCluster instance
 	wekaCluster, err := GetCluster(ctx, req, r.Client, r.Logger)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to get wekaCluster")
 		return ctrl.Result{}, err
 	}
 	if wekaCluster == nil {
+		span.AddEvent("Existing WekaCluster not found")
 		return ctrl.Result{}, nil
 	}
+
+	span.AddEvent("Existing cluster was found",
+		trace.WithAttributes(attribute.String("cluster_name", wekaCluster.Name)),
+		trace.WithAttributes(attribute.String("cluster_namespace", wekaCluster.Namespace)),
+		trace.WithAttributes(attribute.String("cluster_status", wekaCluster.Status.Status)),
+	)
 
 	err = r.initState(ctx, wekaCluster)
 	if err != nil {
 		logger.Error(err, "Failed to initialize state")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to initialize state")
 		return ctrl.Result{}, err
 	}
 
 	if wekaCluster.GetDeletionTimestamp() != nil {
 		err = r.handleDeletion(ctx, wekaCluster)
 		if err != nil {
+			span.RecordError(err)
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
 		}
 		logger.Info("Deleting wekaCluster")
+		span.SetStatus(codes.Ok, "Deleting wekaCluster")
 		return ctrl.Result{}, nil
 	}
 
@@ -104,7 +124,10 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "Cluster secrets are created",
 		})
 		_ = r.Status().Update(ctx, wekaCluster)
+	} else {
+		span.AddEvent("Cluster secrets are already created, skipping")
 	}
+
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
 	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
 
@@ -116,18 +139,25 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 		_ = r.Status().Update(ctx, wekaCluster)
 		r.Logger.Error(err, "Failed to ensure WekaContainers")
+		span.SetStatus(codes.Error, "Failed to ensure WekaContainers")
 		return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	}
+
 	meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
 		Type:   condition.CondPodsCreated,
 		Status: metav1.ConditionTrue, Reason: "Init", Message: "All pods are created",
 	})
 	_ = r.Status().Update(ctx, wekaCluster)
 
+	span.AddEvent("All pods are created")
+
 	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondPodsReady) {
+		span.AddEvent("Checking for container readiness")
 		if ready, err := r.isContainersReady(containers); !ready {
+			span.SetStatus(codes.Unset, "Containers are not ready")
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 		}
+		span.AddEvent("All containers are ready")
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
 			Type:   condition.CondPodsReady,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "All weka containers are ready for clusterization",
@@ -138,6 +168,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		err = r.CreateCluster(ctx, wekaCluster, containers)
 		if err != nil {
+			span.RecordError(err)
 			return ctrl.Result{}, err
 		}
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
@@ -148,9 +179,11 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Ensure all containers are up in the cluster
+	span.AddEvent("Ensuring all containers are up in the cluster")
 	for _, container := range containers {
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 			r.Logger.Info("Container has not joined the cluster yet", "container", container.Name)
+			span.AddEvent("At least one container has not joined the cluster yet", trace.WithAttributes(attribute.String("container_name", container.Name)))
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		} else {
 			if wekaCluster.Status.ClusterID == "" {
@@ -160,6 +193,12 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					return ctrl.Result{}, err
 				}
 			}
+			span.AddEvent("Container joined cluster successfully",
+				trace.WithAttributes(
+					attribute.String("container_name", container.Name),
+					attribute.String("cluster_id", container.Status.ClusterID),
+				),
+			)
 		}
 	}
 
@@ -170,12 +209,14 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Ensure all containers are up in the cluster
+	span.AddEvent("Ensuring all drives are up in the cluster")
 	for _, container := range containers {
 		if container.Spec.Mode != "drive" {
 			continue
 		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) {
 			r.Logger.Info("Containers did not add drives yet", "container", container.Name)
+			span.SetStatus(codes.Unset, "Containers did not add drives yet")
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		}
 	}
@@ -183,11 +224,13 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{Type: condition.CondDrivesAdded,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "All drives are added"})
 		err = r.Status().Update(ctx, wekaCluster)
+		span.AddEvent("All drives are added")
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 	}
 
+	span.AddEvent("Ensuring IO is started")
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
 			Type:   condition.CondIoStarted,
@@ -205,8 +248,10 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "IO is started",
 		})
 		_ = r.Status().Update(ctx, wekaCluster)
+		span.AddEvent("IO is started")
 	}
 
+	span.AddEvent("Ensuring that Weka credentials are configured on cluster")
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsApplied) {
 		err = r.applyClusterCredentials(ctx, wekaCluster, containers)
 		if err != nil {
@@ -223,7 +268,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	}
-
+	span.SetStatus(codes.Ok, "Reconciliation finished")
 	return ctrl.Result{}, nil
 }
 
@@ -379,9 +424,13 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 }
 
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
+	ctx, span := instrumentation.Tracer.Start(ctx, "ensureWekaContainers")
+	defer span.End()
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
 		r.Logger.Error(err, "could not init allocmap")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "could not init allocmap")
 		return nil, err
 	}
 
@@ -389,12 +438,19 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	template := WekaClusterTemplates[cluster.Spec.Template]
 	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
 	allocator := NewAllocator(r.Logger, topology)
-	allocations, err, changed := allocator.Allocate(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, template, allocations, cluster.Spec.Size)
+	allocations, err, changed := allocator.Allocate(
+		ctx,
+		OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
+		template,
+		allocations,
+		cluster.Spec.Size)
 	if err != nil {
+		span.RecordError(err)
 		return nil, err
 	}
 	if changed {
 		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
+			span.RecordError(err)
 			return nil, err
 		}
 	}
@@ -403,6 +459,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	if size == 0 {
 		size = 1
 	}
+	span.SetStatus(codes.Unset, "Ensuring containers")
 
 	ensureContainers := func(role string, containersNum int) error {
 		for i := 0; i < containersNum; i++ {
@@ -422,6 +479,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
 			if err != nil && apierrors.IsNotFound(err) {
 				// Define a new WekaContainer object
+				span.AddEvent("Creating container", trace.WithAttributes(attribute.String("container_name", wekaContainer.Name)))
 				err = r.Create(ctx, wekaContainer)
 				if err != nil {
 					return err
@@ -439,6 +497,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	if err := ensureContainers("compute", template.ComputeContainers); err != nil {
 		return nil, err
 	}
+	span.SetStatus(codes.Ok, "Containers are created")
 	return foundContainers, nil
 }
 
@@ -553,31 +612,48 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 }
 
 func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, span := instrumentation.Tracer.Start(ctx, "CreateCluster")
+	defer span.End()
+	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
+	span.SetStatus(codes.Unset, "Creating cluster")
+	logger, _ := logr.FromContext(ctx)
+	logger = logger.WithName("Reconcile").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+
 	var hostIps []string
 	var hostnamesList []string
-	r.Logger.Info("Creating cluster", "totalContainers", len(containers))
+	logger.Info("Creating cluster", "totalContainers", len(containers))
+	span.AddEvent("Creating cluster", trace.WithAttributes(
+		attribute.Int("total_containers", len(containers)),
+		attribute.String("cluster_name", cluster.Name),
+		attribute.String("cluster_uid", string(cluster.GetUID())),
+		attribute.String("cluster_namespace", cluster.Namespace),
+	))
 	for _, container := range containers {
 		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
 		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr)
+	span.AddEvent("Executing command", trace.WithAttributes(attribute.String("cmd", cmd)))
+	logger.Info("Creating cluster", "cmd", cmd)
 
-	r.Logger.Info("Creating cluster", "cmd", cmd)
-
-	executor, err := GetExecutor(containers[0], r.Logger)
+	executor, err := GetExecutor(containers[0], logger)
 	if err != nil {
+		span.RecordError(err)
 		return errors.Wrap(err, "Could not create executor")
 	}
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
+		span.RecordError(err)
 		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
 	}
-	r.Logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
+	span.AddEvent("Cluster created", trace.WithAttributes(attribute.String("stdout", stdout.String()), attribute.String("stderr", stderr.String())))
+	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
 
 	// update cluster name
 	clusterName := cluster.GetUID()
 	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
+	span.AddEvent("Updating cluster name")
 	_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
@@ -586,7 +662,7 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	if err := r.Status().Update(ctx, cluster); err != nil {
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
-
+	span.SetStatus(codes.Ok, "Cluster created")
 	return nil
 }
 
@@ -603,6 +679,10 @@ func GetExecutor(container *wekav1alpha1.WekaContainer, logger logr.Logger) (*ut
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, span := instrumentation.Tracer.Start(ctx, "EnsureClusterContainerIds")
+	defer span.End()
+	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
+	span.SetStatus(codes.Unset, "Creating cluster")
 	var containersMap resources.ClusterContainersMap
 
 	fetchContainers := func() error {
@@ -638,12 +718,17 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 			if containersMap == nil {
 				err := fetchContainers()
 				if err != nil {
+					span.RecordError(err, trace.WithAttributes(attribute.String("container_name", container.Name)))
+					span.SetStatus(codes.Error, "Failed to fetch containers list from cluster")
 					return err
 				}
 			}
 
 			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
-				return errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
+				err := errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
+				span.RecordError(err, trace.WithAttributes(attribute.String("container_name", container.Name)))
+				span.SetStatus(codes.Error, "Container not found in cluster")
+				return err
 			} else {
 				containerId, err := clusterContainer.ContainerId()
 				if err != nil {
@@ -656,21 +741,29 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 			}
 		}
 	}
+	span.SetStatus(codes.Ok, "Cluster container ids are set")
 	return nil
 }
 
 func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, span := instrumentation.Tracer.Start(ctx, "StartIO")
+	defer span.End()
+	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
+
 	executor, err := GetExecutor(containers[0], r.Logger)
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")
 	}
 
+	span.SetStatus(codes.Unset, "Starting IO")
 	cmd := "weka cluster start-io"
 	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to start-io")
 		return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
 	}
-
+	span.SetStatus(codes.Ok, "IO started")
 	return nil
 }
 
@@ -712,6 +805,8 @@ type loginDetails struct {
 
 func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
 	secret := &v1.Secret{}
+	ctx, span := instrumentation.Tracer.Start(ctx, "ensureLoginCredentials")
+	defer span.End()
 
 	// generate random password
 
@@ -730,6 +825,8 @@ func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, clus
 		Org:        DefaultOrg,
 		SecretName: resources.GetUserSecretName(cluster),
 	}
+
+	span.AddEvent("Random passwords generated")
 
 	ensureSecret := func(details loginDetails) error {
 		err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: details.SecretName}, secret)
@@ -770,8 +867,13 @@ func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, clus
 }
 
 func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, span := instrumentation.Tracer.Start(ctx, "applyClusterCredentials")
+	defer span.End()
+	span.AddEvent("Applying cluster credentials")
 	executor, err := GetExecutor(containers[0], r.Logger)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Error creating executor")
 		return errors.Wrap(err, "Error creating executor")
 	}
 
@@ -810,9 +912,13 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		return nil
 	}
 
+	span.AddEvent("Ensuring operator user", trace.WithAttributes(attribute.String("user_name", domain.GetOperatorClusterUsername(cluster))))
 	if err := ensureUser(domain.GetOperatorSecretName(cluster)); err != nil {
+		span.RecordError(err)
 		return err
 	}
+
+	span.AddEvent("Ensuring admin user", trace.WithAttributes(attribute.String("user_name", domain.GetUserClusterUsername(cluster))))
 	if err := ensureUser(resources.GetUserSecretName(cluster)); err != nil {
 		return err
 	}
@@ -820,8 +926,10 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 	for _, user := range existingUsers {
 		if user.Username == "admin" {
 			cmd = "wekaauthcli user delete admin"
+			span.AddEvent("Deleting default admin user")
 			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
+				span.SetStatus(codes.Error, "Failed to delete default admin user")
 				return errors.Wrapf(err, "Failed to delete default admin user: %s", stderr.String())
 			}
 			return nil

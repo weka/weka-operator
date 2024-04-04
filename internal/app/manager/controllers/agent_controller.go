@@ -45,11 +45,14 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
 	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_agent")
 	defer span.End()
-	span.AddEvent("Reconsiling agent")
-	span.SetAttributes(attribute.String("agent", client.Name))
-	span.SetAttributes(attribute.String("namespace", client.Namespace))
-	span.SetAttributes(attribute.String("root", r.RootResourceName.Name))
-	r.RecordEvent(v1.EventTypeNormal, "Reconciling", "Reconciling agent")
+	span.SetAttributes(
+		attribute.String("agent", client.Name),
+		attribute.String("namespace", client.Namespace),
+		attribute.String("root", r.RootResourceName.Name))
+	span.AddEvent("Reconciling agent")
+	logger := r.Logger.WithName("AgentReconciler").WithValues("span_id", span.SpanContext().TraceID().String(),
+		"trace_id", span.SpanContext().TraceID().String())
+	logger.Info("Reconciling agent", "name", r.Desired.Name, "namespace", r.Desired.Namespace)
 
 	key := runtimeClient.ObjectKeyFromObject(r.Desired)
 	existing := &appsv1.DaemonSet{}
@@ -60,8 +63,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 			return ctrl.Result{}, fmt.Errorf("failed to get daemonset %s: %w", key, err)
 		}
 
-		// The resource did not already exisst, so create it.
+		// The resource did not already exist, so create it.
+		span.AddEvent("Creating agent daemonset")
 		if err := r.Create(ctx, r.Desired); err != nil {
+			span.SetStatus(codes.Error, "Failed to create daemonset")
 			return ctrl.Result{}, fmt.Errorf("failed to create daemonset %s: %w", key, err)
 		}
 
@@ -71,7 +76,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 			Reason:  "Reconciling",
 			Message: "Requested new agent",
 		}); err != nil {
-			r.Logger.Error(err, "Failed to update status")
+			logger.Error(err, "Failed to update status")
 		}
 		span.SetStatus(codes.Ok, "Created deployment")
 		span.SetAttributes(attribute.String("deployment", r.Desired.Name))
@@ -82,21 +87,25 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 	}
 
 	if !r.isAgentAvailable(existing) {
-		// The resource exists, but is not yet in a ready state
+		// The resource exists, but is not yet in a ready state\
+		span.SetStatus(codes.Error, "Agent not available")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !reflect.DeepEqual(existing.Spec, r.Desired.Spec) {
 		desired := existing.DeepCopy()
 		desired.Spec = r.Desired.Spec
-		r.Logger.Info("Updating agent", "name", desired.Name, "version", desired.Spec.Template.Spec.Containers[0].Image)
+		logger.Info("Updating agent", "name", desired.Name, "version", desired.Spec.Template.Spec.Containers[0].Image)
 		if err := r.Update(ctx, desired); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "Failed to update daemonset")
 			return ctrl.Result{}, errors.Wrap(err, "failed to update daemonset")
 		}
+		span.SetStatus(codes.Ok, "Updated daemonset")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
+	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
 	span.SetStatus(codes.Ok, "Reconciled agent")
 	return ctrl.Result{}, nil
 }
@@ -122,6 +131,7 @@ func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stder
 		span.RecordError(err)
 		return stdout, stderr, errors.Wrapf(err, "Failed to run command %s", cmd)
 	}
+	span.AddEvent("Calling generic executor")
 	return exec.Exec(ctx, cmd)
 }
 
