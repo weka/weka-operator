@@ -85,7 +85,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if wekaCluster.GetDeletionTimestamp() != nil {
 		err = r.handleDeletion(ctx, wekaCluster)
 		if err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
 		}
 		logger.Info("Deleting wekaCluster")
 		return ctrl.Result{}, nil
@@ -116,7 +116,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		})
 		_ = r.Status().Update(ctx, wekaCluster)
 		r.Logger.Error(err, "Failed to ensure WekaContainers")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	}
 	meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
 		Type:   condition.CondPodsCreated,
@@ -124,12 +124,12 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	})
 	_ = r.Status().Update(ctx, wekaCluster)
 
-	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondPodsRead) {
+	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondPodsReady) {
 		if ready, err := r.isContainersReady(containers); !ready {
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 		}
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondPodsRead,
+			Type:   condition.CondPodsReady,
 			Status: metav1.ConditionTrue, Reason: "Init", Message: "All weka containers are ready for clusterization",
 		})
 		_ = r.Status().Update(ctx, wekaCluster)
@@ -267,7 +267,7 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 		})
 
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondPodsRead,
+			Type:   condition.CondPodsReady,
 			Status: metav1.ConditionFalse, Reason: "Init",
 			Message: "The pods for the custom resource are not ready yet",
 		})
