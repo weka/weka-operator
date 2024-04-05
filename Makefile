@@ -27,6 +27,7 @@ REGISTRY_ENDPOINT ?= quay.io/weka.io
 GORELEASER_BUILDER ?= docker
 VERSION ?= latest
 DEPLOY_CONTROLLER ?= true
+ENABLE_CLUSTER_API ?= false
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -141,7 +142,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	OPERATOR_DEV_MODE=true go run ./cmd/manager/main.go
+	OPERATOR_DEV_MODE=true go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API)
 
 
 #.PHONY: docker-build

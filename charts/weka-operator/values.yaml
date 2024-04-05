@@ -12,3 +12,4 @@ image:
 
 imagePullSecret: quay-cred
 deployController: true
+enableClusterApi: false
