@@ -3,6 +3,7 @@ package resources
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -64,37 +65,6 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 
 	image := f.container.Spec.Image
 
-	hugePagesStr := ""
-	hugePagesK8sSuffix := "2Mi"
-	wekaMemoryString := ""
-	if f.container.Spec.HugepagesSize == "1Gi" {
-		hugePagesK8sSuffix = f.container.Spec.HugepagesSize
-		hugePagesStr = fmt.Sprintf("%dGi", f.container.Spec.Hugepages/1000)
-		wekaMemoryString = fmt.Sprintf("%dGiB", f.container.Spec.Hugepages/1000)
-	} else {
-		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
-		hugePagesK8sSuffix = "2Mi"
-		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
-	}
-
-	if f.container.Spec.HugepagesOverride != "" {
-		wekaMemoryString = f.container.Spec.HugepagesOverride
-	}
-
-	hugePagesName := corev1.ResourceName(
-		strings.Join(
-			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
-			""))
-
-	resourceLimit := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))),
-		hugePagesName:      resource.MustParse(hugePagesStr),
-	}
-	resourceRequest := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
-		hugePagesName:      resource.MustParse(hugePagesStr),
-	}
-
 	imagePullSecrets := []corev1.LocalObjectReference{}
 	if f.container.Spec.ImagePullSecret != "" {
 		imagePullSecrets = []corev1.LocalObjectReference{
@@ -122,8 +92,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		hostNetwork = false
 	}
 
-	wekaPersistenceDir := "/opt/weka-persistence"
-	persistentPathBase := fmt.Sprintf("/opt/k8s-weka/containers/%s", f.container.GetUID())
+	containerPathPersistence := "/opt/weka-persistence"
+	hostsidePersistence := fmt.Sprintf("/opt/k8s-weka/containers/%s", f.container.GetUID())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -155,6 +125,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					Image:           image,
 					Name:            "weka-container",
 					ImagePullPolicy: corev1.PullAlways,
+					Command:         []string{"python3", "/opt/weka_runtime.py"},
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
 					},
@@ -173,18 +144,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:      "weka-boot-scripts",
-							MountPath: "/opt/start-weka-agent.sh",
-							SubPath:   "start-weka-agent.sh",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/opt/start-weka-container.sh",
-							SubPath:   "start-weka-container.sh",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/etc/supervisord/supervisord.conf",
-							SubPath:   "supervisord.conf",
+							MountPath: "/opt/weka_runtime.py",
+							SubPath:   "weka_runtime.py",
 						},
 						{
 							Name:      "weka-boot-scripts",
@@ -193,17 +154,12 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:      "weka-boot-scripts",
-							MountPath: "/opt/start-syslog-ng.sh",
-							SubPath:   "start-syslog-ng.sh",
-						},
-						{
-							Name:      "weka-boot-scripts",
 							MountPath: "/usr/local/bin/wekaauthcli",
 							SubPath:   "run-weka-cli.sh",
 						},
 						{
 							Name:      "weka-container-persistence-dir",
-							MountPath: wekaPersistenceDir,
+							MountPath: containerPathPersistence,
 						},
 					},
 					Env: []corev1.EnvVar{
@@ -225,7 +181,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						},
 						{
 							Name:  "MEMORY",
-							Value: wekaMemoryString,
+							Value: f.getHugePagesDetails().WekaMemoryString,
 						},
 						{
 							Name:  "NETWORK_DEVICE",
@@ -247,10 +203,10 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Name:  "DIST_SERVICE",
 							Value: f.container.Spec.DriversDistService,
 						},
-					},
-					Resources: corev1.ResourceRequirements{
-						Limits:   resourceLimit,
-						Requests: resourceRequest,
+						{
+							Name:  "WEKA_PERSISTENCE_DIR",
+							Value: containerPathPersistence,
+						},
 					},
 				},
 			},
@@ -260,7 +216,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					Name: "hugepages",
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{
-							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", hugePagesK8sSuffix)),
+							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
 						},
 					},
 				},
@@ -295,7 +251,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 					Name: "weka-container-persistence-dir",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: persistentPathBase,
+							Path: hostsidePersistence,
 							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 						},
 					},
@@ -418,8 +374,6 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	if cpuPolicy == wekav1alpha1.CpuPolicyAuto {
 		if len(f.container.Spec.CoreIds) > 0 {
 			cpuPolicy = wekav1alpha1.CpuPolicyManual
-		} else {
-			return errors.New("CPU policy auto is not supported without coreIds")
 		}
 	}
 
@@ -433,20 +387,24 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	})
 
 	var cpuRequestStr string
+	var cpuRequestLimit string
 
 	switch cpuPolicy {
 	case wekav1alpha1.CpuPolicyDedicatedHT:
 		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
+		cpuRequestLimit = cpuRequestStr
 	case wekav1alpha1.CpuPolicyDedicated:
-		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores)
+		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores+1)
+		cpuRequestLimit = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
-		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores)
+		cpuRequestStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))
+		cpuRequestLimit = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1)+1) // forcing burstable qos
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
-			Value: "static_ht",
+			Value: "auto",
 		})
 
 		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
@@ -455,7 +413,7 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicated {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
-			Value: "static",
+			Value: "auto",
 		})
 	}
 
@@ -467,25 +425,29 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 			Name:  "CORE_IDS",
 			Value: comaSeparated(f.container.Spec.CoreIds),
 		})
+	}
 
-		resourceLimit := corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))),
-			hugePagesName:      resource.MustParse(hugePagesStr),
-		}
-		resourceRequest := corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
-			hugePagesName:      resource.MustParse(hugePagesStr),
-		}
+	memRequest := "7000M"
+
+	if slices.Contains([]string{"dist", "drivers-loader"}, f.container.Spec.Mode) {
+		memRequest = "3000M"
+		cpuRequestStr = "500m"
+		cpuRequestLimit = cpuRequestStr
 	}
 
 	// since this is HT, we are doubling num of cores on allocation
-	resourceLimit := corev1.ResourceList{
-		corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
-		hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-	}
-	resourceRequest := corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores))),
-		hgDetails:          resource.MustParse(hgDetails.HugePagesStr),
+
+	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse(cpuRequestLimit),
+			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
+			corev1.ResourceMemory:           resource.MustParse(memRequest),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
+			corev1.ResourceMemory:           resource.MustParse(memRequest),
+		},
 	}
 
 	return nil

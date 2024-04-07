@@ -34,6 +34,15 @@ spec:
           spec:
             description: WekaClusterSpec defines the desired state of WekaCluster
             properties:
+              cpuPolicy:
+                default: auto
+                enum:
+                - auto
+                - shared
+                - dedicated
+                - dedicated_ht
+                - manual
+                type: string
               driversDistService:
                 type: string
               image:

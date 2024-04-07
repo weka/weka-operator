@@ -6,14 +6,14 @@ metadata:
 spec:
     containers:
     - name: dummy
-      image: ubuntu:20.04
+      image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
       command: ["sleep", "3600"]
       resources:
         requests:
-            cpu: "3"
+            cpu: "5"
             memory: "2Gi"
         limits:
-            cpu: "3"
+            cpu: "5"
             memory: "2Gi"
     terminationGracePeriodSeconds: 0
     nodeSelector:

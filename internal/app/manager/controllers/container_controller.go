@@ -121,8 +121,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
-			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, err
+			logger.Info("Error reconciling drivers status", "name", container.Name)
+			return ctrl.Result{}, nil
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured"})

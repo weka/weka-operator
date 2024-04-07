@@ -39,6 +39,9 @@ type WekaClusterSpec struct {
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
+	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
+	//+kubebuilder:default=auto
+	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
