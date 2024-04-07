@@ -26,8 +26,8 @@ type WekaContainerSpec struct {
 	Mode              string            `json:"mode"` // TODO: How to define as enum?
 	NumCores          int               `json:"numCores"`
 	CoreIds           []int             `json:"coreIds,omitempty"`
-	// +kubebuilder:validation:Enum=auto,shared,dedicated,dedicated_ht,manual
-	// +kubebuilder:default:=auto
+	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
+	//+kubebuilder:default=auto
 	CpuPolicy          CpuPolicy       `json:"cpuPolicy,omitempty"`
 	Network            Network         `json:"network,omitempty"`
 	Hugepages          int             `json:"hugepages,omitempty"`

@@ -39,6 +39,15 @@ spec:
                 items:
                   type: integer
                 type: array
+              cpuPolicy:
+                default: auto
+                enum:
+                - auto
+                - shared
+                - dedicated
+                - dedicated_ht
+                - manual
+                type: string
               driveOptions:
                 items:
                   type: string

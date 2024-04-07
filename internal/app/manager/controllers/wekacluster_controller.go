@@ -514,6 +514,14 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	secretKey := domain.GetOperatorSecretName(cluster)
 	containerPrefix := domain.GetLastGuidPart(cluster)
 
+	coreIds := ownedResources.CoreIds
+	if slices.Contains([]wekav1alpha1.CpuPolicy{wekav1alpha1.CpuPolicyManual, wekav1alpha1.CpuPolicyShared}, cluster.Spec.CpuPolicy) {
+		coreIds = []int{}
+	} // TODO: Should not calculate CPU in topology if set to manual/shared mode, right now removing what it did set
+	// This way we still track cores and can block on topology level, for good and bad.
+	// TODO: What happens if cores are rotating? How we adjust weka to use new cores? Should we block on that?
+	// TODO: We should not start container until we ensure
+	// TODO: Basically, start-weka-container should wait for agent to start, and start-weka-container will actually start container after it will do changes if needed
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -533,7 +541,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			WekaContainerName:  fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
 			Mode:               role,
 			NumCores:           len(ownedResources.CoreIds),
-			CoreIds:            ownedResources.CoreIds,
+			CoreIds:            coreIds,
 			Network:            network,
 			Hugepages:          hugePagesNum,
 			HugepagesSize:      template.HugePageSize,
@@ -542,6 +550,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			PotentialDrives:    potentialDrives,
 			WekaSecretRef:      v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService: cluster.Spec.DriversDistService,
+			CpuPolicy:          cluster.Spec.CpuPolicy,
 		},
 	}
 
