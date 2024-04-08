@@ -36,6 +36,10 @@ type PodExec struct {
 	Config    *rest.Config
 }
 
+func (e *PodExec) NodeName() string {
+	return e.Pod.Spec.NodeName
+}
+
 type ConfigurationError struct {
 	Err     error
 	Message string

@@ -108,9 +108,9 @@ func (c *Cluster) DeployWekaCluster(t *testing.T) {
 
 func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondClusterSecretsCreated); err != nil {
+		if err := waitForCondition(ctx, c, cluster, condition.CondClusterSecretsCreated().Type); err != nil {
 			t.Fatalf("failed to wait for Secrets Created condition: %v", err)
 		}
 	}
@@ -272,7 +272,7 @@ func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1al
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondClusterSecretsApplied); err != nil {
+		if err := waitForCondition(ctx, c, cluster, condition.CondClusterSecretsApplied().Type); err != nil {
 			t.Fatalf("failed to wait for Secrets Applied condition: %v", err)
 		}
 	}

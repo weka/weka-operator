@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"context"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -163,27 +164,25 @@ func (status *WekaClusterStatus) InitStatus() {
 
 	status.Status = "Init"
 	// Set Predefined conditions to explicit False for visibility
+
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
+		Type:    condition.CondPodsCreated,
+		Status:  metav1.ConditionFalse,
+		Reason:  "Init",
 		Message: "The pods for the custom resource are not created yet",
 	})
 
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsReady,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "The pods for the custom resource are not ready yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondClusterSecretsCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
+		Type:    "ClusterSecretsApplied",
+		Status:  metav1.ConditionFalse,
+		Reason:  "Init",
 		Message: "Secrets are not created yet",
 	})
 
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondClusterSecretsApplied,
-		Status: metav1.ConditionFalse, Reason: "Init",
+		Type:    "ClusterSecretsApplied",
+		Status:  metav1.ConditionFalse,
+		Reason:  "Init",
 		Message: "Secrets are not applied yet",
 	})
 
@@ -229,6 +228,23 @@ func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*W
 	err := errors.New("No container with role found")
 	logger.SetError(err, "No container with role found", "role", role)
 	return nil
+}
+
+func (status *WekaClusterStatus) initCondition(c condition.WekaClusterCondition) {
+	c.RecordIn(&status.Conditions)
+}
+
+func (status *WekaClusterStatus) FindCondition(c condition.WekaClusterCondition) (*metav1.Condition, error) {
+	return c.FindIn(status.Conditions)
+}
+
+func (status *WekaClusterStatus) UpdateCondition(c condition.WekaClusterCondition, patcher condition.UpdateConditionFunc) {
+	_, err := status.FindCondition(c)
+	if err != nil {
+		return
+	}
+	updatedCondition := patcher(c)
+	updatedCondition.RecordIn(&status.Conditions)
 }
 
 func init() {

@@ -3,6 +3,9 @@ package instrumentation
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	prettyconsole "github.com/thessem/zap-prettyconsole"
@@ -10,12 +13,12 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	uzap "go.uber.org/zap"
-	"os"
-	"strings"
 )
 
-const ContextLoggerKey = "_spanlogger_logger"
-const ContextValuesKey = "_spanlogger_values"
+const (
+	ContextLoggerKey = "_spanlogger_logger"
+	ContextValuesKey = "_spanlogger_values"
+)
 
 // SpanLogger is an abstract object that can be used instead of regular loggers and spans
 type SpanLogger struct {

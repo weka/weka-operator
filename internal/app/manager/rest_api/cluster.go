@@ -169,7 +169,7 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 			rest.Error(w, "Unexpected error", http.StatusInternalServerError)
 		}
 
-		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsCreated) {
+		if meta.IsStatusConditionTrue(cluster.Status.Conditions, (condition.CondClusterSecretsCreated().Type)) {
 			secret := &corev1.Secret{}
 			key := client.ObjectKey{Name: cluster.GetUserSecretName(), Namespace: cluster.Namespace}
 			err := api.client.Get(ctx, key, secret)

@@ -347,26 +347,33 @@ func (r *wekaClusterService) EnsureClusterContainerIds(ctx context.Context, clus
 		// executor, err := util.NewExecInPod(clusterizePod)
 		executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 		if err != nil {
+			logger.Error(err, "GetExecutor")
 			return errors.Wrap(err, "Could not create executor")
 		}
 		cmd := "weka cluster container -J"
 		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
 		if err != nil {
+			logger.Error(err, "ExecNamed", "stderr", stderr.String(), "stdout", stdout.String())
 			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
 		}
 		response := resources.ClusterContainersResponse{}
 		err = json.Unmarshal(stdout.Bytes(), &response)
 		if err != nil {
+			logger.Error(err, "json.Unmarshal")
 			return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
 		}
 		containersMap, err = resources.MapByContainerName(response)
 		if err != nil {
+			logger.Error(err, "MapByContainerName")
 			return errors.Wrapf(err, "Failed to map containers")
 		}
 		return nil
 	}
 
 	for _, container := range containers {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container", container.Name)
+		defer end()
+
 		if container.Status.ClusterContainerID == nil {
 			if containersMap == nil {
 				err := fetchContainers()
@@ -384,6 +391,7 @@ func (r *wekaClusterService) EnsureClusterContainerIds(ctx context.Context, clus
 			} else {
 				containerId, err := clusterContainer.ContainerId()
 				if err != nil {
+					logger.Error(err, "ContainerId")
 					return errors.Wrap(err, "Failed to parse container id")
 				}
 				container.Status.ClusterContainerID = &containerId

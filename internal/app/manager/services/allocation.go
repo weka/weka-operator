@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
@@ -79,6 +80,13 @@ func (a *allocationService) GetOrInitAllocMap(ctx context.Context) (*domain.Allo
 }
 
 func (a *allocationService) UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error {
+
+	if allocations == nil {
+		return errors.New("allocations is nil")
+	}
+	if configMap == nil {
+		return errors.New("configMap is nil")
+	}
 	yamlData, err := yaml.Marshal(&allocations)
 	if err != nil {
 		return err
