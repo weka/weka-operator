@@ -12,3 +12,5 @@ image:
 
 imagePullSecret: quay-cred
 deployController: true
+# -- custom endpoint to send OTLP traces to (insecure, GRPC). If left empty, traces are sent to stdout in json format.
+otelExporterOtlpEndpoint: ""
