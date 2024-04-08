@@ -71,6 +71,11 @@ spec:
                   type: string
                 type: array
               mode:
+                enum:
+                - drive
+                - compute
+                - client
+                - dist
                 type: string
               name:
                 type: string

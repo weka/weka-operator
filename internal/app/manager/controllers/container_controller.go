@@ -197,7 +197,10 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
 	}
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) && container.Spec.NumDrives > 0 {
+	if container.Spec.Mode == "drive" &&
+		!meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) &&
+		container.Spec.NumDrives > 0 {
+
 		retry, err := r.ensureDrives(ctx, container, actualPod)
 		if retry || err != nil {
 			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, err

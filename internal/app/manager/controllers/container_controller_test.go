@@ -84,5 +84,43 @@ var _ = Describe("Weka Container Controller", func() {
 				})
 			})
 		})
+
+		Context("when container has an invalid mode", func() {
+			var key client.ObjectKey
+			var container *wekav1alpha1.WekaContainer
+			BeforeEach(func() {
+				key = client.ObjectKey{
+					Namespace: "default",
+					Name:      "test-container",
+				}
+				container = &wekav1alpha1.WekaContainer{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: key.Namespace,
+						Name:      key.Name,
+					},
+					Spec: wekav1alpha1.WekaContainerSpec{
+						Mode: "invalid",
+					},
+				}
+			})
+
+			AfterEach(func() {
+				Expect(key.Namespace).NotTo(BeEmpty())
+				container := &wekav1alpha1.WekaContainer{}
+				if err := k8sClient.Get(ctx, key, container); err == nil {
+					Expect(k8sClient.Delete(ctx, container)).To(Succeed())
+				}
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, key, container)
+					return apierrors.IsNotFound(err)
+				}).Should(BeTrue())
+			})
+
+			Describe("Initial State", func() {
+				It("should set an invalid condition", func() {
+					Expect(k8sClient.Create(ctx, container)).NotTo(Succeed())
+				})
+			})
+		})
 	})
 })
