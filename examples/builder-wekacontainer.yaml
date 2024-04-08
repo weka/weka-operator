@@ -9,7 +9,7 @@ spec:
   agentPort: 60001
   nodeSelector:
     weka.io/role: builder
-  image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist

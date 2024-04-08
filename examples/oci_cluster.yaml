@@ -6,6 +6,6 @@ spec:
   size: 1
   template: dev
   topology: discover_oci # to be removed in the future towards true discovery
-  image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
