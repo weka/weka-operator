@@ -73,6 +73,9 @@ spec:
             - --metrics-bind-address=127.0.0.1:8080
             - --leader-elect
             - --enable-cluster-api={{ .Values.enableClusterAPI }}
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.otelExporterOtlpEndpoint }}"
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
           volumeMounts:

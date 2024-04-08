@@ -12,4 +12,7 @@ image:
 
 imagePullSecret: quay-cred
 deployController: true
+# -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
+# -- custom endpoint to send OTLP traces to (insecure, GRPC). If left empty, traces are sent to stdout in json format.
+otelExporterOtlpEndpoint: ""

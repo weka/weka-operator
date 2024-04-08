@@ -3,31 +3,30 @@ package instrumentation
 import (
 	"context"
 	"errors"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	uzap "go.uber.org/zap"
 	"os"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"time"
 )
 
 var (
-	Tracer   = otel.Tracer("weka-operator")
-	setupLog = ctrl.Log.WithName("setup")
-
-	//tracingEndpoint = "https://listener-eu.logz.io:8053"
-	//tracingToken    = "mLuXNMTyFCYiagGxNApjaTMbcHjpPBQq"
-
+	Tracer       = otel.Tracer("weka-operator")
+	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	logger       = prettyconsole.NewLogger(uzap.DebugLevel)
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
-	setupLog.Info("Setting up OTel SDK")
+	logger.Info("Setting up OTel SDK")
 	shutdownFuncs := make([]func(context.Context) error, 0)
 
 	// shutdown calls cleanup functions registered via shutdownFuncs.
@@ -55,6 +54,7 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	otel.SetTextMapPropagator(prop)
 
 	// Set up trace provider.
+	logger.Info("Setting up OTel trace provider")
 	tracerProvider, err := newTraceProvider()
 	if err != nil {
 		handleErr(err)
@@ -88,26 +88,40 @@ func newPropagator() propagation.TextMapPropagator {
 
 func newTraceProvider() (*trace.TracerProvider, error) {
 	ctx := context.Background()
-	//headers := make(map[string]string)
-	//headers["X-Api-Key"] = tracingToken
-	//headers["api-key"] = tracingToken
+	logger.Info("Setting up OTel trace provider")
+	var traceProvider *trace.TracerProvider
 
-	traceExporter, err := otlptracegrpc.New(ctx,
-		//otlptracehttp.WithEndpoint(tracingEndpoint),
-		//otlptracehttp.WithHeaders(headers),
-		otlptracegrpc.WithInsecure(),
-		otlptracegrpc.WithTimeout(5*time.Second),
-	)
-	if err != nil {
-		return nil, err
+	if otlpEndpoint != "" {
+		logger.Info("OTLP endpoint set to " + otlpEndpoint)
+		traceExporter, err := otlptracegrpc.New(ctx,
+			otlptracegrpc.WithInsecure(),
+			otlptracegrpc.WithTimeout(5*time.Second),
+			otlptracegrpc.WithEndpointURL(otlpEndpoint),
+		)
+		if err != nil {
+			logger.Error("failed to create OTLP trace exporter", uzap.String("error", err.Error()))
+			return nil, err
+		}
+
+		traceProvider = trace.NewTracerProvider(
+			trace.WithBatcher(traceExporter,
+				// Default is 5s. Set to 1s for demonstrative purposes.
+				trace.WithBatchTimeout(time.Second)),
+			trace.WithResource(newResource()),
+		)
+	} else {
+		logger.Info("OTLP endpoint not set, using stdout exporter")
+		traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
+		if err != nil {
+			return nil, err
+		}
+
+		traceProvider = trace.NewTracerProvider(
+			trace.WithBatcher(traceExporter, trace.WithBatchTimeout(time.Second/10)),
+			trace.WithResource(newResource()),
+		)
 	}
 
-	traceProvider := trace.NewTracerProvider(
-		trace.WithBatcher(traceExporter,
-			// Default is 5s. Set to 1s for demonstrative purposes.
-			trace.WithBatchTimeout(time.Second)),
-		trace.WithResource(newResource()),
-	)
 	return traceProvider, nil
 }
 
@@ -115,10 +129,10 @@ func init() {
 	ctx := context.Background()
 	shutdownFunc, err := SetupOTelSDK(ctx)
 	if err != nil {
-		setupLog.Error(err, "failed to set up OTel SDK")
+		logger.Error("failed to set up OTel SDK", uzap.Error(err))
 		os.Exit(1)
 	} else {
-		setupLog.Info("Successfully set up OTel SDK")
+		logger.Info("Successfully set up OTel SDK")
 		defer func() {
 			err = errors.Join(err, shutdownFunc(ctx))
 		}()

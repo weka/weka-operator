@@ -142,7 +142,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	OPERATOR_DEV_MODE=true go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API)
+	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API)
 
 
 #.PHONY: docker-build
@@ -178,7 +178,8 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--values charts/weka-operator/values.yaml \
 		--create-namespace \
 		--set $(VALUES) \
-		--set deployController=${DEPLOY_CONTROLLER}
+		--set deployController=${DEPLOY_CONTROLLER} \
+		--set otelExporterOtlpEndpoint="http://localhost:4317"
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
