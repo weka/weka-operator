@@ -17,7 +17,9 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -67,6 +69,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
 
+
+	ctx := context.Background()
 	opts := zap.Options{
 		Development: true,
 	}
@@ -74,8 +78,8 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	logger := prettyconsole.NewLogger(uzap.DebugLevel)
-	ctrl.SetLogger(zapr.NewLogger(logger))
+	initLogger := prettyconsole.NewLogger(uzap.DebugLevel)
+	ctrl.SetLogger(zapr.NewLogger(initLogger))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -107,6 +111,17 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	logger := mgr.GetLogger()
+
+	shutdown, err := instrumentation.SetupOTelSDK(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to set up OTel SDK")
+		os.Exit(1)
+	}
+	defer func() {
+		_ = shutdown(ctx)
+	}()
 
 	if err = (controllers.NewClientReconciler(mgr)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WekaClient")

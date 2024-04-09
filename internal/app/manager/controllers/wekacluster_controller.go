@@ -48,6 +48,7 @@ import (
 )
 
 const WekaFinalizer = "weka.weka.io/finalizer"
+const ClusterStatusInit = "Init"
 
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
@@ -100,29 +101,21 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 	return nil
 }
 
-func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "WekaClusterReconcile")
+func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
+	initContext, span := instrumentation.Tracer.Start(initContext, "weka-cluster-reconcile-init")
+
 	defer span.End()
+	var ctx context.Context
 	logger := r.Logger.WithName("Reconcile").
 		WithValues("cluster_name", req.Name, "cluster_namespace", req.Namespace).
 		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-	logger = logger.
-		WithValues("last_status", func() string {
-			wekaCluster, err := GetCluster(ctx, req, r.Client, logger)
-			if err != nil {
-				return "FETCH_ERROR"
-			}
-			if wekaCluster == nil {
-				return "NOT_FOUND"
-			}
-			return wekaCluster.Status.Status
-		}())
 
 	logger.Info("Reconcile() called")
 	defer logger.Info("Reconcile() finished")
 
 	// Fetch the WekaCluster instance
-	wekaCluster, err := GetCluster(ctx, req, r.Client, r.Logger)
+	ctx, wekaCluster, err := r.GetClusterAndContext(initContext, req, logger)
+
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Failed to get wekaCluster")
@@ -384,23 +377,36 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 	return nil
 }
 
-func GetCluster(ctx context.Context, req ctrl.Request, r client.Reader, logger logr.Logger) (*wekav1alpha1.WekaCluster, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "GetCluster")
+func (r *WekaClusterReconciler) GetClusterAndContext(initContext context.Context, req ctrl.Request, logger logr.Logger) (context.Context, *wekav1alpha1.WekaCluster, error) {
+	ctx, span := instrumentation.Tracer.Start(initContext, "weka-cluster-get")
 	defer span.End()
-	logger = logger.WithName("GetCluster").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger = logger.WithName("GetClusterAndContext").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 
 	wekaCluster := &wekav1alpha1.WekaCluster{}
 	err := r.Get(ctx, req.NamespacedName, wekaCluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("wekaCluster resource not found. Ignoring since object must be deleted")
-			return nil, nil
+			return initContext, nil, nil
 		}
 		// Error reading the object - requeue the request.
 		logger.Error(err, "Failed to get wekaCluster")
-		return nil, err
+		return initContext, nil, err
 	}
-	return wekaCluster, nil
+
+	if wekaCluster.Status.Status == ClusterStatusInit && wekaCluster.Status.TraceId == "" {
+		wekaCluster.Status.TraceId = span.SpanContext().TraceID().String()
+		wekaCluster.Status.SpanID = span.SpanContext().SpanID().String()
+		err := r.Status().Update(ctx, wekaCluster)
+		if err != nil {
+			logger.Error(err, "Failed to update traceId")
+			return initContext, nil, err
+		}
+	}
+
+	retCtx := instrumentation.NewContextWithTraceID(initContext, nil, "weka-cluster-reconcile", wekaCluster.Status.TraceId, wekaCluster.Status.SpanID)
+
+	return retCtx, wekaCluster, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
