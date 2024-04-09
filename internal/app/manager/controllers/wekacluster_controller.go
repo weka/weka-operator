@@ -20,14 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"slices"
-	"strings"
-	"time"
-
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
@@ -35,18 +27,24 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"slices"
+	"strings"
+	"time"
 )
 
 const WekaFinalizer = "weka.weka.io/finalizer"
@@ -66,6 +64,29 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		Logger:   mgr.GetLogger().WithName("controllers").WithName("WekaCluster"),
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 	}
+}
+
+func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
+	condType string, status metav1.ConditionStatus, reason string, message string) error {
+	ctx, span := instrumentation.Tracer.Start(ctx, "SetCondition")
+	defer span.End()
+	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
+	span.SetStatus(codes.Unset, "Setting condition")
+	condRecord := metav1.Condition{
+		Type:    condType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, condRecord)
+	err := r.Status().Update(ctx, cluster)
+	if err != nil {
+		span.RecordError(err)
+		return errors.Wrap(err, "Failed to update wekaCluster status")
+	}
+	span.SetAttributes(attribute.String("condition_type", condType), attribute.String("condition_status", string(status)))
+	span.SetStatus(codes.Ok, "Condition set")
+	return err
 }
 
 func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -133,11 +154,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondClusterSecretsCreated,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "Cluster secrets are created",
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
 	} else {
 		span.AddEvent("Cluster secrets are already created, skipping")
 	}
@@ -147,21 +164,13 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	containers, err := r.ensureWekaContainers(ctx, wekaCluster)
 	if err != nil {
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondPodsCreated,
-			Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionFalse, "Error", err.Error())
 		logger.Error(err, "Failed to ensure WekaContainers")
 		span.SetStatus(codes.Error, "Failed to ensure WekaContainers")
 		return ctrl.Result{RequeueAfter: time.Second * 3}, err
 	}
 
-	meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsCreated,
-		Status: metav1.ConditionTrue, Reason: "Init", Message: "All pods are created",
-	})
-	_ = r.Status().Update(ctx, wekaCluster)
+	_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
 
 	span.AddEvent("All pods are created")
 
@@ -191,11 +200,11 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			span.RecordError(err)
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondClusterCreated,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "Cluster is formed",
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		span.AddEvent("Cluster is created")
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterCreated, metav1.ConditionTrue, "Init", "Cluster is formed")
+		span.SetAttributes(attribute.String("phase", "CLUSTER_IS_FORMED"))
+	} else {
+		span.SetAttributes(attribute.String("phase", "CLUSTER_ALREADY_FORMED"))
 	}
 
 	// Ensure all containers are up in the cluster
@@ -241,35 +250,23 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDrivesAdded) {
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondDrivesAdded,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "All drives are added",
-		})
-		err = r.Status().Update(ctx, wekaCluster)
-		span.AddEvent("All drives are added")
+		err := r.SetCondition(ctx, wekaCluster, condition.CondDrivesAdded, metav1.ConditionTrue, "Init", "All drives are added")
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		span.AddEvent("All drives are added")
 	}
 
 	span.AddEvent("Ensuring IO is started")
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondIoStarted,
-			Status: metav1.ConditionUnknown, Reason: "Init", Message: "Starting IO",
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
 		logger.Info("Starting IO")
 		err = r.StartIo(ctx, wekaCluster, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondIoStarted,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "IO is started",
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionTrue, "Init", "IO is started")
 		span.AddEvent("IO is started")
 	}
 
@@ -279,11 +276,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondClusterSecretsApplied,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "Applied cluster secrets",
-		})
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsApplied, metav1.ConditionTrue, "Init", "Applied cluster secrets")
 		wekaCluster.Status.Status = "Ready"
 		err = r.Status().Update(ctx, wekaCluster)
 		if err != nil {
