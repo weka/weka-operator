@@ -127,6 +127,11 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		trace.WithAttributes(attribute.String("cluster_namespace", wekaCluster.Namespace)),
 		trace.WithAttributes(attribute.String("cluster_status", wekaCluster.Status.Status)),
 	)
+	span.SetAttributes(
+		attribute.String("cluster_name", wekaCluster.Name),
+		attribute.String("cluster_namespace", wekaCluster.Namespace),
+		attribute.String("phase", "CLUSTER_RECONCILE_STARTED"),
+	)
 
 	err = r.initState(ctx, wekaCluster)
 	if err != nil {
@@ -135,6 +140,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		span.SetStatus(codes.Error, "Failed to initialize state")
 		return ctrl.Result{}, err
 	}
+	span.SetAttributes(attribute.String("phase", "CLUSTER_RECONCILE_INITIALIZED"))
 
 	if wekaCluster.GetDeletionTimestamp() != nil {
 		err = r.handleDeletion(ctx, wekaCluster)
@@ -144,6 +150,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		logger.Info("Deleting wekaCluster")
 		span.SetStatus(codes.Ok, "Deleting wekaCluster")
+		span.SetAttributes(attribute.String("phase", "CLUSTER_IS_BEING_DELETED"))
 		return ctrl.Result{}, nil
 	}
 
@@ -157,11 +164,12 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
 	} else {
 		span.AddEvent("Cluster secrets are already created, skipping")
+		span.SetAttributes(attribute.String("phase", "CLUSTER_SECRETS_ALREADY_CREATED"))
 	}
 
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
 	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
-
+	span.SetAttributes(attribute.String("phase", "ENSURING_CLUSTER_CONTAINERS"))
 	containers, err := r.ensureWekaContainers(ctx, wekaCluster)
 	if err != nil {
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionFalse, "Error", err.Error())
@@ -172,23 +180,25 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
 
+	span.SetAttributes(attribute.String("phase", "PODS_ALREADY_EXIST"))
 	span.AddEvent("All pods are created")
 
 	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondPodsReady) {
 		span.AddEvent("Checking for container readiness")
-		if ready, err := r.isContainersReady(containers); !ready {
+		if ready, err := r.isContainersReady(ctx, containers); !ready {
 			span.SetStatus(codes.Unset, "Containers are not ready")
+			span.SetAttributes(attribute.String("phase", "CONTAINERS_NOT_READY"))
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
 		}
 		span.AddEvent("All containers are ready")
-		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-			Type:   condition.CondPodsReady,
-			Status: metav1.ConditionTrue, Reason: "Init", Message: "All weka containers are ready for clusterization",
-		})
-		_ = r.Status().Update(ctx, wekaCluster)
+		span.SetAttributes(attribute.String("phase", "CONTAINERS_ARE_READY"))
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsReady, metav1.ConditionTrue, "Init", "All weka containers are ready for clusterization")
+	} else {
+		span.SetAttributes(attribute.String("phase", "CONTAINERS_ALREADY_READY"))
 	}
 
 	if meta.IsStatusConditionFalse(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
+		span.SetAttributes(attribute.String("phase", "CLUSTERIZING"))
 		err = r.CreateCluster(ctx, wekaCluster, containers)
 		if err != nil {
 			logger.Error(err, "Failed to create cluster")
@@ -209,10 +219,12 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// Ensure all containers are up in the cluster
 	span.AddEvent("Ensuring all containers are up in the cluster")
+	joinedContainers := 0
 	for _, container := range containers {
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 			logger.Info("Container has not joined the cluster yet", "container", container.Name)
 			span.AddEvent("At least one container has not joined the cluster yet", trace.WithAttributes(attribute.String("container_name", container.Name)))
+			span.SetAttributes(attribute.String("phase", "CONTAINERS_NOT_JOINED_CLUSTER"))
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		} else {
 			if wekaCluster.Status.ClusterID == "" {
@@ -222,6 +234,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					return ctrl.Result{}, err
 				}
 			}
+			joinedContainers++
 			span.AddEvent("Container joined cluster successfully",
 				trace.WithAttributes(
 					attribute.String("container_name", container.Name),
@@ -229,6 +242,11 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				),
 			)
 		}
+	}
+	if joinedContainers == len(containers) {
+		span.SetAttributes(attribute.String("phase", "ALL_CONTAINERS_ALREADY_JOINED_CLUSTER"))
+	} else {
+		span.SetAttributes(attribute.String("phase", "CONTAINERS_JOINED_CLUSTER"))
 	}
 
 	err = r.EnsureClusterContainerIds(ctx, wekaCluster, containers)
@@ -255,6 +273,7 @@ func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		span.AddEvent("All drives are added")
+		span.SetAttributes(attribute.String("phase", "ALL_DRIVES_ADDED"))
 	}
 
 	span.AddEvent("Ensuring IO is started")
@@ -645,8 +664,8 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	defer span.End()
 	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
 	span.SetStatus(codes.Unset, "Creating cluster")
-	logger, _ := logr.FromContext(ctx)
-	logger = logger.WithName("Reconcile").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger := r.Logger.WithName("CreateCluster").
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 
 	if len(containers) == 0 {
 		logger.Info("containers list is empty")
@@ -818,7 +837,9 @@ func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alph
 	return nil
 }
 
-func (r *WekaClusterReconciler) isContainersReady(containers []*wekav1alpha1.WekaContainer) (bool, error) {
+func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, containers []*wekav1alpha1.WekaContainer) (bool, error) {
+	ctx, span := instrumentation.Tracer.Start(ctx, "isContainersReady")
+	defer span.End()
 	for _, container := range containers {
 		if container.GetDeletionTimestamp() != nil {
 			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
@@ -831,6 +852,7 @@ func (r *WekaClusterReconciler) isContainersReady(containers []*wekav1alpha1.Wek
 			return false, nil
 		}
 	}
+	span.SetStatus(codes.Ok, "Containers are ready")
 	return true, nil
 }
 
