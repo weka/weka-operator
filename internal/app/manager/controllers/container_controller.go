@@ -584,10 +584,11 @@ DRIVES:
 			if err != nil {
 				span.RecordError(err)
 				if strings.Contains(stderr.String(), "No such file or directory") {
-					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") {
+					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") ||
+						strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "/dev/oracleoci") {
 						span.AddEvent("Drive is not presigned, signing adhocy", trace.WithAttributes(attribute.String("drive", driveSignTarget)))
 						logger.Info("Drive is not presigned, signing adhocy", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
-						if err := r.initSignAwsDrives(ctx, executor, drive); err != nil {
+						if err := r.initSignCloudDrives(ctx, executor, drive); err != nil {
 							r.Logger.Info("Error signing drive", "drive", drive, "containerName", container.Name, "stderr", stderr.String())
 							// no return or continue on purpose, it is only opportunistic presigning while moving to next drive regardless
 						}
@@ -952,16 +953,16 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 	return drive
 }
 
-func (r *ContainerController) initSignAwsDrives(ctx context.Context, executor *util.Exec, drive string) error {
+func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor *util.Exec, drive string) error {
 	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerInitSignAwsDrives")
 	defer span.End()
-	logger := r.Logger.WithName("initSignAwsDrives").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-	logger.Info("Signing AWS drives", "drive", drive)
+	logger := r.Logger.WithName("initSignCloudDrives").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger.Info("Signing cloud drives", "drive", drive)
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
 	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error signing AWS drives")
+		span.SetStatus(codes.Error, "Error signing cloud drives")
 		logger.Error(err, "Error presigning drive", "drive", drive, "stderr", stderr.String())
 		return err
 	}
