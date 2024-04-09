@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
+	"k8s.io/utils/exec"
 	"log"
 	"os"
 	"reflect"
@@ -88,19 +89,22 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 		Tty:    false,
 	})
 	if err != nil {
+		var exitError exec.ExitError
+		if errors.As(err, &exitError) {
+			exitCode := exitError.ExitStatus() // ExitStatus() returns the exit code
+			span.AddEvent(fmt.Sprintf("Execution completed with code %d", exitCode))
+			span.SetAttributes(attribute.Int("exit_code", exitCode))
+			span.SetStatus(codes.Ok, "Execution succeeded with remote error")
+			return stdout, stderr, err
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Exec failed to stream")
+		span.AddEvent("Exec failed to stream")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to stream")
 	}
-	//if err != nil {
-	//	switch err := err.(type) {
-	//	case exec.ExitError:
-	//		return stdout, stderr, errors.Wrap(err, "Command failed to run with code ")
-	//	default:
-	//		return stdout, stderr, err
-	//	}
-	//}
-
+	span.SetAttributes(attribute.Int("exit_code", 0))
+	span.SetStatus(codes.Ok, "Exec success")
+	span.AddEvent("Execution completed")
 	return stdout, stderr, err
 }
 
