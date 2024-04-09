@@ -71,12 +71,34 @@ type ContainerController struct {
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, span := instrumentation.Tracer.Start(ctx, "WekaContainerReconcile")
 	defer span.End()
-	logger := r.Logger.WithName("ContainerReconcile").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-	logger.Info("ContainerController.Reconcile() called")
+	logger := r.Logger.
+		WithName("Reconcile").
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
+		WithValues("container", req.Name, "namespace", req.Namespace).
+		WithValues("last_pod_status", func() string {
+			container := &wekav1alpha1.WekaContainer{}
+			if err := r.Get(ctx, req.NamespacedName, container); err != nil {
+				if apierrors.IsNotFound(err) {
+					return "NOT_FOUND"
+				}
+				return "FETCH_ERROR"
+			}
+			pod := &v1.Pod{}
+			key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
+			if err := r.Get(ctx, key, pod); err != nil {
+				if apierrors.IsNotFound(err) {
+					return "NOT_FOUND"
+				}
+				return "FETCH_ERROR"
+			}
+			return string(pod.Status.Phase)
+		}())
+	logger.Info("Reconcile() called")
+	defer logger.Info("Reconcile() finished")
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("Container not found", "name", req.Name)
+			logger.Info("Container not found")
 			span.SetStatus(codes.Unset, "Container not found")
 			return ctrl.Result{}, nil
 		}
@@ -137,16 +159,17 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
-		!slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
+		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
+				span.AddEvent("Drivers log not found", trace.WithAttributes(attribute.String("container", container.Name)))
 				return ctrl.Result{Requeue: true}, nil
 			}
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Error reconciling drivers status")
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, err
+			return ctrl.Result{}, nil
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondEnsureDrivers,
@@ -296,7 +319,8 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 func (r *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
 	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileStatus")
 	defer span.End()
-	logger := r.Logger.WithName(fmt.Sprintf("reconcileStatus-%s", container.Name)).WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger := r.Logger.WithName("reconcileStatus").
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 
 	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
@@ -327,9 +351,9 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 		return ctrl.Result{}, err
 	}
 	if len(response) != 1 {
-		logger.Info("Expected exactly one container to be present, found ", len(response))
+		logger.Info(fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
 		span.SetStatus(codes.Error, "Expected exactly one container to be present")
-		return ctrl.Result{}, errors.New("expected exactly one container to be present")
+		return ctrl.Result{}, nil
 	}
 
 	status := response[0].RunStatus
@@ -856,13 +880,22 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	// It would be convenient, if container would just exit.
 	// Maybe, we should just replace this with completely different entry point and consolidate everything under single script
 	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
+	loaderContainer.Status.Status = "Active"
+	if err := r.Status().Update(ctx, loaderContainer); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Error updating status")
+		return err
+
+	}
 	return nil
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
 	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerDiscoverDrive")
 	defer span.End()
-	logger := r.Logger.WithName("discoverDrive").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger := r.Logger.WithName("discoverDrive").
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
+		WithValues("drive", drive, "node_name", executor.Pod.Spec.NodeName)
 	if strings.HasPrefix(drive, "aws_") {
 		// aws discovery log, relying on PCI address as more persistent than device name, worth 1 hop
 		slot := strings.TrimPrefix(drive, "aws_")
@@ -907,7 +940,10 @@ func (r *ContainerController) initSignAwsDrives(ctx context.Context, executor *u
 func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
 	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerCheckIfLoaderFinished")
 	defer span.End()
-	logger := r.Logger.WithName("checkIfLoaderFinished").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	logger := r.Logger.WithName("checkIfLoaderFinished").
+		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
+		WithValues("pod", pod.Name, "namespace", pod.Namespace)
+
 	logger.Info("Checking if loader finished")
 	span.AddEvent("Checking if loader finished", trace.WithAttributes(attribute.String("pod", pod.Name)))
 
@@ -920,6 +956,9 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 	cmd := "cat /tmp/weka-drivers-loader"
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
+		if strings.Contains(stderr.String(), "No such file or directory") {
+			return errors.New("Loader not finished")
+		}
 		logger.Error(err, "Error checking if loader finished", "stderr", stderr.String)
 		span.AddEvent("Error checking if loader finished", trace.WithAttributes(attribute.String("stderr", stderr.String())))
 		span.RecordError(err)
