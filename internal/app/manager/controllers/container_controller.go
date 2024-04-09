@@ -107,13 +107,20 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		span.RecordError(err)
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
-
-	span.AddEvent("Container refreshed", trace.WithAttributes(attribute.String("container", container.Name)))
+	span.SetAttributes(
+		attribute.String("container", container.Name),
+		attribute.String("namespace", container.Namespace),
+		attribute.String("mode", container.Spec.Mode),
+		attribute.String("management_ip", container.Status.ManagementIP),
+	)
+	span.AddEvent("Container refreshed")
 	r.initState(ctx, container)
+	span.SetAttributes(attribute.String("phase", "INIT_STATE"))
 
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
 		span.SetStatus(codes.Unset, "Container is being deleted")
+		span.SetAttributes(attribute.String("phase", "DELETING"))
 		return ctrl.Result{}, nil
 	}
 
@@ -122,7 +129,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Error creating pod spec")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "Error creating pod spec")
-		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
+		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
 	}
 
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
@@ -136,12 +143,14 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
 	}
+	span.SetAttributes(attribute.String("phase", "BOOT_CONFIG_MAP_EXISTS"))
 
 	actualPod, err := r.refreshPod(ctx, container)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			span.AddEvent("Pod not found, creating", trace.WithAttributes(attribute.String("pod", container.Name)))
 			logger.Info("Creating pod", "name", container.Name)
+			span.SetAttributes(attribute.String("phase", "CREATING_POD"))
 			if err := r.Create(ctx, desiredPod); err != nil {
 				span.SetStatus(codes.Error, "Error creating pod")
 				span.RecordError(err)
@@ -150,12 +159,19 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			logger.Info("Pod created", "name", container.Name)
 			span.AddEvent("Pod created", trace.WithAttributes(attribute.String("pod", container.Name)))
+			span.SetAttributes(attribute.String("phase", "POD_CREATED"))
 			return ctrl.Result{Requeue: true}, nil
 		} else {
 			logger.Info("Error refreshing pod", "name", container.Name)
 			span.SetStatus(codes.Error, "Error refreshing pod")
+			span.SetAttributes(attribute.String("phase", "POD_REFRESH_ERROR"))
 			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 		}
+	} else {
+		span.SetAttributes(
+			attribute.String("pod_uid", string(actualPod.UID)),
+			attribute.String("phase", "POD_ALREADY_EXISTS"),
+		)
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
@@ -182,6 +198,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			span.SetStatus(codes.Error, "Error updating status for drivers ensured")
 			return ctrl.Result{}, err
 		}
+		span.SetAttributes(attribute.String("phase", "DRIVERS_ENSURED"))
+	} else {
+		span.SetAttributes(attribute.String("phase", "DRIVERS_ALREADY_ENSURED"))
 	}
 
 	result, err := r.reconcileManagementIP(ctx, container, actualPod)
@@ -194,6 +213,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if result.Requeue {
 		return result, nil
 	}
+	span.SetAttributes(
+		attribute.String("management_ip", container.Status.ManagementIP),
+	)
 
 	// pre-clusterize
 	if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
@@ -207,6 +229,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	// only for drivers-loader container: check if drivers loaded
 	if container.Spec.Mode == "drivers-loader" {
 		err := r.checkIfLoaderFinished(ctx, actualPod)
 		if err != nil {
@@ -217,7 +240,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+			span.SetAttributes(attribute.String("phase", "DELETING_DRIVER_LOADER"))
 		}
+		span.SetAttributes(attribute.String("phase", "DRIVERS_LOADED"))
 	}
 
 	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
@@ -239,6 +264,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.Logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
+		span.SetAttributes(attribute.String("phase", "CLUSTER_JOINED"))
+	} else {
+		span.SetAttributes(attribute.String("phase", "CLUSTER_ALREADY_JOINED"))
 	}
 
 	container, err = r.refreshContainer(ctx, req)
@@ -262,9 +290,13 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.Logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
+		span.SetAttributes(attribute.String("phase", "DRIVES_ADDED"))
+	} else {
+		span.SetAttributes(attribute.String("phase", "DRIVES_ALREADY_ADDED"))
 	}
 
 	logger.Info("Reconcile completed", "name", container.Name)
+	span.SetAttributes(attribute.String("phase", "CONTAINER_IS_READY"))
 	return ctrl.Result{}, nil
 }
 
@@ -353,7 +385,7 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 	if len(response) != 1 {
 		logger.Info(fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
 		span.SetStatus(codes.Error, "Expected exactly one container to be present")
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 
 	status := response[0].RunStatus
