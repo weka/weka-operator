@@ -70,7 +70,13 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 	condType string, status metav1.ConditionStatus, reason string, message string) error {
 	ctx, span := instrumentation.Tracer.Start(ctx, "SetCondition")
 	defer span.End()
-	span.SetAttributes(attribute.String("cluster_name", cluster.Name), attribute.String("cluster_uid", string(cluster.GetUID())))
+	span.SetAttributes(
+		attribute.String("cluster_name", cluster.Name),
+		attribute.String("cluster_uid", string(cluster.GetUID())),
+		attribute.String("condition_type", condType),
+		attribute.String("condition_status", string(status)),
+	)
+
 	span.SetStatus(codes.Unset, "Setting condition")
 	condRecord := metav1.Condition{
 		Type:    condType,
@@ -79,14 +85,19 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 		Message: message,
 	}
 	meta.SetStatusCondition(&cluster.Status.Conditions, condRecord)
-	err := r.Status().Update(ctx, cluster)
-	if err != nil {
-		span.RecordError(err)
-		return errors.Wrap(err, "Failed to update wekaCluster status")
+	for i := 0; i < 3; i++ {
+		err := r.Status().Update(ctx, cluster)
+		if err != nil {
+			span.RecordError(err)
+			if i == 2 {
+				return errors.Wrap(err, "Failed to update wekaCluster status")
+			}
+			continue
+		}
+		span.SetStatus(codes.Ok, "Condition set")
+		break
 	}
-	span.SetAttributes(attribute.String("condition_type", condType), attribute.String("condition_status", string(status)))
-	span.SetStatus(codes.Ok, "Condition set")
-	return err
+	return nil
 }
 
 func (r *WekaClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
