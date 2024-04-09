@@ -13,6 +13,7 @@ spec:
   name: wekacontainercompute0
   numCores: 1
   port: 16001
-  hugepages: 2000Mi
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  hugepages: 2000
   network:
     udpMode: true
