@@ -102,7 +102,8 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
-	initContext, span := instrumentation.Tracer.Start(initContext, "weka-cluster-reconcile")
+	initContext, span := instrumentation.Tracer.Start(initContext, "weka-cluster-reconcile-init")
+
 	defer span.End()
 	var ctx context.Context
 	logger := r.Logger.WithName("Reconcile").
