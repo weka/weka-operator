@@ -121,8 +121,11 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
-			logger.Info("Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, nil
+			if strings.Contains(err.Error(), "No such file or directory") {
+				return ctrl.Result{Requeue: true}, nil
+			}
+			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
+			return ctrl.Result{}, err
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured"})
@@ -426,7 +429,8 @@ DRIVES:
 					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") {
 						r.Logger.Info("Drive is not presigned, signing adhocy", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
 						if err := r.initSignAwsDrives(ctx, executor, drive); err != nil {
-							return true, err
+							r.Logger.Info("Error signing drive", "drive", drive, "containerName", container.Name, "stderr", stderr.String())
+							// no return or continue on purpose, it is only opportunistic presigning while moving to next drive regardless
 						}
 					}
 					r.Logger.Info("Drive does not exist or not pre-signed", "drive", drive, "signTarget", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
@@ -633,8 +637,14 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 		return nil
 	}
 
-	return r.ensureDriversLoader(ctx, container)
+	if container.Spec.DriversDistService != "" {
+		err2 := r.ensureDriversLoader(ctx, container)
+		if err2 != nil {
+			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
+		}
+	}
 
+	return errors.New("Drivers not loaded")
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
