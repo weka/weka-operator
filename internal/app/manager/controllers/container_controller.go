@@ -185,7 +185,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "Error reconciling drivers status")
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, err
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondEnsureDrivers,
@@ -583,7 +583,7 @@ DRIVES:
 			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
 				span.RecordError(err)
-				if strings.Contains(stderr.String(), "No such file or directory") {
+				if strings.Contains(stderr.String(), "No such file or directory") { // it can be actual missing device
 					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") ||
 						strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "/dev/oracleoci") {
 						span.AddEvent("Drive is not presigned, signing adhocy", trace.WithAttributes(attribute.String("drive", driveSignTarget)))
