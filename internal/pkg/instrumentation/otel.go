@@ -111,9 +111,9 @@ func newTraceProvider() (*tracesdk.TracerProvider, error) {
 	return traceProvider, nil
 }
 
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, spanName, traceIDStr string) context.Context {
+func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, spanName, traceIDStr string, spanIdStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-	spanID, _ := trace.SpanIDFromHex("0000000000000001") // Example span ID; typically this would also come from external data
+	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
 	if tracer == nil {
 		tracer = Tracer
 	}

@@ -57,6 +57,7 @@ type WekaClusterStatus struct {
 	Throughput string             `json:"throughput"`
 	ClusterID  string             `json:"clusterID,omitempty"`
 	TraceId    string             `json:"traceId,omitempty"`
+	SpanID     string             `json:"spanId,omitempty"`
 }
 
 // +kubebuilder:object:root=true
