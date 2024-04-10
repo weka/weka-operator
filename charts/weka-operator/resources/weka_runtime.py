@@ -61,14 +61,16 @@ async def ensure_drivers():
                 break
             # write driver name into /tmp/weka-drivers.log
             logging.info(f"Driver {driver} not loaded, waiting for it")
-            with open("/tmp/weka-drivers.log", "w") as f:
+            with open("/tmp/weka-drivers.log_tmp", "w") as f:
                 logging.warning(f"Driver {driver} not loaded, waiting for it")
                 f.write(driver)
-                await asyncio.sleep(1)
-                continue
+            os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
+            await asyncio.sleep(1)
+            continue
 
-    with open("/tmp/weka-drivers.log", "w") as f:
+    with open("/tmp/weka-drivers.log_tmp", "w") as f:
         f.write("")
+    os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
     logging.info("All drivers loaded successfully")
 
 
@@ -78,8 +80,8 @@ MPIN_USER_DRIVER_VERSION = "1.0.1"
 UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 
 
-def load_drivers():
-    stdout, stderr, ec = run_command(dedent(f"""
+async def load_drivers():
+    stdout, stderr, ec = await run_command(dedent(f"""
         set -e 
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
@@ -383,7 +385,7 @@ async def main():
 
 
 async def stop_daemon(process):
-    _, _, _ = run_command(f"kill -TERM -{process.pid}")
+    await run_command(f"kill -TERM -{process.pid}")
     for k, v in list(processes.items()):
         if v == process:
             del processes[k]

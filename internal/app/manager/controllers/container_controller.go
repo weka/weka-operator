@@ -634,11 +634,18 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 		return errors.Wrap(err, stderr.String())
 	}
 	if strings.TrimSpace(stdout.String()) == "" {
+		r.Logger.Info("Drivers report loaded")
 		return nil
 	}
 
-	return r.ensureDriversLoader(ctx, container)
+	if container.Spec.DriversDistService != "" {
+		err2 := r.ensureDriversLoader(ctx, container)
+		if err2 != nil {
+			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
+		}
+	}
 
+	return errors.New("Drivers not loaded")
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
