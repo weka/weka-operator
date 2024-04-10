@@ -8,6 +8,7 @@
 bin
 testbin/*
 Dockerfile.cross
+.local_test.py
 
 # Test binary, build with `go test -c`
 *.test
