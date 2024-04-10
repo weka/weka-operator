@@ -55,16 +55,17 @@ def wait_for_agent():
 
 async def ensure_drivers():
     for driver in "wekafsio wekafsgw igb_uio mpin_user uio_pci_generic".split():
-        stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
-        if ec == 0:
-            continue
-        # write driver name into /tmp/weka-drivers.log
-        logging.info(f"Driver {driver} not loaded, waiting for it")
-        with open("/tmp/weka-drivers.log", "w") as f:
-            logging.warning(f"Driver {driver} not loaded, waiting for it")
-            f.write(driver)
-            await asyncio.sleep(1)
-            return
+        while True:
+            stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
+            if ec == 0:
+                break
+            # write driver name into /tmp/weka-drivers.log
+            logging.info(f"Driver {driver} not loaded, waiting for it")
+            with open("/tmp/weka-drivers.log", "w") as f:
+                logging.warning(f"Driver {driver} not loaded, waiting for it")
+                f.write(driver)
+                await asyncio.sleep(1)
+                continue
 
     with open("/tmp/weka-drivers.log", "w") as f:
         f.write("")
@@ -184,7 +185,7 @@ async def ensure_daemon(command, alias=""):
     """Start a daemon process."""
     # TODO: Check if already exists, not really needed unless actually adding recovery flow
     # TODO: Logs are basically thrown away into stdout . wrap agent logs as debug on logging level
-    process = await asyncio.create_subprocess_shell(command)
+    process = await asyncio.create_subprocess_shell(command, preexec_fn=os.setpgrp)
     # stdout=asyncio.subprocess.PIPE,
     # stderr=asyncio.subprocess.PIPE)
     logging.info(f"Daemon {alias or command} started with PID {process.pid}")
@@ -350,6 +351,11 @@ async def start_dist_container():
 
 
 async def main():
+    if MODE == "drivers-loader":
+        # self signal to exit
+        await load_drivers()
+        return
+
     await configure_persistency()
     # TODO: Configure agent
     await configure_agent()
@@ -362,12 +368,8 @@ async def main():
     if MODE not in ["dist", "drivers-loader"]:
         await ensure_drivers()
 
-    if MODE == "drivers-loader":
-        await load_drivers()
-        return
-
     if MODE == "dist":
-        await stop_process(processes.get("agent"))
+        await stop_daemon(processes.get("agent"))
         del processes["agent"]
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
@@ -378,13 +380,10 @@ async def main():
         return
 
     await ensure_weka_container()
-    while not exiting:
-        await asyncio.sleep(1)
-        continue
 
 
-async def stop_process(process):
-    process.terminate()
+async def stop_daemon(process):
+    _, _, _ = run_command(f"kill -TERM -{process.pid}")
     for k, v in list(processes.items()):
         if v == process:
             del processes[k]
@@ -403,7 +402,7 @@ async def shutdown():
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task(loop)]
     [task.cancel() for task in tasks]
     for process in list(processes.values()):
-        await stop_process(process)
+        await stop_daemon(process)
     loop.stop()
 
 
@@ -438,9 +437,10 @@ loop.add_signal_handler(signal.SIGINT, partial(signal_handler, "SIGINT"))
 loop.add_signal_handler(signal.SIGTERM, partial(signal_handler, "SIGTERM"))
 
 task = loop.create_task(shutdown())
+task = loop.create_task(main())
 
 try:
-    loop.run_until_complete(main())
+    loop.run_forever()
 except RuntimeError:
     if exiting:
         logging.info("Cancelled")
