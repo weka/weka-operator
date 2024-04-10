@@ -111,20 +111,19 @@ func newTraceProvider() (*tracesdk.TracerProvider, error) {
 	return traceProvider, nil
 }
 
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, spanName, traceIDStr string, spanIdStr string) context.Context {
+func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
+	//spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
 	if tracer == nil {
 		tracer = Tracer
 	}
 
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled, // Be sure to set the flags to reflect the sampling status
+		TraceID: traceID,
+		//SpanID:  spanID,
 	})
 
 	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
-	_, span := tracer.Start(ctx, spanName)
-	return trace.ContextWithSpan(ctx, span)
+	//retCtx, span := tracer.Start(ctx, spanName)
+	return ctx
 }

@@ -103,8 +103,8 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
 	initContext, span := instrumentation.Tracer.Start(initContext, "weka-cluster-reconcile-init")
+	defer func(span trace.Span) { span.End() }(span)
 
-	defer span.End()
 	var ctx context.Context
 	logger := r.Logger.WithName("Reconcile").
 		WithValues("cluster_name", req.Name, "cluster_namespace", req.Namespace).
@@ -126,6 +126,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
+	ctx, span = instrumentation.Tracer.Start(ctx, "weka-cluster-post-get")
+	defer span.End()
 	span.AddEvent("Existing cluster was found",
 		trace.WithAttributes(attribute.String("cluster_name", wekaCluster.Name)),
 		trace.WithAttributes(attribute.String("cluster_namespace", wekaCluster.Namespace)),
@@ -404,7 +406,7 @@ func (r *WekaClusterReconciler) GetClusterAndContext(initContext context.Context
 		}
 	}
 
-	retCtx := instrumentation.NewContextWithTraceID(initContext, nil, "weka-cluster-reconcile", wekaCluster.Status.TraceId, wekaCluster.Status.SpanID)
+	retCtx := instrumentation.NewContextWithTraceID(initContext, nil, wekaCluster.Status.TraceId, wekaCluster.Status.SpanID)
 
 	return retCtx, wekaCluster, nil
 }
