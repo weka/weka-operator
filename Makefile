@@ -179,7 +179,7 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
-		--set otelExporterOtlpEndpoint="http://localhost:4317"
+		--set otelExporterOtlpEndpoint="http://signoz-k8s-infra-otel-agent.signoz.svc.cluster.local:4317"
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

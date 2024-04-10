@@ -56,6 +56,7 @@ type WekaClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	Throughput string             `json:"throughput"`
 	ClusterID  string             `json:"clusterID,omitempty"`
+	TraceId    string             `json:"traceId,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -10,8 +10,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	trace "go.opentelemetry.io/otel/trace"
 	uzap "go.uber.org/zap"
 	"os"
 	"time"
@@ -20,29 +21,15 @@ import (
 var (
 	Tracer       = otel.Tracer("weka-operator")
 	otlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	logger       = prettyconsole.NewLogger(uzap.DebugLevel)
+	//serviceName  = os.Getenv("OTEL_SERVICE_NAME")
+	//insecure     = os.Getenv("OTEL_INSECURE_MODE")
+	logger = prettyconsole.NewLogger(uzap.DebugLevel)
 )
 
 // SetupOTelSDK bootstraps the OpenTelemetry pipeline.
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
 	logger.Info("Setting up OTel SDK")
-	shutdownFuncs := make([]func(context.Context) error, 0)
-
-	// shutdown calls cleanup functions registered via shutdownFuncs.
-	// The errors from the calls are joined.
-	// Each registered cleanup will be invoked once.
-	shutdown = func(ctx context.Context) error {
-		var err error
-		for _, fn := range shutdownFuncs {
-			if err != nil {
-				// Join errors to avoid losing them.
-				err = errors.Join(err, fn(ctx))
-			}
-		}
-		shutdownFuncs = []func(context.Context) error{}
-		return err
-	}
 
 	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
 	handleErr := func(inErr error) {
@@ -60,10 +47,9 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 		handleErr(err)
 		return shutdown, err
 	}
-	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)
 
-	return shutdown, err
+	return tracerProvider.Shutdown, err
 }
 
 func newResource() *resource.Resource {
@@ -86,10 +72,10 @@ func newPropagator() propagation.TextMapPropagator {
 	)
 }
 
-func newTraceProvider() (*trace.TracerProvider, error) {
+func newTraceProvider() (*tracesdk.TracerProvider, error) {
 	ctx := context.Background()
 	logger.Info("Setting up OTel trace provider")
-	var traceProvider *trace.TracerProvider
+	var traceProvider *tracesdk.TracerProvider
 
 	if otlpEndpoint != "" {
 		logger.Info("OTLP endpoint set to " + otlpEndpoint)
@@ -103,11 +89,11 @@ func newTraceProvider() (*trace.TracerProvider, error) {
 			return nil, err
 		}
 
-		traceProvider = trace.NewTracerProvider(
-			trace.WithBatcher(traceExporter,
+		traceProvider = tracesdk.NewTracerProvider(
+			tracesdk.WithBatcher(traceExporter,
 				// Default is 5s. Set to 1s for demonstrative purposes.
-				trace.WithBatchTimeout(time.Second)),
-			trace.WithResource(newResource()),
+				tracesdk.WithBatchTimeout(time.Second)),
+			tracesdk.WithResource(newResource()),
 		)
 	} else {
 		logger.Info("OTLP endpoint not set, using stdout exporter")
@@ -116,26 +102,29 @@ func newTraceProvider() (*trace.TracerProvider, error) {
 			return nil, err
 		}
 
-		traceProvider = trace.NewTracerProvider(
-			trace.WithBatcher(traceExporter, trace.WithBatchTimeout(time.Second/10)),
-			trace.WithResource(newResource()),
+		traceProvider = tracesdk.NewTracerProvider(
+			tracesdk.WithBatcher(traceExporter, tracesdk.WithBatchTimeout(time.Second/10)),
+			tracesdk.WithResource(newResource()),
 		)
 	}
 
 	return traceProvider, nil
 }
 
-func init() {
-	ctx := context.Background()
-	shutdownFunc, err := SetupOTelSDK(ctx)
-	if err != nil {
-		logger.Error("failed to set up OTel SDK", uzap.Error(err))
-		os.Exit(1)
-	} else {
-		logger.Info("Successfully set up OTel SDK")
-		defer func() {
-			err = errors.Join(err, shutdownFunc(ctx))
-		}()
+func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, spanName, traceIDStr string) context.Context {
+	traceID, _ := trace.TraceIDFromHex(traceIDStr)
+	spanID, _ := trace.SpanIDFromHex("0000000000000001") // Example span ID; typically this would also come from external data
+	if tracer == nil {
+		tracer = Tracer
 	}
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled, // Be sure to set the flags to reflect the sampling status
+	})
+
+	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
+	_, span := tracer.Start(ctx, spanName)
+	return trace.ContextWithSpan(ctx, span)
 }
