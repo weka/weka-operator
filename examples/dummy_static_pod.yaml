@@ -1,0 +1,20 @@
+# k8s pod with 2 static CPUs
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dummy-static-pod
+spec:
+    containers:
+    - name: dummy
+      image: ubuntu:20.04
+      command: ["sleep", "3600"]
+      resources:
+        requests:
+            cpu: "3"
+            memory: "2Gi"
+        limits:
+            cpu: "3"
+            memory: "2Gi"
+    terminationGracePeriodSeconds: 0
+    nodeSelector:
+        weka.io/role: builder
