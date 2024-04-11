@@ -3,10 +3,11 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.opentelemetry.io/otel/codes"
 	"slices"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -211,7 +212,6 @@ OUTER:
 		return
 
 	}
-
 }
 
 func contains(alloc []string, searchstring string) bool {
@@ -316,6 +316,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 	allocateResources := func(role string, numContainers int) error {
 	CONTAINERS:
 		for i := 0; i < numContainers; i++ {
+			logger := logger.WithValues("role", role, "numContainers", numContainers)
 			containerName := fmt.Sprintf("%s%d", role, i)
 			owner := Owner{ownerCluster, containerName, role}
 			_, found := GetOwnedResources(owner, allocations)
@@ -364,14 +365,17 @@ func (a *Allocator) Allocate(ctx context.Context,
 			logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "allocationsMap", allocationsMap, "changed", changed, "containerName", containerName, "owner", owner, "allocMap", allocationsMap)
 			return fmt.Errorf("Not enough resources to allocate request")
 		}
+		logger.Info("Exit")
 		return nil
 	}
 
 	if err := allocateResources("drive", template.DriveContainers*size); err != nil {
+		logger.Error(err, "Failed to allocate drives")
 		return allocations, err, changed
 	}
 
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
+		logger.Error(err, "Failed to allocate compute")
 		return allocations, err, changed
 	}
 	logger.SetStatus(codes.Ok, "resources allocated")

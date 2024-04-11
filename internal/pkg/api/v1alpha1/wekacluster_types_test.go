@@ -1,38 +1,109 @@
 package v1alpha1
 
 import (
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"testing"
+
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = Describe("WekaClusterStatus", func() {
-	Describe("InitStatus", func() {
-		var status WekaClusterStatus
-		BeforeEach(func() {
-			status = WekaClusterStatus{}
-		})
-		Context("before initialization", func() {
-			It("should have no conditions", func() {
-				Expect(status.Conditions).To(BeEmpty())
-			})
-		})
+func TestInitStatus(t *testing.T) {
+	status := WekaClusterStatus{}
 
-		When("initialized", func() {
-			BeforeEach(func() {
-				status.InitStatus()
-			})
-
-			It("should create the conditions", func() {
-				Expect(status.Conditions).NotTo(BeEmpty())
-			})
-
-			It("should not initialize the conditions", func() {
-				for _, cond := range status.Conditions {
-					Expect(cond.Status).To(Equal(v1.ConditionFalse))
-					Expect(cond.Reason).To(Equal("Init"))
-				}
-			})
-		})
+	t.Run("before initialization", func(t *testing.T) {
+		if len(status.Conditions) != 0 {
+			t.Errorf("Expected no conditions, got %d", len(status.Conditions))
+		}
 	})
-})
+
+	status.InitStatus()
+
+	t.Run("after initialization", func(t *testing.T) {
+		if len(status.Conditions) == 0 {
+			t.Errorf("Expected conditions, got none")
+		}
+
+		for _, cond := range status.Conditions {
+			if cond.Status != v1.ConditionFalse {
+				t.Errorf("Expected condition status to be False, got %s", cond.Status)
+			}
+			if cond.Reason != "Init" {
+				t.Errorf("Expected condition reason to be 'Init', got %s", cond.Reason)
+			}
+		}
+	})
+}
+
+func TestGetOperatorSecretName(t *testing.T) {
+	cluster := WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			UID: "1234-5678",
+		},
+	}
+
+	expected := "weka-operator-1234-5678"
+	actual := cluster.GetOperatorSecretName()
+
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+}
+
+func TestGetLastGuidPart(t *testing.T) {
+	cluster := WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			UID: "1234-5678",
+		},
+	}
+
+	expected := "5678"
+	actual := cluster.GetLastGuidPart()
+
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+}
+
+func TestGetUserClusterUsername(t *testing.T) {
+	cluster := WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			UID: "1234-5678",
+		},
+	}
+
+	expected := "weka5678"
+	actual := cluster.GetUserClusterUsername()
+
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+}
+
+func TestGetOperatorClusterUsername(t *testing.T) {
+	cluster := WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			UID: "1234-5678",
+		},
+	}
+
+	expected := "weka-operator-5678"
+	actual := cluster.GetOperatorClusterUsername()
+
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+}
+
+func TestGetUserSecretName(t *testing.T) {
+	cluster := WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			Name: "test-cluster",
+		},
+	}
+
+	expected := "weka-cluster-test-cluster"
+	actual := cluster.GetUserSecretName()
+
+	if actual != expected {
+		t.Errorf("Expected %s, got %s", expected, actual)
+	}
+}

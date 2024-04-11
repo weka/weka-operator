@@ -18,6 +18,8 @@ package v1alpha1
 
 import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/util"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -78,6 +80,57 @@ type WekaClusterList struct {
 	Items           []WekaCluster `json:"items"`
 }
 
+const DefaultOrg = "Root"
+
+func (c *WekaCluster) GetOperatorSecretName() string {
+	return string("weka-operator-" + c.GetUID())
+}
+
+func (c *WekaCluster) GetLastGuidPart() string {
+	return util.GetLastGuidPart(c.GetUID())
+}
+
+func (c *WekaCluster) GetUserClusterUsername() string {
+	return "weka" + c.GetLastGuidPart()
+}
+
+func (c *WekaCluster) GetOperatorClusterUsername() string {
+	return "weka-operator-" + c.GetLastGuidPart()
+}
+
+func (c *WekaCluster) GetUserSecretName() string {
+	name := c.Name
+	return "weka-cluster-" + name
+}
+
+func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.GetUserSecretName(),
+			Namespace: c.Namespace,
+		},
+		StringData: map[string]string{
+			"username": c.GetUserClusterUsername(),
+			"password": util.GeneratePassword(32),
+			"org":      DefaultOrg,
+		},
+	}
+}
+
+func (c *WekaCluster) NewOperatorLoginSecret() *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.GetOperatorSecretName(),
+			Namespace: c.Namespace,
+		},
+		StringData: map[string]string{
+			"username": c.GetOperatorClusterUsername(),
+			"password": util.GeneratePassword(32),
+			"org":      DefaultOrg,
+		},
+	}
+}
+
 func (status *WekaClusterStatus) InitStatus() {
 	status.Conditions = []metav1.Condition{}
 
@@ -124,7 +177,6 @@ func (status *WekaClusterStatus) InitStatus() {
 		Status: metav1.ConditionFalse, Reason: "Init",
 		Message: "Weka Cluster IO is not started",
 	})
-
 }
 
 func init() {

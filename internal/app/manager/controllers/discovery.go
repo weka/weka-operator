@@ -3,7 +3,10 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
@@ -13,7 +16,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
 )
 
 type DiscoveryNodeInfo struct {
@@ -78,7 +80,7 @@ type OwnerWekaObject struct {
 	ImagePullSecret string `json:"imagePullSecrets"`
 }
 
-func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string) error {
+func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec services.ExecService) error {
 	node := &corev1.Node{}
 	err := c.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
@@ -123,7 +125,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 		return err
 	}
 
-	executor, err := GetExecutor(discoveryContainer)
+	executor, err := exec.GetExecutor(ctx, discoveryContainer)
 	if err != nil {
 		return err
 	}
@@ -205,5 +207,4 @@ func ResolveCpuPolicy(ctx context.Context, c client.Client, node string, cpuPoli
 		cpuPolicy = v1alpha1.CpuPolicyDedicated
 	}
 	return cpuPolicy, nil
-
 }

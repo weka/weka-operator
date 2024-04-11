@@ -2,126 +2,124 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ = Describe("Weka Container Controller", func() {
-	var ctx context.Context
-	var subject *ContainerController
-	BeforeEach(func() {
-		Expect(k8sManager).NotTo(BeNil())
-		ctx = context.Background()
-		subject = NewContainerController(k8sManager)
-	})
+type ContainerTestCase struct {
+	mode          string
+	cpuPolicy     wekav1alpha1.CpuPolicy
+	expectedError bool
+}
 
-	Describe("NewContainerController", func() {
-		It("should return a new ContainerController", func() {
-			Expect(subject).NotTo(BeNil())
-			Expect(subject.Client).NotTo(BeNil())
-			Expect(subject.Scheme).NotTo(BeNil())
-			Expect(subject.Logger).NotTo(BeNil())
-		})
-	})
+func TestWekaContainerController(t *testing.T) {
+	testEnv, err := setupTestEnv(context.Background())
+	if err != nil {
+		t.Fatalf("failed to setup test environment: %v", err)
+	}
+	defer teardownTestEnv(testEnv)
 
-	Describe("ContainerController", func() {
-		Context("Without a container", func() {
-			PIt("should do nothing", func() {
-				result, err := subject.Reconcile(ctx, ctrl.Request{})
-				Expect(err).To(BeNil())
-				Expect(result).To(Equal(ctrl.Result{}))
-			})
-		})
+	tests := []ContainerTestCase{
+		{"drive", wekav1alpha1.CpuPolicyDedicated, false},
+		{"compute", wekav1alpha1.CpuPolicyDedicated, false},
+		{"client", wekav1alpha1.CpuPolicyDedicated, false},
+		{"dist", wekav1alpha1.CpuPolicyDedicated, false},
+		{"drivers-loader", wekav1alpha1.CpuPolicyDedicated, false},
+		{"invalid", wekav1alpha1.CpuPolicyDedicated, true},
+		{"drive", wekav1alpha1.CpuPolicy("invalid"), true},
+	}
 
-		Context("when is a drive container", func() {
-			var key client.ObjectKey
-			var container *wekav1alpha1.WekaContainer
-			BeforeEach(func() {
-				key = client.ObjectKey{
-					Namespace: "default",
-					Name:      "test-container",
-				}
-				container = &wekav1alpha1.WekaContainer{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: key.Namespace,
-						Name:      key.Name,
-					},
-					Spec: wekav1alpha1.WekaContainerSpec{
-						Mode:      "drive",
-						CpuPolicy: wekav1alpha1.CpuPolicyDedicated,
-					},
-				}
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("mode=%s,cpupolicy=%s", test.mode, test.cpuPolicy), CanCreateContainer(testEnv, test))
+	}
+}
 
-				Expect(k8sClient.Create(ctx, container)).To(Succeed())
-				Eventually(func() error {
-					return k8sClient.Get(ctx, key, container)
-				}).Should(Succeed())
-			})
+func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t *testing.T) {
+	ctx := testEnv.Ctx
+	return func(t *testing.T) {
+		name := test.mode + "-" + string(test.cpuPolicy)
+		key := client.ObjectKey{
+			Namespace: "default",
+			Name:      fmt.Sprintf("test-container-%s", name),
+		}
 
-			AfterEach(func() {
-				Expect(key.Namespace).NotTo(BeEmpty())
-				container := &wekav1alpha1.WekaContainer{}
-				if err := k8sClient.Get(ctx, key, container); err == nil {
-					Expect(k8sClient.Delete(ctx, container)).To(Succeed())
-				}
-				Eventually(func() bool {
-					err := k8sClient.Get(ctx, key, container)
-					return apierrors.IsNotFound(err)
-				}).Should(BeTrue())
-			})
-
-			Describe("Initial State", func() {
-				It("should not set any conditions", func() {
-					container := &wekav1alpha1.WekaContainer{}
-					Expect(k8sClient.Get(ctx, key, container)).To(Succeed())
-					Expect(container.Status.Conditions).To(HaveLen(0))
-				})
-			})
+		container := &wekav1alpha1.WekaContainer{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: key.Namespace,
+				Name:      fmt.Sprintf("test-container-%s", name),
+			},
+			Spec: wekav1alpha1.WekaContainerSpec{
+				Mode:      test.mode,
+				CpuPolicy: test.cpuPolicy,
+			},
+		}
+		err := testEnv.Client.Create(ctx, container)
+		if err == nil && test.expectedError {
+			t.Fatalf("error creating container - expected: %v, got: %v", test.expectedError, err)
+		}
+		container = &wekav1alpha1.WekaContainer{}
+		waitFor(ctx, func(ctx context.Context) bool {
+			err := testEnv.Client.Get(ctx, key, container)
+			if test.expectedError {
+				return err != nil
+			} else {
+				return err == nil
+			}
 		})
 
-		Context("when container has an invalid mode", func() {
-			var key client.ObjectKey
-			var container *wekav1alpha1.WekaContainer
-			BeforeEach(func() {
-				key = client.ObjectKey{
-					Namespace: "default",
-					Name:      "test-container",
-				}
-				container = &wekav1alpha1.WekaContainer{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: key.Namespace,
-						Name:      key.Name,
-					},
-					Spec: wekav1alpha1.WekaContainerSpec{
-						Mode:      "invalid",
-						CpuPolicy: wekav1alpha1.CpuPolicyDedicated,
-					},
-				}
-			})
+		t.Run("ValidateConditions", ValidateConditions(container))
 
-			AfterEach(func() {
-				Expect(key.Namespace).NotTo(BeEmpty())
-				container := &wekav1alpha1.WekaContainer{}
-				if err := k8sClient.Get(ctx, key, container); err == nil {
-					Expect(k8sClient.Delete(ctx, container)).To(Succeed())
-				}
-				Eventually(func() bool {
-					err := k8sClient.Get(ctx, key, container)
-					return apierrors.IsNotFound(err)
-				}).Should(BeTrue())
-			})
-
-			Describe("Initial State", func() {
-				PIt("should set an invalid condition", func() {
-					Expect(k8sClient.Create(ctx, container)).NotTo(Succeed())
-				})
-			})
+		if err := testEnv.Client.Delete(ctx, container); err != nil {
+			if !test.expectedError {
+				t.Fatalf("failed to delete container: %v", err)
+			}
+		}
+		waitFor(ctx, func(ctx context.Context) bool {
+			container := &wekav1alpha1.WekaContainer{}
+			err := testEnv.Client.Get(ctx, key, container)
+			return apierrors.IsNotFound(err)
 		})
-	})
-})
+	}
+}
+
+func ValidateConditions(container *wekav1alpha1.WekaContainer) func(t *testing.T) {
+	return func(t *testing.T) {
+		conditions := container.Status.Conditions
+		if len(conditions) != 0 {
+			t.Errorf("expected 1 condition, got %d", len(conditions))
+		}
+	}
+}
+
+func TestNewContainerController(t *testing.T) {
+	testEnv, err := setupTestEnv(context.Background())
+	if err != nil {
+		t.Fatalf("failed to setup test environment: %v", err)
+		return
+	}
+	defer teardownTestEnv(testEnv)
+
+	if testEnv.Manager == nil {
+		t.Errorf("failed to create manager")
+		return
+	}
+
+	subject := NewContainerController(testEnv.Manager)
+	if subject == nil {
+		t.Errorf("NewContainerController() returned nil")
+		return
+	}
+
+	if subject.Client == nil {
+		t.Errorf("NewContainerController() returned controller with nil client")
+	}
+
+	if subject.Scheme == nil {
+		t.Errorf("NewContainerController() returned controller with nil scheme")
+	}
+}

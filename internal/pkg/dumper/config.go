@@ -2,9 +2,10 @@ package util
 
 import (
 	"encoding/json"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	"time"
 )
 
 type WekaDumperConfig struct {
