@@ -69,7 +69,7 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 
 func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
 	condType string, status metav1.ConditionStatus, reason string, message string) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "SetCondition")
+	ctx, span := instrumentation.Tracer.Start(ctx, fmt.Sprintf("SetCondition.%s(%s)", condType, status))
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("cluster_name", cluster.Name),
