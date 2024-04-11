@@ -144,6 +144,9 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 runcontroller: ## Run a controller from your host.
 	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API)
 
+.PHONY: debugcontroller
+debugcontroller: ## Run a controller from your host.
+	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient ./cmd/manager/main.go
 
 #.PHONY: docker-build
 #docker-build: ## Build docker image with the manager.
