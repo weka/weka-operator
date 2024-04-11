@@ -316,9 +316,21 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 				},
 			},
 		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "usrsrc",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/usr/src",
+				},
+			},
+		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "libmodules",
 			MountPath: "/lib/modules",
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "usrsrc",
+			MountPath: "/usr/src",
 		})
 	}
 
