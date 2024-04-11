@@ -54,6 +54,7 @@ def wait_for_agent():
 
 
 async def ensure_drivers():
+    logging.info("waiting for drivers")
     for driver in "wekafsio wekafsgw igb_uio mpin_user uio_pci_generic".split():
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
@@ -101,8 +102,8 @@ async def load_drivers():
         raise Exception(f"Failed to load drivers: {stderr}")
 
 
-def copy_drivers():
-    stdout, stderr, ec = run_command(dedent(f"""
+async def copy_drivers():
+    stdout, stderr, ec = await run_command(dedent(f"""
       cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
 
@@ -316,6 +317,7 @@ async def ensure_weka_version():
 
 
 async def configure_agent(agent_handle_drivers=False):
+    logging.info(f"reconfiguring agent with handle_drivers={agent_handle_drivers}")
     ignore_driver_flag = "false" if agent_handle_drivers else "true"
     cmd = dedent(f"""
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
@@ -371,8 +373,8 @@ async def main():
         await ensure_drivers()
 
     if MODE == "dist":
+        logging.info("dist-service flow")
         await stop_daemon(processes.get("agent"))
-        del processes["agent"]
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
         await ensure_dist_container()
@@ -385,11 +387,14 @@ async def main():
 
 
 async def stop_daemon(process):
+    logging.info(f"stopping daemon with pid {process.pid}")
     await run_command(f"kill -TERM -{process.pid}")
     for k, v in list(processes.items()):
         if v == process:
             del processes[k]
+    logging.info(f"waiting for process {process.pid} to exit")
     await process.wait()
+    logging.info(f"process {process.pid} exited")
 
 
 async def shutdown():
