@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/strings/slices"
-	"log"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -67,75 +66,73 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list
 
+func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+	logger := r.Logger
+	joinNames := strings.Join(names, ".")
+	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
+	if span != nil {
+		traceID := span.SpanContext().TraceID().String()
+		spanID := span.SpanContext().SpanID().String()
+		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
+		for _, name := range names {
+			logger = logger.WithName(name)
+		}
+	}
+
+	ShutdownFunc := func(opts ...trace.SpanEndOption) {
+		if span != nil {
+			span.End(opts...)
+		}
+		logger.Info(fmt.Sprintf("%s finished", joinNames))
+	}
+
+	ls := instrumentation.LogSpan{
+		Logger: logger,
+		Span:   span,
+		End:    ShutdownFunc,
+	}
+	logger.Info(fmt.Sprintf("%s called", joinNames))
+	return ctx, ls
+}
+
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "WekaContainerReconcile")
-	defer span.End()
-	logger := r.Logger.
-		WithName("Reconcile").
-		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
-		WithValues("container", req.Name, "namespace", req.Namespace).
-		WithValues("last_pod_status", func() string {
-			container := &wekav1alpha1.WekaContainer{}
-			if err := r.Get(ctx, req.NamespacedName, container); err != nil {
-				if apierrors.IsNotFound(err) {
-					return "NOT_FOUND"
-				}
-				return "FETCH_ERROR"
-			}
-			pod := &v1.Pod{}
-			key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
-			if err := r.Get(ctx, key, pod); err != nil {
-				if apierrors.IsNotFound(err) {
-					return "NOT_FOUND"
-				}
-				return "FETCH_ERROR"
-			}
-			return string(pod.Status.Phase)
-		}())
-	logger.Info("Reconcile() called")
-	defer logger.Info("Reconcile() finished")
+	ctx, logger := r.getLogSpan(ctx, "WekaContainerReconcile", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	defer logger.End()
+
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("Container not found")
-			span.SetStatus(codes.Unset, "Container not found")
+			logger.InfoWithStatus(codes.Unset, "Container not found")
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error refreshing container")
-		span.SetStatus(codes.Error, "Error refreshing container")
-		span.RecordError(err)
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
-	span.SetAttributes(
+	logger.SetAttributes(
 		attribute.String("container", container.Name),
 		attribute.String("namespace", container.Namespace),
 		attribute.String("mode", container.Spec.Mode),
 		attribute.String("management_ip", container.Status.ManagementIP),
 	)
-	span.AddEvent("Container refreshed")
+	logger.Info("Container refreshed")
 	r.initState(ctx, container)
-	span.SetAttributes(attribute.String("phase", "INIT_STATE"))
+	logger.SetPhase("INIT_STATE")
 
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
-		span.SetStatus(codes.Unset, "Container is being deleted")
-		span.SetAttributes(attribute.String("phase", "DELETING"))
+		logger.SetPhase("DELETING")
 		return ctrl.Result{}, nil
 	}
 
 	desiredPod, err := resources.NewContainerFactory(container, logger).Create()
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
 	}
 
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		logger.Error(err, "Error setting controller reference")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error setting controller reference")
 		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
 	}
 
@@ -143,35 +140,24 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err != nil {
 		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
 	}
-	span.SetAttributes(attribute.String("phase", "BOOT_CONFIG_MAP_EXISTS"))
+	logger.SetPhase("BOOT_CONFIG_MAP_EXISTS")
 
 	actualPod, err := r.refreshPod(ctx, container)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			span.AddEvent("Pod not found, creating", trace.WithAttributes(attribute.String("pod", container.Name)))
-			logger.Info("Creating pod", "name", container.Name)
-			span.SetAttributes(attribute.String("phase", "CREATING_POD"))
+			logger.SetPhase("Creating pod")
 			if err := r.Create(ctx, desiredPod); err != nil {
-				span.SetStatus(codes.Error, "Error creating pod")
-				span.RecordError(err)
-				return ctrl.Result{},
-					pretty.Errorf("Error creating pod", err, desiredPod)
+				logger.Error(err, "Error creating pod", "pod_name", container.Name)
+				return ctrl.Result{}, pretty.Errorf("Error creating pod", err, desiredPod)
 			}
-			logger.Info("Pod created", "name", container.Name)
-			span.AddEvent("Pod created", trace.WithAttributes(attribute.String("pod", container.Name)))
-			span.SetAttributes(attribute.String("phase", "POD_CREATED"))
+			logger.WithValues("pod_name", container.Name).SetPhase("POD_CREATED")
 			return ctrl.Result{Requeue: true}, nil
 		} else {
-			logger.Info("Error refreshing pod", "name", container.Name)
-			span.SetStatus(codes.Error, "Error refreshing pod")
-			span.SetAttributes(attribute.String("phase", "POD_REFRESH_ERROR"))
-			return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
+			logger.WithValues("pod_name", container.Name).SetPhase("POD_REFRESH_ERROR")
+			return ctrl.Result{}, errors.Wrap(err, "Failed to refresh pod")
 		}
 	} else {
-		span.SetAttributes(
-			attribute.String("pod_uid", string(actualPod.UID)),
-			attribute.String("phase", "POD_ALREADY_EXISTS"),
-		)
+		logger.SetPhase("POD_ALREADY_EXISTS")
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
@@ -179,11 +165,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
-				span.AddEvent("Drivers log not found", trace.WithAttributes(attribute.String("container", container.Name)))
+				logger.WithValues("container", container.Name).SetPhase("DRIVERS_NOT_READY")
 				return ctrl.Result{Requeue: true}, nil
 			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Error reconciling drivers status")
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
 			return ctrl.Result{}, err
 		}
@@ -194,41 +178,38 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		err = r.Status().Update(ctx, container)
 		if err != nil {
 			logger.Error(err, "Error updating status for drivers ensured")
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Error updating status for drivers ensured")
 			return ctrl.Result{}, err
 		}
-		span.SetAttributes(attribute.String("phase", "DRIVERS_ENSURED"))
+		logger.SetPhase("DRIVERS_ENSURED")
 	} else {
-		span.SetAttributes(attribute.String("phase", "DRIVERS_ALREADY_ENSURED"))
+		logger.SetPhase("DRIVERS_ALREADY_ENSURED")
 	}
 
-	result, err := r.reconcileManagementIP(ctx, container, actualPod)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error reconciling management IP")
-		logger.Error(err, "Error reconciling management IP", "name", container.Name)
-		return ctrl.Result{}, err
-	}
-	if result.Requeue {
-		return result, nil
-	}
-	span.SetAttributes(
-		attribute.String("management_ip", container.Status.ManagementIP),
-	)
-
-	// pre-clusterize
-	if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
-		result, err = r.reconcileStatus(ctx, container, actualPod)
+	if container.Spec.Mode != "dist" {
+		result, err := r.reconcileManagementIP(ctx, container, actualPod)
 		if err != nil {
-			logger.Error(err, "Error reconciling status", "name", container.Name)
+			logger.Error(err, "Error reconciling management IP", "name", container.Name)
 			return ctrl.Result{}, err
 		}
 		if result.Requeue {
 			return result, nil
 		}
-	}
+		logger.SetAttributes(
+			attribute.String("management_ip", container.Status.ManagementIP),
+		)
 
+		// pre-clusterize
+		if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+			result, err = r.reconcileWekaLocalStatus(ctx, container, actualPod)
+			if err != nil {
+				logger.Error(err, "Error reconciling status", "name", container.Name)
+				return ctrl.Result{}, err
+			}
+			if result.Requeue {
+				return result, nil
+			}
+		}
+	}
 	// only for drivers-loader container: check if drivers loaded
 	if container.Spec.Mode == "drivers-loader" {
 		err := r.checkIfLoaderFinished(ctx, actualPod)
@@ -240,9 +221,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			span.SetAttributes(attribute.String("phase", "DELETING_DRIVER_LOADER"))
+			logger.SetPhase("DELETING_DRIVER_LOADER")
 		}
-		span.SetAttributes(attribute.String("phase", "DRIVERS_LOADED"))
+		logger.SetPhase("DRIVERS_LOADED")
 	}
 
 	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
@@ -264,9 +245,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.Logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
-		span.SetAttributes(attribute.String("phase", "CLUSTER_JOINED"))
+		logger.SetPhase("CLUSTER_FORMED")
 	} else {
-		span.SetAttributes(attribute.String("phase", "CLUSTER_ALREADY_JOINED"))
+		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
 	container, err = r.refreshContainer(ctx, req)
@@ -290,35 +271,25 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.Logger.Error(err, "Error updating status")
 			return ctrl.Result{}, err
 		}
-		span.SetAttributes(attribute.String("phase", "DRIVES_ADDED"))
+		logger.SetPhase("DRIVES_ADDED")
 	} else {
-		span.SetAttributes(attribute.String("phase", "DRIVES_ALREADY_ADDED"))
+		logger.SetPhase("DRIVES_ALREADY_ADDED")
 	}
 
 	logger.Info("Reconcile completed", "name", container.Name)
-	span.SetAttributes(attribute.String("phase", "CONTAINER_IS_READY"))
+	logger.SetPhase("CONTAINER_IS_READY")
 	return ctrl.Result{}, nil
 }
 
 func (r *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileManagementIP")
-	defer span.End()
-	logger := r.Logger.WithName("reconcileManagementIP").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-
-	//// TODO: maybe another solution is needed, to consult @anton
-	//if container.Spec.Mode == "dist" || container.Spec.Mode == "drivers-loader" || container.Spec.Mode == "drivers-builder" {
-	//	logger.Info(fmt.Sprintf("Skipping management IP reconciliation for %s container", container.Spec.Mode))
-	//	return ctrl.Result{}, nil
-	//}
+	ctx, logger := r.getLogSpan(ctx, "reconcileManagementIP", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	defer logger.End()
 
 	if container.Status.ManagementIP != "" {
 		return ctrl.Result{}, nil
 	}
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
-		span.AddEvent("Error creating executor", trace.WithAttributes(attribute.String("container", container.Name)))
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error creating executor")
 		logger.Error(err, "Error creating executor")
 		return ctrl.Result{}, err
 	}
@@ -336,7 +307,7 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 		return ctrl.Result{}, err
 	}
 	ipAddress := strings.TrimSpace(stdout.String())
-	span.AddEvent("Got management IP", trace.WithAttributes(attribute.String("ip", ipAddress)))
+	logger.WithValues("management_ip", ipAddress).Info("Got management IP")
 	if container.Status.ManagementIP != ipAddress {
 		container.Status.ManagementIP = ipAddress
 		if err := r.Status().Update(ctx, container); err != nil {
@@ -348,17 +319,12 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	return ctrl.Result{}, nil
 }
 
-func (r *ContainerController) reconcileStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileStatus")
-	defer span.End()
-	logger := r.Logger.WithName("reconcileStatus").
-		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
+	ctx, logger := r.getLogSpan(ctx, "reconcileWekaLocalStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
 
 	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
 	}
-	logger.Info("Reconciling status")
-	span.AddEvent("Reconciling status", trace.WithAttributes(attribute.String("container", container.Name)))
 
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
@@ -369,22 +335,17 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 	statusCommand := fmt.Sprintf("weka local ps -J")
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", statusCommand})
 	if err != nil {
-		span.SetStatus(codes.Error, "Error executing command")
-		span.RecordError(err)
 		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
 		return ctrl.Result{}, err
 	}
 	response := []resources.WekaLocalPs{}
 	err = json.Unmarshal(stdout.Bytes(), &response)
 	if err != nil {
-		span.AddEvent("Error unmarshalling response", trace.WithAttributes(attribute.String("stdout", stdout.String())))
-		span.RecordError(err)
 		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
 		return ctrl.Result{}, err
 	}
 	if len(response) != 1 {
-		logger.Info(fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
-		span.SetStatus(codes.Error, "Expected exactly one container to be present")
+		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
 		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 
@@ -395,49 +356,42 @@ func (r *ContainerController) reconcileStatus(ctx context.Context, container *we
 		container.Status.Status = status
 		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
-			span.AddEvent("Error updating status", trace.WithAttributes(attribute.String("status", status)))
-			span.RecordError(err)
 			return ctrl.Result{}, err
 		}
-		span.AddEvent("Status updated", trace.WithAttributes(attribute.String("status", status)))
+		logger.WithValues("status", status).Info("Status updated")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	span.SetStatus(codes.Ok, "Status reconciled")
+	logger.InfoWithStatus(codes.Ok, "Status reconciled")
 	return ctrl.Result{}, nil
 }
 
 func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "refreshContainer")
-	defer span.End()
+	ctx, logger := r.getLogSpan(ctx, "refreshContainer", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	defer logger.End()
 
 	container := &wekav1alpha1.WekaContainer{}
 	if err := r.Get(ctx, req.NamespacedName, container); err != nil {
-		span.AddEvent("Error refreshing container", trace.WithAttributes(attribute.String("container", req.Name)))
-		span.RecordError(err)
+		logger.Error(err, "Error refreshing container")
 		return nil, errors.Wrap(err, "refreshContainer")
 	}
-	span.AddEvent("Container refreshed", trace.WithAttributes(attribute.String("container", req.Name)))
+	logger.InfoWithStatus(codes.Ok, "Container refreshed")
 	return container, nil
 }
 
 func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "refreshPod")
-	defer span.End()
-	logger := r.Logger.WithName("refreshPod").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "refreshPod", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	defer logger.End()
 	pod := &v1.Pod{}
 	key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
 	if err := r.Get(ctx, key, pod); err != nil {
 		logger.Error(err, "Error refreshing pod", "key", key)
-		span.SetStatus(codes.Error, "Error refreshing pod")
-		span.RecordError(err)
 		return nil, err
 	}
-
 	return pod, nil
 }
 
 func (r *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error {
-	logger := r.Logger.WithName("updatePod")
+	ctx, logger := r.getLogSpan(ctx, "updatePod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 	if err := r.Update(ctx, pod); err != nil {
 		logger.Error(err, "Error updating pod", "pod", pod)
 		return err
@@ -454,9 +408,8 @@ func (r *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ensureBootConfigMapInTargetNamespace")
-	defer span.End()
-	logger := r.Logger.WithName("ensureBootConfigMapInTargetNamespace").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "ensureBootConfigMapInTargetNamespace", container.Namespace)
+	defer logger.End()
 
 	bundledConfigMap := &v1.ConfigMap{}
 	podNamespace, err := util.GetPodNamespace()
@@ -482,67 +435,62 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 			bootScripts.Name = bootScriptConfigName
 			bootScripts.Data = bundledConfigMap.Data
 			if err := r.Create(ctx, bootScripts); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Error creating boot scripts config map in designated namespace")
 				logger.Error(err, "Error creating boot scripts config map")
 			}
-			span.SetStatus(codes.Ok, "Created boot scripts config map in designated namespace")
+			logger.Info("Created boot scripts config map in designated namespace")
 		}
 	}
 
 	if !util.IsEqualConfigMapData(bootScripts, bundledConfigMap) {
 		bootScripts.Data = bundledConfigMap.Data
 		if err := r.Update(ctx, bootScripts); err != nil {
-			span.SetStatus(codes.Ok, "Updated and reconciled boot scripts config map in designated namespace")
 			logger.Error(err, "Error updating boot scripts config map")
 			return err
 		}
+		logger.InfoWithStatus(codes.Ok, "Updated and reconciled boot scripts config map in designated namespace")
+
 	}
 	return nil
 }
 
 func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileClusterStatus")
-	defer span.End()
-	logger := r.Logger.WithName(fmt.Sprintf("reconcileClusterStatus-%s", container.Name)).WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "reconcileClusterStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
 	logger.Info("Reconciling cluster status")
-	span.AddEvent("Reconciling cluster status", trace.WithAttributes(attribute.String("container", container.Name)))
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
+		logger.Error(err, "Error creating executor")
 		return true, nil
 	}
-	span.AddEvent("Querying weka local status", trace.WithAttributes(attribute.String("container", container.Name)))
+	logger.Debug("Querying weka local status")
 	stdout, _, err := executor.Exec(ctx, []string{"bash", "-ce", "weka local status -J"})
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error querying weka local status")
+		logger.Error(err, "Error querying weka local status")
 		return true, err
 	}
-	span.AddEvent("Parsing weka local status", trace.WithAttributes(attribute.String("container", container.Name)))
+	logger.Debug("Parsing weka local status")
 	response := resources.WekaLocalStatusResponse{}
 	err = json.Unmarshal(stdout.Bytes(), &response)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error parsing weka local status")
+		logger.Error(err, "Error parsing weka local status")
 		return true, err
 	}
 
 	if _, ok := response[container.Spec.WekaContainerName]; !ok {
-		span.SetStatus(codes.Error, "Container not found")
+		logger.InfoWithStatus(codes.Unset, "Container not found")
 		return true, errors.New("container not found")
 	}
 	if len(response[container.Spec.WekaContainerName].Slots) == 0 {
-		span.SetStatus(codes.Error, "Slots not found")
+		logger.InfoWithStatus(codes.Unset, "Slots not found")
 		return true, errors.New("slots not found")
 	}
 	clusterId := response[container.Spec.WekaContainerName].Slots[0].ClusterID
 	if clusterId == "" || clusterId == "00000000-0000-0000-0000-000000000000" {
-		span.SetStatus(codes.Unset, "Cluster not ready")
+		logger.InfoWithStatus(codes.Unset, "Cluster not ready")
 		return true, nil
 	}
 
 	container.Status.ClusterID = clusterId
-	span.SetStatus(codes.Ok, "Cluster created and its GUID updated in WekaContainer status")
+	logger.InfoWithStatus(codes.Ok, "Cluster created and its GUID updated in WekaContainer status")
 	if err := r.Status().Update(ctx, container); err != nil {
 		return true, err
 	}
@@ -550,17 +498,15 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ensureDrives")
-	defer span.End()
-	logger := r.Logger.WithName(fmt.Sprintf("ensureDrives-%s", container.Name)).WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "ensureDrives", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	defer logger.End()
 	if container.Status.ClusterContainerID == nil {
-		span.SetStatus(codes.Error, "ClusterContainerID not set, cannot ensure drives")
+		logger.InfoWithStatus(codes.Error, "ClusterContainerID not set, cannot ensure drives")
 		return true, nil
 	}
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error creating executor")
+		logger.Error(err, "Error creating executor")
 		return true, err
 	}
 
@@ -569,32 +515,27 @@ func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav
 DRIVES:
 	for i := 0; i < container.Spec.NumDrives; i++ {
 		for driveCursor < len(container.Spec.PotentialDrives) {
-			span.AddEvent("Adding drive", trace.WithAttributes(attribute.String("drive", container.Spec.PotentialDrives[driveCursor]),
-				attribute.Int("position", i), attribute.Int("total_drives", container.Spec.NumDrives)))
-			logger.Info("Adding drive", "drive", container.Spec.PotentialDrives[driveCursor],
-				"position", i, "total", container.Spec.NumDrives)
-
+			l := logger.WithName(container.Spec.PotentialDrives[driveCursor])
+			l.Info("Attempting to configure drive")
 			drive := container.Spec.PotentialDrives[driveCursor]
 			drive = r.discoverDrive(ctx, executor, drive)
 			driveSignTarget := getSignatureDevice(drive)
 
-			span.AddEvent("Verifying drive signature", trace.WithAttributes(attribute.String("drive", drive)))
+			l.Info("Verifying drive signature")
 			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
 			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
-				span.RecordError(err)
 				if strings.Contains(stderr.String(), "No such file or directory") { // it can be actual missing device
+					l.Debug("Failed to read drive signature, or partition does not exist")
 					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") ||
 						strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "/dev/oracleoci") {
-						span.AddEvent("Drive is not presigned, signing adhocy", trace.WithAttributes(attribute.String("drive", driveSignTarget)))
-						logger.Info("Drive is not presigned, signing adhocy", "drive", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
+						l.Info("Drive is not presigned, assuming a new instance")
 						if err := r.initSignCloudDrives(ctx, executor, drive); err != nil {
-							r.Logger.Info("Error signing drive", "drive", drive, "containerName", container.Name, "stderr", stderr.String())
+							l.Error(err, "Failed to sign cloud drive, continuing to next drive")
 							// no return or continue on purpose, it is only opportunistic presigning while moving to next drive regardless
 						}
 					}
-					logger.Info("Drive does not exist or not pre-signed", "drive", drive, "signTarget", driveSignTarget, "cmd", cmd, "containerName", container.Name, "stderr", stderr.String())
-					span.AddEvent("Drive does not exist or not pre-signed", trace.WithAttributes(attribute.String("drive", drive), attribute.String("signTarget", driveSignTarget), attribute.String("stderr", stderr.String())))
+					logger.Info("Drive does not exist or not pre-signed, moving to next", "drive", drive)
 					driveCursor++
 					continue
 				} else {
@@ -603,67 +544,57 @@ DRIVES:
 			}
 
 			// Validate that disk is weka-signed
-			span.AddEvent("Checking if drive is presigned", trace.WithAttributes(attribute.String("drive", drive)))
+			l.Info("Checking if the partition is of type Weka")
 			presigned, err := r.isDrivePresigned(ctx, executor, drive)
 			if !presigned {
-				span.AddEvent("Drive is not presigned", trace.WithAttributes(attribute.String("drive", drive)))
-				logger.Info("Drive is not presigned, moving to next", "drive", drive)
+				l.Info("Partition is not Weka or not presigned, moving to next")
 				driveCursor++
 				continue
 			}
 
 			if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
-				span.AddEvent("Drive has Weka signature on it, verifying ownership", trace.WithAttributes(attribute.String("drive", drive)))
+				l.Info("Drive has Weka signature on it, verifying ownership")
 				exists, err := r.isExistingCluster(ctx, stdout.String())
 				if err != nil {
 					return true, err
 				}
 				if exists {
-					logger.Info("Drive is already signed and cluster exists, moving to next", "drive", drive, "clusterId", stdout.String())
-					span.AddEvent("Drive is already signed and cluster exists, moving to next", trace.WithAttributes(attribute.String("drive", drive), attribute.String("clusterId", stdout.String())))
+					l.WithValues("cluster_guid", stdout.String()).Info("Drive belongs to a different live cluster")
 					driveCursor++
 					continue
 				} else {
-					logger.Info("Drive is already signed, but cluster does not exist, resigning", "drive", drive, "clusterId", stdout.String())
-					span.AddEvent("Drive is already signed, but cluster does not exist, resigning", trace.WithAttributes(attribute.String("drive", drive), attribute.String("clusterId", stdout.String())))
+					l.WithValues("cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster, resigning")
 					err2 := r.claimDrive(ctx, container, executor, drive)
 					if err2 != nil {
-						logger.Error(err2, "Error claiming drive for resigning", "drive", drive)
-						span.RecordError(err)
-						span.AddEvent("Error claiming drive for resigning", trace.WithAttributes(attribute.String("drive", drive)))
+						l.Error(err2, "Error claiming drive for resigning")
 						driveCursor++
 						continue
 					}
 					err2 = r.reSignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
 					if err2 != nil {
-						span.RecordError(err2)
-						span.AddEvent("Error resigning drive", trace.WithAttributes(attribute.String("drive", drive)))
-						logger.Error(err2, "Error resigning drive", "drive", drive)
+						l.Error(err2, "Error resigning drive", "drive", drive)
 						driveCursor++
 						continue
 					}
 				}
 			}
 
-			span.AddEvent("Claiming drive", trace.WithAttributes(attribute.String("drive", drive)))
+			l.Info("Claiming drive")
 
 			err = r.claimDrive(ctx, container, executor, drive)
 			if err != nil {
-				logger.Error(err, "Error claiming drive", "drive", drive, "containerName", container.Name)
-				span.AddEvent("Error claiming drive", trace.WithAttributes(attribute.String("drive", drive)))
+				l.WithValues("container", container.Name).Error(err, "Error claiming drive")
 				driveCursor++
 				continue
 			}
-
-			span.AddEvent("Adding drive into system", trace.WithAttributes(attribute.String("drive", drive)))
+			l.Info("Adding drive into system")
 			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Error adding drive into system")
+				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
 				return true, errors.Wrap(err, stderr.String())
 			} else {
-				span.SetStatus(codes.Ok, "Drive added into system")
+				l.Info("Drive added into system")
 				logger.Info("Drive added into system", "drive", drive)
 			}
 			numAdded++
@@ -672,6 +603,7 @@ DRIVES:
 		}
 		return true, errors.New(fmt.Sprintf("Could not allocate drive %d", i))
 	}
+	logger.InfoWithStatus(codes.Ok, "Drives added")
 	return false, nil
 }
 
@@ -698,25 +630,24 @@ func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Ex
 func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (bool, error) {
 	// TODO: Query by status?
 	// TODO: Cache?
-	ctx, span := instrumentation.Tracer.Start(ctx, "isExistingCluster")
-	defer span.End()
-	span.AddEvent("Verifying for existing cluster", trace.WithAttributes(attribute.String("clusterId", s)))
+	ctx, logger := r.getLogSpan(ctx, "isExistingCluster", s)
+	defer logger.End()
+	logger.WithValues("cluster_guid", s).Info("Verifying for existing cluster")
 	clusterList := wekav1alpha1.WekaClusterList{}
 	err := r.List(ctx, &clusterList)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error listing clusters")
+		logger.Error(err, "Error listing clusters")
 		return false, err
 	}
 	for _, cluster := range clusterList.Items {
 		// strip `-` from saved cluster name
 		stripped := strings.ReplaceAll(cluster.Status.ClusterID, "-", "")
 		if stripped == s {
-			span.SetStatus(codes.Ok, "Cluster found")
+			logger.InfoWithStatus(codes.Ok, "Cluster found")
 			return true, nil
 		}
 	}
-	span.SetStatus(codes.Ok, "Cluster not found")
+	logger.InfoWithStatus(codes.Ok, "Cluster not found")
 	return false, nil
 }
 
@@ -735,20 +666,16 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 }
 
 func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "claimDrive")
-	defer span.End()
-	logger := r.Logger.WithName("claimDrive").WithValues("drive", drive, "container", container.Name, "trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-	logger.Info("Claiming drive", "drive", drive)
-	span.AddEvent("Claiming drive", trace.WithAttributes(attribute.String("drive", drive)))
+	ctx, logger := r.getLogSpan(ctx, "claimDrive", fmt.Sprintf("%s/%s", container.Namespace, container.Name), drive)
+	defer logger.End()
+	logger.Info("Claiming drive")
 	driveUuid, err := r.getDriveUUID(ctx, executor, drive)
 	if err != nil {
-		logger.Error(err, "Error getting drive UUID", "drive", drive)
-		span.SetStatus(codes.Error, "Error getting drive UUID")
-		span.RecordError(err)
+		logger.Error(err, "Error getting drive UUID")
 		return err
 	}
-	logger.Info("Claimed drive with number", "drive", drive, "UUID", driveUuid)
-	span.AddEvent("Claimed drive with number", trace.WithAttributes(attribute.String("drive", drive), attribute.String("UUID", driveUuid)))
+	l := logger.WithValues("drive_uuid", driveUuid)
+	l.Info("Claimed drive by UUID")
 
 	claim := wekav1alpha1.DriveClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -761,28 +688,23 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 
 	err = ctrl.SetControllerReference(container, &claim, r.Scheme)
 	if err != nil {
-		logger.Error(err, "Error setting owner reference", "drive", drive, "UUID", driveUuid)
+		l.Error(err, "Error setting owner reference")
 		return err
 	}
-	logger.Info("Set owner", "drive", drive, "UUID", driveUuid)
+	l.Info("Drive was set with owner, creating drive claim")
 
-	span.AddEvent("Creating drive claim", trace.WithAttributes(attribute.String("drive", drive), attribute.String("UUID", driveUuid)))
 	err = r.Create(ctx, &claim)
 	if err != nil {
 		// get eixsting
 		existingClaim := wekav1alpha1.DriveClaim{}
 		err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: fmt.Sprintf("%s", driveUuid)}, &existingClaim)
 		if err != nil {
-			logger.Error(err, "Error getting existing claim", "drive", drive, "UUID", driveUuid)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Error getting existing claim")
+			l.Error(err, "Error getting existing claim")
 			return err
 		}
 		if existingClaim.OwnerReferences[0].UID != container.UID {
-			logger.Info("Drive already claimed by another container", "drive", drive, "UUID", driveUuid, "existingClaim", existingClaim)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Drive already claimed by another container")
-			return errors.New("drive already claimed by another container")
+			err = errors.New("drive already claimed by another container")
+			l.WithValues("existing_claim", existingClaim.Name).Error(err, "Drive already claimed by another container")
 		}
 		return nil
 	}
@@ -790,25 +712,20 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 }
 
 func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "betDriveUUID")
-	defer span.End()
-	logger := r.Logger.WithName("getDriveUUID").WithValues("drive", drive, "trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "getDriveUUID", fmt.Sprintf("%s/%s", executor.Pod.Spec.NodeName, drive))
+	defer logger.End()
 	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", getSignatureDevice(drive))
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
-		logger.Error(err, "Error getting drive UUID", "drive", drive, "stderr", stderr.String())
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error getting drive UUID")
+		logger.WithValues("stderr", stderr.String()).Error(err, "Error getting drive UUID")
 		return "", errors.Wrap(err, stderr.String())
 	}
 	serial := strings.TrimSpace(stdout.String())
 	if serial == "" {
-		span.SetStatus(codes.Error, "UUID not found for drive")
-		span.RecordError(err)
-		logger.Info("uuid not found for drive", "drive", drive, "usedCommand", cmd, "stdout", stdout.String(), "stderr", stderr.String())
+		logger.Error(err, "UUID not found for drive")
 		return "", errors.New("uuid not found")
 	}
-	span.SetStatus(codes.Ok, "UUID found for drive")
+	logger.InfoWithStatus(codes.Ok, "UUID found for drive")
 	return serial, nil
 }
 
@@ -827,9 +744,8 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileDriversStatus")
-	defer span.End()
-	logger := r.Logger.WithName("reconcileDriversStatus").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "reconcileDriversStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	defer logger.End()
 	if slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
 		return nil
 	}
@@ -837,25 +753,20 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error creating executor")
 		return err
 	}
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
-		logger.Error(err, "Error executing command", "stderr", stderr.String())
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error executing command")
+		logger.WithValues("stderr", stderr.String()).Error(err, "Error executing command")
 		return errors.Wrap(err, stderr.String())
 	}
 	if strings.TrimSpace(stdout.String()) == "" {
-		span.AddEvent("Drivers already loaded", trace.WithAttributes(attribute.String("container", container.Name)))
-		span.SetStatus(codes.Ok, "Drivers already loaded")
+		logger.InfoWithStatus(codes.Ok, "Drivers already loaded")
 		return nil
 	}
 
 	if container.Spec.DriversDistService != "" {
-		span.AddEvent("Ensuring drivers loader", trace.WithAttributes(attribute.String("container", container.Name)))
+		logger.WithValues("container", container).AddEvent("Ensuring drivers loader container")
 		err2 := r.ensureDriversLoader(ctx, container)
 		if err2 != nil {
 			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
@@ -866,15 +777,12 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ensureDriversLoader")
-	defer span.End()
-	logger := r.Logger.WithName("ensureDriversLoader").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger := r.getLogSpan(ctx, "ensureDriversLoader", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	defer logger.End()
 	logger.Info("Ensuring drivers loader")
-	span.AddEvent("Ensuring drivers loader pod existence", trace.WithAttributes(attribute.String("container", container.Name)))
 	pod, err := r.refreshPod(ctx, container)
 	if err != nil {
-		span.SetStatus(codes.Error, "Error refreshing pod")
-		span.RecordError(err)
+		logger.Error(err, "Error refreshing pod")
 		return err
 	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
@@ -894,19 +802,19 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 
 	found := &wekav1alpha1.WekaContainer{}
 	err = r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
+	l := logger.WithValues("container", loaderContainer.Name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			span.AddEvent("Creating drivers loader pod", trace.WithAttributes(attribute.String("container", container.Name)))
+			l.Info("Creating drivers loader pod")
 			err = r.Create(ctx, loaderContainer)
 			if err != nil {
-				span.AddEvent("Error creating drivers loader pod", trace.WithAttributes(attribute.String("container", container.Name)))
-				span.RecordError(err)
+				l.Error(err, "Error creating drivers loader pod")
 				return err
 			}
 		}
 	}
 	if found != nil {
-		span.SetStatus(codes.Ok, "Drivers loader pod already exists")
+		logger.InfoWithStatus(codes.Ok, "Drivers loader pod already exists")
 		return nil // TODO: Update handling?
 	}
 	// Should we have an owner? Or should we just delete it once done? We cant have owner in different namespace
@@ -915,8 +823,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
 	loaderContainer.Status.Status = "Active"
 	if err := r.Status().Update(ctx, loaderContainer); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error updating status")
+		l.Error(err, "Failed to update status of container")
 		return err
 
 	}
@@ -924,28 +831,21 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
-	ctx, span := instrumentation.Tracer.Start(ctx, "discoverDrive")
-	defer span.End()
-	logger := r.Logger.WithName("discoverDrive").
-		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
-		WithValues("drive", drive, "node_name", executor.Pod.Spec.NodeName)
+	ctx, logger := r.getLogSpan(ctx, "discoverDrive", executor.Pod.Spec.NodeName, drive)
+	defer logger.End()
 	if strings.HasPrefix(drive, "aws_") {
 		// aws discovery log, relying on PCI address as more persistent than device name, worth 1 hop
 		slot := strings.TrimPrefix(drive, "aws_")
 		slotInt, err := strconv.Atoi(slot)
 		if err != nil {
-			span.SetStatus(codes.Error, "Error parsing slot for drive")
-			span.RecordError(err)
-			logger.Error(err, "Error parsing slot", "slot", slot)
+			logger.WithValues("slot", slot).Error(err, "Error parsing slot")
 			return drive
 		}
 		cmd := fmt.Sprintf("lspci -d 1d0f:cd01 | sort | awk '{print $1}' | head -n" + strconv.Itoa(slotInt+1) +
 			" | tail -n1")
 		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 		if err != nil {
-			span.SetStatus(codes.Error, "Error parsing PCI slot for drive")
-			span.RecordError(err)
-			logger.Error(err, "Error executing command", "cmd", cmd, "stderr", stderr.String())
+			logger.WithValues("slot", slot, "stderr", stderr.String()).Error(err, "Error parsing PCI slot for drive")
 			return drive
 		}
 		return fmt.Sprintf("/dev/disk/by-path/pci-0000:%s-nvme-1", strings.TrimSpace(stdout.String()))
@@ -954,36 +854,27 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 }
 
 func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor *util.Exec, drive string) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "initSignCloudDrives")
-	defer span.End()
-	logger := r.Logger.WithName("initSignCloudDrives").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
-	logger.Info("Signing cloud drives", "drive", drive)
+	ctx, logger := r.getLogSpan(ctx, "initSignCloudDrives", executor.Pod.Spec.NodeName, drive)
+	defer logger.End()
+	logger.Info("Signing cloud drive", "drive", drive)
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
 	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error signing cloud drives")
-		logger.Error(err, "Error presigning drive", "drive", drive, "stderr", stderr.String())
+		logger.Error(err, "Error pre-signing drive", "drive", drive, "stderr", stderr.String())
 		return err
 	}
-	span.SetStatus(codes.Ok, "AWS drives signed")
+	logger.InfoWithStatus(codes.Ok, "Cloud drives signed")
 	return nil
 }
 
 func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "checkIfLoaderFinished")
-	defer span.End()
-	logger := r.Logger.WithName("checkIfLoaderFinished").
-		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
-		WithValues("pod", pod.Name, "namespace", pod.Namespace)
-
+	ctx, logger := r.getLogSpan(ctx, "checkIfLoaderFinished", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+	defer logger.End()
 	logger.Info("Checking if loader finished")
-	span.AddEvent("Checking if loader finished", trace.WithAttributes(attribute.String("pod", pod.Name)))
 
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Error creating executor")
+		logger.Error(err, "Error creating executor")
 		return err
 	}
 	cmd := "cat /tmp/weka-drivers-loader"
@@ -993,14 +884,12 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 			return errors.New("Loader not finished")
 		}
 		logger.Error(err, "Error checking if loader finished", "stderr", stderr.String)
-		span.AddEvent("Error checking if loader finished", trace.WithAttributes(attribute.String("stderr", stderr.String())))
-		span.RecordError(err)
 		return err
 	}
 	if strings.TrimSpace(stdout.String()) == "drivers_loaded" {
-		span.SetStatus(codes.Ok, "Loader finished")
+		logger.InfoWithStatus(codes.Ok, "Loader finished")
 		return nil
 	}
-	span.SetStatus(codes.Unset, "Loader not finished")
+	logger.InfoWithStatus(codes.Error, "Loader not finished")
 	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
 }

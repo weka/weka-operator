@@ -7,9 +7,10 @@ import (
 	"fmt"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -42,31 +43,52 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 	return &AgentReconciler{c, desired, root}
 }
 
+func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+	logger := r.Logger
+	joinNames := strings.Join(names, ".")
+	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
+	if span != nil {
+		traceID := span.SpanContext().TraceID().String()
+		spanID := span.SpanContext().SpanID().String()
+		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
+		for _, name := range names {
+			logger = logger.WithName(name)
+		}
+	}
+
+	ShutdownFunc := func(opts ...trace.SpanEndOption) {
+		if span != nil {
+			span.End(opts...)
+		}
+		logger.Info(fmt.Sprintf("%s finished", joinNames))
+	}
+
+	ls := instrumentation.LogSpan{
+		Logger: logger,
+		Span:   span,
+		End:    ShutdownFunc,
+	}
+	logger.Info(fmt.Sprintf("%s called", joinNames))
+	return ctx, ls
+}
+
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "reconcile_agent")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("agent", client.Name),
-		attribute.String("namespace", client.Namespace),
-		attribute.String("root", r.RootResourceName.Name))
-	span.AddEvent("Reconciling agent")
-	logger := r.Logger.WithName("AgentReconciler").WithValues("span_id", span.SpanContext().TraceID().String(),
-		"trace_id", span.SpanContext().TraceID().String())
-	logger.Info("Reconciling agent", "name", r.Desired.Name, "namespace", r.Desired.Namespace)
+	ctx, logger := r.getLogSpan(ctx, "ReconcileClients", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	defer logger.End()
+	logger.Info("Reconciling agent")
 
 	key := runtimeClient.ObjectKeyFromObject(r.Desired)
 	existing := &appsv1.DaemonSet{}
 	if err := r.Get(ctx, key, existing); err != nil {
 		if !apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "Failed to get daemonset")
-			span.RecordError(err)
+			logger.Error(err, "Failed to get daemonset")
 			return ctrl.Result{}, fmt.Errorf("failed to get daemonset %s: %w", key, err)
 		}
 
 		// The resource did not already exist, so create it.
-		span.AddEvent("Creating agent daemonset")
+		logger.Info("Creating agent daemonset")
 		if err := r.Create(ctx, r.Desired); err != nil {
-			span.SetStatus(codes.Error, "Failed to create daemonset")
+			logger.Error(err, "Failed to create daemonset")
 			return ctrl.Result{}, fmt.Errorf("failed to create daemonset %s: %w", key, err)
 		}
 
@@ -78,17 +100,14 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 		}); err != nil {
 			logger.Error(err, "Failed to update status")
 		}
-		span.SetStatus(codes.Ok, "Created deployment")
-		span.SetAttributes(attribute.String("deployment", r.Desired.Name))
-		span.SetAttributes(attribute.String("namespace", r.Desired.Namespace))
-		span.SetAttributes(attribute.String("name", r.CurrentInstance.Name))
+		logger.WithValues("deployment", r.Desired.Name).InfoWithStatus(codes.Ok, "Created deployment")
 
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !r.isAgentAvailable(existing) {
 		// The resource exists, but is not yet in a ready state\
-		span.SetStatus(codes.Error, "Agent not available")
+		logger.InfoWithStatus(codes.Error, "Agent not available")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -97,41 +116,35 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 		desired.Spec = r.Desired.Spec
 		logger.Info("Updating agent", "name", desired.Name, "version", desired.Spec.Template.Spec.Containers[0].Image)
 		if err := r.Update(ctx, desired); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to update daemonset")
+			logger.Error(err, "Failed to update daemonset")
 			return ctrl.Result{}, errors.Wrap(err, "failed to update daemonset")
 		}
-		span.SetStatus(codes.Ok, "Updated daemonset")
+		logger.InfoWithStatus(codes.Ok, "Successfully updated daemonset")
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Reconciled agent")
-	span.SetStatus(codes.Ok, "Reconciled agent")
+	logger.InfoWithStatus(codes.Ok, "Reconciled agent")
 	return ctrl.Result{}, nil
 }
 
 // Exec executes a command in the agent pods
 func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stderr bytes.Buffer, err error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "agent_exec")
-	defer span.End()
-	span.AddEvent("Fetching agent pods")
-	span.SetAttributes(attribute.StringSlice("cmd", cmd))
+	ctx, logger := r.getLogSpan(ctx, "Exec", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	defer logger.End()
+	logger.Debug("Fetching agent pods")
 	agentPods, err := r.GetAgentPods(ctx)
 	if err != nil {
-		span.SetStatus(codes.Error, "Failed to get agent pods")
+		logger.Error(err, "Failed to get agent pods")
 		return stdout, stderr, errors.Wrap(&PodNotFound{err}, "failed to get agent pods")
 	}
 	pod := agentPods.Items[0]
-	span.SetAttributes(attribute.String("pod", pod.Name))
-
-	span.AddEvent("Executing command")
+	logger.WithValues("cmd", strings.Join(cmd, " ")).Debug("Running command", "command")
 	exec, err := util.NewExecInPod(&pod)
 	if err != nil {
-		span.SetStatus(codes.Error, "Failed to run command")
-		span.RecordError(err)
-		return stdout, stderr, errors.Wrapf(err, "Failed to run command %s", cmd)
+		logger.Error(err, "Failed to create executor")
+		return stdout, stderr, errors.Wrap(err, "failed to create executor")
 	}
-	span.AddEvent("Calling generic executor")
 	return exec.Exec(ctx, cmd)
 }
 
@@ -142,21 +155,18 @@ func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 
 // GetAgentPods returns the pods belonging to the daemonset
 func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "get_agent_pods")
-	defer span.End()
-	span.AddEvent("Fetching agent pods")
+	ctx, logger := r.getLogSpan(ctx, "GetAgentPods", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	defer logger.End()
+	logger.Debug("Fetching agent pods")
 	agent, err := r.GetAgentResource(ctx)
 	if err != nil {
-		span.SetStatus(codes.Error, "error getting pods")
-		span.RecordError(err)
+		logger.Error(err, "Failed to get agent resource")
 		return nil, errors.Wrap(err, "error getting pods")
 	}
 
 	config, err := util.KubernetesConfiguration()
 	if err != nil {
-		span.SetStatus(codes.Error, "failed to get kubernetes configuration")
-		span.RecordError(err)
-
+		logger.Error(err, "Failed to get kubernetes configuration")
 		return nil, errors.Wrap(err, "failed to get kubernetes configuration")
 	}
 
@@ -166,8 +176,7 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 		LabelSelector: fmt.Sprintf("app.kubernetes.io=%s", agent.Name),
 	})
 	if err != nil {
-		span.SetStatus(codes.Error, "failed to get pod")
-		span.RecordError(err)
+		logger.Error(err, "Failed to get pod(s)")
 		return nil, errors.Wrap(err, "failed to get pod")
 	}
 
@@ -176,14 +185,13 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 
 // GetAgentResource returns the agent DaemonSet resource
 func (r *AgentReconciler) GetAgentResource(ctx context.Context) (*appsv1.DaemonSet, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "get_agent_resource")
-	defer span.End()
+	ctx, logger := r.getLogSpan(ctx, "GetAgentResource", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	defer logger.End()
 	agent := &appsv1.DaemonSet{}
 	key := client.ObjectKeyFromObject(r.Desired)
 	err := r.Get(ctx, key, agent)
 	if err != nil {
-		span.SetStatus(codes.Error, "failed to get agent resources")
-		span.RecordError(err)
+		logger.Error(err, "Failed to get agent resource")
 		return nil, errors.Wrap(err, "failed to get agent resources")
 	}
 
