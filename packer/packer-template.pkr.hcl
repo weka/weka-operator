@@ -7,13 +7,24 @@ packer {
   }
 }
 
+variables {
+  aws_regions = {
+    "eu-west-1" = {
+      ami = "ami-0cca685d73cf4fd6b",
+      ami_users = [],
+    }
+    "us-east-1" = {
+      ami = "ami-0757bdb3268077f9f",
+      ami_users = ["924994152927"]
+    }
+    "us-west-2" = {
+      ami = "ami-09d72b72587e6e07c",
+      ami_users = ["591822521499"]
+    }
+  }
+}
+
 source "amazon-ebs" "weka-eks" {
-#  region        = "eu-west-1" #TODO: templating
-#  region        = "us-east-1"
-  region        = "us-west-2"
-  #source_ami    = "ami-0cca685d73cf4fd6b" # europe
-#  source_ami    = "ami-0757bdb3268077f9f" #us-east-1
-  source_ami    = "ami-09d72b72587e6e07c" #us-west-2
   instance_type = "m6a.4xlarge"
   ssh_username  = "ubuntu"
   ami_name      = "weka-eks-${formatdate("YYYYMMDDHHmmss", timestamp())}"
@@ -24,9 +35,15 @@ source "amazon-ebs" "weka-eks" {
 
 build {
   name = "weka-eks"
-  sources = [
-    "source.amazon-ebs.weka-eks"
-  ]
+  dynamic "source" {
+    for_each = var.aws_regions
+    labels = ["amazon-ebs.weka-eks"]
+    content {
+      region        = source.key
+      source_ami    = source.value.ami
+      ami_users     = source.value.ami_users
+    }
+  }
 
   provisioner "shell" {
     inline = [
