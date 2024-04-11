@@ -200,10 +200,14 @@ async def ensure_daemon(command, alias=""):
 
 async def run_command(command):
     # TODO: Wrap stdout of commands via INFO via logging
+    logging.info("Running command: " + command)
     process = await asyncio.create_subprocess_shell("set -e\n" + command,
                                                     stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await process.communicate()
+    logging.info(f"Command {command} finished with code {process.returncode}")
+    logging.info(f"Command {command} stdout: {stdout}")
+    logging.info(f"Command {command} stderr: {stderr}")
     return stdout, stderr, process.returncode
 
 
