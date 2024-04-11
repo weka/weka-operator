@@ -7,8 +7,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"slices"
 	"strings"
-
-	"github.com/go-logr/logr"
 )
 
 const (
@@ -243,11 +241,11 @@ type Allocations struct {
 }
 
 type Allocator struct {
-	Logger       logr.Logger
+	Logger       instrumentation.LogSpan
 	ClusterLevel Topology
 }
 
-func NewAllocator(logger logr.Logger, clusterConfig Topology) *Allocator {
+func NewAllocator(logger instrumentation.LogSpan, clusterConfig Topology) *Allocator {
 	return &Allocator{
 		Logger:       logger,
 		ClusterLevel: clusterConfig,

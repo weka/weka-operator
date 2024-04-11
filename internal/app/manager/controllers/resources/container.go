@@ -3,11 +3,11 @@ package resources
 import (
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/go-logr/logr"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -31,7 +31,7 @@ type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
-	logger    logr.Logger
+	logger    instrumentation.LogSpan
 }
 
 type WekaDriveResponse struct {
@@ -53,7 +53,7 @@ func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
 
-func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger logr.Logger) *ContainerFactory {
+func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger instrumentation.LogSpan) *ContainerFactory {
 	return &ContainerFactory{
 		container: container,
 		logger:    logger.WithName("ContainerFactory"),
