@@ -206,8 +206,10 @@ async def run_command(command):
                                                     stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await process.communicate()
     logging.info(f"Command {command} finished with code {process.returncode}")
-    logging.info(f"Command {command} stdout: {stdout}")
-    logging.info(f"Command {command} stderr: {stderr}")
+    if stdout:
+        logging.info(f"Command {command} stdout: {stdout.decode('utf-8')}")
+    if stderr:
+        logging.info(f"Command {command} stderr: {stderr.decode('utf-8')}")
     return stdout, stderr, process.returncode
 
 
