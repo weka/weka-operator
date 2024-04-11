@@ -54,6 +54,7 @@ def wait_for_agent():
 
 
 async def ensure_drivers():
+    logging.info("waiting for drivers")
     for driver in "wekafsio wekafsgw igb_uio mpin_user uio_pci_generic".split():
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
@@ -82,7 +83,6 @@ UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 
 async def load_drivers():
     stdout, stderr, ec = await run_command(dedent(f"""
-        set -e 
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
@@ -101,17 +101,20 @@ async def load_drivers():
         raise Exception(f"Failed to load drivers: {stderr}")
 
 
-def copy_drivers():
-    stdout, stderr, ec = run_command(dedent(f"""
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+async def copy_drivers():
+    logging.info("copying driver from build location to dist location")
+    stdout, stderr, ec = await run_command(dedent(f"""
+      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
 
       cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
     """))
     if ec != 0:
+        logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
         raise Exception(f"Failed to copy drivers post build: {stderr}")
+    logging.info("done copying drivers")
 
 
 def parse_cpu_allowed_list(path="/proc/1/status"):
@@ -198,7 +201,7 @@ async def ensure_daemon(command, alias=""):
 
 async def run_command(command):
     # TODO: Wrap stdout of commands via INFO via logging
-    process = await asyncio.create_subprocess_shell(command,
+    process = await asyncio.create_subprocess_shell("set -e\n" + command,
                                                     stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await process.communicate()
@@ -292,9 +295,8 @@ async def configure_persistency():
         return
 
     command = dedent(f"""
-        set -e
-        mv /opt/weka /opt/weka-preinstalled
-        mkdir -p /opt/weka
+        mkdir -p /opt/weka-preinstalled
+        mount -o bind /opt/weka /opt/weka-preinstalled
         mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
         mkdir -p /opt/weka/dist
         mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
@@ -316,6 +318,7 @@ async def ensure_weka_version():
 
 
 async def configure_agent(agent_handle_drivers=False):
+    logging.info(f"reconfiguring agent with handle_drivers={agent_handle_drivers}")
     ignore_driver_flag = "false" if agent_handle_drivers else "true"
     cmd = dedent(f"""
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
@@ -333,23 +336,27 @@ async def configure_agent(agent_handle_drivers=False):
 
 
 async def ensure_dist_container():
-    # TODO: Check first if already exists
+    logging.info("ensuring dist container")
 
     cmd = dedent(f"""
-        weka local setup container --name dist --net udp --base-port ${PORT} --no-start --disable
+        weka local rm dist --force || true
+        weka local setup container --name dist --net udp --base-port {PORT} --no-start --disable
         """)
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to create dist container: {stderr}")
 
+    logging.info("dist container created successfully")
     # wait for container to become running
 
 
 async def start_dist_container():
+    logging.info("starting dist container")
     cmd = "weka local start"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to start dist container: {stderr}")
+    logging.info("dist container started")
 
 
 async def main():
@@ -361,9 +368,10 @@ async def main():
     await configure_persistency()
     # TODO: Configure agent
     await configure_agent()
-    agent_cmd = f"/usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
-    await ensure_daemon(agent_cmd, alias="agent")
     await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
+
+    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+    await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
 
@@ -371,12 +379,16 @@ async def main():
         await ensure_drivers()
 
     if MODE == "dist":
+        logging.info("dist-service flow")
         await stop_daemon(processes.get("agent"))
-        del processes["agent"]
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
+        await await_agent()
         await ensure_dist_container()
+        await stop_daemon(processes.get("agent"))
         await configure_agent(agent_handle_drivers=False)
+        await ensure_daemon(agent_cmd, alias="agent")
+        await await_agent()
         await copy_drivers()
         await start_dist_container()
         return
@@ -385,11 +397,15 @@ async def main():
 
 
 async def stop_daemon(process):
-    await run_command(f"kill -TERM -{process.pid}")
+    logging.info(f"stopping daemon with pid {process.pid} (via process group)")
+    pgid = os.getpgid(process.pid)
+    os.killpg(pgid, signal.SIGTERM)
     for k, v in list(processes.items()):
         if v == process:
             del processes[k]
+    logging.info(f"waiting for process {process.pid} to exit")
     await process.wait()
+    logging.info(f"process {process.pid} exited")
 
 
 async def shutdown():
@@ -438,13 +454,18 @@ zombie_collector.start()
 loop.add_signal_handler(signal.SIGINT, partial(signal_handler, "SIGINT"))
 loop.add_signal_handler(signal.SIGTERM, partial(signal_handler, "SIGTERM"))
 
-task = loop.create_task(shutdown())
-task = loop.create_task(main())
+shutdown_task = loop.create_task(shutdown())
+main_loop = loop.create_task(main())
 
 try:
+    loop.run_until_complete(main_loop)
     loop.run_forever()
 except RuntimeError:
     if exiting:
         logging.info("Cancelled")
     else:
         raise
+except Exception as e:
+    logging.error(f"Error: {e}, sleeping for 3 minutes to give a chance to debug")
+    time.sleep(180)
+    raise
