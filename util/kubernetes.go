@@ -3,6 +3,10 @@ package util
 import (
 	"bytes"
 	"context"
+	"os"
+	"reflect"
+	"strings"
+
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -11,10 +15,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
-	"log"
-	"os"
-	"reflect"
-	"strings"
 )
 
 type Exec struct {
@@ -98,15 +98,15 @@ func KubernetesConfiguration() (*rest.Config, error) {
 	}
 }
 
-func GetPodNamespace() string {
+func GetPodNamespace() (string, error) {
 	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 	if err != nil {
 		if os.IsNotExist(err) && os.Getenv("OPERATOR_DEV_MODE") == "true" {
-			return "weka-operator-system"
+			return "weka-operator-system", nil
 		}
-		log.Fatalf("Failed to get Pod namespace: %v", err)
+		return "", err
 	}
-	return string(namespace)
+	return string(namespace), nil
 }
 
 func GetLastGuidPart(uid types.UID) string {

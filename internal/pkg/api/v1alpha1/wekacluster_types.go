@@ -16,7 +16,11 @@ limitations under the License.
 
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -67,6 +71,48 @@ type WekaClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []WekaCluster `json:"items"`
+}
+
+func (status *WekaClusterStatus) InitStatus() {
+	status.Conditions = []metav1.Condition{}
+
+	status.Status = "Init"
+	// Set Predefined conditions to explicit False for visibility
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondPodsCreated,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "The pods for the custom resource are not created yet",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondClusterSecretsCreated,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Secrets are not created yet",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondClusterSecretsApplied,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Secrets are not applied yet",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondClusterCreated,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Secrets are not applied yet",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondDrivesAdded,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Drives are not added yet",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondIoStarted,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Weka Cluster IO is not started",
+	})
 }
 
 func init() {

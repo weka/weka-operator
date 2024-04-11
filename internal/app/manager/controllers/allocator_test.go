@@ -2,21 +2,28 @@ package controllers
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v3"
-	"testing"
 )
 
-func TestAllocatePort(t *testing.T) {
-	var log logr.Logger
-	zapLog, err := zap.NewDevelopment()
+func testingLogger() logr.Logger {
+	config := zap.NewDevelopmentConfig()
+	config.Level.SetLevel(zapcore.Level(zapcore.WarnLevel))
+	zapLog, err := config.Build()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
-	log = zapr.NewLogger(zapLog)
+	return zapr.NewLogger(zapLog)
+}
+
+func TestAllocatePort(t *testing.T) {
+	log := testingLogger().WithName("TestAllocatePort")
 
 	owner := OwnerCluster{
 		ClusterName: "testCluster",
@@ -100,7 +107,7 @@ func TestAllocatePort(t *testing.T) {
 		t.Errorf("Failed to allocate: %v", err)
 	}
 
-	printAsYaml(allocations)
+	// printAsYaml(allocations) // for debugging only
 }
 
 func printAsYaml(allocations *Allocations) {
