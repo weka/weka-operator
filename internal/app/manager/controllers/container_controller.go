@@ -502,7 +502,7 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 }
 
 func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerReconcileClusterStatus")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileClusterStatus")
 	defer span.End()
 	logger := r.Logger.WithName(fmt.Sprintf("reconcileClusterStatus-%s", container.Name)).WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	logger.Info("Reconciling cluster status")
@@ -550,7 +550,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerEnsureDrives")
+	ctx, span := instrumentation.Tracer.Start(ctx, "ensureDrives")
 	defer span.End()
 	logger := r.Logger.WithName(fmt.Sprintf("ensureDrives-%s", container.Name)).WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	if container.Status.ClusterContainerID == nil {
@@ -698,7 +698,7 @@ func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Ex
 func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (bool, error) {
 	// TODO: Query by status?
 	// TODO: Cache?
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerIsExistingCluster")
+	ctx, span := instrumentation.Tracer.Start(ctx, "isExistingCluster")
 	defer span.End()
 	span.AddEvent("Verifying for existing cluster", trace.WithAttributes(attribute.String("clusterId", s)))
 	clusterList := wekav1alpha1.WekaClusterList{}
@@ -735,7 +735,7 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 }
 
 func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerClaimDrive")
+	ctx, span := instrumentation.Tracer.Start(ctx, "claimDrive")
 	defer span.End()
 	logger := r.Logger.WithName("claimDrive").WithValues("drive", drive, "container", container.Name, "trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	logger.Info("Claiming drive", "drive", drive)
@@ -790,7 +790,7 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 }
 
 func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerGetDriveUUID")
+	ctx, span := instrumentation.Tracer.Start(ctx, "betDriveUUID")
 	defer span.End()
 	logger := r.Logger.WithName("getDriveUUID").WithValues("drive", drive, "trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", getSignatureDevice(drive))
@@ -827,7 +827,7 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerReconcileDriversStatus")
+	ctx, span := instrumentation.Tracer.Start(ctx, "reconcileDriversStatus")
 	defer span.End()
 	logger := r.Logger.WithName("reconcileDriversStatus").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	if slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
@@ -866,7 +866,7 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerEnsureDriversLoader")
+	ctx, span := instrumentation.Tracer.Start(ctx, "ensureDriversLoader")
 	defer span.End()
 	logger := r.Logger.WithName("ensureDriversLoader").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	logger.Info("Ensuring drivers loader")
@@ -924,7 +924,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerDiscoverDrive")
+	ctx, span := instrumentation.Tracer.Start(ctx, "discoverDrive")
 	defer span.End()
 	logger := r.Logger.WithName("discoverDrive").
 		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
@@ -954,7 +954,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 }
 
 func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor *util.Exec, drive string) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerInitSignAwsDrives")
+	ctx, span := instrumentation.Tracer.Start(ctx, "initSignCloudDrives")
 	defer span.End()
 	logger := r.Logger.WithName("initSignCloudDrives").WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
 	logger.Info("Signing cloud drives", "drive", drive)
@@ -971,7 +971,7 @@ func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor 
 }
 
 func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
-	ctx, span := instrumentation.Tracer.Start(ctx, "ContainerCheckIfLoaderFinished")
+	ctx, span := instrumentation.Tracer.Start(ctx, "checkIfLoaderFinished")
 	defer span.End()
 	logger := r.Logger.WithName("checkIfLoaderFinished").
 		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String()).
