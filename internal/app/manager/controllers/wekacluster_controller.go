@@ -397,6 +397,7 @@ func (r *WekaClusterReconciler) GetClusterAndContext(initContext context.Context
 	}
 
 	if wekaCluster.Status.Status == ClusterStatusInit && wekaCluster.Status.TraceId == "" {
+		span := trace.SpanFromContext(initContext)
 		wekaCluster.Status.TraceId = span.SpanContext().TraceID().String()
 		wekaCluster.Status.SpanID = span.SpanContext().SpanID().String()
 		err := r.Status().Update(ctx, wekaCluster)
