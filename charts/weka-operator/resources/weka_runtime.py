@@ -359,15 +359,6 @@ async def start_dist_container():
     logging.info("dist container started")
 
 
-async def stop_dist_container():
-    logging.info("stopping dist container")
-    cmd = "weka local stop"
-    stdout, stderr, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to stop dist container: {stderr}")
-    logging.info("dist container stopped")
-
-
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
@@ -377,9 +368,10 @@ async def main():
     await configure_persistency()
     # TODO: Configure agent
     await configure_agent()
+    await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
+
     agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
     await ensure_daemon(agent_cmd, alias="agent")
-    await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
     await await_agent()
     await ensure_weka_version()
 
@@ -391,11 +383,12 @@ async def main():
         await stop_daemon(processes.get("agent"))
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
+        await await_agent()
         await ensure_dist_container()
-        await stop_dist_container()
         await stop_daemon(processes.get("agent"))
         await configure_agent(agent_handle_drivers=False)
         await ensure_daemon(agent_cmd, alias="agent")
+        await await_agent()
         await copy_drivers()
         await start_dist_container()
         return
