@@ -103,8 +103,8 @@ async def load_drivers():
 
 async def copy_drivers():
     stdout, stderr, ec = await run_command(dedent(f"""
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-${WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
 
       cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
