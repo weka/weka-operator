@@ -45,7 +45,9 @@ type WekaClusterSpec struct {
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
+	CpuPolicy                 CpuPolicy `json:"cpuPolicy,omitempty"`
+	DriveAppendSetupCommand   string    `json:"driveAppendSetupCommand,omitempty"`
+	ComputeAppendSetupCommand string    `json:"computeAppendSetupCommand,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
