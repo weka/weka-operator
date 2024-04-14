@@ -93,7 +93,6 @@ func (ls SpanLogger) Debug(msg string, keysAndValues ...interface{}) {
 	if ls.Logger.V(4).Enabled() {
 		ls.V(4).Info(msg, keysAndValues...)
 	}
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 

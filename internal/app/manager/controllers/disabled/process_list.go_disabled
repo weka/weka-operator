@@ -1,8 +1,9 @@
-package controllers
+package disabled
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
@@ -14,11 +15,11 @@ import (
 )
 
 type ProcessListReconciler struct {
-	*ClientReconciler
-	Executor Executor
+	*controllers.ClientReconciler
+	Executor controllers.Executor
 }
 
-func NewProcessListReconciler(c *ClientReconciler, executor Executor) *ProcessListReconciler {
+func NewProcessListReconciler(c *controllers.ClientReconciler, executor controllers.Executor) *ProcessListReconciler {
 	return &ProcessListReconciler{c, executor}
 }
 
@@ -73,6 +74,6 @@ func (r *ProcessListReconciler) Reconcile(ctx context.Context, client *wekav1alp
 	return ctrl.Result{}, nil
 }
 
-func (r *ProcessListReconciler) recorder(client *wekav1alpha1.WekaClient) *ClientRecorder {
-	return NewClientRecorder(client, r.Recorder)
+func (r *ProcessListReconciler) recorder(client *wekav1alpha1.WekaClient) *controllers.ClientRecorder {
+	return controllers.NewClientRecorder(client, r.Recorder)
 }

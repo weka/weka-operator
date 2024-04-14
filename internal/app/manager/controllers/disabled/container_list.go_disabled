@@ -1,8 +1,9 @@
-package controllers
+package disabled
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
@@ -14,11 +15,11 @@ import (
 )
 
 type ContainerListReconciler struct {
-	*ClientReconciler
-	Executor Executor
+	*controllers.ClientReconciler
+	Executor controllers.Executor
 }
 
-func NewContainerListReconciler(c *ClientReconciler, executor Executor) *ContainerListReconciler {
+func NewContainerListReconciler(c *controllers.ClientReconciler, executor controllers.Executor) *ContainerListReconciler {
 	return &ContainerListReconciler{c, executor}
 }
 

@@ -1,8 +1,9 @@
-package controllers
+package disabled
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
@@ -13,12 +14,12 @@ import (
 )
 
 type ApiKeyReconciler struct {
-	*ClientReconciler
-	Executor Executor
+	*controllers.ClientReconciler
+	Executor controllers.Executor
 	ApiKey   string
 }
 
-func NewApiKeyReconciler(c *ClientReconciler, executor Executor) *ApiKeyReconciler {
+func NewApiKeyReconciler(c *controllers.ClientReconciler, executor controllers.Executor) *ApiKeyReconciler {
 	return &ApiKeyReconciler{c, executor, ""}
 }
 
