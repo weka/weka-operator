@@ -21,15 +21,11 @@ import (
 	"flag"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	uzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"github.com/go-logr/zapr"
-	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -56,6 +52,11 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+type WekaReconciler interface {
+	reconcile.Reconciler
+	SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -69,7 +70,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
 
-	ctx := context.Background()
+	ctx := ctrl.SetupSignalHandler()
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -77,10 +79,10 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	initLogger := prettyconsole.NewLogger(uzap.DebugLevel)
-	baseLogger := zapr.NewLogger(initLogger)
-	ctx, baseLogger = instrumentation.GetLoggerForContext(ctx, &baseLogger)
-	ctrl.SetLogger(baseLogger)
+	ctx = context.WithValue(ctx, "is_root", true)
+
+	ctx, logger := instrumentation.GetLoggerForContext(ctx, nil)
+	ctrl.SetLogger(logger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -113,8 +115,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := mgr.GetLogger()
-
 	shutdown, err := instrumentation.SetupOTelSDK(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
@@ -124,25 +124,25 @@ func main() {
 		_ = shutdown(ctx)
 	}()
 
-	if err = (controllers.NewClientReconciler(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WekaClient")
-		os.Exit(1)
+	ctrls := []WekaReconciler{
+		controllers.NewClientReconciler(mgr),
+		controllers.NewContainerController(mgr),
+		controllers.NewWekaClusterController(mgr),
 	}
-	//if err = (disabled.NewClusterReconciler(mgr)).SetupWithManager(mgr); err != nil {
-	//	setupLog.Error(err, "unable to create controller", "controller", "Cluster")
-	//	os.Exit(1)
-	//}
-	//if err = (disabled.NewBackendReconciler(mgr)).SetupWithManager(mgr); err != nil {
-	//	setupLog.Error(err, "unable to create controller", "controller", "Backend")
-	//	os.Exit(1)
-	//}
-	if err = (controllers.NewContainerController(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Container")
-		os.Exit(1)
+
+	setupContextMiddleware := func(next reconcile.Reconciler) reconcile.Reconciler {
+		return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+			ctx, _ = instrumentation.GetLoggerForContext(ctx, &logger)
+			return next.Reconcile(ctx, req)
+		})
 	}
-	if err = (controllers.NewWekaClusterController(mgr)).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WekaCluster")
-		os.Exit(1)
+
+	for _, c := range ctrls {
+		if err = c.SetupWithManager(mgr, setupContextMiddleware(c)); err != nil {
+			setupLog.Error(err, "unable to add controller to manager")
+			os.Exit(1)
+		}
+
 	}
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
@@ -167,7 +167,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}

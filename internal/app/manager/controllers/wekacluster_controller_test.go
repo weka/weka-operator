@@ -96,7 +96,6 @@ var _ = Describe("WekaCluster Controller", func() {
 			Expect(subject).NotTo(BeNil())
 			Expect(subject.Client).NotTo(BeNil())
 			Expect(subject.Scheme).NotTo(BeNil())
-			Expect(subject.Logger).NotTo(BeNil())
 			Expect(subject.Recorder).NotTo(BeNil())
 		})
 	})

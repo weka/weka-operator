@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -42,6 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"slices"
 	"strings"
 	"time"
@@ -55,14 +55,12 @@ type WekaClusterReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
-	Logger   logr.Logger
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	return &WekaClusterReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Logger:   mgr.GetLogger().WithName("controllers").WithName("WekaCluster"),
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 	}
 }
@@ -426,11 +424,11 @@ func (r *WekaClusterReconciler) GetSharedClusterContext(ctx context.Context, wek
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaCluster{}).
 		Owns(&wekav1alpha1.WekaContainer{}).
-		Complete(r)
+		Complete(wrappedReconcile)
 }
 
 func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
@@ -553,7 +551,8 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 }
 
 func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*Allocations, *v1.ConfigMap, error) {
-	logger := r.Logger.WithName("GetOrInitAllocMap")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOrInitAllocMap")
+	defer end()
 	// fetch alloc map from configmap
 	allocations := &Allocations{
 		NodeMap: AllocationsMap{},

@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
 	"strings"
 	"time"
@@ -373,12 +374,12 @@ func (r *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error 
 	return nil
 }
 
-func (r *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ContainerController) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaContainer{}).
 		Owns(&v1.Pod{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
-		Complete(r)
+		Complete(wrappedReconcile)
 }
 
 func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {

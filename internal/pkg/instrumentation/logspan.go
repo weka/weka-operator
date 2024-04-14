@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
+	uzap "go.uber.org/zap"
 	"os"
 	"strings"
 )
@@ -30,8 +31,8 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger) (context.
 		if ctx.Value(ContextLoggerKey) != nil {
 			logger = ctx.Value(ContextLoggerKey).(logr.Logger)
 		} else {
-			zapLog, _ := zap.NewDevelopment()
-			logger = zapr.NewLogger(zapLog)
+			initLogger := prettyconsole.NewLogger(uzap.DebugLevel)
+			logger = zapr.NewLogger(initLogger)
 		}
 	} else {
 		logger = *baseLogger
