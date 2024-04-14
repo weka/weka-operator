@@ -11,8 +11,8 @@ import (
 )
 
 func TestAllocatePort(t *testing.T) {
-	logger := instrumentation.GetLoggerForContext(context.Background(), "testAllocatePort")
-	defer logger.End()
+	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "TestAllocatePort")
+	defer end()
 
 	owner := OwnerCluster{
 		ClusterName: "testCluster",
@@ -50,7 +50,6 @@ func TestAllocatePort(t *testing.T) {
 	allocator := NewAllocator(logger, testTopology)
 
 	owner.ClusterName = "a"
-	ctx := context.Background()
 	newMap, err, _ := allocator.Allocate(ctx, owner, template, allocations, 1)
 	newMap, err, changed := allocator.Allocate(context.Background(), owner, template, allocations, 1)
 	if err != nil {

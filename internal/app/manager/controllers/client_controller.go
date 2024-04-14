@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
-	multiError "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
@@ -121,96 +120,15 @@ func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
 	}
 }
 
-// reconcilePhases is the order in which to reconcile sub-resources
-func (r *ClientReconciler) reconcilePhases() []reconcilePhase {
-	return []reconcilePhase{
-		{
-			Name:      "weka-agent",
-			Reconcile: r.reconcileAgent,
-		},
-		{
-			Name:      "process_list",
-			Reconcile: r.reconcileProcessList,
-		},
-		{
-			Name:      "container_list",
-			Reconcile: r.reconcileContainerList,
-		},
-	}
-}
-
-// reconcileAgent reconciles the deployment containing the client and agent
-func (r *ClientReconciler) reconcileAgent(name types.NamespacedName, client *wekav1alpha1.WekaClient) (PhaseReconciler, error) {
-	r.Recorder.Event(client, v1.EventTypeNormal, "Reconciling", "Reconciling deployment")
-	key := runtimeClient.ObjectKeyFromObject(client)
-
-	desired, err := resources.AgentResource(client, key)
-	if err != nil {
-		return nil, fmt.Errorf("invalid deployment configuration: %w", err)
-	}
-
-	if err := controllerutil.SetControllerReference(client, desired, r.Scheme); err != nil {
-		return nil, fmt.Errorf("failed to set controller reference: %w", err)
-	}
-	return NewAgentReconciler(r, desired, name), nil
-}
-
-// reconcileApiKey Extracts the API key from the client
-func (r *ClientReconciler) reconcileApiKey(name types.NamespacedName, client *wekav1alpha1.WekaClient) (PhaseReconciler, error) {
-	executor, err := r.executor(name, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get agent reconciler")
-	}
-	return NewApiKeyReconciler(r, executor), nil
-}
-
-// reconcileProcessList Adds `weka ps` to the status
-func (r *ClientReconciler) reconcileProcessList(name types.NamespacedName, client *wekav1alpha1.WekaClient) (PhaseReconciler, error) {
-	executor, err := r.executor(name, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get agent reconciler")
-	}
-	return NewProcessListReconciler(r, executor), nil
-}
-
-// reconcileContainerList Adds `weka cluster container` to the status
-func (r *ClientReconciler) reconcileContainerList(name types.NamespacedName, client *wekav1alpha1.WekaClient) (PhaseReconciler, error) {
-	executor, err := r.executor(name, client)
-	if err != nil {
-		return nil, errors.Wrap(err, "unable to get agent reconciler")
-	}
-	return NewContainerListReconciler(r, executor), nil
-}
-
-func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alpha1.WekaClient) (Executor, error) {
-	key := runtimeClient.ObjectKeyFromObject(client)
-
-	desired, err := resources.AgentResource(client, key)
-	if err != nil {
-		return nil, fmt.Errorf("invalid deployment configuration: %w", err)
-	}
-
-	if err := controllerutil.SetControllerReference(client, desired, r.Scheme); err != nil {
-		return nil, fmt.Errorf("failed to set controller reference: %w", err)
-	}
-	return NewAgentReconciler(r, desired, name), nil
-}
-
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the WekaClient object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "Reconcile")
-	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	defer logger.End()
-	wekaClient, err := GetClient(ctx, req, r.Client, r.Logger)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Reconcile", "namespace", req.Namespace, "name", req.Name)
+	defer end()
+
+	wekaClient, err := GetClient(ctx, req, r.Client)
 	if err != nil {
 		logger.Error(err, "Failed to get wekaClient")
 		return ctrl.Result{}, err
@@ -241,7 +159,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	result, containers, err := r.ensureWekaContainers(ctx, wekaClient, applicableNodes)
+	result, containers, err := r.ensureClientsWekaContainers(ctx, wekaClient, applicableNodes)
 	if err != nil {
 		logger.Error(err, "Failed to ensure weka containers")
 		return result, err
@@ -252,90 +170,6 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	_ = containers
 	return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
-}
-
-func (r *ClientReconciler) OriginalReconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "Reconcile")
-	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
-	defer logger.End()
-	r.Logger.Info("Reconciling WekaClient")
-	client := &wekav1alpha1.WekaClient{}
-	if err := r.Get(ctx, req.NamespacedName, client); err != nil {
-		return ctrl.Result{}, runtimeClient.IgnoreNotFound(err)
-	}
-	r.CurrentInstance = client
-
-	if client.Status.Conditions == nil || len(client.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
-			Type:    typeAvailableClient,
-			Status:  metav1.ConditionUnknown,
-			Reason:  "Initializing",
-			Message: "Beginning Reconciliation",
-		})
-		if err := r.Status().Update(ctx, client); err != nil {
-			r.Logger.Error(err, "Failed to update status")
-			return ctrl.Result{}, err
-		}
-	}
-
-	phases := r.reconcilePhases()
-	for _, phase := range phases {
-		logger.SetPhase(phase.Name)
-		reconciler, err := phase.Reconcile(req.NamespacedName, client)
-		if err != nil {
-			logger.WithValues("phase", phase.Name).Error(err, "Failed to get reconciler for phase")
-			return ctrl.Result{}, fmt.Errorf("failed to get reconciler for phase %s: %w", phase.Name, err)
-		}
-		result, err := reconciler.Reconcile(ctx, client)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				r.Logger.Info("Resource not found", "phase", phase.Name)
-				continue
-			}
-			errBundle := &multiError.Error{}
-			errBundle = multiError.Append(errBundle, err)
-			logger.WithValues("phase", phase.Name).Error(err, "Failed to reconcile phase")
-			msg := fmt.Sprintf("Failed to reconcile phase %s: %s", phase.Name, err)
-			patchErr := r.patchStatus(ctx, client, func(status *wekav1alpha1.ClientStatus) error {
-				patcher := r.ConditionReady.PatcherFailed(msg)
-				patcher(status)
-				return nil
-			})
-			if apierrors.IsNotFound(patchErr) {
-				errBundle = multiError.Append(errBundle, patchErr)
-			}
-
-			if err := errBundle.ErrorOrNil(); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to reconcile phase %s: %w", phase.Name, err)
-			}
-		}
-
-		// non-default Result means a requeue which means that the current phase is not done
-		// if result IsZero, then the phase is done or nothing needed to be done
-		// and we can move on to the next phase
-		if !result.IsZero() {
-			r.Logger.Info("Requeueing", "phase", phase.Name)
-			return result, nil
-		}
-	}
-	logger.InfoWithStatus(codes.Ok, "Finished Reconciliation")
-	_ = r.RecordEvent(v1.EventTypeNormal, "Reconciled", "Finished Reconciliation")
-	meta.SetStatusCondition(&client.Status.Conditions, metav1.Condition{
-		Type:    typeAvailableClient,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Reconciled",
-		Message: "Finished Reconciliation",
-	})
-	logger.SetPhase("RECONCILED")
-	return ctrl.Result{}, r.Status().Update(ctx, client)
-}
-
-func (r *ClientReconciler) patchStatus(ctx context.Context, client *wekav1alpha1.WekaClient, patcher patcher) error {
-	patch := runtimeClient.MergeFrom(client.DeepCopy())
-	if err := patcher(&client.Status); err != nil {
-		return err
-	}
-	return r.Status().Patch(ctx, client, patch)
 }
 
 func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message string) error {
@@ -430,7 +264,10 @@ func (r *ClientReconciler) handleDeletion(ctx context.Context, wekaClient *wekav
 	return nil
 }
 
-func (r *ClientReconciler) ensureWekaContainers(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, nodes []string) (ctrl.Result, []*wekav1alpha1.WekaContainer, error) {
+func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, nodes []string) (ctrl.Result, []*wekav1alpha1.WekaContainer, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers", "namespace", wekaClient.Namespace, "name", wekaClient.Name)
+	defer end()
+
 	foundContainers := []*wekav1alpha1.WekaContainer{}
 	size := len(nodes)
 	if size == 0 {
@@ -438,6 +275,7 @@ func (r *ClientReconciler) ensureWekaContainers(ctx context.Context, wekaClient 
 	}
 
 	for _, node := range nodes {
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers", "node", node)
 		wekaContainer, err := r.buildClientWekaContainer(wekaClient, node)
 		if err != nil {
 			return ctrl.Result{}, nil, err
@@ -460,6 +298,7 @@ func (r *ClientReconciler) ensureWekaContainers(ctx context.Context, wekaClient 
 		} else {
 			foundContainers = append(foundContainers, found)
 		}
+		end()
 	}
 	return ctrl.Result{}, foundContainers, nil
 }
@@ -505,7 +344,10 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 	return container, nil
 }
 
-func GetClient(ctx context.Context, req ctrl.Request, r client.Reader, logger logr.Logger) (*wekav1alpha1.WekaClient, error) {
+func GetClient(ctx context.Context, req ctrl.Request, r client.Reader) (*wekav1alpha1.WekaClient, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClient", "namespace", req.Namespace, "name", req.Name)
+	defer end()
+
 	wekaClient := &wekav1alpha1.WekaClient{}
 	err := r.Get(ctx, req.NamespacedName, wekaClient)
 	if err != nil {
