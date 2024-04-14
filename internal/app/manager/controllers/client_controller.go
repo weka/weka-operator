@@ -22,6 +22,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -125,11 +126,11 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 
 // TODO: Factor the below  out into reconciler methods
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconiler reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaClient{}).
 		Owns(&wekav1alpha1.WekaContainer{}).
-		Complete(r)
+		Complete(wrappedReconiler)
 }
 
 func (r *ClientReconciler) finalizeClient(ctx context.Context, client *wekav1alpha1.WekaClient) error {
