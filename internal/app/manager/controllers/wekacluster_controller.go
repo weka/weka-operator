@@ -310,6 +310,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		}
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsApplied, metav1.ConditionTrue, "Init", "Applied cluster secrets")
 		wekaCluster.Status.Status = "Ready"
+		wekaCluster.Status.TraceId = ""
+		wekaCluster.Status.SpanID = ""
 		err = r.Status().Update(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
