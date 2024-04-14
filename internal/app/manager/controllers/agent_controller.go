@@ -43,7 +43,7 @@ func NewAgentReconciler(c *ClientReconciler, desired *appsv1.DaemonSet, root typ
 	return &AgentReconciler{c, desired, root}
 }
 
-func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.SpanLogger) {
 	logger := r.Logger
 	joinNames := strings.Join(names, ".")
 	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
@@ -63,7 +63,7 @@ func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (cont
 		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
-	ls := instrumentation.LogSpan{
+	ls := instrumentation.SpanLogger{
 		Logger: logger,
 		Span:   span,
 		End:    ShutdownFunc,
@@ -73,9 +73,9 @@ func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (cont
 }
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "ReconcileClients")
-	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
-	defer logger.End()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ReconcileClients", "namespace", r.RootResourceName, "name", r.RootResourceName.Name)
+	defer end()
+
 	logger.Info("Reconciling agent")
 
 	key := runtimeClient.ObjectKeyFromObject(r.Desired)
@@ -157,9 +157,8 @@ func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 
 // GetAgentPods returns the pods belonging to the daemonset
 func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
-	ctx, logger := r.getLogSpan(ctx, "GetAgentPods")
-	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
-	defer logger.End()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAgentPods", "namespace", r.RootResourceName, "name", r.RootResourceName.Name)
+	defer end()
 	logger.Debug("Fetching agent pods")
 	agent, err := r.GetAgentResource(ctx)
 	if err != nil {

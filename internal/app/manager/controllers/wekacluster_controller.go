@@ -67,7 +67,7 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	}
 }
 
-func (r *WekaClusterReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+func (r *WekaClusterReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.SpanLogger) {
 	logger := r.Logger
 	joinNames := strings.Join(names, ".")
 	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
@@ -87,7 +87,7 @@ func (r *WekaClusterReconciler) getLogSpan(ctx context.Context, names ...string)
 		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
-	ls := instrumentation.LogSpan{
+	ls := instrumentation.SpanLogger{
 		Logger: logger,
 		Span:   span,
 		End:    ShutdownFunc,
@@ -733,7 +733,7 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	return nil
 }
 
-func GetExecutor(container *wekav1alpha1.WekaContainer, logger instrumentation.LogSpan) (*util.Exec, error) {
+func GetExecutor(container *wekav1alpha1.WekaContainer, logger instrumentation.SpanLogger) (*util.Exec, error) {
 	pod, err := resources.NewContainerFactory(container, logger).Create()
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not find executor pod")
