@@ -75,7 +75,7 @@ func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (con
 		spanID := span.SpanContext().SpanID().String()
 		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
 		for _, name := range names {
-			logger = logger.WithName(name)
+			logger = logger.WithValues("name", name)
 		}
 	}
 
@@ -83,7 +83,7 @@ func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (con
 		if span != nil {
 			span.End(opts...)
 		}
-		logger.Info(fmt.Sprintf("%s finished", joinNames))
+		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
 	ls := instrumentation.LogSpan{
@@ -91,7 +91,7 @@ func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (con
 		Span:   span,
 		End:    ShutdownFunc,
 	}
-	logger.Info(fmt.Sprintf("%s called", joinNames))
+	logger.V(4).Info(fmt.Sprintf("%s called", joinNames))
 	return ctx, ls
 }
 
@@ -207,7 +207,8 @@ func (r *ClientReconciler) executor(name types.NamespacedName, client *wekav1alp
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "Reconcile", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	ctx, logger := r.getLogSpan(ctx, "Reconcile")
+	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	defer logger.End()
 	wekaClient, err := GetClient(ctx, req, r.Client, r.Logger)
 	if err != nil {
@@ -254,7 +255,8 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *ClientReconciler) OriginalReconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "Reconcile", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	ctx, logger := r.getLogSpan(ctx, "Reconcile")
+	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	defer logger.End()
 	r.Logger.Info("Reconciling WekaClient")
 	client := &wekav1alpha1.WekaClient{}
@@ -345,7 +347,8 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 }
 
 func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1.Condition) error {
-	ctx, logger := r.getLogSpan(ctx, "RecordCondition", fmt.Sprintf("%s/%s", r.CurrentInstance.Namespace, r.CurrentInstance.Name))
+	ctx, logger := r.getLogSpan(ctx, "RecordCondition")
+	logger = logger.WithValues("namespace", r.CurrentInstance.Namespace, "name", r.CurrentInstance.Name)
 	defer logger.End()
 	logger.WithValues("condition", condition.Type, "message", condition.Message,
 		"status", condition.Status, "reason", condition.Reason).AddEvent("Recording condition")
@@ -369,7 +372,8 @@ func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1
 
 // UpdateStatus sets Status fields on the Client
 func (r *ClientReconciler) UpdateStatus(ctx context.Context, updater func(*wekav1alpha1.ClientStatus)) error {
-	ctx, logger := r.getLogSpan(ctx, "UpdateStatus", fmt.Sprintf("%s/%s", r.CurrentInstance.Namespace, r.CurrentInstance.Name))
+	ctx, logger := r.getLogSpan(ctx, "UpdateStatus")
+	logger = logger.WithValues("namespace", r.CurrentInstance.Namespace, "name", r.CurrentInstance.Name)
 	defer logger.End()
 
 	if r.CurrentInstance == nil {

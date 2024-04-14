@@ -18,7 +18,8 @@ type LogSpan struct {
 	Ctx context.Context
 	logr.Logger
 	trace.Span
-	End func(...trace.SpanEndOption)
+	spanName string
+	End      func(...trace.SpanEndOption)
 }
 
 func NewLogSpanForTest(ctx context.Context, names ...string) LogSpan {
@@ -26,10 +27,11 @@ func NewLogSpanForTest(ctx context.Context, names ...string) LogSpan {
 	ctx, span := Tracer.Start(ctx, joinNames)
 	zapLog, _ := zap.NewDevelopment()
 	return LogSpan{
-		Ctx:    ctx,
-		Logger: zapr.NewLogger(zapLog),
-		Span:   span,
-		End:    span.End,
+		Ctx:      ctx,
+		Logger:   zapr.NewLogger(zapLog),
+		Span:     span,
+		End:      span.End,
+		spanName: joinNames,
 	}
 }
 
@@ -38,24 +40,14 @@ func (ls LogSpan) Enabled(level int) bool {
 }
 
 func (ls LogSpan) WithName(name string) LogSpan {
-	//ctx, span := Tracer.Start(ls.Ctx, name)
-
-	//endFunc := func(opts ...trace.SpanEndOption) {
-	//	span.End(opts...)
-	//	ls.Span.End(opts...)
-	//}
-	//return LogSpan{
-	//	Ctx:    ctx,
-	//	Logger: ls.Logger.WithName(name),
-	//	Span:   span,
-	//	End:    endFunc,
-	//}
-	ls.Span.SetName(name)
+	newSpanName := strings.Join([]string{ls.spanName, name}, ".")
+	ls.Span.SetName(newSpanName)
 	return LogSpan{
-		Ctx:    ls.Ctx,
-		Logger: ls.Logger.WithName(name),
-		Span:   ls.Span,
-		End:    ls.End,
+		Ctx:      ls.Ctx,
+		Logger:   ls.Logger.WithName(name),
+		Span:     ls.Span,
+		End:      ls.End,
+		spanName: newSpanName,
 	}
 }
 
@@ -94,8 +86,8 @@ func (ls LogSpan) Info(msg string, keysAndValues ...interface{}) {
 }
 
 func (ls LogSpan) Debug(msg string, keysAndValues ...interface{}) {
-	if ls.Logger.V(1).Enabled() {
-		ls.V(1).Info(msg, keysAndValues...)
+	if ls.Logger.V(4).Enabled() {
+		ls.V(4).Info(msg, keysAndValues...)
 	}
 	ls.SetAttributes(setAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
