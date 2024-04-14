@@ -241,13 +241,11 @@ type Allocations struct {
 }
 
 type Allocator struct {
-	Logger       instrumentation.SpanLogger
 	ClusterLevel Topology
 }
 
-func NewAllocator(logger instrumentation.SpanLogger, clusterConfig Topology) *Allocator {
+func NewAllocator(clusterConfig Topology) *Allocator {
 	return &Allocator{
-		Logger:       logger,
 		ClusterLevel: clusterConfig,
 	}
 }
@@ -286,12 +284,9 @@ func (a *Allocator) Allocate(ctx context.Context,
 	allocations *Allocations,
 	size int, // Size is multiplication of template
 ) (*Allocations, error, bool) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "Allocate")
-	defer span.End()
-	logger := a.Logger.
-		WithName("Allocate").
-		WithValues("ownerCluster", ownerCluster, "template", template, "size", size).
-		WithValues("trace_id", span.SpanContext().TraceID().String(), "span_id", span.SpanContext().SpanID().String())
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Allocate")
+	defer end()
+
 	if size == 0 {
 		size = 1
 	}
@@ -366,7 +361,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseWekaContainerPort, wekaContainerPortStep, allocations.Global.WekaContainerPorts)
 				continue CONTAINERS
 			}
-			a.Logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "allocationsMap", allocationsMap, "changed", changed, "containerName", containerName, "owner", owner, "allocMap", allocationsMap)
+			logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "allocationsMap", allocationsMap, "changed", changed, "containerName", containerName, "owner", owner, "allocMap", allocationsMap)
 			return fmt.Errorf("Not enough resources to allocate request")
 		}
 		return nil
@@ -379,7 +374,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
 		return allocations, err, changed
 	}
-	span.SetStatus(codes.Ok, "Allocation successful")
+	logger.SetStatus(codes.Ok, "resources allocated")
 	return allocations, nil, changed
 }
 

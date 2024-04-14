@@ -29,8 +29,7 @@ var (
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
 	logger.Info("Setting up OTel SDK")
-	if otlpEndpoint != "" {
-		// TODO: Un-tested, does it work to fully skip setup like this? Instead of stdout as following code does
+	if otlpEndpoint == "" {
 		return func(ctx context.Context) error {
 			return nil
 		}, nil
@@ -115,16 +114,33 @@ func newTraceProvider() (*tracesdk.TracerProvider, error) {
 	return traceProvider, nil
 }
 
-func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
+func NewContextWithTraceID(ctx context.Context, tracer trace.Tracer, traceIDStr string) context.Context {
 	traceID, _ := trace.TraceIDFromHex(traceIDStr)
-	//spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
 	if tracer == nil {
 		tracer = Tracer
 	}
 
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID: traceID,
-		//SpanID:  spanID,
+		TraceID:    traceID,
+		TraceFlags: trace.FlagsSampled,
+	})
+
+	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)
+	//retCtx, _ := tracer.Start(ctx, "SharedClusterContext")
+	return ctx
+}
+
+func NewContextWithSpanID(ctx context.Context, tracer trace.Tracer, traceIDStr string, spanIdStr string) context.Context {
+	traceID, _ := trace.TraceIDFromHex(traceIDStr)
+	spanID, _ := trace.SpanIDFromHex(spanIdStr) // Example span ID; typically this would also come from external data
+	if tracer == nil {
+		tracer = Tracer
+	}
+
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
 	})
 
 	ctx = trace.ContextWithRemoteSpanContext(ctx, sc)

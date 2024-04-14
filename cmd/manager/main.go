@@ -20,11 +20,10 @@ import (
 	"context"
 	"flag"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"os"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	"go.uber.org/zap/zapcore"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"os"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

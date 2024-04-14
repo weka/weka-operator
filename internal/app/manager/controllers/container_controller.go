@@ -96,7 +96,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container, logger).Create()
+	desiredPod, err := resources.NewContainerFactory(container).Create()
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
@@ -129,6 +129,10 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	} else {
 		logger.SetPhase("POD_ALREADY_EXISTS")
+		if actualPod.Status.Phase != v1.PodRunning {
+			logger.SetPhase("POD_NOT_RUNNING")
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
+		}
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
@@ -645,7 +649,7 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 }
 
 func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "claimDrive", "drive", drive, "name")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "claimDrive", "drive", drive)
 	defer end()
 
 	logger.Info("Claiming drive")
@@ -654,8 +658,8 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 		logger.Error(err, "Error getting drive UUID")
 		return err
 	}
-	l := logger.WithValues("drive_uuid", driveUuid)
-	l.Info("Claimed drive by UUID")
+	logger.SetValues("drive_uuid", driveUuid)
+	logger.Info("Claimed drive by UUID")
 
 	claim := wekav1alpha1.DriveClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -668,10 +672,10 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 
 	err = ctrl.SetControllerReference(container, &claim, r.Scheme)
 	if err != nil {
-		l.Error(err, "Error setting owner reference")
+		logger.SetError(err, "Error setting owner reference")
 		return err
 	}
-	l.Info("Drive was set with owner, creating drive claim")
+	logger.Info("Drive was set with owner, creating drive claim")
 
 	err = r.Create(ctx, &claim)
 	if err != nil {
@@ -679,12 +683,12 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 		existingClaim := wekav1alpha1.DriveClaim{}
 		err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: fmt.Sprintf("%s", driveUuid)}, &existingClaim)
 		if err != nil {
-			l.Error(err, "Error getting existing claim")
+			logger.SetError(err, "Error getting existing claim")
 			return err
 		}
 		if existingClaim.OwnerReferences[0].UID != container.UID {
 			err = errors.New("drive already claimed by another container")
-			l.WithValues("existing_claim", existingClaim.Name).Error(err, "Drive already claimed by another container")
+			logger.SetError(err, "drive already claimed")
 		}
 		return nil
 	}
@@ -817,7 +821,6 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverDrive", "drive", drive, "node_name", executor.Pod.Spec.NodeName)
 	defer end()
 
-	defer logger.End()
 	if strings.HasPrefix(drive, "aws_") {
 		// aws discovery log, relying on PCI address as more persistent than device name, worth 1 hop
 		slot := strings.TrimPrefix(drive, "aws_")
