@@ -104,7 +104,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.InfoWithStatus(codes.Unset, "Container not found")
+			logger.Debug("Container not found")
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error refreshing container")
