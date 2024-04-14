@@ -29,6 +29,12 @@ var (
 // If it does not return an error, make sure to call shutdown for proper cleanup.
 func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, err error) {
 	logger.Info("Setting up OTel SDK")
+	if otlpEndpoint != "" {
+		// TODO: Un-tested, does it work to fully skip setup like this? Instead of stdout as following code does
+		return func(ctx context.Context) error {
+			return nil
+		}, nil
+	}
 
 	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
 	handleErr := func(inErr error) {
