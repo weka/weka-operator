@@ -62,7 +62,6 @@ func (ls LogSpan) WithName(name string) LogSpan {
 func (ls LogSpan) WithValues(keysAndValues ...interface{}) LogSpan {
 	if len(keysAndValues)%2 != 0 {
 		panic("WithValues must be called with an even number of arguments")
-		return ls
 	}
 
 	return LogSpan{
