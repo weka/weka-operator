@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 	"os"
 	"strings"
 )
@@ -17,6 +19,18 @@ type LogSpan struct {
 	logr.Logger
 	trace.Span
 	End func(...trace.SpanEndOption)
+}
+
+func NewLogSpanForTest(ctx context.Context, names ...string) LogSpan {
+	joinNames := strings.Join(names, ".")
+	ctx, span := Tracer.Start(ctx, joinNames)
+	zapLog, _ := zap.NewDevelopment()
+	return LogSpan{
+		Ctx:    ctx,
+		Logger: zapr.NewLogger(zapLog),
+		Span:   span,
+		End:    span.End,
+	}
 }
 
 func (ls LogSpan) Enabled(level int) bool {

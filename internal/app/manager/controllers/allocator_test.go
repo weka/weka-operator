@@ -5,26 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/zapr"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"gopkg.in/yaml.v3"
 )
 
-func testingLogger() logr.Logger {
-	config := zap.NewDevelopmentConfig()
-	config.Level.SetLevel(zapcore.Level(zapcore.WarnLevel))
-	zapLog, err := config.Build()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create logger: %v", err))
-	}
-	return zapr.NewLogger(zapLog)
-}
-
 func TestAllocatePort(t *testing.T) {
-	log := testingLogger().WithName("TestAllocatePort")
+	logger := instrumentation.NewLogSpanForTest(context.Background(), "testAllocatePort")
+	defer logger.End()
 
 	owner := OwnerCluster{
 		ClusterName: "testCluster",
@@ -59,7 +47,7 @@ func TestAllocatePort(t *testing.T) {
 		MaxFdsPerNode:     1,
 	}
 
-	allocator := NewAllocator(log, testTopology)
+	allocator := NewAllocator(logger, testTopology)
 
 	owner.ClusterName = "a"
 	ctx := context.Background()
