@@ -69,7 +69,6 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
 
-
 	ctx := context.Background()
 	opts := zap.Options{
 		Development: true,
@@ -79,7 +78,9 @@ func main() {
 	flag.Parse()
 
 	initLogger := prettyconsole.NewLogger(uzap.DebugLevel)
-	ctrl.SetLogger(zapr.NewLogger(initLogger))
+	baseLogger := zapr.NewLogger(initLogger)
+	ctx, baseLogger = instrumentation.GetLoggerForContext(ctx, &baseLogger)
+	ctrl.SetLogger(baseLogger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,

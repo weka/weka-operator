@@ -241,11 +241,11 @@ type Allocations struct {
 }
 
 type Allocator struct {
-	Logger       instrumentation.LogSpan
+	Logger       instrumentation.SpanLogger
 	ClusterLevel Topology
 }
 
-func NewAllocator(logger instrumentation.LogSpan, clusterConfig Topology) *Allocator {
+func NewAllocator(logger instrumentation.SpanLogger, clusterConfig Topology) *Allocator {
 	return &Allocator{
 		Logger:       logger,
 		ClusterLevel: clusterConfig,

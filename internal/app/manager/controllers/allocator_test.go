@@ -11,7 +11,7 @@ import (
 )
 
 func TestAllocatePort(t *testing.T) {
-	logger := instrumentation.NewLogSpanForTest(context.Background(), "testAllocatePort")
+	logger := instrumentation.GetLoggerForContext(context.Background(), "testAllocatePort")
 	defer logger.End()
 
 	owner := OwnerCluster{

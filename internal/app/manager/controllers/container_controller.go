@@ -66,7 +66,7 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list
 
-func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.SpanLogger) {
 	logger := r.Logger
 	joinNames := strings.Join(names, ".")
 	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
@@ -86,7 +86,7 @@ func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (
 		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
-	ls := instrumentation.LogSpan{
+	ls := instrumentation.SpanLogger{
 		Logger: logger,
 		Span:   span,
 		End:    ShutdownFunc,

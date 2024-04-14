@@ -66,7 +66,7 @@ type ClientReconciler struct {
 	CurrentInstance *wekav1alpha1.WekaClient
 }
 
-func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.LogSpan) {
+func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.SpanLogger) {
 	logger := r.Logger
 	joinNames := strings.Join(names, ".")
 	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
@@ -86,7 +86,7 @@ func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (con
 		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
-	ls := instrumentation.LogSpan{
+	ls := instrumentation.SpanLogger{
 		Logger: logger,
 		Span:   span,
 		End:    ShutdownFunc,

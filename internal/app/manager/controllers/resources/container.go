@@ -31,7 +31,7 @@ type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
-	logger    instrumentation.LogSpan
+	logger    instrumentation.SpanLogger
 }
 
 type WekaDriveResponse struct {
@@ -53,7 +53,7 @@ func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
 
-func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger instrumentation.LogSpan) *ContainerFactory {
+func NewContainerFactory(container *wekav1alpha1.WekaContainer, logger instrumentation.SpanLogger) *ContainerFactory {
 	return &ContainerFactory{
 		container: container,
 		logger:    logger.WithName("ContainerFactory"),
