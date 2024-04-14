@@ -52,7 +52,7 @@ func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (cont
 		spanID := span.SpanContext().SpanID().String()
 		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
 		for _, name := range names {
-			logger = logger.WithName(name)
+			logger = logger.WithValues("name", name)
 		}
 	}
 
@@ -60,7 +60,7 @@ func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (cont
 		if span != nil {
 			span.End(opts...)
 		}
-		logger.Info(fmt.Sprintf("%s finished", joinNames))
+		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
 	ls := instrumentation.LogSpan{
@@ -68,12 +68,13 @@ func (r *AgentReconciler) getLogSpan(ctx context.Context, names ...string) (cont
 		Span:   span,
 		End:    ShutdownFunc,
 	}
-	logger.Info(fmt.Sprintf("%s called", joinNames))
+	logger.V(4).Info(fmt.Sprintf("%s called", joinNames))
 	return ctx, ls
 }
 
 func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "ReconcileClients", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	ctx, logger := r.getLogSpan(ctx, "ReconcileClients")
+	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
 	defer logger.End()
 	logger.Info("Reconciling agent")
 
@@ -130,7 +131,8 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, client *wekav1alpha1.We
 
 // Exec executes a command in the agent pods
 func (r *AgentReconciler) Exec(ctx context.Context, cmd []string) (stdout, stderr bytes.Buffer, err error) {
-	ctx, logger := r.getLogSpan(ctx, "Exec", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	ctx, logger := r.getLogSpan(ctx, "Exec")
+	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
 	defer logger.End()
 	logger.Debug("Fetching agent pods")
 	agentPods, err := r.GetAgentPods(ctx)
@@ -155,7 +157,8 @@ func (r *AgentReconciler) isAgentAvailable(deployment *appsv1.DaemonSet) bool {
 
 // GetAgentPods returns the pods belonging to the daemonset
 func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error) {
-	ctx, logger := r.getLogSpan(ctx, "GetAgentPods", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	ctx, logger := r.getLogSpan(ctx, "GetAgentPods")
+	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
 	defer logger.End()
 	logger.Debug("Fetching agent pods")
 	agent, err := r.GetAgentResource(ctx)
@@ -185,7 +188,8 @@ func (r *AgentReconciler) GetAgentPods(ctx context.Context) (*v1.PodList, error)
 
 // GetAgentResource returns the agent DaemonSet resource
 func (r *AgentReconciler) GetAgentResource(ctx context.Context) (*appsv1.DaemonSet, error) {
-	ctx, logger := r.getLogSpan(ctx, "GetAgentResource", fmt.Sprintf("%s/%s", r.RootResourceName.Namespace, r.RootResourceName.Name))
+	ctx, logger := r.getLogSpan(ctx, "GetAgentResource")
+	logger = logger.WithValues("namespace", r.RootResourceName, "name", r.RootResourceName.Name)
 	defer logger.End()
 	agent := &appsv1.DaemonSet{}
 	key := client.ObjectKeyFromObject(r.Desired)

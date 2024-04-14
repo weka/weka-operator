@@ -5,7 +5,6 @@ import (
 	"errors"
 	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
@@ -59,7 +58,6 @@ func newResource() *resource.Resource {
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String("weka-operator"),
 			semconv.ServiceVersionKey.String("v1.0.0"),
-			attribute.String("environment", "demo"),
 		),
 	)
 	return r

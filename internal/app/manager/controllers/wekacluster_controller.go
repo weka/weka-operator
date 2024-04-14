@@ -84,7 +84,7 @@ func (r *WekaClusterReconciler) getLogSpan(ctx context.Context, names ...string)
 		if span != nil {
 			span.End(opts...)
 		}
-		logger.Info(fmt.Sprintf("%s finished", joinNames))
+		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
 	ls := instrumentation.LogSpan{
@@ -92,13 +92,13 @@ func (r *WekaClusterReconciler) getLogSpan(ctx context.Context, names ...string)
 		Span:   span,
 		End:    ShutdownFunc,
 	}
-	logger.Info(fmt.Sprintf("%s called", joinNames))
+	logger.V(4).Info(fmt.Sprintf("%s called", joinNames))
 	return ctx, ls
 }
 
 func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
 	condType string, status metav1.ConditionStatus, reason string, message string) error {
-	ctx, logger := r.getLogSpan(ctx, fmt.Sprintf("SetCondition.%s(%s)", condType, status))
+	ctx, logger := r.getLogSpan(ctx, fmt.Sprintf("SetCondition.%s", condType))
 	defer logger.End()
 
 	logger.WithValues(
@@ -141,7 +141,8 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(initContext, "WekaClusterReconcile", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	ctx, logger := r.getLogSpan(initContext, "WekaClusterReconcile")
+	logger = logger.WithValues("namespace", req.Name, "name", req.Name)
 
 	// Fetch the WekaCluster instance
 	ctx, wekaCluster, err := r.GetClusterAndContext(initContext, req)
@@ -157,13 +158,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 	logger.End()
-	ctx, logger = r.getLogSpan(ctx, "WekaClusterReconcile", fmt.Sprintf("%s/%s", wekaCluster.Namespace, wekaCluster.Name))
+	ctx, logger = r.getLogSpan(ctx, "WekaClusterReconcile")
+	logger = logger.WithValues("namespace", wekaCluster.Namespace, "name", wekaCluster.Name)
 	defer logger.End()
 
-	logger.WithValues(
-		"cluster_name", wekaCluster.Name,
-		"cluster_namespace", wekaCluster.Namespace,
-		"cluster_status", wekaCluster.Status.Status).Info("Reconciling WekaCluster")
+	logger.WithValues("cluster_status", wekaCluster.Status.Status).Info("Reconciling WekaCluster")
 
 	logger.SetPhase("CLUSTER_RECONCILE_STARTED")
 
@@ -241,7 +240,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// Ensure all containers are up in the cluster
-	logger.Info("Ensuring all containers are up in the cluster")
+	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
 	for _, container := range containers {
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
@@ -255,9 +254,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				if err != nil {
 					return ctrl.Result{}, err
 				}
+				logger.WithValues("container_name", container.Name).InfoWithStatus(codes.Ok, "Container joined cluster successfully")
 			}
 			joinedContainers++
-			logger.WithValues("container_name", container.Name).InfoWithStatus(codes.Ok, "Container joined cluster successfully")
 		}
 	}
 	if joinedContainers == len(containers) {
@@ -273,7 +272,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// Ensure all containers are up in the cluster
-	logger.Info("Ensuring all drives are up in the cluster")
+	logger.Debug("Ensuring all drives are up in the cluster")
 	for _, container := range containers {
 		if container.Spec.Mode != "drive" {
 			continue
@@ -323,7 +322,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 }
 
 func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
-	ctx, logger := r.getLogSpan(ctx, "handleDeletion", fmt.Sprintf("%s/%s", wekaCluster.Namespace, wekaCluster.Name))
+	ctx, logger := r.getLogSpan(ctx, "handleDeletion")
+	logger = logger.WithValues("namespace", wekaCluster.Namespace, "name", wekaCluster.Name)
 	defer logger.End()
 
 	if controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
@@ -352,7 +352,8 @@ func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster 
 }
 
 func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
-	ctx, logger := r.getLogSpan(ctx, "initState", fmt.Sprintf("%s/%s", wekaCluster.Namespace, wekaCluster.Name))
+	ctx, logger := r.getLogSpan(ctx, "initState")
+	logger = logger.WithValues("namespace", wekaCluster.Namespace, "name", wekaCluster.Name)
 	defer logger.End()
 	if !controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 
@@ -424,7 +425,8 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, logger := r.getLogSpan(ctx, "doFinalizerOperationsForwekaCluster", fmt.Sprintf("%s/%s", cluster.Namespace, cluster.Name))
+	ctx, logger := r.getLogSpan(ctx, "doFinalizerOperationsForwekaCluster")
+	logger = logger.WithValues("namespace", cluster.Namespace, "name", cluster.Name)
 	defer logger.End()
 	if cluster.Spec.Topology == "" {
 		return nil
@@ -455,7 +457,8 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 }
 
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	ctx, logger := r.getLogSpan(ctx, "ensureWekaContainers", fmt.Sprintf("%s/%s", cluster.Namespace, cluster.Name))
+	ctx, logger := r.getLogSpan(ctx, "ensureWekaContainers")
+	logger = logger.WithValues("namespace", cluster.Namespace, "name", cluster.Name)
 	defer logger.End()
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
@@ -509,7 +512,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 				logger.Error(err, "Failed to create WekaContainer")
 				return err
 			}
-			l := logger.WithName(wekaContainer.Name)
+			l := logger.WithValues("container_name", wekaContainer.Name)
 
 			found := &wekav1alpha1.WekaContainer{}
 			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
@@ -677,7 +680,8 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 }
 
 func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger := r.getLogSpan(ctx, fmt.Sprintf("CreateCluster.%s/%s", cluster.Namespace, cluster.Name))
+	ctx, logger := r.getLogSpan(ctx, "CreateCluster")
+	logger = logger.WithValues("namespace", cluster.Namespace, "name", cluster.Name)
 	defer logger.End()
 
 	if len(containers) == 0 {
@@ -841,7 +845,7 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	defer logger.End()
 
 	for _, container := range containers {
-		l := logger.WithName(fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+		l := logger.WithValues("namespace", container.Namespace, "name", container.Name)
 		if container.GetDeletionTimestamp() != nil {
 			l.Debug("Container is being deleted, rejecting cluster create")
 			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")

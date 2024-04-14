@@ -83,7 +83,7 @@ func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (
 		if span != nil {
 			span.End(opts...)
 		}
-		logger.Info(fmt.Sprintf("%s finished", joinNames))
+		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
 	}
 
 	ls := instrumentation.LogSpan{
@@ -91,13 +91,14 @@ func (r *ContainerController) getLogSpan(ctx context.Context, names ...string) (
 		Span:   span,
 		End:    ShutdownFunc,
 	}
-	logger.Info(fmt.Sprintf("%s called", joinNames))
+	logger.V(4).Info(fmt.Sprintf("%s called", joinNames))
 	return ctx, ls
 }
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "WekaContainerReconcile", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	ctx, logger := r.getLogSpan(ctx, "WekaContainerReconcile")
+	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	defer logger.End()
 
 	container, err := r.refreshContainer(ctx, req)
@@ -282,7 +283,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "reconcileManagementIP", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "reconcileManagementIP")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 	defer logger.End()
 
 	if container.Status.ManagementIP != "" {
@@ -320,7 +322,8 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 }
 
 func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, logger := r.getLogSpan(ctx, "reconcileWekaLocalStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "reconcileWekaLocalStatus")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 
 	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
@@ -366,7 +369,8 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 }
 
 func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
-	ctx, logger := r.getLogSpan(ctx, "refreshContainer", fmt.Sprintf("%s/%s", req.Namespace, req.Name))
+	ctx, logger := r.getLogSpan(ctx, "refreshContainer")
+	logger = logger.WithValues("namespace", req.Namespace, "name", req.Name)
 	defer logger.End()
 
 	container := &wekav1alpha1.WekaContainer{}
@@ -379,7 +383,8 @@ func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Req
 }
 
 func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
-	ctx, logger := r.getLogSpan(ctx, "refreshPod", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "refreshPod")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 	defer logger.End()
 	pod := &v1.Pod{}
 	key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
@@ -391,7 +396,8 @@ func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1a
 }
 
 func (r *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error {
-	ctx, logger := r.getLogSpan(ctx, "updatePod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+	ctx, logger := r.getLogSpan(ctx, "updatePod")
+	logger = logger.WithValues("namespace", pod.Namespace, "name", pod.Name)
 	if err := r.Update(ctx, pod); err != nil {
 		logger.Error(err, "Error updating pod", "pod", pod)
 		return err
@@ -408,7 +414,8 @@ func (r *ContainerController) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger := r.getLogSpan(ctx, "ensureBootConfigMapInTargetNamespace", container.Namespace)
+	ctx, logger := r.getLogSpan(ctx, "ensureBootConfigMapInTargetNamespace")
+	logger = logger.WithValues("namespace", container.Namespace)
 	defer logger.End()
 
 	bundledConfigMap := &v1.ConfigMap{}
@@ -454,7 +461,8 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 }
 
 func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, logger := r.getLogSpan(ctx, "reconcileClusterStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "reconcileClusterStatus")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 	logger.Info("Reconciling cluster status")
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
@@ -498,7 +506,9 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, logger := r.getLogSpan(ctx, "ensureDrives", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "ensureDrives")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
+
 	defer logger.End()
 	if container.Status.ClusterContainerID == nil {
 		logger.InfoWithStatus(codes.Error, "ClusterContainerID not set, cannot ensure drives")
@@ -515,7 +525,7 @@ func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav
 DRIVES:
 	for i := 0; i < container.Spec.NumDrives; i++ {
 		for driveCursor < len(container.Spec.PotentialDrives) {
-			l := logger.WithName(container.Spec.PotentialDrives[driveCursor])
+			l := logger.WithValues("drive_name", container.Spec.PotentialDrives[driveCursor])
 			l.Info("Attempting to configure drive")
 			drive := container.Spec.PotentialDrives[driveCursor]
 			drive = r.discoverDrive(ctx, executor, drive)
@@ -630,7 +640,8 @@ func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Ex
 func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (bool, error) {
 	// TODO: Query by status?
 	// TODO: Cache?
-	ctx, logger := r.getLogSpan(ctx, "isExistingCluster", s)
+	ctx, logger := r.getLogSpan(ctx, "isExistingCluster")
+	logger = logger.WithValues("cluster_name", s)
 	defer logger.End()
 	logger.WithValues("cluster_guid", s).Info("Verifying for existing cluster")
 	clusterList := wekav1alpha1.WekaClusterList{}
@@ -666,7 +677,8 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 }
 
 func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
-	ctx, logger := r.getLogSpan(ctx, "claimDrive", fmt.Sprintf("%s/%s", container.Namespace, container.Name), drive)
+	ctx, logger := r.getLogSpan(ctx, "claimDrive")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name, "drive", drive)
 	defer logger.End()
 	logger.Info("Claiming drive")
 	driveUuid, err := r.getDriveUUID(ctx, executor, drive)
@@ -712,7 +724,8 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 }
 
 func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {
-	ctx, logger := r.getLogSpan(ctx, "getDriveUUID", fmt.Sprintf("%s/%s", executor.Pod.Spec.NodeName, drive))
+	ctx, logger := r.getLogSpan(ctx, "getDriveUUID")
+	logger = logger.WithValues("node", executor.Pod.Spec.NodeName, "drive", drive)
 	defer logger.End()
 	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", getSignatureDevice(drive))
 	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
@@ -744,7 +757,8 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, logger := r.getLogSpan(ctx, "reconcileDriversStatus", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "reconcileDriversStatus")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 	defer logger.End()
 	if slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
 		return nil
@@ -777,7 +791,8 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger := r.getLogSpan(ctx, "ensureDriversLoader", fmt.Sprintf("%s/%s", container.Namespace, container.Name))
+	ctx, logger := r.getLogSpan(ctx, "ensureDriversLoader")
+	logger = logger.WithValues("namespace", container.Namespace, "name", container.Name)
 	defer logger.End()
 	logger.Info("Ensuring drivers loader")
 	pod, err := r.refreshPod(ctx, container)
@@ -831,7 +846,8 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
-	ctx, logger := r.getLogSpan(ctx, "discoverDrive", executor.Pod.Spec.NodeName, drive)
+	ctx, logger := r.getLogSpan(ctx, "discoverDrive")
+	logger = logger.WithValues("node_name", executor.Pod.Spec.NodeName, "drive", drive)
 	defer logger.End()
 	if strings.HasPrefix(drive, "aws_") {
 		// aws discovery log, relying on PCI address as more persistent than device name, worth 1 hop
@@ -854,7 +870,8 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 }
 
 func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor *util.Exec, drive string) error {
-	ctx, logger := r.getLogSpan(ctx, "initSignCloudDrives", executor.Pod.Spec.NodeName, drive)
+	ctx, logger := r.getLogSpan(ctx, "initSignCloudDrives")
+	logger = logger.WithValues("node_name", executor.Pod.Spec.NodeName, "drive", drive)
 	defer logger.End()
 	logger.Info("Signing cloud drive", "drive", drive)
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
@@ -868,7 +885,8 @@ func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor 
 }
 
 func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
-	ctx, logger := r.getLogSpan(ctx, "checkIfLoaderFinished", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+	ctx, logger := r.getLogSpan(ctx, "checkIfLoaderFinished")
+	logger = logger.WithValues("namespace", pod.Namespace, "name", pod.Name)
 	defer logger.End()
 	logger.Info("Checking if loader finished")
 
