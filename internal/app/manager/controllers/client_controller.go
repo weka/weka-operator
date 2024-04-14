@@ -22,17 +22,12 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,12 +37,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	typeAvailableClient   = "Available"
-	typeUnavailableClient = "Unavailable"
 )
 
 // ClientReconciler reconciles a Client object
@@ -63,52 +52,6 @@ type ClientReconciler struct {
 	// -- State dependent components
 	// These may be nil depending on where we are int he reconciliation process
 	CurrentInstance *wekav1alpha1.WekaClient
-}
-
-func (r *ClientReconciler) getLogSpan(ctx context.Context, names ...string) (context.Context, instrumentation.SpanLogger) {
-	logger := r.Logger
-	joinNames := strings.Join(names, ".")
-	ctx, span := instrumentation.Tracer.Start(ctx, joinNames)
-	if span != nil {
-		traceID := span.SpanContext().TraceID().String()
-		spanID := span.SpanContext().SpanID().String()
-		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
-		for _, name := range names {
-			logger = logger.WithValues("name", name)
-		}
-	}
-
-	ShutdownFunc := func(opts ...trace.SpanEndOption) {
-		if span != nil {
-			span.End(opts...)
-		}
-		logger.V(4).Info(fmt.Sprintf("%s finished", joinNames))
-	}
-
-	ls := instrumentation.SpanLogger{
-		Logger: logger,
-		Span:   span,
-		End:    ShutdownFunc,
-	}
-	logger.V(4).Info(fmt.Sprintf("%s called", joinNames))
-	return ctx, ls
-}
-
-type PhaseReconciler interface {
-	Reconcile(ctx context.Context, client *wekav1alpha1.WekaClient) (ctrl.Result, error)
-}
-
-type reconcilePhase struct {
-	Name      string
-	Reconcile func(name types.NamespacedName, client *wekav1alpha1.WekaClient) (PhaseReconciler, error)
-}
-
-type patcher func(status *wekav1alpha1.ClientStatus) error
-
-type ApiKey struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
 }
 
 func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
@@ -178,52 +121,6 @@ func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message 
 	}
 	r.Recorder.Event(r.CurrentInstance, v1.EventTypeNormal, reason, message)
 	return nil
-}
-
-func (r *ClientReconciler) RecordCondition(ctx context.Context, condition metav1.Condition) error {
-	ctx, logger := r.getLogSpan(ctx, "RecordCondition")
-	logger = logger.WithValues("namespace", r.CurrentInstance.Namespace, "name", r.CurrentInstance.Name)
-	defer logger.End()
-	logger.WithValues("condition", condition.Type, "message", condition.Message,
-		"status", condition.Status, "reason", condition.Reason).AddEvent("Recording condition")
-
-	if r.CurrentInstance == nil {
-		logger.InfoWithStatus(codes.Error, "Current client is nil")
-		return fmt.Errorf("current client is nil")
-	}
-	if err := r.Get(ctx, runtimeClient.ObjectKeyFromObject(r.CurrentInstance), r.CurrentInstance); err != nil {
-		logger.Error(err, "Failed to get client")
-		return errors.Wrap(err, "RecordCondition: failed to get client")
-	}
-	meta.SetStatusCondition(&r.CurrentInstance.Status.Conditions, condition)
-	err := r.Status().Update(ctx, r.CurrentInstance)
-	if err != nil {
-		logger.Error(err, "Failed to update status")
-		return errors.Wrap(err, "RecordCondition: failed to update status")
-	}
-	return err
-}
-
-// UpdateStatus sets Status fields on the Client
-func (r *ClientReconciler) UpdateStatus(ctx context.Context, updater func(*wekav1alpha1.ClientStatus)) error {
-	ctx, logger := r.getLogSpan(ctx, "UpdateStatus")
-	logger = logger.WithValues("namespace", r.CurrentInstance.Namespace, "name", r.CurrentInstance.Name)
-	defer logger.End()
-
-	if r.CurrentInstance == nil {
-		logger.InfoWithStatus(codes.Error, "Current client is nil")
-		return fmt.Errorf("current client is nil")
-	}
-	if err := r.Get(ctx, runtimeClient.ObjectKeyFromObject(r.CurrentInstance), r.CurrentInstance); err != nil {
-		logger.Error(err, "Failed to get client")
-		return errors.Wrap(err, "UpdateStatus: failed to get client")
-	}
-	updater(&r.CurrentInstance.Status)
-	err := r.Status().Update(ctx, r.CurrentInstance)
-	if err != nil {
-		logger.Error(err, "Failed to update status")
-	}
-	return err
 }
 
 // TODO: Factor the below  out into reconciler methods

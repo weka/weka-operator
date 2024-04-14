@@ -85,12 +85,12 @@ func getAttributesFromKeysAndValues(keysAndValues ...interface{}) []attribute.Ke
 
 func (ls SpanLogger) Info(msg string, keysAndValues ...interface{}) {
 	ls.Logger.Info(msg, keysAndValues...)
-	ls.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
 func (ls SpanLogger) Debug(msg string, keysAndValues ...interface{}) {
-	if ls.Logger.V(4).Enabled() {
+	if ls.Logger.V(4).Enabled() { // TODO: Do we really need this?
+		// Why info of Logger does not validate this? Or intention was to hide event as well?
 		ls.V(4).Info(msg, keysAndValues...)
 	}
 	ls.AddEvent(msg)

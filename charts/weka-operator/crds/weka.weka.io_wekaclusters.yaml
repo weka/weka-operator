@@ -144,9 +144,13 @@ spec:
                   - type
                   type: object
                 type: array
+              spanId:
+                type: string
               status:
                 type: string
               throughput:
+                type: string
+              traceId:
                 type: string
             required:
             - status
