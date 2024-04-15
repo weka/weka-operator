@@ -80,7 +80,7 @@ func main() {
 
 	ctx = context.WithValue(ctx, "is_root", true)
 
-	ctx, logger := instrumentation.GetLoggerForContext(ctx, nil)
+	ctx, logger := instrumentation.GetLoggerForContext(ctx, nil, "")
 	ctrl.SetLogger(logger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -129,9 +129,9 @@ func main() {
 		controllers.NewWekaClusterController(mgr),
 	}
 
-	setupContextMiddleware := func(next reconcile.Reconciler) reconcile.Reconciler {
+	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
 		return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-			ctx, _ = instrumentation.GetLoggerForContext(ctx, &logger)
+			ctx, _ = instrumentation.GetLoggerForContext(ctx, &logger, "")
 			return next.Reconcile(ctx, req)
 		})
 	}
