@@ -24,7 +24,7 @@ type SpanLogger struct {
 	spanName string
 }
 
-func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger) (context.Context, logr.Logger) {
+func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name string, keysAndValues ...interface{}) (context.Context, logr.Logger) {
 	var logger logr.Logger
 	if baseLogger == nil {
 		if ctx.Value(ContextLoggerKey) != nil {
@@ -37,6 +37,10 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger) (context.
 		logger = *baseLogger
 	}
 
+	logger = logger.WithValues(keysAndValues...)
+	if name != "" {
+		logger = logger.WithName(name)
+	}
 	retCtx := context.WithValue(ctx, ContextLoggerKey, logger)
 	return retCtx, logger
 }
@@ -147,11 +151,10 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...interface{}) 
 		panic("WithValues must be called with an even number of arguments")
 	}
 
-	ctx, logger := GetLoggerForContext(ctx, nil)
+	ctx, logger := GetLoggerForContext(ctx, nil, name, keysAndValues...)
 	// TODO: Un-global when actually needed
 	ctx, span := Tracer.Start(ctx, name)
 
-	logger = logger.WithValues(keysAndValues...)
 	spanAttrs := getAttributesFromKeysAndValues(keysAndValues...)
 
 	if span != nil {
@@ -159,7 +162,6 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...interface{}) 
 		traceID := span.SpanContext().TraceID().String()
 		spanID := span.SpanContext().SpanID().String()
 		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)
-		logger = logger.WithName(name)
 	}
 
 	ShutdownFunc := func() {
