@@ -6,14 +6,11 @@ import (
 	"testing"
 
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"gopkg.in/yaml.v3"
 )
 
 func TestAllocatePort(t *testing.T) {
-	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "TestAllocatePort")
-	defer end()
-
+	ctx := context.Background()
 	owner := OwnerCluster{
 		ClusterName: "testCluster",
 		Namespace:   "testNamespace",
@@ -47,7 +44,7 @@ func TestAllocatePort(t *testing.T) {
 		MaxFdsPerNode:     1,
 	}
 
-	allocator := NewAllocator(logger, testTopology)
+	allocator := NewAllocator(testTopology)
 
 	owner.ClusterName = "a"
 	newMap, err, _ := allocator.Allocate(ctx, owner, template, allocations, 1)
