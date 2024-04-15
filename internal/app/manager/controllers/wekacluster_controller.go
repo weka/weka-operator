@@ -149,7 +149,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	ctx, err = r.GetSharedClusterContext(ctx, wekaCluster)
+	ctx, err = r.GetProvisionContext(ctx, wekaCluster)
 	if err != nil {
 		logger.SetError(err, "Failed to get shared cluster context")
 		return ctrl.Result{}, err
@@ -402,8 +402,8 @@ func (r *WekaClusterReconciler) GetCluster(ctx context.Context, req ctrl.Request
 	return wekaCluster, nil
 }
 
-func (r *WekaClusterReconciler) GetSharedClusterContext(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) (context.Context, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetSharedClusterContext")
+func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *wekav1alpha1.WekaCluster) (context.Context, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(initContext, "GetProvisionContext")
 	defer end()
 
 	if wekaCluster.Status.Status == ClusterStatusInit && wekaCluster.Status.TraceId == "" {
@@ -412,7 +412,7 @@ func (r *WekaClusterReconciler) GetSharedClusterContext(ctx context.Context, wek
 		wekaCluster.Status.TraceId = span.SpanContext().TraceID().String()
 		//since this is init, we need to open new span with the original traceId
 		remoteContext := instrumentation.NewContextWithTraceID(ctx, nil, wekaCluster.Status.TraceId)
-		ctx, logger, end = instrumentation.GetLogSpan(remoteContext, "SharedClusterContext")
+		ctx, logger, end = instrumentation.GetLogSpan(remoteContext, "WekaClusterProvision")
 		defer end()
 		logger.AddEvent("New shared Span")
 		wekaCluster.Status.SpanID = logger.Span.SpanContext().SpanID().String()
@@ -424,6 +424,10 @@ func (r *WekaClusterReconciler) GetSharedClusterContext(ctx context.Context, wek
 		}
 
 		return ctx, nil
+	}
+
+	if wekaCluster.Status.TraceId == "" {
+		return initContext, nil
 	}
 
 	logger.Info("reusing existing trace/span", "traceId", wekaCluster.Status.TraceId, "spanId", wekaCluster.Status.SpanID)
