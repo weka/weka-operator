@@ -100,10 +100,12 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (NewWekaClusterController(k8sManager).SetupWithManager(k8sManager, nil))
+	clusterController := NewWekaClusterController(k8sManager)
+	err = clusterController.SetupWithManager(k8sManager, clusterController)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (NewContainerController(k8sManager).SetupWithManager(k8sManager, nil))
+	containerController := NewContainerController(k8sManager)
+	err = containerController.SetupWithManager(k8sManager, containerController)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
