@@ -226,13 +226,12 @@ async def create_container():
     elif MODE == "client":
         mode_part = "--only-frontend-cores"
 
-    logging.info(f"Creating container with cores: {full_cores}")
-    logging.info(f"Creating container with cores: {NUM_CORES}")
-    logging.info(f"Creating container with cores: {','.join(full_cores)}")
+    core_str = ",".join(map(str, full_cores))
+    logging.info(f"Creating container with cores: {core_str}")
 
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable \
-        --core-ids {",".join(full_cores)} --cores {NUM_CORES} {mode_part} \
+        --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         --net {NETWORK_DEVICE}  --base-port {PORT} --memory {MEMORY} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} 
     """)

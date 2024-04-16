@@ -49,6 +49,10 @@ type ClientSpec struct {
 	NetworkSelector    NetworkSelector   `json:"network,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	JoinIps            []string          `json:"joinIpPorts,omitempty"`
+	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
+	//+kubebuilder:default=auto
+	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
+	CoreIds   []int     `json:"coreIds,omitempty"`
 }
 
 // ClientStatus defines the observed state of WekaClient
