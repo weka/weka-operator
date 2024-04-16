@@ -74,13 +74,25 @@ spec:
                 type: object
               port:
                 type: integer
+              targetCluster:
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
               tracesConfiguration:
                 description: TraceConfiguration defines the configuration for the
                   traces, accepts parameters in gigabytes
                 properties:
                   ensureFreeSpace:
+                    default: 20
                     type: integer
                   maxCapacityPerIoNode:
+                    default: 10
                     type: integer
                 type: object
               wekaSecretRef:

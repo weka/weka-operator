@@ -186,7 +186,15 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 		found := &wekav1alpha1.WekaContainer{}
 		err = r.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
 		if err != nil && apierrors.IsNotFound(err) {
-			// Define a new WekaContainer object
+			// TODO: Wasteful approach right now, each client fetches separately
+			// We should have some small time-based cache here
+			err := r.resolveJoinIps(ctx, wekaClient)
+			if err != nil {
+				return ctrl.Result{Requeue: true}, nil, err
+			}
+			// Always re-applying, either we had JoinIps set by user, or we have resolving re-populating them
+			wekaContainer.Spec.JoinIps = wekaClient.Spec.JoinIps
+
 			err = r.Create(ctx, wekaContainer)
 			if err != nil {
 				return ctrl.Result{Requeue: true}, nil, err
@@ -247,6 +255,32 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 		},
 	}
 	return container, nil
+}
+
+func (r *ClientReconciler) resolveJoinIps(ctx context.Context, wekaClient *wekav1alpha1.WekaClient) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "resolveJoinIps")
+	defer end()
+
+	emptyTarget := wekav1alpha1.ObjectReference{}
+	if wekaClient.Spec.TargetCluster == emptyTarget {
+		return nil
+	}
+
+	cluster, err := GetCluster(ctx, r.Client, wekaClient.Spec.TargetCluster)
+	if err != nil {
+		return err
+	}
+
+	joinIps, err := GetJoinIps(ctx, r.Client, cluster)
+	if err != nil {
+		return err
+	}
+	logger.Info("Resolved join ips", "joinIps", joinIps)
+
+	wekaClient.Spec.JoinIps = joinIps
+	// not commiting on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
+	// and new reconcilation loops will refresh it each time
+	return nil
 }
 
 func GetClient(ctx context.Context, req ctrl.Request, r client.Reader) (*wekav1alpha1.WekaClient, error) {

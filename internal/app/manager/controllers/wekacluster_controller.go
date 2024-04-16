@@ -618,8 +618,9 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	topology Topology,
 	role string, i int,
 ) (*wekav1alpha1.WekaContainer, error) {
+
 	labels := map[string]string{
-		"app": cluster.Name,
+		"weka.io/mode": role, // in addition to spec for indexing on k8s side for filtering by mode
 	}
 
 	var hugePagesNum int
