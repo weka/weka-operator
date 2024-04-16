@@ -14,6 +14,7 @@ import (
 )
 
 type WekaLocalPs struct {
+	Name            string `json:"name"`
 	RunStatus       string `json:"runStatus"`
 	LastFailureText string `json:"lastFailureText"`
 }

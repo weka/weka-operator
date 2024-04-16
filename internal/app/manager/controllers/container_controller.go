@@ -373,6 +373,11 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 
+	if response[0].Name != container.Spec.WekaContainerName {
+		logger.InfoWithStatus(codes.Error, "Wrong container is running", "name", response[0].Name, "expected_name", container.Spec.WekaContainerName)
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	status := response[0].RunStatus
 	logger.Info("Status", "status", status)
 	if container.Status.Status != status {
