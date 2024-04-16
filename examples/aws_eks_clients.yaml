@@ -2,6 +2,7 @@ apiVersion: weka.weka.io/v1alpha1
 kind: WekaClient
 metadata:
   name: cluster-dev-clients
+  namespace: default
 spec:
   image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
@@ -14,3 +15,6 @@ spec:
     weka.io/role: client
   wekaSecretRef: weka-cluster-cluster-dev
   joinIpPorts: ["10.0.1.168:16101"]
+  targetCluster:
+    name: cluster-dev
+    namespace: default

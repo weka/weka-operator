@@ -59,7 +59,7 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactor
 }
 
 func (f *ContainerFactory) Create() (*corev1.Pod, error) {
-	labels := labelsForWekaContainer(f.container)
+	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
 
@@ -471,7 +471,7 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	return nil
 }
 
-func labelsForWekaContainer(container *wekav1alpha1.WekaContainer) map[string]string {
+func labelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/name":      "WekaContainer",
 		"app.kubernetes.io/instance":  container.Name,

@@ -34,6 +34,11 @@ type AgentContainerSpec struct {
 	Debug bool `json:"debug,omitempty"`
 }
 
+type ObjectReference struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
 // ClientSpec defines the desired state of WekaClient
 type ClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -49,6 +54,7 @@ type ClientSpec struct {
 	NetworkSelector    NetworkSelector   `json:"network,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	JoinIps            []string          `json:"joinIpPorts,omitempty"`
+	TargetCluster      ObjectReference   `json:"targetCluster,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
