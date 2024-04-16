@@ -15,6 +15,10 @@ spec:
   name: dist
   numCores: 1
   port: 60002
+  tracesConfiguration:
+    maxCapacityPerIoNode: 10
+    ensureFreeSpace: 20
+
 ---
 apiVersion: v1
 kind: Service

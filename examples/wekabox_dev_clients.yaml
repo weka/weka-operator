@@ -10,3 +10,6 @@ spec:
   joinIpPorts: ["10.222.98.2:16101"]
   network:
     ethDevice: mlnx0
+  tracesConfiguration:
+    maxCapacityPerIoNode: 10
+    ensureFreeSpace: 20

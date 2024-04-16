@@ -9,3 +9,6 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
+  tracesConfiguration:
+    maxCapacityPerIoNode: 10
+    ensureFreeSpace: 20

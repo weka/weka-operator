@@ -17,3 +17,6 @@ spec:
   hugepages: 2000
   network:
     udpMode: true
+  tracesConfiguration:
+    maxCapacityPerIoNode: 10
+    ensureFreeSpace: 20
