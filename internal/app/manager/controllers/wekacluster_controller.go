@@ -516,8 +516,8 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
 
 	ensureContainers := func(role string, containersNum int) error {
-		logger := logger.WithName("ensureContainers").WithValues("role", role, "containersNum", containersNum)
 		for i := 0; i < containersNum; i++ {
+			logger := logger.WithName("ensureContainers")
 			// Check if the WekaContainer object exists
 			owner := Owner{
 				OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
@@ -669,25 +669,26 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			Labels:    labels,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:       ownedResources.Node,
-			Port:               ownedResources.Port,
-			AgentPort:          ownedResources.AgentPort,
-			Image:              cluster.Spec.Image,
-			ImagePullSecret:    cluster.Spec.ImagePullSecret,
-			WekaContainerName:  fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
-			Mode:               role,
-			NumCores:           len(ownedResources.CoreIds),
-			CoreIds:            coreIds,
-			Network:            network,
-			Hugepages:          hugePagesNum,
-			HugepagesSize:      template.HugePageSize,
-			HugepagesOverride:  template.HugePagesOverride,
-			NumDrives:          len(ownedResources.Drives),
-			PotentialDrives:    potentialDrives,
-			WekaSecretRef:      v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
-			DriversDistService: cluster.Spec.DriversDistService,
-			CpuPolicy:          cluster.Spec.CpuPolicy,
-			AppendSetupCommand: appendSetupCommand,
+			NodeAffinity:        ownedResources.Node,
+			Port:                ownedResources.Port,
+			AgentPort:           ownedResources.AgentPort,
+			Image:               cluster.Spec.Image,
+			ImagePullSecret:     cluster.Spec.ImagePullSecret,
+			WekaContainerName:   fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
+			Mode:                role,
+			NumCores:            len(ownedResources.CoreIds),
+			CoreIds:             coreIds,
+			Network:             network,
+			Hugepages:           hugePagesNum,
+			HugepagesSize:       template.HugePageSize,
+			HugepagesOverride:   template.HugePagesOverride,
+			NumDrives:           len(ownedResources.Drives),
+			PotentialDrives:     potentialDrives,
+			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
+			DriversDistService:  cluster.Spec.DriversDistService,
+			CpuPolicy:           cluster.Spec.CpuPolicy,
+			AppendSetupCommand:  appendSetupCommand,
+			TracesConfiguration: cluster.Spec.TracesConfiguration,
 		},
 	}
 

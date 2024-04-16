@@ -51,11 +51,11 @@ func TestIsDistMode(t *testing.T) {
 		expected bool
 	}{
 		{"", false},
-		{"dist", true},
-		{"drive", false},
-		{"drivers-loader", false},
-		{"compute", false},
-		{"client", false},
+		{WekaContainerModeDist, true},
+		{WekaContainerModeDrive, false},
+		{WekaContainerModeDriversLoader, false},
+		{WekaContainerModeCompute, false},
+		{WekaContainerModeClient, false},
 	}
 
 	for _, test := range tests {
@@ -79,11 +79,11 @@ func TestIsDriversLoaderMode(t *testing.T) {
 		expected bool
 	}{
 		{"", false},
-		{"dist", false},
-		{"drive", false},
-		{"drivers-loader", true},
-		{"compute", false},
-		{"client", false},
+		{WekaContainerModeDist, false},
+		{WekaContainerModeDrive, false},
+		{WekaContainerModeDriversLoader, true},
+		{WekaContainerModeCompute, false},
+		{WekaContainerModeClient, false},
 	}
 
 	for _, test := range tests {
@@ -107,11 +107,11 @@ func TestSupportsEnsureDriversCondition(t *testing.T) {
 		expected bool
 	}{
 		{"", true},
-		{"dist", false},
-		{"drive", true},
-		{"drivers-loader", false},
-		{"compute", true},
-		{"client", true},
+		{WekaContainerModeDist, false},
+		{WekaContainerModeDrive, true},
+		{WekaContainerModeDriversLoader, false},
+		{WekaContainerModeCompute, true},
+		{WekaContainerModeClient, true},
 	}
 
 	for _, test := range tests {
@@ -138,11 +138,11 @@ func TestInitEnsureDriversCondition(t *testing.T) {
 		expected metav1.ConditionStatus
 	}{
 		{"", metav1.ConditionFalse},
-		{"dist", metav1.ConditionFalse},
-		{"drive", metav1.ConditionFalse},
-		{"drivers-loader", metav1.ConditionFalse},
-		{"compute", metav1.ConditionFalse},
-		{"client", metav1.ConditionFalse},
+		{WekaContainerModeDist, metav1.ConditionFalse},
+		{WekaContainerModeDrive, metav1.ConditionFalse},
+		{WekaContainerModeDriversLoader, metav1.ConditionFalse},
+		{WekaContainerModeCompute, metav1.ConditionFalse},
+		{WekaContainerModeClient, metav1.ConditionFalse},
 	}
 
 	for _, test := range tests {

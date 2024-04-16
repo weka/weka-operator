@@ -45,9 +45,10 @@ type WekaClusterSpec struct {
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy                 CpuPolicy `json:"cpuPolicy,omitempty"`
-	DriveAppendSetupCommand   string    `json:"driveAppendSetupCommand,omitempty"`
-	ComputeAppendSetupCommand string    `json:"computeAppendSetupCommand,omitempty"`
+	CpuPolicy                 CpuPolicy            `json:"cpuPolicy,omitempty"`
+	DriveAppendSetupCommand   string               `json:"driveAppendSetupCommand,omitempty"`
+	ComputeAppendSetupCommand string               `json:"computeAppendSetupCommand,omitempty"`
+	TracesConfiguration       *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
@@ -122,6 +123,12 @@ func (status *WekaClusterStatus) InitStatus() {
 		Type:   condition.CondIoStarted,
 		Status: metav1.ConditionFalse, Reason: "Init",
 		Message: "Weka Cluster IO is not started",
+	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondTracesConfigured,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Traces are not configured",
 	})
 }
 

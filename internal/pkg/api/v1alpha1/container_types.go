@@ -17,6 +17,16 @@ type WekaContainer struct {
 	Status WekaContainerStatus `json:"status,omitempty"`
 }
 
+type WekaContainerMode string
+
+const (
+	WekaContainerModeDist          = "dist"
+	WekaContainerModeDriversLoader = "drivers-loader"
+	WekaContainerModeCompute       = "compute"
+	WekaContainerModeDrive         = "drive"
+	WekaContainerModeClient        = "client"
+)
+
 type WekaContainerSpec struct {
 	NodeAffinity      string            `json:"nodeAffinity,omitempty"`
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
@@ -30,18 +40,19 @@ type WekaContainerSpec struct {
 	NumCores int    `json:"numCores"`
 	CoreIds  []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
-	//+kubebuilder:default=auto
-	CpuPolicy          CpuPolicy       `json:"cpuPolicy,omitempty"`
-	Network            Network         `json:"network,omitempty"`
-	Hugepages          int             `json:"hugepages,omitempty"`
-	HugepagesSize      string          `json:"hugepagesSize,omitempty"`
-	HugepagesOverride  string          `json:"hugepagesSizeOverride,omitempty"`
-	PotentialDrives    []string        `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
-	NumDrives          int             `json:"numDrives,omitempty"`
-	DriversDistService string          `json:"driversDistService,omitempty"`
-	WekaSecretRef      v1.EnvVarSource `json:"wekaSecretRef,omitempty"`
-	JoinIps            []string        `json:"joinIpPorts,omitempty"`
-	AppendSetupCommand string          `json:"appendSetupCommand,omitempty"`
+	// +kubebuilder:default=auto
+	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	Network             Network              `json:"network,omitempty"`
+	Hugepages           int                  `json:"hugepages,omitempty"`
+	HugepagesSize       string               `json:"hugepagesSize,omitempty"`
+	HugepagesOverride   string               `json:"hugepagesSizeOverride,omitempty"`
+	PotentialDrives     []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
+	NumDrives           int                  `json:"numDrives,omitempty"`
+	DriversDistService  string               `json:"driversDistService,omitempty"`
+	WekaSecretRef       v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
+	JoinIps             []string             `json:"joinIpPorts,omitempty"`
+	AppendSetupCommand  string               `json:"appendSetupCommand,omitempty"`
+	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 }
 
 type Network struct {
@@ -55,6 +66,12 @@ type WekaContainerStatus struct {
 	ClusterContainerID *int               `json:"containerID,omitempty"`
 	ClusterID          string             `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+}
+
+// TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
+type TracesConfiguration struct {
+	MaxCapacityPerIoNode int `json:"maxCapacityPerIoNode,omitempty"`
+	EnsureFreeSpace      int `json:"ensureFreeSpace,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -51,8 +51,9 @@ type ClientSpec struct {
 	JoinIps            []string          `json:"joinIpPorts,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
-	CoreIds   []int     `json:"coreIds,omitempty"`
+	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	CoreIds             []int                `json:"coreIds,omitempty"`
+	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 }
 
 // ClientStatus defines the observed state of WekaClient

@@ -10,4 +10,5 @@ const (
 	CondIoStarted             = "IoStarted"
 	CondJoinedCluster         = "JoinedCluster"
 	CondEnsureDrivers         = "EnsuredDrivers"
+	CondTracesConfigured      = "TracesConfigured"
 )

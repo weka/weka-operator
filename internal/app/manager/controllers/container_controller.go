@@ -225,6 +225,26 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondTracesConfigured) {
+		err := r.ensureTraces(ctx, container, actualPod)
+		if err != nil {
+			logger.Error(err, "Error ensuring traces")
+			return ctrl.Result{}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+			Type:   condition.CondTracesConfigured,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "Traces are configured",
+		})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error updating status for traces configured")
+			return ctrl.Result{}, err
+		}
+		logger.SetPhase("TRACES_CONFIGURED")
+	} else {
+		logger.SetPhase("TRACES_ALREADY_CONFIGURED")
+	}
+
 	container, err = r.refreshContainer(ctx, req)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
@@ -292,6 +312,34 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *ContainerController) ensureTraces(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTraces", "container", container.Name, "namespace", container.Namespace)
+	defer end()
+	if container.Spec.TracesConfiguration == nil {
+		logger.Info("Traces configuration not set")
+		return nil
+
+	}
+
+	perCoreLimit := container.Spec.TracesConfiguration.MaxCapacityPerIoNode
+	ensureFreeSpace := container.Spec.TracesConfiguration.EnsureFreeSpace
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return err
+	}
+
+	cmd := fmt.Sprintf("weka debug traces retention set --server-max %dGiB --client-max %dGiB --server-ensure-free %dGiB --client-ensure-free %dGiB",
+		perCoreLimit, perCoreLimit, ensureFreeSpace, ensureFreeSpace)
+	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.Error(err, "Error executing command", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+	return nil
 }
 
 func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
@@ -778,12 +826,13 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			Namespace: "weka-operator-system",
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			Image:              container.Spec.Image,
-			Mode:               "drivers-loader",
-			ImagePullSecret:    container.Spec.ImagePullSecret,
-			Hugepages:          0,
-			NodeAffinity:       container.Spec.NodeAffinity,
-			DriversDistService: container.Spec.DriversDistService,
+			Image:               container.Spec.Image,
+			Mode:                wekav1alpha1.WekaContainerModeDriversLoader,
+			ImagePullSecret:     container.Spec.ImagePullSecret,
+			Hugepages:           0,
+			NodeAffinity:        container.Spec.NodeAffinity,
+			DriversDistService:  container.Spec.DriversDistService,
+			TracesConfiguration: container.Spec.TracesConfiguration,
 		},
 	}
 
