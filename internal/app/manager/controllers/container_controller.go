@@ -499,7 +499,13 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 		return true, nil
 	}
 	logger.Debug("Querying weka local status")
-	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalStatus", []string{"bash", "-ce", "weka local status -J"})
+
+	cmd := "weka local status -J"
+	if container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+		cmd = fmt.Sprintf("wekaauthcli local status -J")
+	}
+
+	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalStatus", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Error querying weka local status")
 		return true, err
