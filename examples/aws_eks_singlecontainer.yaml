@@ -1,19 +1,19 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
 metadata:
-  name: wekacontainercompute0
+  name: singlecontainertest
 spec:
-  agentPort: 14101
-  nodeAffinity: "serjo-0"
-  coreIds:
-    - 2
-  image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
+  agentPort: 40000
+  nodeSelector:
+    weka.io/role: backend
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
   imagePullSecret: "quay-io-robot-secret"
   mode: "compute"
-  name: wekacontainercompute0
+  name: manualcompute
+  cpuPolicy: dedicated_ht
   numCores: 1
-  port: 16001
+  hugepages: 3000
+  port: 40001
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
-  hugepages: 2000
   network:
     udpMode: true

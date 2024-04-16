@@ -125,11 +125,6 @@ func (status *WekaClusterStatus) InitStatus() {
 		Message: "Weka Cluster IO is not started",
 	})
 
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondTracesConfigured,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Traces are not configured",
-	})
 }
 
 func init() {

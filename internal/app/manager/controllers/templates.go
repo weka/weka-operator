@@ -67,7 +67,7 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		DriveHugepages:    4000,
 		ComputeHugepages:  4000,
 		HugePageSize:      "2Mi",
-		HugePagesOverride: "1GiB",
+		HugePagesOverride: "",
 	},
 	"small": {
 		DriveCores:        1,

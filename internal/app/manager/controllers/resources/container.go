@@ -90,6 +90,13 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		hostNetwork = false
 	}
 
+	if f.container.Spec.TracesConfiguration == nil {
+		f.container.Spec.TracesConfiguration = &wekav1alpha1.TracesConfiguration{
+			MaxCapacityPerIoNode: 10,
+			EnsureFreeSpace:      20,
+		}
+	}
+
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("/opt/k8s-weka/containers/%s", f.container.GetUID())
 	pod := &corev1.Pod{
@@ -208,6 +215,14 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 						{
 							Name:  "APPEND_SETUP_COMMAND",
 							Value: f.container.Spec.AppendSetupCommand,
+						},
+						{
+							Name:  "MAX_TRACE_CAPACITY_GB",
+							Value: strconv.Itoa(f.container.Spec.TracesConfiguration.MaxCapacityPerIoNode * (f.container.Spec.NumCores + 1)),
+						},
+						{
+							Name:  "ENSURE_FREE_SPACE_GB",
+							Value: strconv.Itoa(f.container.Spec.TracesConfiguration.EnsureFreeSpace),
 						},
 					},
 				},
@@ -359,10 +374,6 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 		hugePagesK8sSuffix = "2Mi"
 		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
 
-	}
-
-	if f.container.Spec.Hugepages == 0 || wekaMemoryString == "" {
-		wekaMemoryString = fmt.Sprintf("%dMiB", 512) // TODO: make it configurable or panic on missing
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {

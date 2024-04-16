@@ -19,6 +19,9 @@ MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 
+MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
+ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
+
 WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
 
 # Define global variables
@@ -242,6 +245,23 @@ async def create_container():
     logging.info("Container created successfully")
 
 
+async def configure_traces():
+    data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
+                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1)
+    data_string = json.dumps(data)
+
+    command = dedent(f"""
+        set -e
+        mkdir -p /opt/weka/k8s-scripts
+        echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
+        weka local run mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
+        """)
+    stdout, stderr, ec = await run_command(command)
+    if ec != 0:
+        raise Exception(f"Failed to configure traces: {stderr}")
+    logging.info("Traces configured successfully")
+
+
 async def get_containers():
     current_containers, stderr, ec = await run_command("weka local ps --json")
     if ec != 0:
@@ -287,6 +307,7 @@ async def ensure_weka_container():
     if ec != 0:
         raise Exception(f"Failed to apply resources {stderr}")
 
+async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
     if ec != 0:
         raise Exception(f"Failed to start container: {stderr}")
@@ -374,7 +395,7 @@ async def main():
     await configure_agent()
     await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
 
-    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT} &> /tmp/agent.log"
     await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
@@ -389,6 +410,7 @@ async def main():
         await ensure_daemon(agent_cmd, alias="agent")
         await await_agent()
         await ensure_dist_container()
+        await configure_traces()
         await stop_daemon(processes.get("agent"))
         await configure_agent(agent_handle_drivers=False)
         await ensure_daemon(agent_cmd, alias="agent")
@@ -398,6 +420,8 @@ async def main():
         return
 
     await ensure_weka_container()
+    await configure_traces()
+    await start_weka_container()
 
 
 async def stop_daemon(process):
