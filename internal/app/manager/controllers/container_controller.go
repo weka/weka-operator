@@ -323,17 +323,20 @@ func (r *ContainerController) ensureTraces(ctx context.Context, container *wekav
 
 	}
 
-	perCoreLimit := container.Spec.TracesConfiguration.MaxCapacityPerIoNode
-	ensureFreeSpace := container.Spec.TracesConfiguration.EnsureFreeSpace
-
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return err
 	}
 
-	cmd := fmt.Sprintf("weka debug traces retention set --server-max %dGiB --client-max %dGiB --server-ensure-free %dGiB --client-ensure-free %dGiB",
-		perCoreLimit, perCoreLimit, ensureFreeSpace, ensureFreeSpace)
+	traceDumperConfig, err := util.NewWekaDumperConfig(container.Spec.TracesConfiguration)
+	innerContainer := container.Spec.WekaContainerName
+	cmd := fmt.Sprintf("mkdir -p /tmp/%s/reserved_data;", innerContainer) +
+		fmt.Sprintf("mount /opt/weka/data/%s/container/reserved.loop /tmp/%s/reserved_data;", innerContainer, innerContainer) +
+		fmt.Sprintf("echo '%s' > /tmp/%s/reserved_data/dumper_config.json.override;", traceDumperConfig.String(), innerContainer) +
+		fmt.Sprintf("umount /tmp/%s/reserved_data;", innerContainer) +
+		fmt.Sprintf("rm -rf /tmp/%s/reserved_data;", innerContainer)
+	logger.Info("Setting traces retention", "cmd", cmd)
 	stdout, stderr, err := executor.ExecNamed(ctx, "SetTracesRetention", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Error executing command", "stderr", stderr.String(), "stdout", stdout.String())
