@@ -181,9 +181,11 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...interface{}) 
 	}
 
 	ls := SpanLogger{
-		Logger: logger,
-		Span:   span,
+		Logger:   logger,
+		Span:     span,
+		spanName: name,
 	}
+
 	logger.V(4).Info(fmt.Sprintf("%s called", name))
 	return ctx, &ls, ShutdownFunc
 }

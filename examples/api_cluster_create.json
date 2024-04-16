@@ -3,5 +3,9 @@
   "template": "dev",
   "topology": "dev_wekabox",
   "image": "localhost:30000/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev",
-  "wekaContainerNamePrefix": "dev"
+  "wekaContainerNamePrefix": "dev",
+  "tracesConfiguration": {
+    "maxCapacityPerIoNode": 10,
+    "ensureFreeSpace": 20
+  }
 }

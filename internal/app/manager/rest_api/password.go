@@ -96,7 +96,7 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 		return
 	}
 
-	stdout, stderr, err := exec.Exec(ctx, command)
+	stdout, stderr, err := exec.ExecSensitive(ctx, "UpdateAdminPassword", command)
 	if err != nil {
 		logger.Error(err, "Failed to execute command", "command", command, "stdout", stdout.String(), "stderr", stderr.String())
 		rest.Error(w, "Failed to execute command", http.StatusInternalServerError)

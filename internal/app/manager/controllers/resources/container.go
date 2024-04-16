@@ -14,6 +14,7 @@ import (
 )
 
 type WekaLocalPs struct {
+	Name            string `json:"name"`
 	RunStatus       string `json:"runStatus"`
 	LastFailureText string `json:"lastFailureText"`
 }
@@ -85,7 +86,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	}
 
 	hostNetwork := true
-	if f.container.Spec.Mode == "dist" || f.container.Spec.Mode == "drivers-loader" {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
 		hostNetwork = false
 	}
 
@@ -307,7 +308,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.Spec.Mode == "dist" || f.container.Spec.Mode == "drivers-loader" {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
 		// adding mount of headers only for case of dist service container
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "libmodules",
@@ -357,6 +358,11 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
 		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
+
+	}
+
+	if f.container.Spec.Hugepages == 0 || wekaMemoryString == "" {
+		wekaMemoryString = fmt.Sprintf("%dMiB", 512) // TODO: make it configurable or panic on missing
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {
@@ -441,8 +447,7 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	}
 
 	memRequest := "7000M"
-
-	if slices.Contains([]string{"dist", "drivers-loader"}, f.container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
 		cpuRequestLimit = cpuRequestStr

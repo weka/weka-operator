@@ -54,7 +54,7 @@ func NewExecInPod(pod *v1.Pod) (*Exec, error) {
 	}, nil
 }
 
-func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	ctx, span := instrumentation.Tracer.Start(ctx, "Exec")
 	defer span.End()
 	//TODO: hide sensitive data
@@ -62,7 +62,14 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 		attribute.String("pod", e.Pod.Name),
 		attribute.String("namespace", e.Pod.Namespace),
 	)
-	span.AddEvent(fmt.Sprintf("Executing command %s", strings.Join(command, " ")))
+	if name != "" {
+		span.SetName(name)
+	}
+
+	if !sensitive {
+		span.SetAttributes(attribute.String("command", strings.Join(command, " ")))
+	}
+
 	podExec := e.ClientSet.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(e.Pod.Name).
@@ -95,6 +102,12 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 			span.AddEvent(fmt.Sprintf("Execution completed with code %d", exitCode))
 			span.SetAttributes(attribute.Int("exit_code", exitCode))
 			span.SetStatus(codes.Ok, "Execution succeeded with remote error")
+			if !sensitive {
+				span.SetAttributes(
+					attribute.String("stdout", stdout.String()),
+					attribute.String("stderr", stderr.String()),
+				)
+			}
 			return stdout, stderr, err
 		}
 		span.RecordError(err)
@@ -106,6 +119,20 @@ func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer,
 	span.SetStatus(codes.Ok, "Exec success")
 	span.AddEvent("Execution completed")
 	return stdout, stderr, err
+}
+
+// Exec executes a command in a pod. Logs input and output if exit code != 0. Should be used in rare cases as might reveal sensitive data.
+func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+	return e.exec(ctx, "", false, command)
+}
+
+// ExecNamed executes a command in a pod. Logs input and output if exit code != 0. However, provides a name for the span.
+func (e *Exec) ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), false, command)
+}
+
+func (e *Exec) ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
 }
 
 func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {

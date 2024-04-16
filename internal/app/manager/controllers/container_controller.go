@@ -136,7 +136,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
-		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+		!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
@@ -160,7 +160,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_ALREADY_ENSURED")
 	}
 
-	if container.Spec.Mode != "dist" {
+	if container.Spec.Mode != wekav1alpha1.WekaContainerModeDist {
 		result, err := r.reconcileManagementIP(ctx, container, actualPod)
 		if err != nil {
 			logger.Error(err, "Error reconciling management IP", "name", container.Name)
@@ -174,7 +174,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		)
 
 		// pre-clusterize
-		if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+		if !slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 			result, err = r.reconcileWekaLocalStatus(ctx, container, actualPod)
 			if err != nil {
 				logger.Error(err, "Error reconciling status", "name", container.Name)
@@ -186,7 +186,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 	// only for drivers-loader container: check if drivers loaded
-	if container.Spec.Mode == "drivers-loader" {
+	if container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader {
 		err := r.checkIfLoaderFinished(ctx, actualPod)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: time.Second * 3, Requeue: true}, err
@@ -201,8 +201,28 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_LOADED")
 	}
 
-	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
+	}
+
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondTracesConfigured) {
+		err := r.ensureTraces(ctx, container, actualPod)
+		if err != nil {
+			logger.Error(err, "Error ensuring traces")
+			return ctrl.Result{}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+			Type:   condition.CondTracesConfigured,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: "Traces are configured",
+		})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error updating status for traces configured")
+			return ctrl.Result{}, err
+		}
+		logger.SetPhase("TRACES_CONFIGURED")
+	} else {
+		logger.SetPhase("TRACES_ALREADY_CONFIGURED")
 	}
 
 	// post-clusterize
@@ -276,7 +296,7 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
 	}
 
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", getIpCmd})
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
 	if err != nil {
 		logger.Error(err, "Error executing command", "stderr", stderr.String())
 		return ctrl.Result{}, err
@@ -294,11 +314,42 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	return ctrl.Result{}, nil
 }
 
+func (r *ContainerController) ensureTraces(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTraces", "container", container.Name, "namespace", container.Namespace)
+	defer end()
+	if container.Spec.TracesConfiguration == nil {
+		logger.Info("Traces configuration not set")
+		return nil
+
+	}
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return err
+	}
+
+	traceDumperConfig, err := util.NewWekaDumperConfig(container.Spec.TracesConfiguration)
+	innerContainer := container.Spec.WekaContainerName
+	cmd := fmt.Sprintf("mkdir -p /tmp/%s/reserved_data;", innerContainer) +
+		fmt.Sprintf("mount /opt/weka/data/%s/container/reserved.loop /tmp/%s/reserved_data;", innerContainer, innerContainer) +
+		fmt.Sprintf("echo '%s' > /tmp/%s/reserved_data/dumper_config.json.override;", traceDumperConfig.String(), innerContainer) +
+		fmt.Sprintf("umount /tmp/%s/reserved_data;", innerContainer) +
+		fmt.Sprintf("rm -rf /tmp/%s/reserved_data;", innerContainer)
+	logger.Info("Setting traces retention", "cmd", cmd)
+	stdout, stderr, err := executor.ExecNamed(ctx, "SetTracesRetention", []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.Error(err, "Error executing command", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+	return nil
+}
+
 func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileWekaLocalStatus")
 	defer end()
 
-	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
 	}
 
@@ -309,7 +360,7 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	}
 
 	statusCommand := fmt.Sprintf("weka local ps -J")
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", statusCommand})
+	stdout, stderr, err := executor.ExecNamed(ctx, "WekaLocalPs", []string{"bash", "-ce", statusCommand})
 	if err != nil {
 		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
 		return ctrl.Result{}, err
@@ -323,6 +374,11 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	if len(response) != 1 {
 		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
 		return ctrl.Result{}, errors.New("expected exactly one container to be present")
+	}
+
+	if response[0].Name != container.Spec.WekaContainerName {
+		logger.InfoWithStatus(codes.Error, "Wrong container is running", "name", response[0].Name, "expected_name", container.Spec.WekaContainerName)
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	status := response[0].RunStatus
@@ -443,7 +499,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 		return true, nil
 	}
 	logger.Debug("Querying weka local status")
-	stdout, _, err := executor.Exec(ctx, []string{"bash", "-ce", "weka local status -J"})
+	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalStatus", []string{"bash", "-ce", "weka local status -J"})
 	if err != nil {
 		logger.Error(err, "Error querying weka local status")
 		return true, err
@@ -505,7 +561,7 @@ DRIVES:
 
 			l.Info("Verifying drive signature")
 			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
-			stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			stdout, stderr, err := executor.ExecNamed(ctx, "GetPartitionSignature", []string{"bash", "-ce", cmd})
 			if err != nil {
 				if strings.Contains(stderr.String(), "No such file or directory") { // it can be actual missing device
 					logger.Debug("Failed to read drive signature, or partition does not exist", "drive", drive)
@@ -571,7 +627,7 @@ DRIVES:
 			}
 			l.Info("Adding drive into system")
 			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
-			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
 				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
 				return true, errors.Wrap(err, stderr.String())
@@ -602,7 +658,7 @@ func getSignatureDevice(drive string) string {
 
 func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Exec, drive string) error {
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
-	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
 	if err != nil {
 		r.Logger.Error(err, "Error signing drive", "drive", drive, "stderr", stderr.String())
 	}
@@ -639,7 +695,7 @@ func (r *ContainerController) validateNotMounted(ctx context.Context, executor *
 }
 
 func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriveIsPresigned", []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
 	if err != nil {
 		r.Logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
 		return false, errors.Wrap(err, stderr.String())
@@ -700,7 +756,7 @@ func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.E
 	defer end()
 
 	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", getSignatureDevice(drive))
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetDriveUUID", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.WithValues("stderr", stderr.String()).Error(err, "Error getting drive UUID")
 		return "", errors.Wrap(err, stderr.String())
@@ -732,7 +788,7 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isContainersReady")
 	defer end()
 
-	if slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 		return nil
 	}
 
@@ -741,7 +797,7 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 		logger.Error(err, "Error creating executor")
 		return err
 	}
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
 		logger.WithValues("stderr", stderr.String()).Error(err, "Error executing command")
 		return errors.Wrap(err, stderr.String())
@@ -778,12 +834,13 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			Namespace: "weka-operator-system",
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			Image:              container.Spec.Image,
-			Mode:               "drivers-loader",
-			ImagePullSecret:    container.Spec.ImagePullSecret,
-			Hugepages:          0,
-			NodeAffinity:       container.Spec.NodeAffinity,
-			DriversDistService: container.Spec.DriversDistService,
+			Image:               container.Spec.Image,
+			Mode:                wekav1alpha1.WekaContainerModeDriversLoader,
+			ImagePullSecret:     container.Spec.ImagePullSecret,
+			Hugepages:           0,
+			NodeAffinity:        container.Spec.NodeAffinity,
+			DriversDistService:  container.Spec.DriversDistService,
+			TracesConfiguration: container.Spec.TracesConfiguration,
 		},
 	}
 
@@ -831,7 +888,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 		}
 		cmd := fmt.Sprintf("lspci -d 1d0f:cd01 | sort | awk '{print $1}' | head -n" + strconv.Itoa(slotInt+1) +
 			" | tail -n1")
-		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		stdout, stderr, err := executor.ExecNamed(ctx, "DiscoverDrivePciSlot", []string{"bash", "-ce", cmd})
 		if err != nil {
 			logger.WithValues("slot", slot, "stderr", stderr.String()).Error(err, "Error parsing PCI slot for drive")
 			return drive
@@ -847,7 +904,7 @@ func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor 
 
 	logger.Info("Signing cloud drive", "drive", drive)
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
-	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Error pre-signing drive", "drive", drive, "stderr", stderr.String())
 		return err
@@ -868,7 +925,7 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 		return err
 	}
 	cmd := "cat /tmp/weka-drivers-loader"
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", cmd})
 	if err != nil {
 		if strings.Contains(stderr.String(), "No such file or directory") {
 			return errors.New("Loader not finished")
