@@ -357,9 +357,12 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 	} else {
 		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
-		if f.container.Spec.HugepagesSize != "" {
-			wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
-		}
+		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
+
+	}
+
+	if f.container.Spec.Hugepages == 0 || wekaMemoryString == "" {
+		wekaMemoryString = fmt.Sprintf("%dMiB", 512) // TODO: make it configurable or panic on missing
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {
