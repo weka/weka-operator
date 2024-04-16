@@ -727,7 +727,7 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 		logger.Error(err, "Could not create executor")
 		return errors.Wrap(err, "Could not create executor")
 	}
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	stdout, stderr, err := executor.ExecNamed(ctx, "WekaStatusOrWekaClusterCreate", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Failed to create cluster")
 		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
@@ -738,7 +738,7 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	clusterName := cluster.GetUID()
 	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
 	logger.Debug("Updating cluster name")
-	_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
 	}
@@ -784,7 +784,7 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 			return errors.Wrap(err, "Could not create executor")
 		}
 		cmd := "weka cluster container -J"
-		stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
 		if err != nil {
 			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
 		}
@@ -847,7 +847,7 @@ func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alph
 
 	logger.SetPhase("STARTING_IO")
 	cmd := "weka cluster start-io"
-	_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, "StartIO", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.WithValues("stderr", stderr.String()).Error(err, "Failed to start-io")
 		return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
@@ -975,7 +975,7 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 
 	existingUsers := []resources.WekaUsersResponse{}
 	cmd := "weka user -J || wekaauthcli user -J"
-	stdout, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+	stdout, stderr, err := executor.ExecSensitive(ctx, "WekaListUsers", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return err
 	}
@@ -1000,7 +1000,7 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		}
 		// TODO: This still exposes password via Exec, solution might be to mount both secrets and create by script
 		cmd := fmt.Sprintf("weka user add %s ClusterAdmin %s", username, password)
-		_, stderr, err := executor.Exec(ctx, []string{"bash", "-ce", cmd})
+		_, stderr, err := executor.ExecSensitive(ctx, "AddClusterAdminUser", []string{"bash", "-ce", cmd})
 		if err != nil {
 			return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
 		}
@@ -1024,7 +1024,7 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		if user.Username == "admin" {
 			cmd = "wekaauthcli user delete admin"
 			logger.Info("Deleting default admin user")
-			_, stderr, err = executor.Exec(ctx, []string{"bash", "-ce", cmd})
+			_, stderr, err = executor.ExecSensitive(ctx, "DeleteDefaultAdminUser", []string{"bash", "-ce", cmd})
 			if err != nil {
 				logger.Error(err, "Failed to delete admin user")
 				return errors.Wrapf(err, "Failed to delete default admin user: %s", stderr.String())
