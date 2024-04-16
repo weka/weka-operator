@@ -25,9 +25,10 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	Mode              string            `json:"mode"` // TODO: How to define as enum?
-	NumCores          int               `json:"numCores"`
-	CoreIds           []int             `json:"coreIds,omitempty"`
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader
+	Mode     string `json:"mode"`
+	NumCores int    `json:"numCores"`
+	CoreIds  []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy          CpuPolicy       `json:"cpuPolicy,omitempty"`
