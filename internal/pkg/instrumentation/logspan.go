@@ -15,6 +15,7 @@ import (
 )
 
 const ContextLoggerKey = "_spanlogger_logger"
+const ContextValuesKey = "_spanlogger_values"
 
 // SpanLogger is an abstract object that can be used instead of regular loggers and spans
 type SpanLogger struct {
@@ -43,6 +44,18 @@ func GetLoggerForContext(ctx context.Context, baseLogger *logr.Logger, name stri
 	}
 	retCtx := context.WithValue(ctx, ContextLoggerKey, logger)
 	return retCtx, logger
+}
+
+func GetSpanForContext(ctx context.Context, name string, keysAndValues ...interface{}) (context.Context, trace.Span) {
+	ctx, span := Tracer.Start(ctx, name)
+	// expand with values saved previously in context
+	if ctx.Value(ContextValuesKey) != nil {
+		keysAndValues = append(keysAndValues, ctx.Value(ContextValuesKey).([]interface{})...)
+	}
+	spanAttrs := getAttributesFromKeysAndValues(keysAndValues...)
+	span.SetAttributes(spanAttrs...)
+	ctx = context.WithValue(ctx, ContextValuesKey, keysAndValues)
+	return ctx, span
 }
 
 func (ls *SpanLogger) Enabled(level int) bool {
@@ -152,13 +165,9 @@ func GetLogSpan(ctx context.Context, name string, keysAndValues ...interface{}) 
 	}
 
 	ctx, logger := GetLoggerForContext(ctx, nil, name, keysAndValues...)
-	// TODO: Un-global when actually needed
-	ctx, span := Tracer.Start(ctx, name)
-
-	spanAttrs := getAttributesFromKeysAndValues(keysAndValues...)
+	ctx, span := GetSpanForContext(ctx, name, keysAndValues...)
 
 	if span != nil {
-		span.SetAttributes(spanAttrs...)
 		traceID := span.SpanContext().TraceID().String()
 		spanID := span.SpanContext().SpanID().String()
 		logger = logger.WithValues("trace_id", traceID, "span_id", spanID)

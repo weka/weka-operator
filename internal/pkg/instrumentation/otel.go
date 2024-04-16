@@ -53,7 +53,13 @@ func SetupOTelSDK(ctx context.Context) (shutdown func(context.Context) error, er
 	}
 	otel.SetTracerProvider(tracerProvider)
 
-	return tracerProvider.Shutdown, err
+	return func(ctx context.Context) error {
+		err = tracerProvider.ForceFlush(context.Background())
+		if err != nil {
+			logger.Error("failed to flush traces", uzap.String("error", err.Error()))
+		}
+		return tracerProvider.Shutdown(ctx)
+	}, err
 }
 
 func newResource() *resource.Resource {

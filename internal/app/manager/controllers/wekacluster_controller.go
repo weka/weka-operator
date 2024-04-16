@@ -155,7 +155,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	ctx, logger, end = instrumentation.GetLogSpan(ctx, "WekaClusterReconcileLoop")
+	ctx, logger, end = instrumentation.GetLogSpan(ctx, "WekaClusterReconcileLoop", "cluster_uid", string(wekaCluster.GetUID()))
 	defer end()
 
 	logger.SetValues("cluster_uid", string(wekaCluster.GetUID()))
