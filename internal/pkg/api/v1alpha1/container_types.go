@@ -108,11 +108,11 @@ func (w *WekaContainer) DriversReady() bool {
 }
 
 func (w *WekaContainer) IsDistMode() bool {
-	return w.Spec.Mode == "dist"
+	return w.Spec.Mode == WekaContainerModeDist
 }
 
 func (w *WekaContainer) IsDriversLoaderMode() bool {
-	return w.Spec.Mode == "drivers-loader"
+	return w.Spec.Mode == WekaContainerModeDriversLoader
 }
 
 func (w *WekaContainer) SupportsEnsureDriversCondition() bool {

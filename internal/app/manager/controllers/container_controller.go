@@ -136,7 +136,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
-		!slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+		!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
@@ -160,7 +160,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_ALREADY_ENSURED")
 	}
 
-	if container.Spec.Mode != "dist" {
+	if container.Spec.Mode != wekav1alpha1.WekaContainerModeDist {
 		result, err := r.reconcileManagementIP(ctx, container, actualPod)
 		if err != nil {
 			logger.Error(err, "Error reconciling management IP", "name", container.Name)
@@ -174,7 +174,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		)
 
 		// pre-clusterize
-		if !slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+		if !slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 			result, err = r.reconcileWekaLocalStatus(ctx, container, actualPod)
 			if err != nil {
 				logger.Error(err, "Error reconciling status", "name", container.Name)
@@ -186,7 +186,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 	// only for drivers-loader container: check if drivers loaded
-	if container.Spec.Mode == "drivers-loader" {
+	if container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader {
 		err := r.checkIfLoaderFinished(ctx, actualPod)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: time.Second * 3, Requeue: true}, err
@@ -201,7 +201,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_LOADED")
 	}
 
-	if slices.Contains([]string{"drivers-loader", "dist"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
 	}
 
@@ -346,7 +346,7 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileWekaLocalStatus")
 	defer end()
 
-	if slices.Contains([]string{"drivers-loader"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 		return ctrl.Result{}, nil
 	}
 
@@ -780,7 +780,7 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isContainersReady")
 	defer end()
 
-	if slices.Contains([]string{"drivers-loader", "dist", "drivers-builder"}, container.Spec.Mode) {
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
 		return nil
 	}
 
