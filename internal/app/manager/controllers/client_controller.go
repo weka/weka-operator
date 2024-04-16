@@ -211,6 +211,11 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 		return nil, err
 	}
 
+	var cpuPolicy wekav1alpha1.CpuPolicy
+	if wekaClient.Spec.CpuPolicy == wekav1alpha1.CpuPolicyAuto {
+		cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -230,7 +235,8 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 			WekaContainerName:  fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
 			Mode:               "client",
 			NumCores:           1,
-			CoreIds:            []int{3},
+			CpuPolicy:          cpuPolicy,
+			CoreIds:            wekaClient.Spec.CoreIds,
 			Network:            network,
 			Hugepages:          1600,
 			HugepagesSize:      "2Mi",

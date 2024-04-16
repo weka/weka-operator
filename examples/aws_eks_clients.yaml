@@ -10,4 +10,4 @@ spec:
   nodeSelector:
     weka.io/role: client
   wekaSecretRef: weka-cluster-cluster-dev
-  joinIpPorts: ["10.0.2.137:16101"]
+  joinIpPorts: ["10.0.1.168:16101"]
