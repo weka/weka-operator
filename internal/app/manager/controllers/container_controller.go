@@ -205,26 +205,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	// post-clusterize
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
-		retry, err := r.reconcileClusterStatus(ctx, container, actualPod)
-		if retry || err != nil {
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
-		}
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-			Type:   condition.CondJoinedCluster,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Joined cluster %s", container.Status.ClusterID),
-		})
-		err = r.Status().Update(ctx, container)
-		if err != nil {
-			r.Logger.Error(err, "Error updating status")
-			return ctrl.Result{}, err
-		}
-		logger.SetPhase("CLUSTER_FORMED")
-	} else {
-		logger.SetPhase("CLUSTER_ALREADY_FORMED")
-	}
-
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondTracesConfigured) {
 		err := r.ensureTraces(ctx, container, actualPod)
 		if err != nil {
@@ -243,6 +223,26 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("TRACES_CONFIGURED")
 	} else {
 		logger.SetPhase("TRACES_ALREADY_CONFIGURED")
+	}
+
+	// post-clusterize
+	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
+		retry, err := r.reconcileClusterStatus(ctx, container, actualPod)
+		if retry || err != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
+		}
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+			Type:   condition.CondJoinedCluster,
+			Status: metav1.ConditionTrue, Reason: "Success", Message: fmt.Sprintf("Joined cluster %s", container.Status.ClusterID),
+		})
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			r.Logger.Error(err, "Error updating status")
+			return ctrl.Result{}, err
+		}
+		logger.SetPhase("CLUSTER_FORMED")
+	} else {
+		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
 	container, err = r.refreshContainer(ctx, req)
