@@ -70,8 +70,10 @@ type WekaContainerStatus struct {
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
 type TracesConfiguration struct {
+	// +kubebuilder:default=10
 	MaxCapacityPerIoNode int `json:"maxCapacityPerIoNode,omitempty"`
-	EnsureFreeSpace      int `json:"ensureFreeSpace,omitempty"`
+	// +kubebuilder:default=20
+	EnsureFreeSpace int `json:"ensureFreeSpace,omitempty"`
 }
 
 // +kubebuilder:object:root=true
