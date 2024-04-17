@@ -216,6 +216,18 @@ async def run_command(command):
     return stdout, stderr, process.returncode
 
 
+async def run_logrotate():
+    stdout, stderr, ec = await run_command("logrotate /etc/logrotate.conf")
+    if ec != 0:
+        raise Exception(f"Failed to run logrotate: {stderr}")
+
+
+async def periodic_logrotate():
+    while not exiting:
+        await run_logrotate()
+        await asyncio.sleep(600)
+
+
 loop = asyncio.get_event_loop()
 
 
@@ -306,6 +318,7 @@ async def ensure_weka_container():
     stdout, stderr, ec = await run_command("weka local resources apply --force")
     if ec != 0:
         raise Exception(f"Failed to apply resources {stderr}")
+
 
 async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
@@ -484,6 +497,7 @@ loop.add_signal_handler(signal.SIGTERM, partial(signal_handler, "SIGTERM"))
 
 shutdown_task = loop.create_task(shutdown())
 main_loop = loop.create_task(main())
+logrotate_task = loop.create_task(periodic_logrotate())
 
 try:
     loop.run_until_complete(main_loop)
