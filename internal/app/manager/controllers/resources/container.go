@@ -166,6 +166,11 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Name:      "weka-container-persistence-dir",
 							MountPath: containerPathPersistence,
 						},
+						{
+							Name:      "weka-container-persistence-dir",
+							MountPath: "/var/log",
+							SubPath:   "var/log",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
