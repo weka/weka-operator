@@ -225,7 +225,7 @@ async def run_logrotate():
 async def periodic_logrotate():
     while not exiting:
         await run_logrotate()
-        await asyncio.sleep(600)
+        await asyncio.sleep(60)
 
 
 loop = asyncio.get_event_loop()
@@ -408,7 +408,7 @@ async def main():
     await configure_agent()
     await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
 
-    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT} &> /tmp/agent.log"
+    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
     await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
