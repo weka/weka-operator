@@ -104,8 +104,10 @@ spec:
                   traces, accepts parameters in gigabytes
                 properties:
                   ensureFreeSpace:
+                    default: 20
                     type: integer
                   maxCapacityPerIoNode:
+                    default: 10
                     type: integer
                 type: object
               wekaSecretRef:
