@@ -205,6 +205,15 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
+	// check if clusterize is needed. for standalone containers without owner references, skip
+	ownerRefs := container.GetObjectMeta().GetOwnerReferences()
+	if len(ownerRefs) == 0 {
+		logger.Info("Owner references not set")
+		logger.InfoWithStatus(codes.Ok, "Container is ready")
+		logger.SetPhase("CONTAINER_IS_READY")
+		return ctrl.Result{}, nil
+	}
+
 	// post-clusterize
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 		retry, err := r.reconcileClusterStatus(ctx, container, actualPod)
