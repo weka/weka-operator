@@ -14,6 +14,3 @@ spec:
     ethDevice: mlnx0
   numCores: 1
   port: 18002
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20

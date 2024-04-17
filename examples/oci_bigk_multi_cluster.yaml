@@ -19,9 +19,6 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
   hugepages: 2000Mi
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20
 
 ---
 apiVersion: weka.weka.io/v1alpha1
@@ -45,9 +42,6 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
   hugepages: 2000Mi
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20
 
 ---
 apiVersion: weka.weka.io/v1alpha1
@@ -71,7 +65,4 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
   hugepages: 2000Mi
   image: quay.io/weka.io/weka-in-container:4.2.10.346-9cd1d8e0430b5b24cafd47348543d899-dev
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20
 

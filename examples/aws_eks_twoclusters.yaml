@@ -10,9 +10,6 @@ spec:
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   nodeSelector:
     weka.io/role: backend
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20
 
 ---
 
@@ -28,7 +25,4 @@ spec:
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   nodeSelector:
     weka.io/role: backend
-  tracesConfiguration:
-    maxCapacityPerIoNode: 10
-    ensureFreeSpace: 20
 

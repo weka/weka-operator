@@ -19,6 +19,9 @@ MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 
+MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
+ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
+
 WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
 
 # Define global variables
@@ -213,6 +216,18 @@ async def run_command(command):
     return stdout, stderr, process.returncode
 
 
+async def run_logrotate():
+    stdout, stderr, ec = await run_command("logrotate /etc/logrotate.conf")
+    if ec != 0:
+        raise Exception(f"Failed to run logrotate: {stderr}")
+
+
+async def periodic_logrotate():
+    while not exiting:
+        await run_logrotate()
+        await asyncio.sleep(60)
+
+
 loop = asyncio.get_event_loop()
 
 
@@ -240,6 +255,23 @@ async def create_container():
     if ec != 0:
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
+
+
+async def configure_traces():
+    data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
+                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1)
+    data_string = json.dumps(data)
+
+    command = dedent(f"""
+        set -e
+        mkdir -p /opt/weka/k8s-scripts
+        echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
+        weka local run mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
+        """)
+    stdout, stderr, ec = await run_command(command)
+    if ec != 0:
+        raise Exception(f"Failed to configure traces: {stderr}")
+    logging.info("Traces configured successfully")
 
 
 async def get_containers():
@@ -287,6 +319,8 @@ async def ensure_weka_container():
     if ec != 0:
         raise Exception(f"Failed to apply resources {stderr}")
 
+
+async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
     if ec != 0:
         raise Exception(f"Failed to start container: {stderr}")
@@ -389,6 +423,7 @@ async def main():
         await ensure_daemon(agent_cmd, alias="agent")
         await await_agent()
         await ensure_dist_container()
+        await configure_traces()
         await stop_daemon(processes.get("agent"))
         await configure_agent(agent_handle_drivers=False)
         await ensure_daemon(agent_cmd, alias="agent")
@@ -398,6 +433,8 @@ async def main():
         return
 
     await ensure_weka_container()
+    await configure_traces()
+    await start_weka_container()
 
 
 async def stop_daemon(process):
@@ -460,6 +497,7 @@ loop.add_signal_handler(signal.SIGTERM, partial(signal_handler, "SIGTERM"))
 
 shutdown_task = loop.create_task(shutdown())
 main_loop = loop.create_task(main())
+logrotate_task = loop.create_task(periodic_logrotate())
 
 try:
     loop.run_until_complete(main_loop)

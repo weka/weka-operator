@@ -629,6 +629,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 		hugePagesNum = template.DriveHugepages
 		appendSetupCommand = cluster.Spec.DriveAppendSetupCommand
 	} else {
+		// TODO: FIX THIS for other roles
 		hugePagesNum = template.ComputeHugepages
 		appendSetupCommand = cluster.Spec.ComputeAppendSetupCommand
 	}

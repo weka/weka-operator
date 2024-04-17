@@ -205,24 +205,13 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondTracesConfigured) {
-		err := r.ensureTraces(ctx, container, actualPod)
-		if err != nil {
-			logger.Error(err, "Error ensuring traces")
-			return ctrl.Result{}, err
-		}
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-			Type:   condition.CondTracesConfigured,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "Traces are configured",
-		})
-		err = r.Status().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error updating status for traces configured")
-			return ctrl.Result{}, err
-		}
-		logger.SetPhase("TRACES_CONFIGURED")
-	} else {
-		logger.SetPhase("TRACES_ALREADY_CONFIGURED")
+	// check if clusterize is needed. for standalone containers without owner references, skip
+	ownerRefs := container.GetObjectMeta().GetOwnerReferences()
+	if len(ownerRefs) == 0 {
+		logger.Info("Owner references not set")
+		logger.InfoWithStatus(codes.Ok, "Container is ready")
+		logger.SetPhase("CONTAINER_IS_READY")
+		return ctrl.Result{}, nil
 	}
 
 	// post-clusterize
@@ -312,37 +301,6 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
-}
-
-func (r *ContainerController) ensureTraces(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTraces", "container", container.Name, "namespace", container.Namespace)
-	defer end()
-	if container.Spec.TracesConfiguration == nil {
-		logger.Info("Traces configuration not set")
-		return nil
-
-	}
-
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return err
-	}
-
-	traceDumperConfig, err := util.NewWekaDumperConfig(container.Spec.TracesConfiguration)
-	innerContainer := container.Spec.WekaContainerName
-	cmd := fmt.Sprintf("mkdir -p /tmp/%s/reserved_data;", innerContainer) +
-		fmt.Sprintf("mount /opt/weka/data/%s/container/reserved.loop /tmp/%s/reserved_data;", innerContainer, innerContainer) +
-		fmt.Sprintf("echo '%s' > /tmp/%s/reserved_data/dumper_config.json.override;", traceDumperConfig.String(), innerContainer) +
-		fmt.Sprintf("umount /tmp/%s/reserved_data;", innerContainer) +
-		fmt.Sprintf("rm -rf /tmp/%s/reserved_data;", innerContainer)
-	logger.Info("Setting traces retention", "cmd", cmd)
-	stdout, stderr, err := executor.ExecNamed(ctx, "SetTracesRetention", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.Error(err, "Error executing command", "stderr", stderr.String(), "stdout", stdout.String())
-		return err
-	}
-	return nil
 }
 
 func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
