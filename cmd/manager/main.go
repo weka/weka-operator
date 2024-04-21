@@ -21,8 +21,12 @@ import (
 	"flag"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"log"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -165,9 +169,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// index additional fields
+	// Setup Indexer
+	if err := indexOwnerReferenceField(mgr); err != nil {
+		log.Fatal("Failed to set up owner reference indexer", err)
+	}
+
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func indexOwnerReferenceField(mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
+		// Grab the job object, extract the owner...
+		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		owner := metav1.GetControllerOf(wekaContainer)
+		if owner == nil {
+			return nil
+		}
+		return []string{string(owner.UID)}
+	}); err != nil {
+		return err
+	}
+	return nil
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -103,6 +104,34 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// TODO: Right now single failure blocks other clients
+	// Need to decouple it, and make similar parallel ensuring of each client and not one by one
+	// Alternatively this could be moved to Container reconcile for parallesation
+	// So container container will be responsible for translating and actually updating spec or status
+	wg := sync.WaitGroup{}
+	errs := make(chan error, len(applicableNodes))
+	for _, node := range applicableNodes {
+		wg.Add(1)
+		go func(node string) {
+			err := func(node string) error {
+				return EnsureNodeDiscovered(ctx, r.Client, OwnerWekaObject{
+					Image:           wekaClient.Spec.Image,
+					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
+				}, node)
+			}(node)
+			if err != nil {
+				errs <- err
+			}
+			wg.Done()
+		}(node)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		logger.Error(err, "Failed to ensure node discovered")
+		return ctrl.Result{}, err
+	}
+
 	result, containers, err := r.ensureClientsWekaContainers(ctx, wekaClient, applicableNodes)
 	if err != nil {
 		logger.Error(err, "Failed to ensure weka containers")
@@ -173,8 +202,7 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 	}
 
 	for _, node := range nodes {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers", "node", node)
-		wekaContainer, err := r.buildClientWekaContainer(wekaClient, node)
+		wekaContainer, err := r.buildClientWekaContainer(ctx, wekaClient, node)
 		if err != nil {
 			return ctrl.Result{}, nil, err
 		}
@@ -204,16 +232,24 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 		} else {
 			foundContainers = append(foundContainers, found)
 		}
-		end()
 	}
 	return ctrl.Result{}, foundContainers, nil
 }
 
-func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
-	//clientRandomPart, err := password.Generate(10, 3, 0, true, true)
-	//if err != nil {
-	//	return nil, err
-	//}
+func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
+	defer end()
+
+	nodeInfo, err := GetNodeDiscovery(ctx, r.Client, node)
+	if err != nil {
+		return nil, err
+	}
+
+	if nodeInfo == nil { // asserting just in case
+		logger.SetError(err, "nil-node info, while no error on node discovery")
+		return nil, errors.New("nil-node info, while no error on node discovery")
+	}
+
 	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
 	if err != nil {
 		return nil, err
@@ -221,7 +257,11 @@ func (r *ClientReconciler) buildClientWekaContainer(wekaClient *wekav1alpha1.Wek
 
 	var cpuPolicy wekav1alpha1.CpuPolicy
 	if wekaClient.Spec.CpuPolicy == wekav1alpha1.CpuPolicyAuto {
-		cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
+		if nodeInfo.IsHt {
+			cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
+		} else {
+			cpuPolicy = wekav1alpha1.CpuPolicyDedicated
+		}
 	}
 
 	container := &wekav1alpha1.WekaContainer{

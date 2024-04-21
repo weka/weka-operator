@@ -99,7 +99,6 @@ func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []
 		var exitError exec.ExitError
 		if errors.As(err, &exitError) {
 			exitCode := exitError.ExitStatus() // ExitStatus() returns the exit code
-			span.AddEvent(fmt.Sprintf("Execution completed with code %d", exitCode))
 			span.SetAttributes(attribute.Int("exit_code", exitCode))
 			span.SetStatus(codes.Ok, "Execution succeeded with remote error")
 			if !sensitive {

@@ -478,6 +478,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers")
 	defer end()
+
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
 		logger.Error(err, "could not init allocmap")
@@ -517,7 +518,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 
 	ensureContainers := func(role string, containersNum int) error {
 		for i := 0; i < containersNum; i++ {
-			logger := logger.WithName("ensureContainers")
+			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainers")
 			// Check if the WekaContainer object exists
 			owner := Owner{
 				OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
@@ -548,6 +549,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 				foundContainers = append(foundContainers, found)
 				l.Info("Container already exists")
 			}
+			end()
 		}
 		return nil
 	}
