@@ -86,7 +86,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 	}
 
 	hostNetwork := true
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
+	if f.container.IsServiceContainer() {
 		hostNetwork = false
 	}
 
@@ -328,8 +328,8 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		})
 	}
 
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
-		// adding mount of headers only for case of dist service container
+	if f.container.IsDriversContainer() {
+		// adding mount of headers only for case of drivers-related container
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "libmodules",
 			VolumeSource: corev1.VolumeSource{
@@ -422,18 +422,18 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	})
 
 	var cpuRequestStr string
-	var cpuRequestLimit string
+	var cpuLimitStr string
 
 	switch cpuPolicy {
 	case wekav1alpha1.CpuPolicyDedicatedHT:
 		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
-		cpuRequestLimit = cpuRequestStr
+		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyDedicated:
 		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores+1)
-		cpuRequestLimit = cpuRequestStr
+		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
 		cpuRequestStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))
-		cpuRequestLimit = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1)+1) // forcing burstable qos
+		cpuLimitStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1)+1) // forcing burstable qos
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
@@ -466,14 +466,19 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
-		cpuRequestLimit = cpuRequestStr
+		cpuLimitStr = "2000m"
+	}
+	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
+		memRequest = "500M"
+		cpuRequestStr = "500m"
+		cpuLimitStr = "500m"
 	}
 
 	// since this is HT, we are doubling num of cores on allocation
 
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse(cpuRequestLimit),
+			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
 			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
 			corev1.ResourceMemory:           resource.MustParse(memRequest),
 		},

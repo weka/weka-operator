@@ -397,10 +397,27 @@ async def start_dist_container():
     logging.info("dist container started")
 
 
+async def discovery():
+    # TODO: We should move here everything else we need to discover per node
+    # This might be a good place to discover drives as well, as long we have some selector to discover by
+    with open("/tmp/weka-discovery.json.tmp", "w") as f:
+        data = dict(
+            is_ht=len(read_siblings_list(0)) > 1
+        )
+        json.dump(data, f)
+    os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
+    logging.info("discovery done")
+
+
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
         await load_drivers()
+        return
+
+    if MODE == "discovery":
+        # self signal to exit
+        await discovery()
         return
 
     await configure_persistency()

@@ -5,6 +5,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"slices"
 )
 
 // +kubebuilder:object:root=true
@@ -25,6 +26,7 @@ const (
 	WekaContainerModeCompute       = "compute"
 	WekaContainerModeDrive         = "drive"
 	WekaContainerModeClient        = "client"
+	WekaContainerModeDiscovery     = "discovery"
 )
 
 type WekaContainerSpec struct {
@@ -35,7 +37,7 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery
 	Mode     string `json:"mode"`
 	NumCores int    `json:"numCores"`
 	CoreIds  []int  `json:"coreIds,omitempty"`
@@ -129,4 +131,12 @@ func (w *WekaContainer) InitEnsureDriversCondition() {
 			Message: "Init",
 		})
 	}
+}
+
+func (w *WekaContainer) IsServiceContainer() bool {
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsDriversContainer() bool {
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader}, w.Spec.Mode)
 }

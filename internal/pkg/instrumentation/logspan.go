@@ -62,17 +62,6 @@ func (ls *SpanLogger) Enabled(level int) bool {
 	return ls.Logger.Enabled()
 }
 
-func (ls *SpanLogger) WithName(name string) SpanLogger {
-	newSpanName := strings.Join([]string{ls.spanName, name}, ".")
-	ls.Span.SetName(newSpanName)
-	return SpanLogger{
-		Ctx:      ls.Ctx,
-		Logger:   ls.Logger.WithName(name),
-		Span:     ls.Span,
-		spanName: newSpanName,
-	}
-}
-
 //	func (ls *SpanLogger) WithValues(keysAndValues ...interface{}) SpanLogger {
 //		if len(keysAndValues)%2 != 0 {
 //			panic("WithValues must be called with an even number of arguments")
@@ -101,6 +90,7 @@ func getAttributesFromKeysAndValues(keysAndValues ...interface{}) []attribute.Ke
 
 func (ls *SpanLogger) Info(msg string, keysAndValues ...interface{}) {
 	ls.Logger.Info(msg, keysAndValues...)
+	ls.Span.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 
@@ -109,6 +99,7 @@ func (ls *SpanLogger) Debug(msg string, keysAndValues ...interface{}) {
 		// Why info of Logger does not validate this? Or intention was to hide event as well?
 		ls.V(4).Info(msg, keysAndValues...)
 	}
+	ls.Span.SetAttributes(getAttributesFromKeysAndValues(keysAndValues...)...)
 	ls.AddEvent(msg)
 }
 

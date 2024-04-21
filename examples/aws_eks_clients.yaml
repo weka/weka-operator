@@ -11,7 +11,7 @@ spec:
   nodeSelector:
     weka.io/role: client
   wekaSecretRef: weka-cluster-cluster-dev
-  joinIpPorts: ["10.0.1.168:16101"]
   targetCluster:
     name: cluster-dev
     namespace: default
+#  joinIpPorts: ["10.0.1.168:16101"] # dropped as targetCluster replaces this functionality for cases its both backends and clients in same k8s cluster

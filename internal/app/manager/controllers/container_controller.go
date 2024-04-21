@@ -136,7 +136,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
-		!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
+		!container.IsServiceContainer() {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
@@ -160,7 +160,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_ALREADY_ENSURED")
 	}
 
-	if container.Spec.Mode != wekav1alpha1.WekaContainerModeDist {
+	if !container.IsServiceContainer() {
 		result, err := r.reconcileManagementIP(ctx, container, actualPod)
 		if err != nil {
 			logger.Error(err, "Error reconciling management IP", "name", container.Name)
@@ -201,7 +201,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVERS_LOADED")
 	}
 
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDist}, container.Spec.Mode) {
+	if container.IsServiceContainer() {
 		return ctrl.Result{}, nil
 	}
 
@@ -749,10 +749,10 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isContainersReady")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileDriversStatus")
 	defer end()
 
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader, wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
+	if container.IsServiceContainer() {
 		return nil
 	}
 
