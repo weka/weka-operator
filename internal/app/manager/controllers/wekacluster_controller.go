@@ -529,6 +529,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				logger.Error(err, "Failed to create WekaContainer")
+				end()
 				return err
 			}
 			l := logger.WithValues("container_name", wekaContainer.Name)
@@ -541,6 +542,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 				err = r.Create(ctx, wekaContainer)
 				if err != nil {
 					logger.Error(err, "Failed to create WekaContainer")
+					end()
 					return err
 				}
 				foundContainers = append(foundContainers, wekaContainer)
@@ -654,14 +656,15 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	secretKey := domain.GetOperatorSecretName(cluster)
 	containerPrefix := domain.GetLastGuidPart(cluster)
 
+	if topology.ForcedCpuPolicy != "" {
+		cluster.Spec.CpuPolicy = topology.ForcedCpuPolicy
+	}
+
 	coreIds := ownedResources.CoreIds
-	if slices.Contains([]wekav1alpha1.CpuPolicy{wekav1alpha1.CpuPolicyManual, wekav1alpha1.CpuPolicyShared}, cluster.Spec.CpuPolicy) {
+	if !slices.Contains([]wekav1alpha1.CpuPolicy{wekav1alpha1.CpuPolicyShared}, cluster.Spec.CpuPolicy) {
 		coreIds = []int{}
-	} // TODO: Should not calculate CPU in topology if set to manual/shared mode, right now removing what it did set
-	// This way we still track cores and can block on topology level, for good and bad.
-	// TODO: What happens if cores are rotating? How we adjust weka to use new cores? Should we block on that?
-	// TODO: We should not start container until we ensure
-	// TODO: Basically, start-weka-container should wait for agent to start, and start-weka-container will actually start container after it will do changes if needed
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
