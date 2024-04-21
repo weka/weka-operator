@@ -25,12 +25,13 @@ type ClusterTemplate struct {
 // abstracting them here and then working towards smarter scheduler that wont require such object
 // Hugepages is the only resource we let K8s allocate right now, it can't allocate drives and cant allocate CPUs the way we need
 type Topology struct {
-	Drives   []string                 `json:"drives"`
-	Nodes    []string                 `json:"availableHosts"`
-	MinCore  int                      `json:"minCore"`
-	MaxCore  int                      `json:"maxCore"`
-	CoreStep int                      `json:"coreStep"`
-	Network  v1alpha1.NetworkSelector `json:"network"`
+	Drives          []string                 `json:"drives"`
+	Nodes           []string                 `json:"availableHosts"`
+	MinCore         int                      `json:"minCore"`
+	MaxCore         int                      `json:"maxCore"`
+	CoreStep        int                      `json:"coreStep"`
+	Network         v1alpha1.NetworkSelector `json:"network"`
+	ForcedCpuPolicy v1alpha1.CpuPolicy       `json:"forcedCpuPolicy"`
 }
 
 func (k *Topology) GetAvailableCpus() []int {
@@ -54,6 +55,7 @@ var DevboxWekabox = Topology{
 	Network: v1alpha1.NetworkSelector{
 		EthDevice: "mlnx0",
 	},
+	ForcedCpuPolicy: v1alpha1.CpuPolicyShared,
 }
 
 var WekaClusterTemplates = map[string]ClusterTemplate{
