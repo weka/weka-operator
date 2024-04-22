@@ -229,6 +229,10 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 							Name:  "ENSURE_FREE_SPACE_GB",
 							Value: strconv.Itoa(f.container.Spec.TracesConfiguration.EnsureFreeSpace),
 						},
+						{
+							Name:  "IMAGE_NAME",
+							Value: image,
+						},
 					},
 				},
 			},
