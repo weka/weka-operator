@@ -37,11 +37,12 @@ const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	config := mgr.GetConfig()
+	client := mgr.GetClient()
 	return &ContainerController{
-		Client:      mgr.GetClient(),
+		Client:      client,
 		Scheme:      mgr.GetScheme(),
 		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
-		KubeService: services.NewKubeService(mgr.GetClient()),
+		KubeService: services.NewKubeService(client),
 		ExecService: services.NewExecService(config),
 	}
 }

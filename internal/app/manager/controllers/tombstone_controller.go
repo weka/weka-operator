@@ -158,7 +158,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	if err != nil {
 		return nil, err
 	}
-	//NOTE: Maybe could use WekaContainer, that will use alternative image, and container controller will close the loop in a smarter way
+	// NOTE: Maybe could use WekaContainer, that will use alternative image, and container controller will close the loop in a smarter way
 
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -219,7 +219,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			},
 		},
 	}
-	//err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
+	// err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
 	return job, nil
 }
 
@@ -237,7 +237,7 @@ func (r TombstoneReconciller) ensureFinalizer(ctx context.Context, tombstone *we
 func (r TombstoneReconciller) GCLoop(config TombstoneConfig) {
 	for {
 		ctx := context.Background()
-		//getlogspan
+		// getlogspan
 		_ = r.GC(ctx, config)
 		time.Sleep(config.TombstoneGcInterval)
 	}

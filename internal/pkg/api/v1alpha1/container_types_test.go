@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"context"
 	"testing"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -179,5 +180,61 @@ func TestInitEnsureDriversCondition(t *testing.T) {
 			t.Errorf("SupportsEnsureDriversCondition() - mode: %v, expected: %v, actual: %v",
 				test.mode, "Init", actual.Message)
 		}
+	}
+}
+
+func TestIsReady(t *testing.T) {
+	container := &WekaContainer{
+		Status: WekaContainerStatus{
+			Conditions: []v1.Condition{},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		expected bool
+		setup    func(container *WekaContainer)
+	}{
+		{
+			"is deleting", false, func(container *WekaContainer) {
+				container.SetDeletionTimestamp(&metav1.Time{})
+			},
+		},
+		{
+			"no management ip", false, func(container *WekaContainer) {
+				container.Status.ManagementIP = ""
+			},
+		},
+		{
+			"status not running", false, func(container *WekaContainer) {
+				container.Status.Status = "NotRunning"
+			},
+		},
+		{
+			"ready", true, func(container *WekaContainer) {
+				container.Status.ManagementIP = "1.2.3.4"
+				container.Status.Status = "Running"
+			},
+		},
+	}
+
+	ctx := context.Background()
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			subject := container.DeepCopy()
+			test.setup(subject)
+
+			actual, err := subject.IsReady(ctx)
+
+			if actual != test.expected {
+				t.Errorf("IsReady() - expected: %v, actual: %v, err: %v, management ip: %s, status: %s",
+					test.expected,
+					actual,
+					err,
+					container.Status.ManagementIP,
+					container.Status.Status,
+				)
+			}
+		})
 	}
 }

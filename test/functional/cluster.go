@@ -255,6 +255,7 @@ func (c *Cluster) VerifyWekaCluster(t *testing.T) {
 	t.Run("Cluster Created Condition", c.ClusterCreatedCondition(ctx, cluster))
 	t.Run("Drives Added Condition", c.DrivesAddedCondition(ctx, cluster))
 	t.Run("IO Started Condition", c.IOStartedCondition(ctx, cluster))
+	t.Run("Default FS Created Condition", c.DefaultFSCreatedCondition(ctx, cluster))
 }
 
 func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
@@ -303,6 +304,16 @@ func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.
 		defer cancel()
 		if err := waitForCondition(ctx, c, cluster, condition.CondIoStarted); err != nil {
 			t.Fatalf("failed to wait for IO Started condition: %v", err)
+		}
+	}
+}
+
+func (c *Cluster) DefaultFSCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		defer cancel()
+		if err := waitForCondition(ctx, c, cluster, condition.CondDefaultFsCreated); err != nil {
+			t.Fatalf("failed to wait for Default FS Created condition: %v", err)
 		}
 	}
 }

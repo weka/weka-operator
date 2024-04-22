@@ -1,11 +1,15 @@
 package v1alpha1
 
 import (
+	"context"
+	"errors"
+	"slices"
+
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"slices"
 )
 
 // +kubebuilder:object:root=true
@@ -46,8 +50,8 @@ type WekaContainerSpec struct {
 	WekaContainerName string            `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
-	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
-	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
+	NumCores   int    `json:"numCores"`             // numCores is weka-specific cores
+	ExtraCores int    `json:"extraCores,omitempty"` // extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
 	CoreIds    []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto
@@ -153,4 +157,25 @@ func (w *WekaContainer) IsDriversContainer() bool {
 
 func (w *WekaContainer) IsBackend() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsReady(ctx context.Context) (bool, error) {
+	_, logger, done := instrumentation.GetLogSpan(ctx, "IsReady")
+	defer done()
+
+	if w.GetDeletionTimestamp() != nil {
+		logger.Debug("Container is being deleted, rejecting cluster create", "container_name", w.Name)
+		return false, errors.New("Container " + w.Name + " is being deleted, rejecting cluster create")
+	}
+	if w.Status.ManagementIP == "" {
+		logger.Debug("Container is not ready yet or has no valid management IP", "container_name", w.Name)
+		return false, nil
+	}
+
+	if w.Status.Status != "Running" {
+		logger.Debug("Container is not running yet", "container_name", w.Name)
+		return false, nil
+	}
+
+	return true, nil
 }

@@ -32,9 +32,8 @@ builds:
 
 dockers:
   - image_templates:
-      #      - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Tag }}-{{ .ShortCommit }}"
-      #            - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:latest"
       - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Env.VERSION }}"
+      #      - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Tag }}-{{ .ShortCommit }}"
 
     dockerfile: "Dockerfile.release"
     use: buildx

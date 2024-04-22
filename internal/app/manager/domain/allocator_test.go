@@ -3,9 +3,11 @@ package domain
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -94,6 +96,103 @@ func TestAllocatePort(t *testing.T) {
 	}
 
 	// printAsYaml(allocations) // for debugging only
+}
+
+func TestAllocate(t *testing.T) {
+	owner := OwnerCluster{
+		ClusterName: "testCluster",
+		Namespace:   "testNamespace",
+	}
+	template := ClusterTemplate{}
+	allocations := &Allocations{}
+	size := 1
+
+	ctx := context.Background()
+	subject := &Allocator{}
+	allocations, error, changed := subject.Allocate(ctx, owner, template, allocations, size)
+	if error != nil {
+		t.Errorf("Error: %v", error)
+	}
+	if allocations == nil {
+		t.Errorf("Allocations is nil")
+	}
+	if changed {
+		t.Errorf("Changed is true")
+	}
+
+	global := allocations.Global
+	if global.AgentPorts == nil {
+		t.Errorf("Allocations.Global.AgentPorts is nil")
+	}
+	if global.WekaContainerPorts == nil {
+		t.Errorf("Allocations.Global.WekaContainerPorts is nil")
+	}
+	nodeMap := allocations.NodeMap
+	if len(nodeMap) != 0 {
+		t.Errorf("Allocations.NodeMap length expected: %d, got: %d", 0, len(nodeMap))
+	}
+}
+
+func TestGetFreeDrives(t *testing.T) {
+	owner := Owner{
+		OwnerCluster: OwnerCluster{
+			ClusterName: "testCluster",
+			Namespace:   "testNamespace",
+		},
+		Container: "testContainer",
+		Role:      "testRole",
+	}
+	tests := []struct {
+		name               string
+		availableDrives    []string
+		allocatedDrives    map[Owner][]string
+		expectedFreeDrives []string
+	}{
+		{
+			name:               "empty",
+			availableDrives:    []string{},
+			allocatedDrives:    map[Owner][]string{},
+			expectedFreeDrives: []string{},
+		},
+		{
+			name:               "one drive",
+			availableDrives:    []string{"/dev/sdb"},
+			allocatedDrives:    map[Owner][]string{},
+			expectedFreeDrives: []string{"/dev/sdb"},
+		},
+		{
+			name:               "one drive allocated",
+			availableDrives:    []string{"/dev/sdb"},
+			allocatedDrives:    map[Owner][]string{owner: {"/dev/sdb"}},
+			expectedFreeDrives: []string{},
+		},
+		{
+			name:               "two drives",
+			availableDrives:    []string{"/dev/sdb", "/dev/sdc"},
+			allocatedDrives:    map[Owner][]string{owner: {"/dev/sdb"}},
+			expectedFreeDrives: []string{"/dev/sdc"},
+		},
+		{
+			name:               "two drives 2",
+			availableDrives:    []string{"/dev/sdb", "/dev/sdc"},
+			allocatedDrives:    map[Owner][]string{owner: {"/dev/sdc"}},
+			expectedFreeDrives: []string{"/dev/sdb"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := &NodeAllocations{}
+			subject.Drives = tt.allocatedDrives
+
+			availableDrives := tt.availableDrives
+			freeDrives := subject.GetFreeDrives(availableDrives)
+
+			if !(reflect.DeepEqual(freeDrives, tt.expectedFreeDrives)) {
+				t.Errorf("Expected: %v, got: %v", tt.expectedFreeDrives, freeDrives)
+			}
+		})
+	}
 }
 
 func printAsYaml(allocations *Allocations) {

@@ -9,6 +9,7 @@ bin
 testbin/*
 Dockerfile.cross
 .local_test.py
+*.pyc
 
 # Test binary, build with `go test -c`
 *.test
@@ -41,6 +42,5 @@ temp.json
 k3s.yaml
 /drivers
 cover.html
-*.pyc
 mock_*.go
 prog.bin

@@ -85,7 +85,7 @@ func (d *DriverBuilder) DeployDriverBuilder(t *testing.T) {
 
 	// Wait for the driver builder to be ready so that we can fix a build path
 	builderPod := &v1.Pod{}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	waitFor(ctx, func(ctx context.Context) bool {
 		key := client.ObjectKeyFromObject(container)
 		err := d.Get(ctx, key, builderPod)

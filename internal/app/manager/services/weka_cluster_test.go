@@ -2,6 +2,9 @@
 //go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_exec.go -package=mocks github.com/weka/weka-operator/util Exec
 //go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_exec_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services ExecService
 //go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_manager.go -package=mocks sigs.k8s.io/controller-runtime/pkg/manager Manager
+//go:generate mockgen -destination=mocks/mock_allocation_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services AllocationService
+//go:generate mockgen -destination=mocks/mock_credentials_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services CredentialsService
+
 package services
 
 import (
@@ -9,8 +12,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+
+	"github.com/pkg/errors"
 	"go.uber.org/mock/gomock"
 )
 
