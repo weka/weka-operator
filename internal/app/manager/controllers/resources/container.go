@@ -1,8 +1,10 @@
 package resources
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,7 +60,7 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactor
 	}
 }
 
-func (f *ContainerFactory) Create() (*corev1.Pod, error) {
+func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
@@ -286,7 +288,7 @@ func (f *ContainerFactory) Create() (*corev1.Pod, error) {
 		},
 	}
 
-	err := f.setResources(pod)
+	err := f.setResources(ctx, pod)
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +404,14 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 	}
 }
 
-func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
+func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
+		"cores", f.container.Spec.NumCores,
+		"mode", f.container.Spec.Mode,
+		"cpuPolicy", f.container.Spec.CpuPolicy,
+	)
+	defer end()
+
 	cpuPolicy := f.container.Spec.CpuPolicy
 	if !cpuPolicy.IsValid() {
 		return fmt.Errorf("invalid CPU policy: %s", cpuPolicy)
@@ -480,6 +489,7 @@ func (f *ContainerFactory) setResources(pod *corev1.Pod) error {
 
 	// since this is HT, we are doubling num of cores on allocation
 
+	logger.Info("setting resources", "cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
 			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),

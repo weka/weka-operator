@@ -4,7 +4,7 @@ metadata:
   name: cluster-dev-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.2.7.64-k8so-beta.10
+  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   port: 45001
   agentPort: 45000

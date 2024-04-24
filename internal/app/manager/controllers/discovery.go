@@ -184,3 +184,26 @@ func GetNodeDiscovery(ctx context.Context, c client.Client, node string) (*Disco
 
 	return &nodeInfo, nil
 }
+
+func ResolveCpuPolicy(ctx context.Context, c client.Client, node string, cpuPolicy v1alpha1.CpuPolicy) (v1alpha1.CpuPolicy, error) {
+	if cpuPolicy != v1alpha1.CpuPolicyAuto {
+		return cpuPolicy, nil
+	}
+
+	nodeInfo, err := GetNodeDiscovery(ctx, c, node)
+	if err != nil {
+		return cpuPolicy, err
+	}
+
+	if nodeInfo == nil { // asserting just in case
+		return cpuPolicy, errors.New("nil-node info, while no error on node discovery")
+	}
+
+	if nodeInfo.IsHt {
+		cpuPolicy = v1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
+	} else {
+		cpuPolicy = v1alpha1.CpuPolicyDedicated
+	}
+	return cpuPolicy, nil
+
+}

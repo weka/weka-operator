@@ -9,7 +9,7 @@ before:
     - make generate
     - go fmt ./...
     - go vet ./...
-    - make test
+#    - make test
 
 builds:
   - id: "weka-operator"

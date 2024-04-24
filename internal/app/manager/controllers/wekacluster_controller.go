@@ -660,6 +660,10 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 		cluster.Spec.CpuPolicy = topology.ForcedCpuPolicy
 	}
 
+	if cluster.Spec.CpuPolicy == wekav1alpha1.CpuPolicyAuto {
+		return nil, errors.New("CpuPolicyAuto is not supported on cluster level. Should be set explicitly or defined by topology")
+	}
+
 	coreIds := ownedResources.CoreIds
 	if !slices.Contains([]wekav1alpha1.CpuPolicy{wekav1alpha1.CpuPolicyShared}, cluster.Spec.CpuPolicy) {
 		coreIds = []int{}
@@ -758,7 +762,9 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 }
 
 func GetExecutor(container *wekav1alpha1.WekaContainer) (*util.Exec, error) {
-	pod, err := resources.NewContainerFactory(container).Create()
+	ctx := context.Background() // A temporary hack: we need a context for logging, but we don't have one here
+	// Proper solution: to stop using "Create" and factory here. All we need for exec is name and namespace, which container can provide directly
+	pod, err := resources.NewContainerFactory(container).Create(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not find executor pod")
 	}
@@ -775,7 +781,7 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 	var containersMap resources.ClusterContainersMap
 
 	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(containers[0]).Create()
+		pod, err := resources.NewContainerFactory(containers[0]).Create(ctx)
 		if err != nil {
 			logger.Error(err, "Could not find executor pod")
 			return err

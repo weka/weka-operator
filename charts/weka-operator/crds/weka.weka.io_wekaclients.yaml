@@ -41,6 +41,8 @@ spec:
                 items:
                   type: integer
                 type: array
+              coresNum:
+                type: integer
               cpuPolicy:
                 default: auto
                 enum:

@@ -84,6 +84,9 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     ),
     "4.2.10.1290-e552f99e92504c69126da70e1740f6e4-dev": dict(
         wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
+    "quay.io/weka.io/weka-in-container:4.2.10-k8so.0": dict(
+        wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
     )
 }
 # WEKA_DRIVER_VERSION_OPTIONS = [
@@ -96,7 +99,8 @@ UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 
 
 async def load_drivers():
-    weka_driver_version = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])["wekafs"]
+    weka_driver_version = \
+    VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])["wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
