@@ -8,7 +8,7 @@ prefix: "weka-operator"
 
 image:
   repository: quay.io/weka.io/weka-operator
-  tag: 0.40.0
+  tag: 0.52.1
 
 imagePullSecret: quay-cred
 deployController: true
