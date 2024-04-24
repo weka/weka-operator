@@ -3,7 +3,7 @@ kind: WekaClient
 metadata:
   name: cluster-dev-clients
 spec:
-  image: localhost:30000/weka-in-container:4.2.7.64-k8so-beta.10
+  image: localhost:30000/weka-in-container:4.2.10-k8so.0
   port: 45001
   agentPort: 45000
   wekaSecretRef: weka-cluster-cluster-dev

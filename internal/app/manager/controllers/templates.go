@@ -125,11 +125,12 @@ func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[strin
 		return Topology{}, err
 	}
 	return Topology{
-		Drives:   []string{"/dev/oracleoci/oraclevdb"},
-		Nodes:    nodeNames,
-		MinCore:  2, // TODO: How to determine, other then querying machines?
-		CoreStep: 2,
-		MaxCore:  4,
+		Drives:          []string{"/dev/oracleoci/oraclevdb"},
+		Nodes:           nodeNames,
+		MinCore:         2, // TODO: How to determine, other then querying machines?
+		CoreStep:        2,
+		MaxCore:         4,
+		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 	}, nil
 }
 
@@ -140,11 +141,12 @@ func getAwsI3en6x(ctx context.Context, reader client.Reader, nodeSelector map[st
 		return Topology{}, err
 	}
 	return Topology{
-		Drives:   []string{"aws_0", "aws_1"}, // container-side discovery by slot num
-		Nodes:    nodeNames,
-		MinCore:  2, // TODO: How to determine, other then querying machines?
-		CoreStep: 1,
-		MaxCore:  11,
+		Drives:          []string{"aws_0", "aws_1"}, // container-side discovery by slot num
+		Nodes:           nodeNames,
+		MinCore:         2, // TODO: How to determine, other then querying machines?
+		CoreStep:        1,
+		MaxCore:         11,
+		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 	}, nil
 }
 

@@ -96,7 +96,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container).Create()
+	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")

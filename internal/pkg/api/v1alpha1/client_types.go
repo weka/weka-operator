@@ -58,6 +58,7 @@ type ClientSpec struct {
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	CoresNumber         int                  `json:"coresNum,omitempty"`
 	CoreIds             []int                `json:"coreIds,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 }

@@ -237,17 +237,12 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 }
 
 func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
 	defer end()
 
-	nodeInfo, err := GetNodeDiscovery(ctx, r.Client, node)
+	cpuPolicy, err := ResolveCpuPolicy(ctx, r.Client, node, wekaClient.Spec.CpuPolicy)
 	if err != nil {
 		return nil, err
-	}
-
-	if nodeInfo == nil { // asserting just in case
-		logger.SetError(err, "nil-node info, while no error on node discovery")
-		return nil, errors.New("nil-node info, while no error on node discovery")
 	}
 
 	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
@@ -255,13 +250,10 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 		return nil, err
 	}
 
-	var cpuPolicy wekav1alpha1.CpuPolicy
-	if wekaClient.Spec.CpuPolicy == wekav1alpha1.CpuPolicyAuto {
-		if nodeInfo.IsHt {
-			cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
-		} else {
-			cpuPolicy = wekav1alpha1.CpuPolicyDedicated
-		}
+	var numCores int
+	numCores = wekaClient.Spec.CoresNumber
+	if wekaClient.Spec.CoresNumber == 0 {
+		numCores = 1
 	}
 
 	container := &wekav1alpha1.WekaContainer{
@@ -282,7 +274,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
 			Mode:                "client",
-			NumCores:            1,
+			NumCores:            numCores,
 			CpuPolicy:           cpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
 			Network:             network,
