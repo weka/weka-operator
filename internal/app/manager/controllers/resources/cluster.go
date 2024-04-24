@@ -2,7 +2,6 @@ package resources
 
 import (
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"strconv"
 	"strings"
 )
@@ -49,19 +48,3 @@ func HostIdToContainerId(hostId string) (int, error) {
 	}
 	return id, nil
 }
-
-func GetUserSecretName(cluster *v1alpha1.WekaCluster) string {
-	return "weka-cluster-" + cluster.Name
-}
-
-//func NewExecInCluster(recon client.WekaClient, cluster v1alpha1.WekaCluster) (*util.Exec, error) {
-//	// fetch container
-//
-//	//TODO: Actual return
-//	//return &Exec{
-//	//	ClientSet: clientset,
-//	//	Pod:       pod,
-//	//	Config:    config,
-//	//}, nil
-//
-//}

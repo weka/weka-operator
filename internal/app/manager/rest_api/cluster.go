@@ -2,13 +2,13 @@ package restapi
 
 import (
 	"context"
+	"net/http"
+	"time"
+
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"net/http"
-	"time"
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/kr/pretty"
@@ -171,7 +171,7 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 
 		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsCreated) {
 			secret := &corev1.Secret{}
-			key := client.ObjectKey{Name: resources.GetUserSecretName(cluster), Namespace: cluster.Namespace}
+			key := client.ObjectKey{Name: cluster.GetUserSecretName(), Namespace: cluster.Namespace}
 			err := api.client.Get(ctx, key, secret)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
@@ -192,5 +192,5 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 		}
 		time.Sleep(1 * time.Second)
 	}
-	//w.WriteHeader(http.StatusCreated)
+	// w.WriteHeader(http.StatusCreated)
 }

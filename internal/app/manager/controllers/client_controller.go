@@ -19,12 +19,13 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sync"
-	"time"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,6 +40,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 )
 
 // ClientReconciler reconciles a Client object
@@ -46,10 +48,12 @@ type ClientReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	Manager  ctrl.Manager
 
 	ConditionReady *condition.Ready
 
-	Logger logr.Logger
+	Logger      logr.Logger
+	ExecService services.ExecService
 
 	// -- State dependent components
 	// These may be nil depending on where we are int he reconciliation process
@@ -58,10 +62,12 @@ type ClientReconciler struct {
 
 func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
 	return &ClientReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("weka-operator"),
-		Logger:   mgr.GetLogger().WithName("controllers").WithName("WekaClient"),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("weka-operator"),
+		Logger:      mgr.GetLogger().WithName("controllers").WithName("WekaClient"),
+		Manager:     mgr,
+		ExecService: services.NewExecService(mgr),
 	}
 }
 
@@ -117,7 +123,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return EnsureNodeDiscovered(ctx, r.Client, OwnerWekaObject{
 					Image:           wekaClient.Spec.Image,
 					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
-				}, node)
+				}, node, r.ExecService)
 			}(node)
 			if err != nil {
 				errs <- err

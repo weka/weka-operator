@@ -7,7 +7,6 @@ import (
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/kr/pretty"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/util"
 	v1 "k8s.io/api/core/v1"
@@ -68,7 +67,7 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 		return
 	}
 
-	username := domain.GetOperatorClusterUsername(cluster)
+	username := cluster.GetOperatorClusterUsername()
 	if username != string(existingCredentials.Data["username"]) {
 		err := pretty.Errorf("Username mismatch")
 		logger.Error(err, "Username mismatch")
@@ -149,7 +148,7 @@ func (api *ClusterAPI) getPodForCluster(ctx context.Context, cluster *wekav1alph
 func (api *ClusterAPI) getExistingCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) (*v1.Secret, error) {
 	logger := api.logger.WithName("getExistingCredentials")
 
-	secretName := domain.GetOperatorSecretName(cluster)
+	secretName := cluster.GetOperatorSecretName()
 	secret := &v1.Secret{}
 	key := client.ObjectKey{Name: secretName, Namespace: cluster.Namespace}
 	err := api.client.Get(ctx, key, secret)
@@ -164,7 +163,7 @@ func (api *ClusterAPI) getExistingCredentials(ctx context.Context, cluster *weka
 func (api *ClusterAPI) updateCredentialsSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, password string) error {
 	logger := api.logger.WithName("updateCredentialsSecret")
 
-	secretName := domain.GetOperatorSecretName(cluster)
+	secretName := cluster.GetOperatorSecretName()
 	secret := &v1.Secret{}
 	key := client.ObjectKey{Name: secretName, Namespace: cluster.Namespace}
 	err := api.client.Get(ctx, key, secret)

@@ -20,11 +20,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
+	"time"
+
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
@@ -41,32 +45,35 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"slices"
-	"strings"
-	"time"
 )
 
-const WekaFinalizer = "weka.weka.io/finalizer"
-const ClusterStatusInit = "Init"
+const (
+	WekaFinalizer     = "weka.weka.io/finalizer"
+	ClusterStatusInit = "Init"
+)
 
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme      *runtime.Scheme
+	Manager     ctrl.Manager
+	Recorder    record.EventRecorder
+	ExecService services.ExecService
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	return &WekaClusterReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Manager:     mgr,
+		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
+		ExecService: services.NewExecService(mgr),
 	}
 }
 
 func (r *WekaClusterReconciler) SetConditionWithRetries(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
-	condType string, status metav1.ConditionStatus, reason string, message string) error {
-
+	condType string, status metav1.ConditionStatus, reason string, message string,
+) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCondition", "condition_type", condType, "condition_status", string(status))
 	defer end()
 
@@ -108,8 +115,8 @@ func (r *WekaClusterReconciler) SetConditionWithRetries(ctx context.Context, clu
 }
 
 func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
-	condType string, status metav1.ConditionStatus, reason string, message string) error {
-
+	condType string, status metav1.ConditionStatus, reason string, message string,
+) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCondition", "condition_type", condType, "condition_status", string(status))
 	defer end()
 
@@ -410,7 +417,7 @@ func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context,
 		span := trace.SpanFromContext(ctx)
 		logger.Info("creating new span inside context", "traceId", span.SpanContext().TraceID().String())
 		wekaCluster.Status.TraceId = span.SpanContext().TraceID().String()
-		//since this is init, we need to open new span with the original traceId
+		// since this is init, we need to open new span with the original traceId
 		remoteContext := instrumentation.NewContextWithTraceID(ctx, nil, wekaCluster.Status.TraceId)
 		ctx, logger, end = instrumentation.GetLogSpan(remoteContext, "WekaClusterProvision")
 		defer end()
@@ -448,6 +455,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "doFinalizerOperationsForwekaCluster")
 	defer end()
 	if cluster.Spec.Topology == "" {
+		logger.Info("Topology is not set, skipping deallocation")
 		return nil
 	}
 	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
@@ -622,7 +630,6 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	topology Topology,
 	role string, i int,
 ) (*wekav1alpha1.WekaContainer, error) {
-
 	labels := map[string]string{
 		"weka.io/mode": role, // in addition to spec for indexing on k8s side for filtering by mode
 	}
@@ -653,8 +660,8 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	}
 	// Selected by ownership drives are first in the list and will be attempted first, granting happy flow
 
-	secretKey := domain.GetOperatorSecretName(cluster)
-	containerPrefix := domain.GetLastGuidPart(cluster)
+	secretKey := cluster.GetOperatorSecretName()
+	containerPrefix := cluster.GetLastGuidPart()
 
 	if topology.ForcedCpuPolicy != "" {
 		cluster.Spec.CpuPolicy = topology.ForcedCpuPolicy
@@ -733,7 +740,7 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr)
 	logger.Info("Creating cluster", "cmd", cmd)
 
-	executor, err := GetExecutor(containers[0])
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
 		logger.Error(err, "Could not create executor")
 		return errors.Wrap(err, "Could not create executor")
@@ -759,20 +766,6 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 	}
 	logger.SetPhase("Cluster created")
 	return nil
-}
-
-func GetExecutor(container *wekav1alpha1.WekaContainer) (*util.Exec, error) {
-	ctx := context.Background() // A temporary hack: we need a context for logging, but we don't have one here
-	// Proper solution: to stop using "Create" and factory here. All we need for exec is name and namespace, which container can provide directly
-	pod, err := resources.NewContainerFactory(container).Create(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not find executor pod")
-	}
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not create executor")
-	}
-	return executor, nil
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
@@ -853,7 +846,7 @@ func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alph
 		return err
 	}
 
-	executor, err := GetExecutor(containers[0])
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")
 	}
@@ -906,53 +899,17 @@ func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, 
 	return nil
 }
 
-type loginDetails struct {
-	Username   string
-	Password   string
-	Org        string
-	SecretName string
-}
-
 func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	secret := &v1.Secret{}
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureLoginCredentials")
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureLoginCredentials")
 	defer end()
 
 	// generate random password
+	operatorLogin := cluster.NewOperatorLoginSecret()
+	userLogin := cluster.NewUserLoginSecret()
 
-	const DefaultOrg = "Root"
-
-	operatorLogin := loginDetails{
-		Username:   domain.GetOperatorClusterUsername(cluster),
-		Password:   util.GeneratePassword(32),
-		Org:        DefaultOrg,
-		SecretName: domain.GetOperatorSecretName(cluster),
-	}
-
-	userLogin := loginDetails{
-		Username:   domain.GetUserClusterUsername(cluster),
-		Password:   util.GeneratePassword(32),
-		Org:        DefaultOrg,
-		SecretName: resources.GetUserSecretName(cluster),
-	}
-
-	logger.Debug("Random passwords generated")
-
-	ensureSecret := func(details loginDetails) error {
-		err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: details.SecretName}, secret)
+	ensureSecret := func(secret *v1.Secret) error {
+		err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secret.Name}, secret)
 		if err != nil && apierrors.IsNotFound(err) {
-			secret = &v1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      details.SecretName,
-					Namespace: cluster.Namespace,
-				},
-				StringData: map[string]string{
-					"username": details.Username,
-					"password": details.Password,
-					"org":      details.Org,
-				},
-			}
-
 			err := ctrl.SetControllerReference(cluster, secret, r.Scheme)
 			if err != nil {
 				return err
@@ -980,7 +937,7 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClusterCredentials")
 	defer end()
 	logger.SetPhase("APPLYING_CLUSTER_CREDENTIALS")
-	executor, err := GetExecutor(containers[0])
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return errors.Wrap(err, "Error creating executor")
@@ -999,13 +956,11 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 
 	ensureUser := func(secretName string) error {
 		// fetch secret from k8s
-		secret := &v1.Secret{}
-		err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, secret)
+		username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, secretName)
 		if err != nil {
 			return err
 		}
-		username := secret.Data["username"]
-		password := secret.Data["password"]
+
 		for _, user := range existingUsers {
 			if user.Username == string(username) {
 				return nil
@@ -1021,14 +976,14 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		return nil
 	}
 
-	logger.WithValues("user_name", domain.GetOperatorClusterUsername(cluster)).Info("Ensuring operator user")
-	if err := ensureUser(domain.GetOperatorSecretName(cluster)); err != nil {
+	logger.WithValues("user_name", cluster.GetOperatorClusterUsername()).Info("Ensuring operator user")
+	if err := ensureUser(cluster.GetOperatorSecretName()); err != nil {
 		logger.Error(err, "Failed to apply operator user credentials")
 		return err
 	}
 
-	logger.WithValues("user_name", domain.GetUserClusterUsername(cluster)).Info("Ensuring admin user")
-	if err := ensureUser(resources.GetUserSecretName(cluster)); err != nil {
+	logger.WithValues("user_name", cluster.GetUserClusterUsername()).Info("Ensuring admin user")
+	if err := ensureUser(cluster.GetUserSecretName()); err != nil {
 		logger.Error(err, "Failed to apply admin user credentials")
 		return err
 	}
@@ -1047,4 +1002,15 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 	}
 	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
+}
+
+func (r *WekaClusterReconciler) getUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error) {
+	secret := &v1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	if err != nil {
+		return "", "", err
+	}
+	username := secret.Data["username"]
+	password := secret.Data["password"]
+	return string(username), string(password), nil
 }

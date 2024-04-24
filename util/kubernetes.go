@@ -29,22 +29,18 @@ type Exec struct {
 }
 
 type ConfigurationError struct {
-	Err error
+	Err     error
+	Message string
 }
 
 func (e *ConfigurationError) Error() string {
-	return "failed to get config"
+	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecInPod(pod *v1.Pod) (*Exec, error) {
-	config, err := KubernetesConfiguration()
-	if err != nil {
-		return nil, errors.Wrap(&ConfigurationError{err}, "failed to get config")
-	}
-
+func NewExecWithConfig(config *rest.Config, pod *v1.Pod) (*Exec, error) {
 	clientset, err := KubernetesClientSet(config)
 	if err != nil {
-		return nil, errors.Wrap(&ConfigurationError{err}, "failed to get clientset")
+		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
 	}
 
 	return &Exec{
@@ -52,6 +48,15 @@ func NewExecInPod(pod *v1.Pod) (*Exec, error) {
 		Pod:       pod,
 		Config:    config,
 	}, nil
+}
+
+func NewExecInPod(pod *v1.Pod) (*Exec, error) {
+	config, err := KubernetesConfiguration()
+	if err != nil {
+		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
+	}
+
+	return NewExecWithConfig(config, pod)
 }
 
 func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
@@ -144,6 +149,9 @@ func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 }
 
 func KubernetesConfiguration() (*rest.Config, error) {
+	if os.Getenv("UNIT_TEST") == "true" {
+		return &rest.Config{}, nil
+	}
 	kubeConfigPath := os.Getenv("KUBECONFIG")
 	if kubeConfigPath == "" {
 		return rest.InClusterConfig()

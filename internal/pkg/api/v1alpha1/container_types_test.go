@@ -9,6 +9,27 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestCpuPolicyIsValid(t *testing.T) {
+	tests := []struct {
+		policy   CpuPolicy
+		expected bool
+	}{
+		{CpuPolicyAuto, true},
+		{CpuPolicyShared, true},
+		{CpuPolicyDedicated, true},
+		{CpuPolicyDedicatedHT, true},
+		{CpuPolicyManual, true},
+		{CpuPolicy("invalid"), false},
+	}
+
+	for _, test := range tests {
+		actual := test.policy.IsValid()
+		if actual != test.expected {
+			t.Errorf("IsValid() - policy: %v, expected: %v, actual: %v", test.policy, test.expected, actual)
+		}
+	}
+}
+
 func TestDriversReady(t *testing.T) {
 	container := &WekaContainer{
 		Status: WekaContainerStatus{

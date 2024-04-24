@@ -18,14 +18,16 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"testing"
+	"runtime"
+	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+	"github.com/kr/pretty"
+	prettyconsole "github.com/thessem/zap-prettyconsole"
 	uzap "go.uber.org/zap"
 
 	"k8s.io/client-go/kubernetes/scheme"
@@ -44,81 +46,128 @@ import (
 
 var (
 	cfg        *rest.Config
-	k8sClient  client.Client
-	k8sManager ctrl.Manager
-	testEnv    *envtest.Environment
 	TestCtx    context.Context
 	testCancel context.CancelFunc
 	kubectlExe string
 )
 
-func TestAPIs(t *testing.T) {
-	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "Controller Suite")
+type TestEnvironment struct {
+	Env     *envtest.Environment
+	Cancel  context.CancelFunc
+	Ctx     context.Context
+	Manager ctrl.Manager
+	Client  client.Client
+	Logger  logr.Logger
 }
 
-var _ = BeforeSuite(func() {
-	// Debug logger
-	// logger := zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
+func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
+	var logger logr.Logger
 
-	// Logger that drops/silences messages for unit testing
-	logger := zapr.NewLogger(uzap.NewNop())
+	if os.Getenv("DEBUG") == "true" {
+		// Debug logger
+		logger = zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
+	} else {
+		// Logger that drops/silences messages for unit testing
+		logger = zapr.NewLogger(uzap.NewNop())
+	}
 
 	logf.SetLogger(logger.WithName("test"))
-	TestCtx, testCancel = context.WithCancel(context.TODO())
 
-	var err error
-	kubectlExe, err = exec.LookPath("kubectl")
-	Expect(err).NotTo(HaveOccurred())
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		kubebuilderRelease := "1.26.0"
+		kubebuilderOs := runtime.GOOS
+		kubebuilderArch := runtime.GOARCH
+		kubebuilderVersion := fmt.Sprintf("%s-%s-%s", kubebuilderRelease, kubebuilderOs, kubebuilderArch)
+		os.Setenv("KUBEBUILDER_ASSETS", filepath.Join("..", "..", "..", "..", "bin", "k8s", kubebuilderVersion))
+	}
 
-	By("bootstrapping test environment")
-	Expect(os.Setenv("OPERATOR_DEV_MODE", "true")).To(Succeed())
-	testEnv = &envtest.Environment{
+	os.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc.cluster.local")
+	os.Setenv("KUBERNETES_SERVICE_PORT", "443")
+	os.Setenv("UNIT_TEST", "true")
+
+	ctx, cancel := context.WithCancel(ctx)
+	environment := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
 		UseExistingCluster:    func(b bool) *bool { return &b }(false),
 	}
-
-	// cfg is defined in this file globally.
-	cfg, err = testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	err = wekav1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	Expect(err).NotTo(HaveOccurred())
-
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-
+	testEnv := &TestEnvironment{
+		Cancel: cancel,
+		Ctx:    ctx,
+		Env:    environment,
+		Logger: logger,
+	}
+	cfg, err := testEnv.Env.Start()
+	if err != nil {
+		fmt.Printf("failed to start test environment: %v", err)
+		return nil, err
+	}
+	if err := wekav1alpha1.AddToScheme(scheme.Scheme); err != nil {
+		fmt.Printf("failed to add scheme: %v", err)
+		return nil, err
+	}
+	testEnv.Client, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		fmt.Printf("failed to create client: %v", err)
+		return nil, err
+	}
 	ctrl.SetLogger(logger.WithName("controllers"))
-	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
+
+	testEnv.Manager, err = ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Printf("failed to create manager: %v", err)
+		return nil, err
+	}
 
-	clusterController := NewWekaClusterController(k8sManager)
-	err = clusterController.SetupWithManager(k8sManager, clusterController)
-	Expect(err).NotTo(HaveOccurred())
+	os.Setenv("OPERATOR_DEV_MODE", "true")
+	clusterController := NewWekaClusterController(testEnv.Manager)
+	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
+	if err != nil {
+		fmt.Printf("failed to setup WekaCluster controller: %v", err)
+		return nil, err
+	}
+	containerController := NewContainerController(testEnv.Manager)
+	err = containerController.SetupWithManager(testEnv.Manager, containerController)
+	if err != nil {
+		fmt.Printf("failed to setup Container controller: %v", err)
+		return nil, err
+	}
 
-	containerController := NewContainerController(k8sManager)
-	err = containerController.SetupWithManager(k8sManager, containerController)
-	Expect(err).NotTo(HaveOccurred())
-
-	//+kubebuilder:scaffold:scheme
 	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(TestCtx)
-		Expect(err).ToNot(HaveOccurred(), "failed to start manager")
+		testEnv.Manager.Start(testEnv.Ctx)
 	}()
-})
 
-var _ = AfterSuite(func() {
-	testCancel()
-	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
-})
+	return testEnv, nil
+}
+
+func teardownTestEnv(testEnv *TestEnvironment) error {
+	testEnv.Cancel()
+	if err := testEnv.Env.Stop(); err != nil {
+		fmt.Printf("failed to stop test environment: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// waitFor waits for the given condition to be true, or times out.
+func waitFor(ctx context.Context, fn func(context.Context) bool) error {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if fn(ctx) {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return pretty.Errorf("timed out waiting for condition")
+	}
+	return nil
+}
