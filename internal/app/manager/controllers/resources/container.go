@@ -486,6 +486,9 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		cpuRequestStr = "500m"
 		cpuLimitStr = "500m"
 	}
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+		memRequest = fmt.Sprintf("%dM", 5000+2000*(f.container.Spec.NumCores))
+	}
 
 	// since this is HT, we are doubling num of cores on allocation
 
