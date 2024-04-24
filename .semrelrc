@@ -1,0 +1,14 @@
+{
+  "plugins": {
+    "hooks": {
+      "names": [
+        "exec",
+        "goreleaser"
+      ],
+      "options": {
+        "exec_on_success": "./script/update_values.sh -t {{.NewRelease.Version}}",
+        "exec_on_failure": "echo {{.Reason}}: {{.Message}}"
+      }
+    }
+  }
+}
