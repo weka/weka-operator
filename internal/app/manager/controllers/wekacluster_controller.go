@@ -205,7 +205,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	containers, err = r.ensureWekaContainers(ctx, wekaCluster)
 	if err != nil {
-		logger.Error(err, "Failed to ensure WekaContainers")
+		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
@@ -519,7 +519,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 }
 
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureWekaContainers")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureWekaContainers", "cluster", cluster.Name, "template", cluster.Spec.Template, "topology", cluster.Spec.Topology)
 	defer end()
 
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
@@ -529,8 +529,27 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	}
 
 	foundContainers := []*wekav1alpha1.WekaContainer{}
-	template := WekaClusterTemplates[cluster.Spec.Template]
-	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
+	template, ok := WekaClusterTemplates[cluster.Spec.Template]
+	if !ok {
+		keys := make([]string, 0, len(WekaClusterTemplates))
+		for k := range WekaClusterTemplates {
+			keys = append(keys, k)
+		}
+		err := fmt.Errorf("Template not found")
+		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
+		return nil, err
+	}
+	topology_fn, ok := Topologies[cluster.Spec.Topology]
+	if !ok {
+		keys := make([]string, 0, len(Topologies))
+		for k := range Topologies {
+			keys = append(keys, k)
+		}
+		err := fmt.Errorf("Topology not found")
+		logger.Error(err, "Topology not found", "topology", cluster.Spec.Topology, "keys", keys)
+		return nil, err
+	}
+	topology, err := topology_fn(ctx, r, cluster.Spec.NodeSelector)
 	allocator := NewAllocator(topology)
 	if err != nil {
 		logger.Error(err, "Failed to get topology", "topology", cluster.Spec.Topology)
@@ -560,8 +579,10 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
 
 	ensureContainers := func(role string, containersNum int) error {
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainers", "role", role, "containersNum", containersNum)
+		defer end()
 		for i := 0; i < containersNum; i++ {
-			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainers")
+			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainer", "index", i)
 			// Check if the WekaContainer object exists
 			owner := Owner{
 				OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
@@ -571,7 +592,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 			ownedResources, _ := GetOwnedResources(owner, allocations)
 			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
-				logger.Error(err, "Failed to create WekaContainer")
+				logger.Error(err, "newWekaContainerForWekaCluster")
 				end()
 				return err
 			}
@@ -612,7 +633,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 		return nil, err
 	}
 
-	logger.InfoWithStatus(codes.Ok, "All cluster containers are created")
+	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
 	return foundContainers, nil
 }
 
@@ -774,19 +795,17 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 }
 
 func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "createCluster")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateCluster", "cluster", cluster.Name, "containers", len(containers))
 	defer end()
 
 	if len(containers) == 0 {
-		logger.Info("containers list is empty")
-		return pretty.Errorf("containers list is empty")
+		err := pretty.Errorf("containers list is empty")
+		logger.Error(err, "containers list is empty")
+		return err
 	}
 
 	var hostIps []string
 	var hostnamesList []string
-	logger.Info("Creating cluster",
-		"total_containers", len(containers),
-	)
 
 	for _, container := range containers {
 		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
