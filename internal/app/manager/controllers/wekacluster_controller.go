@@ -484,7 +484,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 }
 
 func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureWekaContainers")
 	defer end()
 
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
