@@ -8,7 +8,7 @@ prefix: "weka-operator"
 
 image:
   repository: quay.io/weka.io/weka-operator
-  tag: 0.53.2
+  tag: "" # Override only, default equals to the chart version
 
 imagePullSecret: quay-cred
 deployController: true
