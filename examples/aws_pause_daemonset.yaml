@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: pause-container
-          image:   # Example pause image; replace with the AWS image if different
+          image: 602401143452.dkr.ecr.eu-west-1.amazonaws.com/eks/pause:3.5
           resources:
             limits:
               cpu: "0.1"
