@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
-	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
+	"github.com/weka/weka-operator/internal/app/manager/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+
+	"github.com/hashicorp/go-multierror"
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
@@ -22,7 +24,7 @@ import (
 
 type ReconcilerStateMachine interface {
 	RunLoop(ctx context.Context) (ctrl.Result, error)
-	Phases() []ReconciliationPhase
+	Phases() []lifecycle.ReconciliationPhase
 
 	GetCluster() *wekav1alpha1.WekaCluster
 	GetClusterService() services.WekaClusterService
@@ -59,7 +61,7 @@ type reconcilerStateMachine struct {
 	Client             client.Client
 	Recorder           record.EventRecorder
 	Cluster            *wekav1alpha1.WekaCluster
-	PhasesList         *[]ReconciliationPhase
+	PhasesList         *[]lifecycle.ReconciliationPhase
 }
 
 type ReconciliationPhase interface {
@@ -99,15 +101,16 @@ func (r *reconcilerStateMachine) RunLoop(ctx context.Context) (ctrl.Result, erro
 	return finalResult, finalError
 }
 
-func (r *reconcilerStateMachine) Phases() []ReconciliationPhase {
+func (r *reconcilerStateMachine) Phases() []lifecycle.ReconciliationPhase {
 	if r.PhasesList != nil {
 		return *r.PhasesList
 	}
-	return []ReconciliationPhase{
+	return []lifecycle.ReconciliationPhase{
 		&PhaseDeletionState{ReconcilerStateMachine: r},
 		&PhaseInitState{ReconcilerStateMachine: r},
 		&SecretsNotCreatedCondition{ReconcilerStateMachine: r},
 		&PodsNotCreatedCondition{ReconcilerStateMachine: r},
+		&WaitingForPodsReadyCondition{ReconcilerStateMachine: r},
 		&ClusterNotCreatedCondition{ReconcilerStateMachine: r},
 		&ContainersNotJoinedCondition{ReconcilerStateMachine: r},
 		&DrivesNotAddedCondition{ReconcilerStateMachine: r},
@@ -277,7 +280,6 @@ func (r *PhaseDeletionState) DoFinalizerOperationsForwekaCluster(ctx context.Con
 }
 
 // Sub-States roughly correspond to the conditions in the wekaCluster status
-
 type SecretsNotCreatedCondition struct {
 	ReconcilerStateMachine
 }
@@ -288,9 +290,10 @@ func (c *SecretsNotCreatedCondition) Handle(ctx context.Context) (ctrl.Result, e
 
 	wekaCluster := c.GetCluster()
 
-	if !meta.IsStatusConditionTrue(c.GetCluster().Status.Conditions, condition.CondClusterSecretsCreated().String()) {
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsCreated().String()) {
+		logger.Info("Creating cluster secrets")
 		if err := c.GetCredentialsService().EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			logger.Error(err, "ensureLoginCredentials")
+			logger.Error(err, "Failed to create cluster secrets")
 			return ctrl.Result{Requeue: true}, err
 		}
 
@@ -320,7 +323,7 @@ func (c *PodsNotCreatedCondition) String() string {
 
 func (c *PodsNotCreatedCondition) Handle(ctx context.Context) (ctrl.Result, error) {
 	wekaCluster := c.GetCluster()
-	containers, err := c.GetClusterService().EnsureWekaContainers(ctx, wekaCluster)
+	_, err := c.GetClusterService().EnsureWekaContainers(ctx, wekaCluster)
 	if err != nil {
 		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
 			Type:   condition.CondPodsCreated,
@@ -334,6 +337,45 @@ func (c *PodsNotCreatedCondition) Handle(ctx context.Context) (ctrl.Result, erro
 		Status: metav1.ConditionTrue, Reason: "Init", Message: "All pods are created",
 	})
 	_ = c.GetClient().Status().Update(ctx, wekaCluster)
+
+	//if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
+	//if ready, err := c.GetClusterService().IsContainersReady(ctx, containers); !ready {
+	//return err
+	//}
+
+	//meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
+	//Type:   condition.CondPodsReady,
+	//Status: metav1.ConditionTrue, Reason: "Init", Message: "All weka containers are ready for clusterization",
+	//})
+	//_ = c.GetClient().Status().Update(ctx, wekaCluster)
+	//}
+
+	return ctrl.Result{}, nil
+}
+
+type WaitingForPodsReadyCondition struct {
+	ReconcilerStateMachine
+}
+
+func (c *WaitingForPodsReadyCondition) String() string {
+	return condition.CondPodsReady
+}
+
+func (c *WaitingForPodsReadyCondition) Handle(ctx context.Context) (ctrl.Result, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "WaitingForPodsReadyCondition")
+	defer end()
+
+	wekaCluster := c.GetCluster()
+
+	containers, err := c.GetClusterService().EnsureWekaContainers(ctx, wekaCluster)
+	if err != nil {
+		meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
+			Type:   condition.CondPodsCreated,
+			Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
+		})
+		_ = c.GetClient().Status().Update(ctx, wekaCluster)
+		return ctrl.Result{Requeue: true}, err
+	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
 		if ready, err := c.GetClusterService().IsContainersReady(ctx, containers); !ready {

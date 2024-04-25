@@ -2,10 +2,11 @@
 //go:generate mockgen -destination=mocks/mock_status.go -package=mocks sigs.k8s.io/controller-runtime/pkg/client StatusWriter
 //go:generate mockgen -destination=mocks/mock_exec_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services ExecService
 //go:generate mockgen -destination=mocks/mock_exec.go -package=mocks github.com/weka/weka-operator/util Exec
-//go:generate mockgen -destination=mocks/mock_lifecycle.go -package=mocks github.com/weka/weka-operator/internal/app/manager/controllers ReconciliationPhase
+//go:generate mockgen -destination=mocks/mock_lifecycle.go -package=mocks github.com/weka/weka-operator/internal/app/manager/controllers ReconcilerStateMachine
 //go:generate mockgen -destination=mocks/mock_weka_cluster_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services WekaClusterService
 //go:generate mockgen -destination=mocks/mock_allocation_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services AllocationService
 //go:generate mockgen -destination=mocks/mock_credentials_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services CredentialsService
+//go:generate mockgen -destination=mocks/mock_states.go -package=mocks github.com/weka/weka-operator/internal/app/manager/lifecycle ReconciliationPhase,InitState,StartingState,DeletingState
 package controllers
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/mocks"
 	"github.com/weka/weka-operator/internal/app/manager/factories"
+	"github.com/weka/weka-operator/internal/app/manager/lifecycle"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
@@ -112,7 +114,7 @@ func TestRunLoop(t *testing.T) {
 			test.phase.EXPECT().String().Return(test.name)
 			test.phase.EXPECT().Handle(gomock.Any()).Return(test.requeue, test.expected).AnyTimes()
 
-			phases := []ReconciliationPhase{test.phase}
+			phases := []lifecycle.ReconciliationPhase{test.phase}
 			stateMachine := TestingReconcilerStateMachine(t)
 			stateMachine.PhasesList = &phases
 			result, err := stateMachine.RunLoop(context.Background())
@@ -193,40 +195,31 @@ func TestPodsNotCreatedCondition(t *testing.T) {
 	podsNotCreatedCondition := &PodsNotCreatedCondition{ReconcilerStateMachine: stateMachine}
 
 	tests := []struct {
-		name           string
-		readyCondition metav1.ConditionStatus
-		postCondition  metav1.ConditionStatus
-		podsReady      bool
+		name             string
+		createdCondition metav1.ConditionStatus
+		postCondition    metav1.ConditionStatus
+		podsReady        bool
 	}{
 		{
-			name:           "Pods Became Ready",
-			readyCondition: metav1.ConditionFalse,
-			podsReady:      true,
-			postCondition:  metav1.ConditionTrue,
+			name:             "Pods Not Created",
+			createdCondition: metav1.ConditionFalse,
+			podsReady:        true,
+			postCondition:    metav1.ConditionTrue,
 		},
 		{
-			name:           "Pods Already Ready",
-			readyCondition: metav1.ConditionTrue,
-			podsReady:      true,
-			postCondition:  metav1.ConditionTrue,
-		},
-		{
-			name:           "Pods Not Ready",
-			readyCondition: metav1.ConditionFalse,
-			podsReady:      false,
-			postCondition:  metav1.ConditionFalse,
+			name:             "Pods already created",
+			createdCondition: metav1.ConditionTrue,
+			podsReady:        true,
+			postCondition:    metav1.ConditionTrue,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			meta.SetStatusCondition(&stateMachine.Cluster.Status.Conditions, metav1.Condition{
 				Type:   condition.CondPodsReady,
-				Status: tt.readyCondition,
+				Status: tt.createdCondition,
 			})
 
-			if tt.readyCondition == metav1.ConditionFalse {
-				wekaClusterService.EXPECT().IsContainersReady(gomock.Any(), gomock.Any()).Return(tt.podsReady, nil).Times(1)
-			}
 			os.Setenv("OPERATOR_DEV_MODE", "true")
 
 			result, err := podsNotCreatedCondition.Handle(context.Background())
@@ -237,11 +230,90 @@ func TestPodsNotCreatedCondition(t *testing.T) {
 				t.Log("expected result to not requeue")
 			}
 
-			postCondition := meta.FindStatusCondition(stateMachine.Cluster.Status.Conditions, condition.CondPodsReady)
+			postCondition := meta.FindStatusCondition(stateMachine.Cluster.Status.Conditions, condition.CondPodsCreated)
 			if postCondition.Status != tt.postCondition {
 				t.Errorf("expected condition status to be %v, was %v", tt.postCondition, postCondition.Status)
 			}
 		})
+	}
+}
+
+func TestWaitingForPodsReadyCondition(t *testing.T) {
+	ctx, _, done := instrumentation.GetLogSpan(context.Background(), "TestWaitingForPodsReadyCondition")
+	defer done()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tests := []struct {
+		name              string
+		condPodsReady     metav1.ConditionStatus
+		finalStatus       metav1.ConditionStatus
+		isContainersReady bool
+	}{
+		{
+			name:              "CondPodsReady is true",
+			condPodsReady:     metav1.ConditionTrue,
+			isContainersReady: true,
+			finalStatus:       metav1.ConditionTrue,
+		},
+		{
+			name:              "CondPodsReady is false",
+			condPodsReady:     metav1.ConditionFalse,
+			isContainersReady: false,
+			finalStatus:       metav1.ConditionFalse,
+		},
+		{
+			name:              "CondPodsReady is false, but containers are ready",
+			condPodsReady:     metav1.ConditionFalse,
+			isContainersReady: true,
+			finalStatus:       metav1.ConditionTrue,
+		},
+		{
+			name:              "CondPodsReady is unknown",
+			condPodsReady:     metav1.ConditionUnknown,
+			isContainersReady: false,
+			finalStatus:       metav1.ConditionUnknown,
+		},
+	}
+
+	for _, test := range tests {
+
+		cluster := &wekav1alpha1.WekaCluster{}
+
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type:   condition.CondPodsReady,
+			Status: test.condPodsReady,
+		})
+
+		clusterService := mocks.NewMockWekaClusterService(ctrl)
+		clusterService.EXPECT().EnsureWekaContainers(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		clusterService.EXPECT().IsContainersReady(gomock.Any(), gomock.Any()).Return(test.isContainersReady, nil).AnyTimes()
+
+		statusWriter := mocks.NewMockStatusWriter(ctrl)
+		statusWriter.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		client := mocks.NewMockClient(ctrl)
+		client.EXPECT().Status().Return(statusWriter).AnyTimes()
+
+		stateMachine := mocks.NewMockReconcilerStateMachine(ctrl)
+		stateMachine.EXPECT().GetCluster().Return(cluster).AnyTimes()
+		stateMachine.EXPECT().GetClusterService().Return(clusterService).AnyTimes()
+		stateMachine.EXPECT().GetClient().Return(client).AnyTimes()
+
+		subject := &WaitingForPodsReadyCondition{ReconcilerStateMachine: stateMachine}
+		result, err := subject.Handle(ctx)
+		if err != nil {
+			t.Errorf("expected error to be nil")
+		}
+		if result.Requeue {
+			t.Log("expected result to not requeue")
+		}
+
+		finalStatus := meta.FindStatusCondition(cluster.Status.Conditions, condition.CondPodsReady)
+		if finalStatus.Status != test.finalStatus {
+			t.Errorf("expected final status to be %v, was %v", test.finalStatus, finalStatus.Status)
+		}
 	}
 }
 
