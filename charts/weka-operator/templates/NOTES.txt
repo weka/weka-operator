@@ -17,18 +17,16 @@ Please create a client.yaml file to configure the operator.
 Example:
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
-kind: Client
+kind: WekaCluster
 metadata:
-  namespace: weka-operator-system
-  name: weka-agent
+  name: cluster-dev
+  namespace: default
 spec:
-  version: 4.2.7.64-k8so-beta.0
-  image: quay.io/weka.io/weka-in-container
-  imagePullSecretName: quay-cred
-
-  backendIP: <IP address of backend VM>
-  ioNodeCount: 1
-
-  agent:
-    debug: false
+  size: 1
+  template: small
+  topology: discover_aws_i3en6x # to be removed in the future towards true discovery
+  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  nodeSelector:
+    weka.io/role: backend
 ```
