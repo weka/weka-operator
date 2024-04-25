@@ -1,0 +1,179 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: weka-operator-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - list
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - driveclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - driveclaims/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - driveclaims/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclients
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclients/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclients/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekaclusters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekacontainers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekacontainers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekacontainers/status
+  verbs:
+  - get
+  - patch
+  - update
