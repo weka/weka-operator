@@ -121,9 +121,11 @@ async def load_drivers():
 
 
 async def copy_drivers():
+    weka_driver_version = \
+        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])["wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/weka_driver/{WEKA_DRIVER_VERSION}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{WEKA_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
 
       cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
