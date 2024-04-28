@@ -503,6 +503,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
 			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
 			corev1.ResourceMemory:           resource.MustParse(memRequest),
+			corev1.ResourceEphemeralStorage: resource.MustParse("8M"),
 		},
 	}
 

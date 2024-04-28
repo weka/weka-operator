@@ -278,6 +278,9 @@ async def create_container():
 async def configure_traces():
     data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
                 retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1)
+    if MODE == 'dist':
+        data['enabled'] = False
+        data['retention_bytes'] = 128 * 1024 * 1024 * 1024
     data_string = json.dumps(data)
 
     command = dedent(f"""
@@ -409,9 +412,11 @@ async def ensure_dist_container():
 async def start_dist_container():
     logging.info("starting dist container")
     cmd = "weka local start"
-    stdout, stderr, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to start dist container: {stderr}")
+    # stdout, stderr, ec = await run_command(cmd)
+    # if ec != 0:
+    #     raise Exception(f"Failed to start dist container: {stderr}")
+    await ensure_daemon("weka local start") # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
+    # reason of being stuck: agent tries to authenticate using admin:admin into this stem container, for not known reason
     logging.info("dist container started")
 
 
@@ -425,6 +430,25 @@ async def discovery():
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
     logging.info("discovery done")
+
+
+async def cleanup_traces_and_stop_dumper():
+    while True:
+        cmd = "weka local exec supervisorctl status | grep RUNNING"
+        stdout, stderr, ec = await run_command(cmd)
+        if ec != 0:
+            logging.info(f"Failed to get supervisorctl status: {stderr}")
+            await asyncio.sleep(3)
+            continue
+        break
+
+
+    stdout, stderr, ec = await run_command("""
+    weka local exec supervisorctl stop weka-trace-dumper
+    rm -f /opt/weka/traces/*.shard
+    """)
+    if ec != 0:
+        logging.error(f"Failed to cleanup traces: {stderr}")
 
 
 async def main():
@@ -465,6 +489,7 @@ async def main():
         await await_agent()
         await copy_drivers()
         await start_dist_container()
+        await cleanup_traces_and_stop_dumper()
         return
 
     await ensure_weka_container()
