@@ -240,8 +240,23 @@ async def run_logrotate():
         raise Exception(f"Failed to run logrotate: {stderr}")
 
 
+async def write_logrotate_config():
+    with open("/etc/logrotate.conf", "w") as f:
+        f.write(dedent("""
+            /var/log/syslog /var/log/errors {
+                size 1M
+                rotate 3
+                missingok
+                notifempty
+                compress
+                delaycompres
+            } 
+"""))
+
+
 async def periodic_logrotate():
     while not exiting:
+        await write_logrotate_config()
         await run_logrotate()
         await asyncio.sleep(60)
 
