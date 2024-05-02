@@ -96,6 +96,7 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
 IGB_UIO_DRIVER_VERSION = "weka1.0.2"
 MPIN_USER_DRIVER_VERSION = "1.0.1"
 UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
+DEPENDENCIES_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
 
 
 async def load_drivers():
@@ -409,6 +410,30 @@ async def configure_agent(agent_handle_drivers=False):
     logging.info("Agent configured successfully")
 
 
+async def override_dependencies_flag():
+    """Hard-code the success marker so that the dist container can start
+
+    Equivalent to:
+        ```sh
+        HARDCODED=1.0.0-024f0fdaa33ec66087bc6c5631b85819
+        mkdir -p /opt/weka/data/dependencies/HARDCODED/$(uname -r)/
+        touch /opt/weka/data/dependencies/HARDCODED/$(uname -r)/successful
+        ```
+    """
+    logging.info("overriding dependencies flag")
+
+    cmd = dedent(
+        f"""
+        mkdir -p /opt/weka/data/dependencies/{DEPENDENCIES_VERSION}/$(uname -r)/
+        touch /opt/weka/data/dependencies/{DEPENDENCIES_VERSION}/$(uname -r)/successful
+        """
+    )
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to override dependencies flag: {stderr}")
+    logging.info("dependencies flag overridden successfully")
+
+
 async def ensure_dist_container():
     logging.info("ensuring dist container")
 
@@ -496,6 +521,7 @@ async def main():
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
         await await_agent()
+        await override_dependencies_flag()
         await ensure_dist_container()
         await configure_traces()
         await stop_daemon(processes.get("agent"))
