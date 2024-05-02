@@ -8,11 +8,13 @@ prefix: "weka-operator"
 
 image:
   repository: quay.io/weka.io/weka-operator
-  tag: "" # Override only, default equals to the chart version
+  # Override only, default equals to the chart version
+  tag: ""
 
 imagePullSecret: quay-cred
 deployController: true
 # -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
-# -- custom endpoint to send OTLP traces to (insecure, GRPC). If left empty, traces are sent to stdout in json format.
+# -- custom endpoint to send OTLP traces to (insecure, GRPC).
+# If left empty, traces are sent to stdout in json format.
 otelExporterOtlpEndpoint: ""
