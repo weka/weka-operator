@@ -368,6 +368,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 type HugePagesDetails struct {
 	HugePagesStr          string
 	HugePagesK8sSuffix    string
+	HugePagesMb           int
 	WekaMemoryString      string
 	HugePagesResourceName corev1.ResourceName
 }
@@ -384,7 +385,6 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
 		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
-
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {
@@ -401,6 +401,7 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 		HugePagesK8sSuffix:    hugePagesK8sSuffix,
 		WekaMemoryString:      wekaMemoryString,
 		HugePagesResourceName: hugePagesName,
+		HugePagesMb:           f.container.Spec.Hugepages,
 	}
 }
 
@@ -475,7 +476,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		})
 	}
 
-	memRequest := "7000M"
+	memRequest := "7000Mi"
 	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
@@ -486,8 +487,26 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		cpuRequestStr = "500m"
 		cpuLimitStr = "500m"
 	}
+
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
-		memRequest = fmt.Sprintf("%dM", 5000+2000*(f.container.Spec.NumCores))
+		managementMemory := 1965
+		perFrontendMemory := 2050
+		buffer := 450
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores)
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+		managementMemory := 3000
+		perDriveMemory := 2100
+		buffer := 400
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*f.container.Spec.NumCores)
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+		managementMemory := 2200
+		perComputeMemory := 3600
+		buffer := 400
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*f.container.Spec.NumCores)
 	}
 
 	// since this is HT, we are doubling num of cores on allocation

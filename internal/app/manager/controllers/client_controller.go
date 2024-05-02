@@ -284,7 +284,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			CpuPolicy:           cpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
 			Network:             network,
-			Hugepages:           1600 * numCores,
+			Hugepages:           1500 * numCores,
 			HugepagesSize:       "2Mi",
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
 			DriversDistService:  wekaClient.Spec.DriversDistService,
