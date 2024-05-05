@@ -13,7 +13,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	trace "go.opentelemetry.io/otel/trace"
 	uzap "go.uber.org/zap"
+	"google.golang.org/grpc/credentials"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -88,8 +90,13 @@ func newTraceProvider() (*tracesdk.TracerProvider, error) {
 
 	if otlpEndpoint != "" {
 		logger.Info("OTLP endpoint set to " + otlpEndpoint)
+
+		securityOption := otlptracegrpc.WithInsecure()
+		if strings.Contains(otlpEndpoint, "https://") {
+			securityOption = otlptracegrpc.WithTLSCredentials(credentials.NewClientTLSFromCert(nil, ""))
+		}
 		traceExporter, err := otlptracegrpc.New(ctx,
-			otlptracegrpc.WithInsecure(),
+			securityOption,
 			otlptracegrpc.WithTimeout(5*time.Second),
 			otlptracegrpc.WithEndpointURL(otlpEndpoint),
 		)
