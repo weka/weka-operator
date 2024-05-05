@@ -56,6 +56,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - get
+  - list
+  - update
+- apiGroups:
   - ""
   resources:
   - pods
@@ -95,6 +104,32 @@ rules:
   - weka.weka.io
   resources:
   - driveclaims/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - tombstones
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - tombstones/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - tombstones/status
   verbs:
   - get
   - patch

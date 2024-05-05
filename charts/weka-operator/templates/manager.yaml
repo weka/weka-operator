@@ -73,6 +73,9 @@ spec:
             - --metrics-bind-address=127.0.0.1:8080
             - --leader-elect
             - --enable-cluster-api={{ .Values.enableClusterApi }}
+            - --enable-tombstone-gc={{ .Values.persistence.containerTombstone.gc.enabled }}
+            - --tombstone-gc-interval={{ .Values.persistence.containerTombstone.gc.interval }}
+            - --tombstone-expiration={{ .Values.persistence.containerTombstone.gc.retention }}
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"

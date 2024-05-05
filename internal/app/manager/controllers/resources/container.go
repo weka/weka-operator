@@ -50,6 +50,8 @@ type WekaUsersResponse struct {
 	Username string `json:"username"`
 }
 
+const PersistentContainersLocation = "/opt/k8s-weka/containers"
+
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -82,10 +84,10 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		udpMode = "true"
 	}
 
-	var terminationGracePeriodSeconds int64 = 10
-	if f.container.Spec.Mode == "drive" {
-		terminationGracePeriodSeconds = 60
-	}
+	var terminationGracePeriodSeconds int64 = 60 * 60 * 24 * 7
+	//if f.container.Spec.Mode == "drive" {
+	//	terminationGracePeriodSeconds = 60
+	//}
 
 	hostNetwork := true
 	if f.container.IsServiceContainer() {
@@ -100,7 +102,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsidePersistence := fmt.Sprintf("/opt/k8s-weka/containers/%s", f.container.GetUID())
+	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,

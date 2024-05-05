@@ -44,6 +44,9 @@ func GetJoinIps(ctx context.Context, c client.Client, cluster *v1alpha1.WekaClus
 
 	joinIpPortPairs := []string{}
 	for _, container := range containers {
+		if container.Status.ManagementIP == "" {
+			return nil, errors.New("Container missing management IP")
+		}
 		joinIpPortPairs = append(joinIpPortPairs, container.Status.ManagementIP+":"+strconv.Itoa(container.Spec.Port))
 	}
 	return joinIpPortPairs, nil

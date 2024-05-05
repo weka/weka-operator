@@ -250,7 +250,6 @@ async def write_logrotate_config():
                 missingok
                 notifempty
                 compress
-                delaycompres
             } 
 """))
 

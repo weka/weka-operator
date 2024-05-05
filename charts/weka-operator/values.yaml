@@ -18,3 +18,11 @@ enableClusterApi: false
 # -- custom endpoint to send OTLP traces to (insecure, GRPC).
 # If left empty, traces are sent to stdout in json format.
 otelExporterOtlpEndpoint: ""
+maintenanceImage: busybox
+# -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
+persistence:
+  containerTombstone:
+    gc:
+        enabled: true
+        interval: 5m
+        retention: 72h
