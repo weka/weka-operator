@@ -42,18 +42,3 @@ COPY --from=build-manager /workspace/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
-
-# Build node labeller
-FROM builder as build-node-labeller
-
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -a -o node-labeller cmd/node-labeller/main.go
-
-FROM --platform=${TARGETARCH} gcr.io/distroless/static:nonroot as node-labeller
-WORKDIR /
-COPY --from=build-node-labeller /workspace/node-labeller .
-USER 65532:65532
-
-ENTRYPOINT ["/node-labeller"]

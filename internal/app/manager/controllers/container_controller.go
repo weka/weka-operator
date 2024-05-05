@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
 	"strings"
@@ -49,6 +50,9 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones/finalizers,verbs=update
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/finalizers,verbs=update
@@ -65,6 +69,7 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update
+//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,11 +85,17 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Error refreshing container")
 		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
 	}
+	err = r.ensureFinalizer(ctx, container)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	logger.SetAttributes(
 		attribute.String("container", container.Name),
 		attribute.String("namespace", container.Namespace),
 		attribute.String("mode", container.Spec.Mode),
 		attribute.String("management_ip", container.Status.ManagementIP),
+		attribute.String("uuid", string(container.GetUID())),
 	)
 	logger.Info("Container refreshed")
 	r.initState(ctx, container)
@@ -93,6 +104,18 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
 		logger.SetPhase("DELETING")
+		err := r.ensureTombstone(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error ensuring tombstone")
+			return ctrl.Result{}, errors.Wrap(err, "Failed to ensure tombstone")
+		}
+		// remove finalizer
+		controllerutil.RemoveFinalizer(container, WekaFinalizer)
+		err = r.Update(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error removing finalizer")
+			return ctrl.Result{}, errors.Wrap(err, "Failed to remove finalizer")
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -903,4 +926,62 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 	}
 	logger.InfoWithStatus(codes.Error, "Loader not finished")
 	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
+}
+
+func (r *ContainerController) ensureTombstone(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTombstone")
+	defer end()
+
+	nodeAffinity := container.Spec.NodeAffinity
+	if nodeAffinity == "" {
+		// attempting to find persistent location of the container based on actual pod
+		pod, err := r.refreshPod(ctx, container)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("no affinity on container and actual pod not found to set affinity")
+				return nil
+			}
+		}
+		if pod.Spec.NodeName != "" {
+			nodeAffinity = pod.Spec.NodeName
+		}
+	}
+
+	tombstone := &wekav1alpha1.Tombstone{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("wekacontainer-%s", container.GetUID()),
+			Namespace: container.Namespace,
+		},
+		Spec: wekav1alpha1.TombstoneSpec{
+			CrType:       "WekaContainer",
+			CrId:         string(container.UID),
+			NodeAffinity: nodeAffinity,
+		},
+	}
+
+	err := r.Create(ctx, tombstone)
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			logger.Error(err, "Error creating tombstone")
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ContainerController) ensureFinalizer(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureFinalizer")
+	defer end()
+
+	logger.Info("Adding Finalizer for weka cluster")
+	if ok := controllerutil.AddFinalizer(container, WekaFinalizer); !ok {
+		logger.Info("Failed to add finalizer for wekaCluster")
+		return nil
+	}
+	err := r.Update(ctx, container)
+	if err != nil {
+		logger.Error(err, "Failed to update wekaCluster with finalizer")
+		return err
+	}
+	return nil
 }

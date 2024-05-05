@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -65,6 +66,7 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var enableClusterApi bool
+	tombstoneConfig := controllers.TombstoneConfig{}
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -72,6 +74,9 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
+	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
+	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
+	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
 
 	ctx := ctrl.SetupSignalHandler()
 
@@ -131,6 +136,7 @@ func main() {
 		controllers.NewClientReconciler(mgr),
 		controllers.NewContainerController(mgr),
 		controllers.NewWekaClusterController(mgr),
+		controllers.NewTombstoneController(mgr, tombstoneConfig),
 	}
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {

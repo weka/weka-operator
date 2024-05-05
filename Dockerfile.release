@@ -1,8 +1,8 @@
-FROM scratch as builder
-
-USER 65532:65532
+FROM ubuntu:20.04 as builder
+RUN apt-get update && apt-get install -y ca-certificates
 
 FROM builder as manager
+USER 65532:65532
 COPY manager /manager
 
 #FROM builder as node-labeller

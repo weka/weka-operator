@@ -28,6 +28,7 @@ GORELEASER_BUILDER ?= docker
 VERSION ?= latest
 DEPLOY_CONTROLLER ?= true
 ENABLE_CLUSTER_API ?= false
+TOMBSTONE_EXPIRATION ?= 10s
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -75,6 +76,7 @@ help: ## Display this help.
 CRD = charts/weka-operator/crds/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = internal/pkg/api/v1alpha1/driveclaims_types.go \
 		internal/pkg/api/v1alpha1/container_types.go \
+		internal/pkg/api/v1alpha1/tombstone_types.go \
 		internal/pkg/api/v1alpha1/wekacluster_types.go
 
 $(CRD): controller-gen $(CRD_TYPES)
@@ -135,13 +137,19 @@ dev:
 	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 
 
+.PHONY: devupdate
+devupdate:
+	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+
 .PHONY: run
 run: generate manifests install fmt vet deploy runcontroller ## Run a controller from your host.
 	;
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API)
+	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.

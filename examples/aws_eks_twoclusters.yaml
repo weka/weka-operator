@@ -26,3 +26,21 @@ spec:
   nodeSelector:
     weka.io/role: backend
 
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-a-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  port: 45001
+  agentPort: 45000
+  nodeSelector:
+    weka.io/role: client
+  wekaSecretRef: weka-cluster-cluster-a
+  targetCluster:
+    name: cluster-a
+    namespace: default
+  coresNum: 1

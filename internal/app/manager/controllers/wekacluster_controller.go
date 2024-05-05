@@ -205,7 +205,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	containers, err = r.ensureWekaContainers(ctx, wekaCluster)
 	if err != nil {
 		logger.Error(err, "Failed to ensure WekaContainers")
-		return ctrl.Result{RequeueAfter: time.Second * 3}, err
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsCreated) {
@@ -218,7 +218,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Debug("Checking if all containers are ready")
 		if ready, err := r.isContainersReady(ctx, containers); !ready {
 			logger.SetPhase("CONTAINERS_NOT_READY")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, err
+			if err != nil {
+				logger.Error(err, "containers are not ready")
+			}
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 		}
 		logger.SetPhase("CONTAINERS_ARE_READY")
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsReady, metav1.ConditionTrue, "Init", "All weka containers are ready for clusterization")
