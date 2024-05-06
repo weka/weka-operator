@@ -325,7 +325,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 	initAllocationsMap(allocations, a.ClusterLevel.Nodes)
 	allocationsMap := allocations.NodeMap
 	nodes := a.ClusterLevel.Nodes
-	logger.Info("Allocating resources", "ownerCluster", ownerCluster, "template", template, "size", size, "nodes", nodes)
+	logger.Info("Allocating resources", "ownerCluster", ownerCluster.ClusterName, "size", size, "nodes", len(nodes))
 	slices.SortFunc(nodes, func(i, j string) int {
 		iAlloc := allocationsMap[NodeName(i)]
 		iDrives := iAlloc.GetFreeDrives(a.ClusterLevel.Drives)

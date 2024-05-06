@@ -117,11 +117,13 @@ test: ## Run tests.
 test-functional: ## Run functional tests.
 	go test -v ./test/functional/... -coverprofile cover.out -failfast
 
+.PHONY: test-e2e
+test-e2e: ## Run e2e tests.
+	pytest -v
+
 .PHONY: clean-e2e
 clean-e2e: ## Clean e2e tests.
-	- kubectl delete namespace weka-operator-e2e
-	- helm uninstall weka-operator --namespace weka-operator-e2e-system
-	- kubectl delete namespace weka-operator-e2e-system
+	- ./scripts/clean-testing.sh
 	- (cd ansible && ansible-playbook -i inventory.ini ./oci_clean.yaml)
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
