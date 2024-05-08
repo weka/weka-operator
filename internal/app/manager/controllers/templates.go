@@ -59,18 +59,6 @@ var DevboxWekabox = Topology{
 }
 
 var WekaClusterTemplates = map[string]ClusterTemplate{
-	"dev": {
-		DriveCores:        1,
-		ComputeCores:      1,
-		ComputeContainers: 5,
-		DriveContainers:   5,
-		NumDrives:         1,
-		MaxFdsPerNode:     1,
-		DriveHugepages:    4000,
-		ComputeHugepages:  4000,
-		HugePageSize:      "2Mi",
-		HugePagesOverride: "",
-	},
 	"small": {
 		DriveCores:        1,
 		ComputeCores:      1,
@@ -82,29 +70,16 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",
 	},
-	"demo_2mib": {
+	"large": {
 		DriveCores:        1,
 		ComputeCores:      1,
-		ComputeContainers: 5,
-		DriveContainers:   5,
+		ComputeContainers: 20,
+		DriveContainers:   20,
 		NumDrives:         1,
 		MaxFdsPerNode:     1,
-		DriveHugepages:    4000,
-		ComputeHugepages:  4000,
+		DriveHugepages:    1500,
+		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",
-		HugePagesOverride: "2800MiB",
-	},
-	"demo_1G": {
-		DriveCores:        1,
-		ComputeCores:      1,
-		ComputeContainers: 5,
-		DriveContainers:   5,
-		NumDrives:         1,
-		MaxFdsPerNode:     1,
-		DriveHugepages:    8000,
-		ComputeHugepages:  8000,
-		HugePageSize:      "1Gi",
-		HugePagesOverride: "3GiB",
 	},
 }
 
