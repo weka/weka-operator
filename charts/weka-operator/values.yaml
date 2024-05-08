@@ -23,6 +23,6 @@ maintenanceImage: busybox
 persistence:
   containerTombstone:
     gc:
-        enabled: true
-        interval: 5m
-        retention: 72h
+      enabled: true
+      interval: 5m
+      retention: 72h

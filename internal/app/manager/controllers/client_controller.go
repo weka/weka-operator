@@ -76,7 +76,7 @@ func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 
 func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Reconcile", "namespace", req.Namespace, "name", req.Name)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()
 
 	wekaClient, err := GetClient(ctx, req, r.Client)
