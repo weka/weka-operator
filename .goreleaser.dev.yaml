@@ -9,7 +9,7 @@ before:
     - make generate
     - go fmt ./...
     - go vet ./...
-#    - make test
+    - make test
 
 builds:
   - id: "weka-operator"
@@ -41,8 +41,6 @@ dockers:
 
     build_flag_templates:
       - "--target=manager"
-    extra_files:
-      - ca_cert
 
 #  - image_templates:
 #      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Tag }}-{{ .ShortCommit }}"

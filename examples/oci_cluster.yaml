@@ -4,7 +4,7 @@ metadata:
   name: clustera
 spec:
   size: 1
-  template: dev
+  template: small
   topology: discover_oci # to be removed in the future towards true discovery
   image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"

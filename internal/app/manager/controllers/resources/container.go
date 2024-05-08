@@ -448,8 +448,8 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores+1)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
-		cpuRequestStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))
-		cpuLimitStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1)+1) // forcing burstable qos
+		cpuRequestStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores)+100)
+		cpuLimitStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
