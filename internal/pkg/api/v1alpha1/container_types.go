@@ -27,7 +27,14 @@ const (
 	WekaContainerModeDrive         = "drive"
 	WekaContainerModeClient        = "client"
 	WekaContainerModeDiscovery     = "discovery"
+	WekaContainerModeS3            = "s3"
 )
+
+type S3Params struct {
+	EnvoyPort      int `json:"envoyPort,omitempty"`
+	EnvoyAdminPort int `json:"envoyAdminPort,omitempty"`
+	S3Port         int `json:"s3Port,omitempty"`
+}
 
 type WekaContainerSpec struct {
 	NodeAffinity      string            `json:"nodeAffinity,omitempty"`
@@ -37,10 +44,11 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery
-	Mode     string `json:"mode"`
-	NumCores int    `json:"numCores"`
-	CoreIds  []int  `json:"coreIds,omitempty"`
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
+	Mode       string `json:"mode"`
+	NumCores   int    `json:"numCores"`   //numCores is weka-specific cores
+	ExtraCores int    `json:"extraCores"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
+	CoreIds    []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
@@ -55,6 +63,7 @@ type WekaContainerSpec struct {
 	JoinIps             []string             `json:"joinIpPorts,omitempty"`
 	AppendSetupCommand  string               `json:"appendSetupCommand,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
+	S3Params            *S3Params            `json:"s3Params,omitempty"`
 }
 
 type Network struct {

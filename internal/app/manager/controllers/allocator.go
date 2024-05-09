@@ -12,8 +12,11 @@ import (
 
 const (
 	baseAgentPort         = 14101
+	baseEnvoyPort         = 13101
+	baseEnvoyAdminPort    = 12101
+	baseS3Port            = 11101
 	baseWekaContainerPort = 16001
-	agentPortStep         = 1
+	singlePortStep        = 1
 	wekaContainerPortStep = 100
 )
 
@@ -111,6 +114,9 @@ type NodeAllocations struct {
 	Cpu                map[Owner][]int
 	Drives             map[Owner][]string
 	AgentPorts         map[Owner]int
+	EnvoyPorts         map[Owner]int
+	EnvoyAdminPorts    map[Owner]int
+	S3Ports            map[Owner]int
 	WekaContainerPorts map[Owner]int
 }
 
@@ -214,6 +220,26 @@ OUTER:
 	}
 }
 
+func (n *NodeAllocations) NumS3ContainersInTotal() int {
+	count := 0
+	for owner, _ := range n.Cpu {
+		if owner.Role == "s3" {
+			count += 1
+		}
+	}
+	return count
+}
+
+func (n *NodeAllocations) NumS3ContainersOwnedByCluster(owner Owner) int {
+	count := 0
+	for resourceOwner := range n.Cpu {
+		if resourceOwner.IsSameOwner(owner) && resourceOwner.Role == "s3" {
+			count++
+		}
+	}
+	return count
+}
+
 func contains(alloc []string, searchstring string) bool {
 	for _, d := range alloc {
 		if d == searchstring {
@@ -232,6 +258,9 @@ type AllocRoleMap map[OwnerRole]int
 
 type GlobalAllocations struct {
 	AgentPorts         AllocRoleMap
+	EnvoyPorts         AllocRoleMap
+	EnvoyAdminPorts    AllocRoleMap
+	S3Ports            AllocRoleMap
 	WekaContainerPorts AllocRoleMap
 }
 
@@ -313,6 +342,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 
 	changed := false
 	// Code Improvements post existing tests...might need to change even more
+	var lastAllocFailureReason = ""
 
 	allocateResources := func(role string, numContainers int) error {
 	CONTAINERS:
@@ -327,6 +357,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 			for _, node := range nodes {
 				nodeAlloc := allocationsMap[NodeName(node)]
 				var availableDrives []string
+				var requiredCpus int
 				if role == "drive" {
 					availableDrives = nodeAlloc.GetFreeDrives(a.ClusterLevel.Drives)
 					if len(availableDrives) < template.NumDrives {
@@ -338,6 +369,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
 						continue
 					}
+					requiredCpus = template.DriveCores
 				} else if role == "compute" {
 					if nodeAlloc.NumComputeContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
 						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
@@ -346,11 +378,26 @@ func (a *Allocator) Allocate(ctx context.Context,
 					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) < 1 {
 						continue
 					}
+					requiredCpus = template.ComputeCores
+				} else if role == "s3" {
+					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) < 1 { // not allocating on nodes that do not host same-tenant drive
+						lastAllocFailureReason = "No drive container on host"
+						continue
+					}
+					if nodeAlloc.NumS3ContainersInTotal() >= a.ClusterLevel.MaxS3Containers {
+						lastAllocFailureReason = "MaxS3Containers reached"
+						continue
+					}
+					if nodeAlloc.NumS3ContainersOwnedByCluster(owner) >= 1 {
+						lastAllocFailureReason = "S3 container already allocated"
+						continue // no more then one s3 container on host
+					}
+					requiredCpus = template.S3Cores + template.S3ExtraCores
 				}
 				freeCpus := nodeAlloc.GetFreeCpus(a.ClusterLevel.GetAvailableCpus())
-				requiredCpus := template.ComputeCores
 				if len(freeCpus) < requiredCpus {
 					logger.Info("Not enough CPUs to allocate request", "role", role, "freeCpus", freeCpus, "requiredCpus", requiredCpus)
+					lastAllocFailureReason = "Not enough CPUs"
 					continue
 				}
 				// All looks good, allocating
@@ -359,11 +406,17 @@ func (a *Allocator) Allocate(ctx context.Context,
 					nodeAlloc.Drives[owner] = append(allocationsMap[NodeName(node)].Drives[owner], availableDrives[0:template.NumDrives]...)
 				}
 				nodeAlloc.Cpu[owner] = append(allocationsMap[NodeName(node)].Cpu[owner], freeCpus[0:requiredCpus]...)
-				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseAgentPort, agentPortStep, allocations.Global.AgentPorts)
+				// TODO: Unite agent, envoy, envoy admin and s3 into unified range/allocmap distringuished by OwnerRole. Current Gap - all three s3 ports represent single role
+				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseAgentPort, singlePortStep, allocations.Global.AgentPorts)
 				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseWekaContainerPort, wekaContainerPortStep, allocations.Global.WekaContainerPorts)
+				if role == "s3" {
+					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseEnvoyPort, singlePortStep, allocations.Global.EnvoyPorts)
+					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseEnvoyAdminPort, singlePortStep, allocations.Global.EnvoyAdminPorts)
+					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseS3Port, singlePortStep, allocations.Global.S3Ports)
+				}
 				continue CONTAINERS
 			}
-			logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "allocationsMap", allocationsMap, "changed", changed, "containerName", containerName, "owner", owner, "allocMap", allocationsMap)
+			logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "changed", changed, "containerName", containerName, "owner", owner, "lastAllocFailureReason", lastAllocFailureReason)
 			return fmt.Errorf("Not enough resources to allocate request")
 		}
 		logger.Info("Exit")
@@ -371,14 +424,20 @@ func (a *Allocator) Allocate(ctx context.Context,
 	}
 
 	if err := allocateResources("drive", template.DriveContainers*size); err != nil {
-		logger.Error(err, "Failed to allocate drives")
+		logger.Error(err, "Failed to allocate drive containers")
 		return allocations, err, changed
 	}
 
 	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
-		logger.Error(err, "Failed to allocate compute")
+		logger.Error(err, "Failed to allocate compute containers")
 		return allocations, err, changed
 	}
+
+	if err := allocateResources("s3", template.S3Containers*size); err != nil {
+		logger.Error(err, "Failed to allocate S3 containers")
+		return allocations, err, changed
+	}
+
 	logger.SetStatus(codes.Ok, "resources allocated")
 	return allocations, nil, changed
 }
@@ -396,13 +455,6 @@ func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocations *Allocat
 		}
 	}
 
-	for owner := range allocations.Global.AgentPorts {
-		if owner.OwnerCluster == cluster {
-			changed = true
-			delete(allocations.Global.AgentPorts, owner)
-		}
-	}
-
 	clearRoleAllocations := func(roleAllocations AllocRoleMap) {
 		for owner := range roleAllocations {
 			if owner.OwnerCluster == cluster {
@@ -413,6 +465,9 @@ func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocations *Allocat
 	}
 
 	clearRoleAllocations(allocations.Global.AgentPorts)
+	clearRoleAllocations(allocations.Global.S3Ports)
+	clearRoleAllocations(allocations.Global.EnvoyPorts)
+	clearRoleAllocations(allocations.Global.EnvoyAdminPorts)
 	clearRoleAllocations(allocations.Global.WekaContainerPorts)
 
 	return changed
@@ -431,6 +486,15 @@ func initAllocationsMap(allocations *Allocations, nodes []string) {
 	if allocations.Global.WekaContainerPorts == nil {
 		allocations.Global.WekaContainerPorts = AllocRoleMap{}
 	}
+	if allocations.Global.S3Ports == nil {
+		allocations.Global.S3Ports = AllocRoleMap{}
+	}
+	if allocations.Global.EnvoyPorts == nil {
+		allocations.Global.EnvoyPorts = AllocRoleMap{}
+	}
+	if allocations.Global.EnvoyAdminPorts == nil {
+		allocations.Global.EnvoyAdminPorts = AllocRoleMap{}
+	}
 
 	for _, node := range nodes {
 		if _, ok := allocations.NodeMap[NodeName(node)]; ok {
@@ -440,17 +504,23 @@ func initAllocationsMap(allocations *Allocations, nodes []string) {
 			Cpu:                map[Owner][]int{},
 			Drives:             map[Owner][]string{},
 			AgentPorts:         map[Owner]int{},
+			EnvoyPorts:         map[Owner]int{},
+			EnvoyAdminPorts:    map[Owner]int{},
+			S3Ports:            map[Owner]int{},
 			WekaContainerPorts: map[Owner]int{},
 		}
 	}
 }
 
 type OwnedResources struct {
-	CoreIds   []int
-	Drives    []string
-	Port      int
-	AgentPort int
-	Node      string
+	CoreIds        []int
+	Drives         []string
+	Port           int
+	AgentPort      int
+	S3Port         int
+	EnvoyPort      int
+	EnvoyAdminPort int
+	Node           string
 }
 
 func GetOwnedResources(owner Owner, allocations *Allocations) (OwnedResources, bool) {
@@ -463,6 +533,11 @@ func GetOwnedResources(owner Owner, allocations *Allocations) (OwnedResources, b
 			resources.Port = alloc.WekaContainerPorts[owner]
 			resources.AgentPort = alloc.AgentPorts[owner]
 			resources.Drives = append(resources.Drives, alloc.Drives[owner]...)
+			if owner.Role == "s3" {
+				resources.S3Port = alloc.S3Ports[owner]
+				resources.EnvoyPort = alloc.EnvoyPorts[owner]
+				resources.EnvoyAdminPort = alloc.EnvoyAdminPorts[owner]
+			}
 			break
 		}
 	}
@@ -470,9 +545,12 @@ func GetOwnedResources(owner Owner, allocations *Allocations) (OwnedResources, b
 		return resources, false
 	}
 
-	// Assuming that IF we have a node, we have all the resources
+	// Assuming that IF we have a node, we have all the resources, this might become wrong going forward
 	resources.Port = allocations.Global.WekaContainerPorts[owner.ToOwnerRole()]
 	resources.AgentPort = allocations.Global.AgentPorts[owner.ToOwnerRole()]
+	resources.S3Port = allocations.Global.S3Ports[owner.ToOwnerRole()]
+	resources.EnvoyPort = allocations.Global.EnvoyPorts[owner.ToOwnerRole()]
+	resources.EnvoyAdminPort = allocations.Global.EnvoyAdminPorts[owner.ToOwnerRole()]
 
 	return resources, true
 }
