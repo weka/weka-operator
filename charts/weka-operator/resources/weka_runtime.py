@@ -538,15 +538,26 @@ async def main():
 
 
 async def stop_daemon(process):
-    logging.info(f"stopping daemon with pid {process.pid} (via process group)")
+    logging.info(f"stopping daemon with pid {process.pid} (via process group), {process}")
+    
+    async def cleanup_process():
+        for k, v in list(processes.items()):
+            if v == process:
+                logging.info(f"removing process {k}")
+                del processes[k]
+        logging.info(f"waiting for process {process.pid} to exit")
+        await process.wait()
+        logging.info(f"process {process.pid} exited")
+
+    if process.returncode is not None:
+        await cleanup_process()
+        return
+
     pgid = os.getpgid(process.pid)
+    logging.info(f"stopping process group {pgid}")
     os.killpg(pgid, signal.SIGTERM)
-    for k, v in list(processes.items()):
-        if v == process:
-            del processes[k]
-    logging.info(f"waiting for process {process.pid} to exit")
-    await process.wait()
-    logging.info(f"process {process.pid} exited")
+    logging.info(f"process group {pgid} stopped")
+    await cleanup_process()
 
 
 async def shutdown():
@@ -559,11 +570,17 @@ async def shutdown():
         await run_command("weka local stop")
         logging.info("finished stopping weka container")
 
+    for key, process in dict(processes.items()).items():
+        logging.info(f"stopping process {process.pid}, {key}")
+        await stop_daemon(process)
+        logging.info(f"process {process.pid} stopped")
+
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task(loop)]
     [task.cancel() for task in tasks]
-    for process in list(processes.values()):
-        await stop_daemon(process)
+
+    logging.info("All processes stopped, stopping main loop")
     loop.stop()
+    logging.info("Main loop stopped")
 
 
 exiting = False
