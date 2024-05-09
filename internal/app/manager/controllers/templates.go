@@ -8,16 +8,20 @@ import (
 )
 
 type ClusterTemplate struct {
-	DriveCores        int
-	ComputeCores      int
-	ComputeContainers int
-	DriveContainers   int
-	NumDrives         int
-	MaxFdsPerNode     int
-	DriveHugepages    int
-	ComputeHugepages  int
-	HugePageSize      string
-	HugePagesOverride string
+	DriveCores          int
+	ComputeCores        int
+	S3Cores             int
+	S3ExtraCores        int
+	ComputeContainers   int
+	DriveContainers     int
+	S3Containers        int
+	NumDrives           int
+	MaxFdsPerNode       int
+	DriveHugepages      int
+	ComputeHugepages    int
+	HugePageSize        string
+	HugePagesOverride   string
+	S3FrontendHugepages int
 }
 
 // Topology is a stub of all information we require to make a scheduling
@@ -32,6 +36,7 @@ type Topology struct {
 	CoreStep        int                      `json:"coreStep"`
 	Network         v1alpha1.NetworkSelector `json:"network"`
 	ForcedCpuPolicy v1alpha1.CpuPolicy       `json:"forcedCpuPolicy"`
+	MaxS3Containers int                      `json:"maxS3Containers"`
 }
 
 func (k *Topology) GetAvailableCpus() []int {
@@ -59,6 +64,21 @@ var DevboxWekabox = Topology{
 }
 
 var WekaClusterTemplates = map[string]ClusterTemplate{
+	"small_s3": {
+		DriveCores:          1,
+		ComputeCores:        1,
+		ComputeContainers:   5,
+		DriveContainers:     5,
+		S3Containers:        5,
+		S3Cores:             1,
+		S3ExtraCores:        1,
+		NumDrives:           1,
+		MaxFdsPerNode:       1,
+		DriveHugepages:      1500,
+		ComputeHugepages:    3000,
+		S3FrontendHugepages: 1400,
+		HugePageSize:        "2Mi",
+	},
 	"small": {
 		DriveCores:        1,
 		ComputeCores:      1,
@@ -122,6 +142,7 @@ func getAwsI3en6x(ctx context.Context, reader client.Reader, nodeSelector map[st
 		CoreStep:        1,
 		MaxCore:         11,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers: 1,
 	}, nil
 }
 

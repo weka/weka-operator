@@ -408,8 +408,13 @@ func (f *ContainerFactory) getHugePagesDetails() HugePagesDetails {
 }
 
 func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
+	totalNumCores := f.container.Spec.NumCores
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+		totalNumCores += f.container.Spec.ExtraCores
+	}
+
 	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
-		"cores", f.container.Spec.NumCores,
+		"cores", totalNumCores,
 		"mode", f.container.Spec.Mode,
 		"cpuPolicy", f.container.Spec.CpuPolicy,
 	)
@@ -442,14 +447,14 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 
 	switch cpuPolicy {
 	case wekav1alpha1.CpuPolicyDedicatedHT:
-		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
+		cpuRequestStr = fmt.Sprintf("%d", totalNumCores*2+1)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyDedicated:
-		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores+1)
+		cpuRequestStr = fmt.Sprintf("%d", totalNumCores+1)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
-		cpuRequestStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores)+100)
-		cpuLimitStr = fmt.Sprintf("%dm", 1000*(f.container.Spec.NumCores+1))
+		cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
+		cpuLimitStr = fmt.Sprintf("%dm", 1000*(totalNumCores+1))
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
@@ -458,7 +463,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 			Value: "auto",
 		})
 
-		cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores*2+1)
+		cpuRequestStr = fmt.Sprintf("%d", totalNumCores*2+1)
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicated {
@@ -494,21 +499,29 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		managementMemory := 1965
 		perFrontendMemory := 2050
 		buffer := 450
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
 		perDriveMemory := 2100
 		buffer := 400
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*f.container.Spec.NumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
 		managementMemory := 2200
 		perComputeMemory := 3600
 		buffer := 400
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*f.container.Spec.NumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores)
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+		s3Memory := 8000
+		managementMemory := 1965 + s3Memory // 8000 per S3
+		perFrontendMemory := 2050
+		buffer := 450
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores)
 	}
 
 	// since this is HT, we are doubling num of cores on allocation

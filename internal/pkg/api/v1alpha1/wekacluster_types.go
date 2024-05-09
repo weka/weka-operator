@@ -177,6 +177,12 @@ func (status *WekaClusterStatus) InitStatus() {
 		Status: metav1.ConditionFalse, Reason: "Init",
 		Message: "Weka Cluster IO is not started",
 	})
+
+	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:   condition.CondDefaultFsCreated,
+		Status: metav1.ConditionFalse, Reason: "Init",
+		Message: "Default fsgroup and filesystem are not created yet",
+	})
 }
 
 func init() {

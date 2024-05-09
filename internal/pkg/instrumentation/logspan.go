@@ -135,7 +135,6 @@ func (ls *SpanLogger) SetAttributes(attrs ...attribute.KeyValue) {
 func (ls *SpanLogger) SetPhase(phase string) {
 	p := strings.TrimSpace(strings.ToUpper(strings.Replace(phase, " ", "_", -1)))
 	ls.Span.SetAttributes(attribute.String("phase", p))
-	ls.WithValues("phase", p).Info("Setting phase")
 }
 
 func (ls *SpanLogger) Fatalln(err error, msg string, keysAndValues ...interface{}) {

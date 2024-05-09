@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-type WekaStatusResponse struct {
-	Status string `json:"status"`
-}
-
 type ClusterContainer struct {
 	State          string   `json:"state"`
 	Status         string   `json:"status"`

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -328,6 +329,37 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		}
 	}
 	logger.SetPhase("CLUSTER_READY")
+
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
+		logger.SetPhase("CONFIGURING_DEFAULT_FS")
+		err := r.ensureDefaultFs(ctx, containers[0])
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
+		err = r.Status().Update(ctx, wekaCluster)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
+		logger.SetPhase("CONFIGURING_DEFAULT_FS")
+		containers := r.SelectS3Containers(containers)
+		if len(containers) > 0 {
+			err := r.ensureS3Cluster(ctx, containers)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			_ = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
+			err = r.Status().Update(ctx, wekaCluster)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	logger.SetPhase("CLUSTER_READY")
 	return ctrl.Result{}, nil
 }
 
@@ -574,6 +606,12 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 		logger.Error(err, "Failed to ensure compute containers")
 		return nil, err
 	}
+
+	if err := ensureContainers("s3", template.S3Containers); err != nil {
+		logger.Error(err, "Failed to ensure S3 containers")
+		return nil, err
+	}
+
 	logger.InfoWithStatus(codes.Ok, "All cluster containers are created")
 	return foundContainers, nil
 }
@@ -639,13 +677,18 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 
 	var hugePagesNum int
 	var appendSetupCommand string
+	var numCores int
 	if role == "drive" {
 		hugePagesNum = template.DriveHugepages
 		appendSetupCommand = cluster.Spec.DriveAppendSetupCommand
-	} else {
-		// TODO: FIX THIS for other roles
+		numCores = template.DriveCores
+	} else if role == "compute" {
 		hugePagesNum = template.ComputeHugepages
 		appendSetupCommand = cluster.Spec.ComputeAppendSetupCommand
+		numCores = template.ComputeCores
+	} else if role == "s3" {
+		hugePagesNum = template.S3FrontendHugepages
+		numCores = template.S3Cores
 	}
 
 	network, err := resources.GetContainerNetwork(topology.Network)
@@ -679,6 +722,15 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 		coreIds = []int{}
 	}
 
+	var s3Params *wekav1alpha1.S3Params
+	if role == "s3" {
+		s3Params = &wekav1alpha1.S3Params{
+			EnvoyPort:      ownedResources.EnvoyPort,
+			EnvoyAdminPort: ownedResources.EnvoyAdminPort,
+			S3Port:         ownedResources.S3Port,
+		}
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -697,7 +749,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			ImagePullSecret:     cluster.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
 			Mode:                role,
-			NumCores:            len(ownedResources.CoreIds),
+			NumCores:            numCores,
 			CoreIds:             coreIds,
 			Network:             network,
 			Hugepages:           hugePagesNum,
@@ -710,6 +762,7 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 			CpuPolicy:           cluster.Spec.CpuPolicy,
 			AppendSetupCommand:  appendSetupCommand,
 			TracesConfiguration: cluster.Spec.TracesConfiguration,
+			S3Params:            s3Params,
 		},
 	}
 
@@ -1016,4 +1069,91 @@ func (r *WekaClusterReconciler) getUsernameAndPassword(ctx context.Context, name
 	username := secret.Data["username"]
 	password := secret.Data["password"]
 	return string(username), string(password), nil
+}
+
+func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDefaultFs")
+	defer end()
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+	status, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = wekaService.CreateFilesystemGroup(ctx, "default")
+	if err != nil {
+		if !errors.As(err, &services.FilesystemGroupExists{}) {
+			return err
+		}
+	}
+
+	// This defaults are not meant to be configurable, as instead weka should not require them.
+	// Until then, user configuratino post cluster create
+
+	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
+	const s3ReservedCapacity = 100 * 1024 * 1024 * 1024
+	var configFsSize int64 = 3 * 1024 * 1024 * 1024
+
+	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &services.FilesystemExists{}) {
+			return err
+		}
+	}
+
+	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", services.FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(s3ReservedCapacity, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &services.FilesystemExists{}) {
+			return err
+		}
+	}
+
+	logger.SetStatus(codes.Ok, "default filesystem ensured")
+	return nil
+}
+
+func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
+	defer end()
+
+	container := containers[0]
+	wekaService := services.NewWekaService(r.ExecService, container)
+	containerIds := []int{}
+	for _, c := range containers {
+		containerIds = append(containerIds, *c.Status.ClusterContainerID)
+	}
+
+	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
+		EnvoyPort:      container.Spec.S3Params.EnvoyPort,
+		EnvoyAdminPort: container.Spec.S3Params.EnvoyAdminPort,
+		S3Port:         container.Spec.S3Params.S3Port,
+		ContainerIds:   containerIds,
+	})
+	if err != nil {
+		if !errors.As(err, &services.S3ClusterExists{}) {
+			return err
+		}
+	}
+
+	logger.SetStatus(codes.Ok, "S3 cluster ensured")
+	return nil
+}
+
+func (r *WekaClusterReconciler) SelectS3Containers(containers []*wekav1alpha1.WekaContainer) []*wekav1alpha1.WekaContainer {
+	var s3Containers []*wekav1alpha1.WekaContainer
+	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+			s3Containers = append(s3Containers, container)
+		}
+	}
+	return s3Containers
 }

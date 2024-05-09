@@ -10,7 +10,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -60,19 +59,15 @@ func NewExecInPod(pod *v1.Pod) (*Exec, error) {
 }
 
 func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
-	ctx, span := instrumentation.Tracer.Start(ctx, "Exec")
-	defer span.End()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Exec", "command_name", name)
+	defer end()
 	//TODO: hide sensitive data
-	span.SetAttributes(
-		attribute.String("pod", e.Pod.Name),
-		attribute.String("namespace", e.Pod.Namespace),
+	logger.SetValues(
+		"pod", e.Pod.Name,
 	)
-	if name != "" {
-		span.SetName(name)
-	}
 
 	if !sensitive {
-		span.SetAttributes(attribute.String("command", strings.Join(command, " ")))
+		logger.SetValues("command", strings.Join(command, " "))
 	}
 
 	podExec := e.ClientSet.CoreV1().RESTClient().Post().
@@ -90,8 +85,7 @@ func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []
 
 	executor, err := remotecommand.NewSPDYExecutor(e.Config, "POST", podExec.URL())
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Exec failed to create executor")
+		logger.SetError(err, "Exec failed to create executor")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to create executor")
 	}
 
@@ -104,24 +98,19 @@ func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []
 		var exitError exec.ExitError
 		if errors.As(err, &exitError) {
 			exitCode := exitError.ExitStatus() // ExitStatus() returns the exit code
-			span.SetAttributes(attribute.Int("exit_code", exitCode))
-			span.SetStatus(codes.Ok, "Execution succeeded with remote error")
+			logger.SetValues("exit_code", exitCode)
+			logger.SetStatus(codes.Ok, "Execution succeeded with remote error")
 			if !sensitive {
-				span.SetAttributes(
-					attribute.String("stdout", stdout.String()),
-					attribute.String("stderr", stderr.String()),
-				)
+				logger.SetValues("stdout", stdout.String(), "stderr", stderr.String())
 			}
 			return stdout, stderr, err
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Exec failed to stream")
-		span.AddEvent("Exec failed to stream")
+		logger.SetError(err, "Exec failed to stream")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to stream")
 	}
-	span.SetAttributes(attribute.Int("exit_code", 0))
-	span.SetStatus(codes.Ok, "Exec success")
-	span.AddEvent("Execution completed")
+	logger.SetValues("exit_code", 0)
+	logger.SetStatus(codes.Ok, "Exec success")
+	logger.AddEvent("Execution completed")
 	return stdout, stderr, err
 }
 

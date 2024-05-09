@@ -87,7 +87,10 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     ),
     "4.2.10-k8so.0": dict(
         wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
-    )
+    ),
+    "4.2.10.1671-363e1e8fcfb1290e061815445e973310-dev": dict(
+        wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
 }
 # WEKA_DRIVER_VERSION_OPTIONS = [
 #     "1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
@@ -273,6 +276,8 @@ async def create_container():
         mode_part = "--only-drives-cores"
     elif MODE == "client":
         mode_part = "--only-frontend-cores"
+    elif MODE == "s3":
+        mode_part = "--only-frontend-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -323,7 +328,7 @@ async def ensure_weka_container():
     if len(current_containers) == 0:
         logging.info("no pre-existing containers, creating")
         # create container
-        if MODE in ["compute", "drive", "client"]:
+        if MODE in ["compute", "drive", "client", "s3"]:
             await create_container()
         else:
             raise NotImplementedError(f"Unsupported mode: {MODE}")
@@ -334,6 +339,8 @@ async def ensure_weka_container():
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
+    if MODE == "s3":
+        resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
 
     full_cores = find_full_cores(NUM_CORES)
@@ -341,7 +348,6 @@ async def ensure_weka_container():
     for node_id, node in resources['nodes'].items():
         if node['dedicate_core']:
             node['core_id'] = full_cores[cores_cursor]
-            # TODO: Cores change was not fully tested yet in practice
             cores_cursor += 1
     # save resources
     with open("/tmp/weka-resources.json", "w") as f:

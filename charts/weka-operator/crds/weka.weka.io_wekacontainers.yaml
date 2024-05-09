@@ -56,6 +56,8 @@ spec:
                 type: array
               driversDistService:
                 type: string
+              extraCores:
+                type: integer
               hugepages:
                 type: integer
               hugepagesSize:
@@ -78,6 +80,7 @@ spec:
                 - dist
                 - drivers-loader
                 - discovery
+                - s3
                 type: string
               name:
                 type: string
@@ -100,6 +103,15 @@ spec:
                 type: integer
               port:
                 type: integer
+              s3Params:
+                properties:
+                  envoyAdminPort:
+                    type: integer
+                  envoyPort:
+                    type: integer
+                  s3Port:
+                    type: integer
+                type: object
               tracesConfiguration:
                 description: TraceConfiguration defines the configuration for the
                   traces, accepts parameters in gigabytes
@@ -197,6 +209,7 @@ spec:
                     x-kubernetes-map-type: atomic
                 type: object
             required:
+            - extraCores
             - image
             - mode
             - name
