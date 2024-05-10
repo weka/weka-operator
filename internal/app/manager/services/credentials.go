@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/common"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +44,7 @@ func (r *credentialsService) ApplyClusterCredentials(ctx context.Context, cluste
 	defer end()
 	logger.SetPhase("APPLYING_CLUSTER_CREDENTIALS")
 	if len(containers) == 0 {
-		err := errors.New("containers list is empty")
+		err := &common.ArgumentError{Argument: "contaienrs", Message: "containers list is empty"}
 		logger.Error(err, "containers list is empty")
 		return err
 	}

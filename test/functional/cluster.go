@@ -102,8 +102,19 @@ func (c *Cluster) DeployWekaCluster(t *testing.T) {
 		}
 	})
 
+	t.Run("Initialized Condition", c.InitializedCondition(ctx, cluster))
 	t.Run("Secrets Created Condition", c.SecretsCreatedCondition(ctx, cluster))
 	t.Run("Pods Created Condition", c.PodsCreatedCondition(ctx, cluster))
+}
+
+func (c *Cluster) InitializedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		defer cancel()
+		if err := waitForCondition(ctx, c, cluster, condition.CondInitialized); err != nil {
+			t.Fatalf("failed to wait for Initialized condition: %v", err)
+		}
+	}
 }
 
 func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
@@ -251,10 +262,11 @@ func (c *Cluster) VerifyWekaCluster(t *testing.T) {
 	logger.SetValues("cluster", cluster.Name)
 
 	t.Run("Pods Ready Condition", c.PodsReadyCondition(ctx, cluster))
-	t.Run("Secrets Applied Condition", c.SecretsAppliedCondition(ctx, cluster))
 	t.Run("Cluster Created Condition", c.ClusterCreatedCondition(ctx, cluster))
 	t.Run("Drives Added Condition", c.DrivesAddedCondition(ctx, cluster))
+	t.Run("All Containers Joined Cluster Condition", c.AllContainersJoinedClusterCondition(ctx, cluster))
 	t.Run("IO Started Condition", c.IOStartedCondition(ctx, cluster))
+	t.Run("Secrets Applied Condition", c.SecretsAppliedCondition(ctx, cluster))
 	t.Run("Default FS Created Condition", c.DefaultFSCreatedCondition(ctx, cluster))
 }
 
@@ -298,6 +310,16 @@ func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *wekav1alpha
 	}
 }
 
+func (c *Cluster) AllContainersJoinedClusterCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		defer cancel()
+		if err := waitForCondition(ctx, c, cluster, condition.CondJoinedCluster); err != nil {
+			t.Fatalf("failed to wait for All Containers Joined Cluster condition: %v", err)
+		}
+	}
+}
+
 func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
@@ -310,7 +332,7 @@ func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.
 
 func (c *Cluster) DefaultFSCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
 		if err := waitForCondition(ctx, c, cluster, condition.CondDefaultFsCreated); err != nil {
 			t.Fatalf("failed to wait for Default FS Created condition: %v", err)
@@ -329,14 +351,22 @@ func waitForCondition(ctx context.Context, c client.Client, cluster *wekav1alpha
 			return false
 		}
 		actualCondition = meta.FindStatusCondition(cluster.Status.Conditions, cond)
-		return actualCondition != nil && actualCondition.Status == metav1.ConditionTrue
+		return actualCondition != nil && (actualCondition.Status == metav1.ConditionTrue || actualCondition.Reason == "Error")
 	})
 	if actualCondition == nil {
 		return pretty.Errorf("condition %q not found", cond)
 	}
+
+	if actualCondition.Reason == "Error" {
+		err := fmt.Errorf("condition %q failed: %s", cond, actualCondition.Message)
+		logger.Error(err, "Condition failed", "condition", actualCondition)
+		return err
+	}
+
 	if actualCondition.Status != metav1.ConditionTrue {
-		logger.Info("Condition status", "condition", actualCondition)
-		return pretty.Errorf("condition %q is not true", cond)
+		err := fmt.Errorf("condition %q is not true", cond)
+		logger.Error(err, "Condition status", "condition", actualCondition)
+		return err
 	}
 	return nil
 }

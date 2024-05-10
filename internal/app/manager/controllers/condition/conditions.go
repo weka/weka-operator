@@ -86,7 +86,7 @@ func AllCreated(c WekaClusterCondition) WekaClusterCondition {
 func CondClusterSecretsCreated() *condition {
 	return &condition{
 		Condition: metav1.Condition{
-			Type:    "ClusterSecretsApplied",
+			Type:    "ClusterSecretsCreated",
 			Status:  metav1.ConditionFalse,
 			Reason:  "Init",
 			Message: "Secrets are not created yet",

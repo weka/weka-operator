@@ -17,8 +17,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -78,33 +76,6 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		CredentialsService:   services.NewCredentialsService(client, scheme, config),
 		WekaContainerFactory: factories.NewWekaContainerFactory(scheme),
 	}
-}
-
-func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
-	condType string, status metav1.ConditionStatus, reason string, message string,
-) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCondition", "condition_type", condType, "condition_status", string(status))
-	defer end()
-
-	logger.Info("Setting condition",
-		"condition_type", condType,
-		"condition_status", string(status),
-	)
-
-	condRecord := metav1.Condition{
-		Type:    condType,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
-	}
-
-	meta.SetStatusCondition(&cluster.Status.Conditions, condRecord)
-	err := r.Status().Update(ctx, cluster)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -191,57 +162,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	if err := steps.reconcile(ctx); err != nil {
 		logger.Error(err, "Failed to reconcile cluster")
 		return ctrl.Result{}, err
-	}
-
-	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		err := r.WekaClusterService.EnsureDefaultFs(ctx, containers[0])
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
-		err = r.Status().Update(ctx, wekaCluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		containers := r.SelectS3Containers(containers)
-		if len(containers) > 0 {
-			err := r.WekaClusterService.EnsureS3Cluster(ctx, containers)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsCreated) {
-		err := r.SecretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsCreated, metav1.ConditionTrue, "Init", "Created client secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsApplied) {
-		err := r.applyClientLoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsApplied, metav1.ConditionTrue, "Init", "Applied client secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
 	}
 
 	logger.SetPhase("CLUSTER_READY")

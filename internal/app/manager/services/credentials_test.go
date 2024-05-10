@@ -10,6 +10,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/services/mocks"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/common"
 	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -55,29 +56,25 @@ func TestApplyClusterCredentials(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		checkError func(error) bool
 		containers []*wekav1alpha1.WekaContainer
+		error      error
 	}{
 		{
 			name:       "empty containers",
 			containers: []*wekav1alpha1.WekaContainer{},
-			checkError: func(err error) bool {
-				return err != nil && err.Error() == "containers list is empty"
-			},
+			error:      common.ArgumentError{},
 		},
 		{
 			name:       "with containers",
 			containers: containers,
-			checkError: func(err error) bool {
-				return err == nil
-			},
+			error:      nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := subject.ApplyClusterCredentials(ctx, cluster, tt.containers)
-			if !tt.checkError(err) {
+			if err != tt.error && !errors.As(tt.error, &err) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 		})

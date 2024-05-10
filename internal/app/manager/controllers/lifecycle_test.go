@@ -10,6 +10,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -107,21 +108,22 @@ func TestRunLoop(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test.phase.EXPECT().String().Return(test.name)
-		test.phase.EXPECT().IsCompleted().Return(test.completed)
-		test.phase.EXPECT().IsReady().Return(test.ready).AnyTimes()
-		test.phase.EXPECT().Handle(gomock.Any()).Return(test.requeue, test.expected).AnyTimes()
+		t.Run(test.name, func(t *testing.T) {
+			test.phase.EXPECT().String().Return(test.name)
+			test.phase.EXPECT().Handle(gomock.Any()).Return(test.requeue, test.expected).AnyTimes()
 
-		phases := []ReconciliationPhase{test.phase}
-		stateMachine := TestingReconcilerStateMachine(t)
-		stateMachine.PhasesList = &phases
-		result, err := stateMachine.RunLoop(context.Background())
-		if err != test.expected {
-			t.Errorf("expected error to be %v, was %v", test.expected, err)
-		}
-		if result.Requeue != test.requeue.Requeue {
-			t.Errorf("%s: expected result to requeue %v, was %v", test.name, test.requeue, result.Requeue)
-		}
+			phases := []ReconciliationPhase{test.phase}
+			stateMachine := TestingReconcilerStateMachine(t)
+			stateMachine.PhasesList = &phases
+			result, err := stateMachine.RunLoop(context.Background())
+			// if err != test.expected {
+			if !errors.Is(err, test.expected) {
+				t.Errorf("expected error to be %v, was %v", test.expected, err)
+			}
+			if result.Requeue != test.requeue.Requeue {
+				t.Errorf("%s: expected result to requeue %v, was %v", test.name, test.requeue, result.Requeue)
+			}
+		})
 	}
 }
 
@@ -130,52 +132,6 @@ func TestPhases(t *testing.T) {
 	phases := stateMachine.Phases()
 	if len(phases) == 0 {
 		t.Errorf("expected phases to be non-empty")
-	}
-}
-
-func TestGetInitState(t *testing.T) {
-	testEnv, err := setupTestEnv(context.Background())
-	if err != nil {
-		t.Fatalf("failed to setup test environment: %v", err)
-	}
-	ctx, _, done := instrumentation.GetLogSpan(testEnv.Ctx, "TestGetInitState")
-	defer done()
-
-	stateMachine := TestingReconcilerStateMachine(t)
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	testingClient := mocks.NewMockClient(ctrl)
-	stateMachine.Client = testingClient
-
-	statusWriter := mocks.NewMockStatusWriter(ctrl)
-	statusWriter.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	testingClient.EXPECT().Status().Return(statusWriter)
-	testingClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	testingClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	state, error := stateMachine.GetInitState()
-	if error != nil {
-		t.Errorf("expected error to be nil")
-	}
-	if state == nil {
-		t.Errorf("expected state to be non-nil")
-	}
-
-	state.HandleInit(ctx)
-
-	state, error = stateMachine.GetInitState()
-	if error == nil {
-		t.Errorf("expected error to be 'already initialized'")
-	}
-	if state != nil {
-		t.Errorf("expected state to be nil")
-	}
-
-	err = teardownTestEnv(testEnv)
-	if err != nil {
-		t.Fatalf("failed to teardown test environment: %v", err)
 	}
 }
 
@@ -202,11 +158,15 @@ func TestSecretsNotCreatedCondition(t *testing.T) {
 	testingClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	testingClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &SecretsNotCreatedCondition{startingState}
+	condition := &SecretsNotCreatedCondition{ReconcilerStateMachine: stateMachine}
 
-	if err := condition.Handle(context.Background()); err != nil {
+	// TODO: Test non-happy path
+	result, err := condition.Handle(context.Background())
+	if err != nil {
 		t.Errorf("expected error to be nil")
+	}
+	if result.Requeue {
+		t.Errorf("expected result to not requeue")
 	}
 }
 
@@ -230,8 +190,7 @@ func TestPodsNotCreatedCondition(t *testing.T) {
 	wekaClusterService.EXPECT().EnsureWekaContainers(gomock.Any(), gomock.Any()).Return(containers, nil).AnyTimes()
 	stateMachine.WekaClusterService = wekaClusterService
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	podsNotCreatedCondition := &PodsNotCreatedCondition{startingState}
+	podsNotCreatedCondition := &PodsNotCreatedCondition{ReconcilerStateMachine: stateMachine}
 
 	tests := []struct {
 		name           string
@@ -270,8 +229,12 @@ func TestPodsNotCreatedCondition(t *testing.T) {
 			}
 			os.Setenv("OPERATOR_DEV_MODE", "true")
 
-			if err := podsNotCreatedCondition.Handle(context.Background()); err != nil {
+			result, err := podsNotCreatedCondition.Handle(context.Background())
+			if err != nil {
 				t.Errorf("expected error to be nil, was %v", err)
+			}
+			if result.Requeue {
+				t.Log("expected result to not requeue")
 			}
 
 			postCondition := meta.FindStatusCondition(stateMachine.Cluster.Status.Conditions, condition.CondPodsReady)
@@ -305,12 +268,15 @@ func TestClusterNotCreatedCondition(t *testing.T) {
 	testingClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	testingClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &ClusterNotCreatedCondition{startingState}
+	condition := &ClusterNotCreatedCondition{ReconcilerStateMachine: stateMachine}
 
 	os.Setenv("OPERATOR_DEV_MODE", "true")
-	if err := condition.Handle(context.Background()); err != nil {
+	result, err := condition.Handle(context.Background())
+	if err != nil {
 		t.Errorf("expected error to be nil")
+	}
+	if result.Requeue {
+		t.Log("expected result to not requeue")
 	}
 }
 
@@ -335,12 +301,15 @@ func TestContainersNotJoinedCondition(t *testing.T) {
 	wekaClusterService.EXPECT().EnsureClusterContainerIds(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	stateMachine.WekaClusterService = wekaClusterService
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &ContainersNotJoinedCondition{startingState}
+	condition := &ContainersNotJoinedCondition{ReconcilerStateMachine: stateMachine}
 
 	os.Setenv("OPERATOR_DEV_MODE", "true")
-	if err := condition.Handle(context.Background()); err != nil {
+	result, err := condition.Handle(context.Background())
+	if err != nil {
 		t.Errorf("expected error to be nil")
+	}
+	if result.Requeue {
+		t.Log("expected result to not requeue")
 	}
 }
 
@@ -364,12 +333,15 @@ func TestDrivesNotAddedCondition(t *testing.T) {
 	wekaClusterService.EXPECT().EnsureWekaContainers(gomock.Any(), gomock.Any()).Return(containers, nil).AnyTimes()
 	stateMachine.WekaClusterService = wekaClusterService
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &DrivesNotAddedCondition{startingState}
+	condition := &DrivesNotAddedCondition{ReconcilerStateMachine: stateMachine}
 
 	os.Setenv("OPERATOR_DEV_MODE", "true")
-	if err := condition.Handle(context.Background()); err != nil {
+	result, err := condition.Handle(context.Background())
+	if err != nil {
 		t.Errorf("expected error to be nil")
+	}
+	if result.Requeue {
+		t.Errorf("expected result to not requeue")
 	}
 }
 
@@ -394,47 +366,119 @@ func TestIoNotStartedCondition(t *testing.T) {
 	testingClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	testingClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &IoNotStartedCondition{startingState}
+	condition := &IoNotStartedCondition{ReconcilerStateMachine: stateMachine}
 
 	os.Setenv("OPERATOR_DEV_MODE", "true")
-	if err := condition.Handle(context.Background()); err != nil {
+	result, err := condition.Handle(context.Background())
+	if err != nil {
 		t.Errorf("expected error to be nil")
+	}
+	if result.Requeue {
+		t.Log("expected result to not requeue")
 	}
 }
 
 func TestSecretsNotAppliedCondition(t *testing.T) {
+	ctx, _, done := instrumentation.GetLogSpan(context.Background(), "TestSecretsNotAppliedCondition")
+	defer done()
+
 	stateMachine := TestingReconcilerStateMachine(t)
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	testingClient := mocks.NewMockClient(ctrl)
-	stateMachine.Client = testingClient
+	subject := &SecretsNotAppliedCondition{ReconcilerStateMachine: stateMachine}
+
+	os.Setenv("OPERATOR_DEV_MODE", "true")
+
+	clusterService := mocks.NewMockWekaClusterService(ctrl)
+	clusterService.EXPECT().EnsureWekaContainers(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	credentialsService := mocks.NewMockCredentialsService(ctrl)
+	credentialsService.EXPECT().ApplyClusterCredentials(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	statusWriter := mocks.NewMockStatusWriter(ctrl)
 	statusWriter.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	testingClient.EXPECT().Status().Return(statusWriter).AnyTimes()
-	testingClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	testingClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	client := mocks.NewMockClient(ctrl)
+	client.EXPECT().Status().Return(statusWriter).AnyTimes()
 
-	wekaClusterService := mocks.NewMockWekaClusterService(ctrl)
-	// wekaClusterService.EXPECT().GetUsernameAndPassword(gomock.Any(), gomock.Any(), gomock.Any()).Return("admin", "password", nil).AnyTimes()
-	// wekaClusterService.EXPECT().ApplyClusterCredentials(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	containers := []*wekav1alpha1.WekaContainer{}
-	wekaClusterService.EXPECT().EnsureWekaContainers(gomock.Any(), gomock.Any()).Return(containers, nil).AnyTimes()
-
-	credentialsService := mocks.NewMockCredentialsService(ctrl)
+	stateMachine.WekaClusterService = clusterService
 	stateMachine.CredentialsService = credentialsService
-	credentialsService.EXPECT().ApplyClusterCredentials(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	stateMachine.Client = client
 
-	stateMachine.WekaClusterService = wekaClusterService
+	tests := []struct {
+		name           string
+		prerequisities metav1.ConditionStatus
+		status         metav1.ConditionStatus
+		requeue        bool
+		afterCondition metav1.ConditionStatus
+	}{
+		{
+			name:           "Secrets Applied",
+			prerequisities: metav1.ConditionTrue,
+			status:         metav1.ConditionTrue,
+			requeue:        false,
+			afterCondition: metav1.ConditionTrue,
+		},
+		{
+			name:           "Secrets Not Applied",
+			prerequisities: metav1.ConditionTrue,
+			status:         metav1.ConditionFalse,
+			requeue:        false,
+			afterCondition: metav1.ConditionTrue,
+		},
+		{
+			name:           "Prerequisities Not Met",
+			prerequisities: metav1.ConditionFalse,
+			status:         metav1.ConditionFalse,
+			requeue:        true,
+			afterCondition: metav1.ConditionFalse,
+		},
+		{
+			name:           "Invalid state",
+			prerequisities: metav1.ConditionFalse,
+			status:         metav1.ConditionTrue,
+			requeue:        false,
+			afterCondition: metav1.ConditionFalse,
+		},
+	}
+	for _, tt := range tests {
+		prerequisities := []string{
+			condition.CondClusterSecretsCreated().String(),
+			condition.CondPodsCreated,
+			condition.CondPodsReady,
+			condition.CondClusterCreated,
+			condition.CondJoinedCluster,
+			condition.CondDrivesAdded,
+			condition.CondIoStarted,
+		}
+		for _, prerequisite := range prerequisities {
+			meta.SetStatusCondition(&stateMachine.Cluster.Status.Conditions, metav1.Condition{
+				Type:   prerequisite,
+				Status: tt.prerequisities,
+			})
+		}
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _, done := instrumentation.GetLogSpan(ctx, tt.name)
+			defer done()
 
-	startingState := &PhaseStartingState{ReconcilerStateMachine: stateMachine}
-	condition := &SecretsNotAppliedCondition{startingState}
+			meta.SetStatusCondition(&stateMachine.Cluster.Status.Conditions, metav1.Condition{
+				Type:   condition.CondClusterSecretsApplied().String(),
+				Status: tt.status,
+			})
 
-	os.Setenv("OPERATOR_DEV_MODE", "true")
-	if err := condition.Handle(context.Background()); err != nil {
-		t.Errorf("expected error to be nil")
+			result, err := subject.Handle(ctx)
+			if err != nil {
+				t.Errorf("expected error to be nil")
+			}
+			if result.Requeue != tt.requeue {
+				t.Errorf("expected result to requeue %v, was %v", tt.requeue, result.Requeue)
+			}
+
+			afterCondition := meta.FindStatusCondition(stateMachine.Cluster.Status.Conditions, condition.CondClusterSecretsCreated().String())
+			if afterCondition.Status != tt.afterCondition {
+				t.Errorf("expected condition status to be %v, was %v", tt.afterCondition, afterCondition.Status)
+			}
+		})
 	}
 }

@@ -129,6 +129,7 @@ func (r *wekaClusterService) EnsureDefaultFs(ctx context.Context, container *wek
 	err = wekaService.CreateFilesystemGroup(ctx, "default")
 	if err != nil {
 		if !errors.As(err, &FilesystemGroupExists{}) {
+			logger.Error(err, "CreateFilesystemGroup")
 			return err
 		}
 	}
@@ -302,10 +303,8 @@ func (r *wekaClusterService) EnsureWekaContainers(ctx context.Context, cluster *
 					return err
 				}
 				foundContainers = append(foundContainers, wekaContainer)
-				l.Info("Container created")
 			} else {
 				foundContainers = append(foundContainers, found)
-				l.Info("Container already exists")
 			}
 			end()
 		}

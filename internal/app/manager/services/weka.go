@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
-	"strconv"
-	"strings"
 )
 
 type WekaStatusCapacity struct {
@@ -22,8 +23,7 @@ type WekaStatusResponse struct {
 	Capacity WekaStatusCapacity `json:"capacity"`
 }
 
-type WekaFilesystem struct {
-}
+type WekaFilesystem struct{}
 
 type FSParams struct {
 	TotalCapacity             string
@@ -39,8 +39,8 @@ type S3Params struct {
 }
 
 type WekaUserResponse struct {
-	//OrgId    int    `json:"org_id"`
-	//PosixGid string `json:"posix_gid"`
+	// OrgId    int    `json:"org_id"`
+	// PosixGid string `json:"posix_gid"`
 	// PosixUid string `json:"posix_uid"`
 	// Role     string `json:"role"`
 	// S3Policy string `json:"s3_policy"`
@@ -59,7 +59,7 @@ type WekaService interface {
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
-	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
+	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
 func NewWekaService(ExecService ExecService, container *v1alpha1.WekaContainer) WekaService {
@@ -111,7 +111,6 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 			}
 			return nil
 		}
-
 	}
 	return nil
 }
@@ -244,8 +243,12 @@ func commaSeparatedInts(ids []int) string {
 }
 
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "CreateFilesystemGroup")
+	defer end()
+
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
+		logger.Error(err, "GetExecutor")
 		return err
 	}
 	cmd := []string{
@@ -254,8 +257,10 @@ func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string)
 	_, stderr, err := executor.ExecNamed(ctx, "CreateFilesystemGroup", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
+			logger.Error(err, "Filesystem group already exists", "stderr", stderr.String())
 			return &FilesystemGroupExists{err}
 		}
+		logger.Error(err, "fs group create failed", "stderr", stderr.String())
 		return err
 	}
 	return nil
@@ -293,7 +298,7 @@ func (c *CliWekaService) GetWekaStatus(ctx context.Context) (response WekaStatus
 }
 
 func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name string, data any) error {
-	_, _, end := instrumentation.GetLogSpan(ctx, name)
+	_, logger, end := instrumentation.GetLogSpan(ctx, name)
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
@@ -301,8 +306,9 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 		return err
 	}
 
-	output, _, err := executor.ExecNamed(ctx, name, cmd)
+	output, stderr, err := executor.ExecNamed(ctx, name, cmd)
 	if err != nil {
+		logger.Error(err, "Failed to execute command", "cmd", cmd, "stderr", stderr.String())
 		return err
 	}
 
