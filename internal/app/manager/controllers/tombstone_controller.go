@@ -28,6 +28,7 @@ type TombstoneReconciller struct {
 	Manager     ctrl.Manager
 	Recorder    record.EventRecorder
 	ExecService services.ExecService
+	KubeService services.KubeService
 }
 
 func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
@@ -49,6 +50,7 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 		Manager:     mgr,
 		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
 		ExecService: services.NewExecService(mgr),
+		KubeService: services.NewKubeService(mgr.GetClient()),
 	}
 
 	if config.EnableTombstoneGc {
@@ -60,6 +62,9 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 
 func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	// check if object is being deleted, only then take action
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TombstoneReconcile")
+	defer end()
+	logger.Info("reconciling tombstone", "name", request.Name, "namespace", request.Namespace)
 	tombstone := &wekav1alpha1.Tombstone{}
 	err := r.Client.Get(ctx, request.NamespacedName, tombstone)
 	if err != nil {
@@ -103,9 +108,34 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 			return reconcile.Result{}, nil
 		}
 
+		if job.CreationTimestamp.Add(3 * time.Minute).Before(time.Now()) {
+			// job seems stuck, do we have node affinity and does node still exists?
+			if tombstone.Spec.NodeAffinity != "" {
+				_, err := r.KubeService.GetNode(ctx, tombstone.Spec.NodeAffinity)
+				if apierrors.IsNotFound(err) {
+					// node does not exist, we can remove the job and finalizer
+					// cannot use job removal by reference due to provisioning of job in non-cluster namespace
+					err = r.Client.Delete(ctx, job)
+					if err != nil {
+						if !apierrors.IsNotFound(err) {
+							return reconcile.Result{}, err
+						}
+					}
+					changed := controllerutil.RemoveFinalizer(tombstone, WekaFinalizer)
+					if changed {
+						err = r.Client.Update(ctx, tombstone)
+						if err != nil {
+							return reconcile.Result{}, err
+						}
+					}
+					return reconcile.Result{}, nil
+				}
+			}
+		}
+
 		return reconcile.Result{
 			Requeue:      true,
-			RequeueAfter: 3,
+			RequeueAfter: 3 * time.Second,
 		}, nil
 	}
 
@@ -113,6 +143,11 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 }
 
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
+	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
+	defer end()
+
+	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
+	logger.Info("fetching job", "jobName", jobName)
 	if tombstone.Spec.CrId == "" {
 		return nil, fmt.Errorf("tombstone CR ID is empty, refusing removal")
 	}
@@ -125,7 +160,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "weka-tombstone-delete-" + string(tombstone.UID),
+			Name:      jobName,
 			Namespace: namespace, // since we access all containers, must put this into the same namespace from access sharing perspective
 		},
 		Spec: v1.JobSpec{
@@ -182,6 +217,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			},
 		},
 	}
+	//err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
 	return job, nil
 }
 

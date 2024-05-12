@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
@@ -35,16 +36,18 @@ const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	return &ContainerController{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Logger: mgr.GetLogger().WithName("controllers").WithName("Container"),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
+		KubeService: services.NewKubeService(mgr.GetClient()),
 	}
 }
 
 type ContainerController struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Logger logr.Logger
+	Scheme      *runtime.Scheme
+	Logger      logr.Logger
+	KubeService services.KubeService
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -152,6 +155,14 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	} else {
 		logger.SetPhase("POD_ALREADY_EXISTS")
+		if actualPod.Status.Phase == v1.PodPending {
+			// Do we actually have a node that is assigned to it?
+			err := r.CleanupIfNeeded(ctx, container, actualPod)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
 		if actualPod.Status.Phase != v1.PodRunning {
 			logger.SetPhase("POD_NOT_RUNNING")
 			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
@@ -985,6 +996,51 @@ func (r *ContainerController) ensureFinalizer(ctx context.Context, container *we
 	if err != nil {
 		logger.Error(err, "Failed to update wekaCluster with finalizer")
 		return err
+	}
+	return nil
+}
+
+func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
+	kubeService := r.KubeService
+
+	unschedulable := false
+	unschedulableSince := time.Time{}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionFalse && condition.Reason == "Unschedulable" {
+			unschedulable = true
+			unschedulableSince = condition.LastTransitionTime.Time
+		}
+	}
+
+	if !unschedulable {
+		return nil //cleanin up only unschedulable
+	}
+
+	if pod.Spec.NodeName != "" {
+		return nil // cleaning only such that scheduled by node affinity
+	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupIfNeeded")
+	defer end()
+
+	_, err := kubeService.GetNode(ctx, pod.Spec.NodeName)
+	if !apierrors.IsNotFound(err) {
+		return nil // node still exists, handling only not found node
+	}
+
+	if container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+		// We are safe to delete clients after a configurable while
+		// TODO: Make configurable, for now we delete after 5 minutes since downtime
+		// relying onlastTransitionTime of Unschedulable condition
+		if time.Since(unschedulableSince) > 5*time.Minute {
+			logger.Info("Deleting unschedulable client container")
+			err := r.Delete(ctx, container)
+			if err != nil {
+				logger.Error(err, "Error deleting client container")
+				return err
+			}
+			return errors.New("Pod is outdated and will be deleted")
+		}
 	}
 	return nil
 }
