@@ -110,8 +110,19 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: envtest## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -i --bin-dir $(LOCALBIN) -p path)" go test -v ./... -coverprofile cover.out
+test: ## Run tests.
+	go test -v ./internal/... ./util/... -coverprofile cover.out
+
+.PHONY: test-functional
+test-functional: ## Run functional tests.
+	go test -v ./test/functional/... -coverprofile cover.out -failfast
+
+.PHONY: clean-e2e
+clean-e2e: ## Clean e2e tests.
+	- kubectl delete namespace weka-operator-e2e
+	- helm uninstall weka-operator --namespace weka-operator-e2e-system
+	- kubectl delete namespace weka-operator-e2e-system
+	- (cd ansible && ansible-playbook -i inventory.ini ./oci_clean.yaml)
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
 .PHONY: cluster-sample
@@ -124,6 +135,11 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build manager binary.
 	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
+.PHONY: clean
+clean: ## Clean build artifacts.
+	find . -name 'mock_*.go' -delete
+	rm -rf dist
+	rm -rf cover.out cover.html
 
 .PHONY: bundle
 

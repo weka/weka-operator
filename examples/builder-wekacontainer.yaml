@@ -1,3 +1,4 @@
+---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
 metadata:
@@ -10,7 +11,7 @@ spec:
   nodeSelector:
     weka.io/role: builder
   image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
-  imagePullSecret: "quay-io-robot-secret"
+  imagePullSecret: "quay-cred"
   mode: "dist"
   name: dist
   numCores: 1
@@ -25,9 +26,9 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - name: weka-driver-builder
-    port: 60002
-    targetPort: 60002
+    - name: weka-driver-builder
+      port: 60002
+      targetPort: 60002
   selector:
     app: weka-driver-builder
 #---

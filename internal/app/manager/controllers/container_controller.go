@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
@@ -465,7 +466,11 @@ func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.C
 			bootScripts.Name = bootScriptConfigName
 			bootScripts.Data = bundledConfigMap.Data
 			if err := r.Create(ctx, bootScripts); err != nil {
-				logger.Error(err, "Error creating boot scripts config map")
+				if apierrors.IsAlreadyExists(err) {
+					logger.Info("Boot scripts config map already exists in designated namespace")
+				} else {
+					logger.Error(err, "Error creating boot scripts config map")
+				}
 			}
 			logger.Info("Created boot scripts config map in designated namespace")
 		}
@@ -820,7 +825,7 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
 	defer end()
 
 	logger.Info("Ensuring drivers loader")
@@ -829,10 +834,15 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 		logger.Error(err, "Error refreshing pod")
 		return err
 	}
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		logger.Error(err, "GetPodNamespace")
+		return err
+	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
-			Namespace: "weka-operator-system",
+			Namespace: namespace,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
 			Image:               container.Spec.Image,

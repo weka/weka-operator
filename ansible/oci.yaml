@@ -60,154 +60,19 @@
         timeout: 3600
         connect_timeout: 15
 
-- name: Provision Frontend Nodes
-  tags: provision_frontend
-  hosts: frontend_hosts:&oci_all
-  remote_user: root
-  roles:
-    - common
+- name: Label Nodes
+  tags: label_nodes
+  hosts: backend_hosts:&oci_all:&oci_all
   tasks:
-    - name: Download k3s
-      get_url:
-        url: https://get.k3s.io
-        dest: /tmp/install_k3s.sh
-    - name: Disable Firewall
-      service:
-        name: ufw
-        enabled: false
-        state: stopped
-
-- name: Install Initial k8s Node
-  tags: install_k8s_initial
-  hosts: principal_frontend_host:&oci_all
-  remote_user: root
-  tasks:
-    - name: Select Endpoint IP
-      shell: "hostname -I | awk '{print $1}'"
-      register: hostname_output
-    - set_fact:
-        endpoint_ip: "{{ hostname_output.stdout }}"
-    - name: Uninstall Old K3s
-      shell: /usr/local/bin/k3s-uninstall.sh
-      args:
-        removes: /usr/local/bin/k3s
-    - name: Run Installer
-      shell: "sh /tmp/install_k3s.sh server --cluster-init"
-      args:
-        creates: /usr/local/bin/k3s
-    - name: Ensure k3s started
-      service:
-        name: k3s
-        state: restarted
-    - name: Generate Join Token
-      slurp:
-        src: /var/lib/rancher/k3s/server/token
-      register: join_token_b64
-    - set_fact:
-        join_token: "{{ join_token_b64.content | b64decode }}"
-    - name: Grab Kubeconfig
-      slurp:
-        path: /etc/rancher/k3s/k3s.yaml
-      register: k3s_yaml_b64
-    - name: Reading Kubeconfig
-      set_fact:
-        k3s_yaml: "{{ k3s_yaml_b64.content | b64decode | from_yaml }}"
-    - name: Update K8s Endpoint
-      ansible.utils.update_fact:
-        updates:
-          - path: "k3s_yaml.clusters[0].cluster.server"
-            value: "https://{{ ansible_hostname }}:6443"
-      register: local_k3s_yaml
-    - name: Write local k3s.yaml
-      copy:
-        dest: "{{ root }}/k3s.yaml"
-        content: "{{ local_k3s_yaml.k3s_yaml | to_yaml }}"
-      delegate_to: localhost
-
-- name: Join Secondary Nodes
-  tags: join_secondaries
-  hosts: secondary_frontend_hosts:&oci_all
-  remote_user: root
-  tasks:
-    - set_fact:
-        join_token: "{{ hostvars[groups['principal_frontend_host'][0]]['join_token'] }}"
-    - debug:
-        msg: "{{ hostvars[groups['principal_frontend_host'][0]]['endpoint_ip'] }}"
-    - set_fact:
-        principal_ip: "{{ hostvars[groups['principal_frontend_host'][0]]['endpoint_ip'] }}"
-    - name: Uninstall Old K3s
-      shell: /usr/local/bin/k3s-uninstall.sh
-      args:
-        removes: /usr/local/bin/k3s
-    - name: Run Installer
-      shell: "sh /tmp/install_k3s.sh server --server https://{{ principal_ip }}:6443 --token {{ join_token }}"
-      args:
-        creates: /usr/local/bin/k3s
-      environment:
-        K3S_TOKEN: "{{ join_token }}"
-      register: k8s_install
-      failed_when: k8s_install.rc > 1
-      ignore_errors: true
-    - debug:
-        var: k8s_install.stdout_lines
-      when: k8s_install.rc > 0
-      failed_when: k8s_install is failed
-    - name: Ensure k3s started
-      service:
-        name: k3s
-        state: restarted
-
-- name: Backend Parameters from Frontend
-  tags: provision_backend
-  hosts: frontend_hosts:&oci_all
-  gather_facts: true
-  remote_user: root
-  tasks:
-    - set_fact:
-        kernel_full_version: "{{ ansible_kernel }}"
-      delegate_to: "{{ item }}"
-      delegate_facts: true
-      loop: "{{ groups.backend_hosts }}"
-
-- name: Prlovision Backend Nodes
-  tags: provision_backend
-  hosts: backend_hosts:&oci_all
-  vars:
-    kernel_full_version: "{{ kernel_full_version }}"
-    driver_root: "/opt/weka/dist/drivers"
-  tasks:
-    # tar each driver into file named <driver-name>-<weka-version>-<kernel-version>.<arch>.tar.gz
-    # wekafs(gw|io) are packaged in a single tarball
-    - name: Find wekafs drivers
-      find:
-        patterns:
-          - "wekafs(gw|io).ko"
-          - "igb_uio.ko"
-          - "mpin_user.ko"
-        paths: /opt/weka/data
-        recurse: true
-        use_regex: true
-      register: drivers
-
-    - name: Create driver directory
-      file:
-        path: "{{ driver_root }}"
-        state: directory
-
-    - name: Archive drivers
-      archive:
-        path: "{{ item.path }}"
-        dest: "{{ driver_root }}/{{ item.path | basename | splitext | first }}-{{ weka_version }}-{{ kernel_full_version }}.x86_64.tar.gz"
-        format: gz
-        force_archive: true
-      loop: "{{ drivers.files }}"
+    - name: Label nodes
+      shell: "kubectl label nodes {{ ansible_hostname }} weka.io/role=backend"
 
 - name: Label Nodes
   tags: label_nodes
-  hosts: frontend_hosts:&oci_all
+  hosts: dist_hosts:&oci_all
   tasks:
     - name: Label nodes
-      shell: "kubectl label nodes {{ ansible_hostname }} weka.io/role=client"
+      shell: "kubectl label nodes {{ ansible_hostname }} weka.io/role=builder --overwrite"
 
 - name: Configuring Prerequisites in kubernetes
   tags: k8s_prerequisites
@@ -231,7 +96,31 @@
           kind: Secret
           metadata:
             name: quay-cred
+            namespace: default
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ dockerconfigjson_b64 }}"
+    - name: Creating image pull secret - quay-cred
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: quay-cred
             namespace: weka-operator-system
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ dockerconfigjson_b64 }}"
+    - name: Creating image pull secret - quay-cred
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: quay-cred
+            namespace: default
           type: kubernetes.io/dockerconfigjson
           data:
             .dockerconfigjson: "{{ dockerconfigjson_b64 }}"

@@ -6,7 +6,10 @@ metadata:
   namespace: default
 spec:
   size: 1
-  template: dev
+  template: small
   topology: "discover_oci"
-  image: quay.io/weka.io/weka-in-container:4.2.10.405-01b0c67a7ba81986a218b55c6d08f150-dev
-  imagePullSecret: quay-io-robot-secret
+  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  imagePullSecret: "quay-cred"
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  nodeSelector:
+    weka.io/role: backend
