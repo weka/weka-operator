@@ -41,6 +41,7 @@ func NewContainerController(mgr ctrl.Manager) *ContainerController {
 		Scheme:      mgr.GetScheme(),
 		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
 		KubeService: services.NewKubeService(mgr.GetClient()),
+		ExecService: services.NewExecService(mgr),
 	}
 }
 
@@ -49,6 +50,7 @@ type ContainerController struct {
 	Scheme      *runtime.Scheme
 	Logger      logr.Logger
 	KubeService services.KubeService
+	ExecService services.ExecService
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -295,6 +297,25 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("DRIVES_ALREADY_ADDED")
 	}
 
+	if container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 && container.Spec.JoinIps != nil {
+		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedS3Cluster) {
+			wekaService := services.NewWekaService(r.ExecService, container)
+			err := wekaService.JoinS3Cluster(ctx, *container.Status.ClusterContainerID)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+				Type:   condition.CondJoinedS3Cluster,
+				Status: metav1.ConditionTrue, Reason: "Success", Message: "Joined S3 cluster",
+			})
+			err = r.Status().Update(ctx, container)
+			if err != nil {
+				r.Logger.Error(err, "Error updating status")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	logger.Info("Reconcile completed", "name", container.Name)
 	logger.SetPhase("CONTAINER_IS_READY")
 	return ctrl.Result{}, nil
@@ -365,7 +386,7 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		return ctrl.Result{}, err
 	}
 	if len(response) != 1 {
-		if !(len(response) == 3 && container.Spec.Mode == wekav1alpha1.WekaContainerModeS3) {
+		if !(container.Spec.Mode == wekav1alpha1.WekaContainerModeS3) {
 			logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
 			return ctrl.Result{}, errors.New("expected exactly one container to be present")
 		}
