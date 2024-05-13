@@ -828,12 +828,12 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
 	defer end()
 
-	logger.Info("Ensuring drivers loader")
 	pod, err := r.refreshPod(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error refreshing pod")
 		return err
 	}
+	// namespace := pod.Namespace
 	namespace, err := util.GetPodNamespace()
 	if err != nil {
 		logger.Error(err, "GetPodNamespace")
@@ -860,7 +860,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	l := logger.WithValues("container", loaderContainer.Name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			l.Info("Creating drivers loader pod")
+			l.Info("Creating drivers loader pod", "node_name", pod.Spec.NodeName, "namespace", loaderContainer.Namespace)
 			err = r.Create(ctx, loaderContainer)
 			if err != nil {
 				l.Error(err, "Error creating drivers loader pod")
