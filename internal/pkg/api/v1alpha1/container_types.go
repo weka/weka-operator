@@ -64,6 +64,7 @@ type WekaContainerSpec struct {
 	AppendSetupCommand  string               `json:"appendSetupCommand,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	S3Params            *S3Params            `json:"s3Params,omitempty"`
+	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
 }
 
 type Network struct {

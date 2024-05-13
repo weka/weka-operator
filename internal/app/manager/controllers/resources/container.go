@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type WekaLocalPs struct {
@@ -101,6 +101,8 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		}
 	}
 
+	tolerations := f.getTolerations()
+
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
 	pod := &corev1.Pod{
@@ -110,6 +112,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			Labels:    labels,
 		},
 		Spec: corev1.PodSpec{
+			Tolerations: tolerations,
 			Affinity: &corev1.Affinity{
 				NodeAffinity: &corev1.NodeAffinity{
 					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -365,6 +368,56 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	return pod, nil
+}
+
+func (f *ContainerFactory) getTolerations() []corev1.Toleration {
+	tolerations := []corev1.Toleration{
+		{
+			Key:      "node.kubernetes.io/not-ready",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/unreachable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/disk-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/disk-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/cpu-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/cpu-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/memory-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/memory-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+	}
+	// expand with custom tolerations
+	for _, t := range f.container.Spec.Tolerations {
+		tolerations = append(tolerations, t)
+	}
+	return tolerations
 }
 
 type HugePagesDetails struct {
