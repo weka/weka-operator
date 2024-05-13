@@ -383,6 +383,16 @@ func (f *ContainerFactory) getTolerations() []corev1.Toleration {
 			Effect:   corev1.TaintEffectNoExecute,
 		},
 		{
+			Key:      "node.kubernetes.io/network-unavailable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/unschedulable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
 			Key:      "node.kubernetes.io/disk-pressure",
 			Operator: corev1.TolerationOpExists,
 			Effect:   corev1.TaintEffectNoSchedule,

@@ -350,9 +350,15 @@ func (a *Allocator) Allocate(ctx context.Context,
 			logger := logger.WithValues("role", role, "numContainers", numContainers)
 			containerName := fmt.Sprintf("%s%d", role, i)
 			owner := Owner{ownerCluster, containerName, role}
-			_, found := GetOwnedResources(owner, allocations)
+			resources, found := GetOwnedResources(owner, allocations)
 			if found {
-				continue
+				// Does node still exist? If not, lets clean this allocation and look for another node
+				if !slices.Contains(nodes, resources.Node) {
+					logger.Info("Node does not exist anymore", "node", resources.Node)
+					delete(allocationsMap, NodeName(resources.Node))
+				} else {
+					continue
+				}
 			}
 			for _, node := range nodes {
 				nodeAlloc := allocationsMap[NodeName(node)]

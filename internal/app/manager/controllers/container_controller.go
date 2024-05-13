@@ -372,8 +372,16 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		// TODO: Report s3 specific status
 	}
 
-	if response[0].Name != container.Spec.WekaContainerName {
-		logger.InfoWithStatus(codes.Error, "Wrong container is running", "name", response[0].Name, "expected_name", container.Spec.WekaContainerName)
+	found := false
+	for _, c := range response {
+		if c.Name == container.Spec.WekaContainerName {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		logger.InfoWithStatus(codes.Error, "Weka container not found", "name", response, "expected_name", container.Spec.WekaContainerName)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -501,7 +509,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 	logger.Debug("Querying weka local status")
 
 	cmd := "weka local status -J"
-	if container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+	if container.Spec.JoinIps != nil {
 		cmd = fmt.Sprintf("wekaauthcli local status -J")
 	}
 
@@ -632,7 +640,12 @@ DRIVES:
 				continue
 			}
 			l.Info("Adding drive into system")
-			cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
+			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
+			wekaCmd := "weka"
+			if container.Spec.JoinIps != nil {
+				wekaCmd = "wekaauthcli"
+			}
+			cmd = fmt.Sprintf("%s cluster drive add %d %s", wekaCmd, *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
 				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
@@ -1038,19 +1051,21 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 		return nil // node still exists, handling only not found node
 	}
 
-	if container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
-		// We are safe to delete clients after a configurable while
-		// TODO: Make configurable, for now we delete after 5 minutes since downtime
-		// relying onlastTransitionTime of Unschedulable condition
-		if time.Since(unschedulableSince) > 5*time.Minute {
-			logger.Info("Deleting unschedulable client container")
-			err := r.Delete(ctx, container)
-			if err != nil {
-				logger.Error(err, "Error deleting client container")
-				return err
-			}
-			return errors.New("Pod is outdated and will be deleted")
+	// We are safe to delete clients after a configurable while
+	// TODO: Make configurable, for now we delete after 5 minutes since downtime
+	// relying onlastTransitionTime of Unschedulable condition
+	rescheduleAfter := 5 * time.Minute
+	if container.IsBackend() {
+		rescheduleAfter = 3 * time.Second //TODO: Change, this is dev mode
+	}
+	if time.Since(unschedulableSince) > rescheduleAfter {
+		logger.Info("Deleting unschedulable client container")
+		err := r.Delete(ctx, container)
+		if err != nil {
+			logger.Error(err, "Error deleting client container")
+			return err
 		}
+		return errors.New("Pod is outdated and will be deleted")
 	}
 	return nil
 }
