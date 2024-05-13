@@ -578,6 +578,8 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	}
 	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
 
+	var joinIps []string
+
 	ensureContainers := func(role string, containersNum int) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainers", "role", role, "containersNum", containersNum)
 		defer end()
@@ -601,7 +603,18 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 			found := &wekav1alpha1.WekaContainer{}
 			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
 			if err != nil && apierrors.IsNotFound(err) {
-				// Define a new WekaContainer object
+				// if we post cluster form should join existing cluster
+				if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
+					if joinIps == nil {
+						joinIps, err = GetJoinIps(ctx, r.Client, cluster)
+						if err != nil {
+							logger.Error(err, "Failed to get join ips")
+							end()
+							return err
+						}
+					}
+					wekaContainer.Spec.JoinIps = joinIps
+				}
 				l.Info("Creating container")
 				err = r.Create(ctx, wekaContainer)
 				if err != nil {
@@ -844,12 +857,14 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds")
-	defer end()
 	var containersMap resources.ClusterContainersMap
+	container := r.SelectActiveContainer(containers)
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container_name", container.Name)
+	defer end()
 
 	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(containers[0]).Create(ctx)
+		pod, err := resources.NewContainerFactory(container).Create(ctx)
 		if err != nil {
 			logger.Error(err, "Could not find executor pod")
 			return err
@@ -865,8 +880,12 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 			return errors.Wrap(err, "Could not create executor")
 		}
 		cmd := "weka cluster container -J"
+		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsApplied) {
+			cmd = "wekaauthcli cluster container -J"
+		}
 		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
 		if err != nil {
+			logger.Error(err, "Failed to fetch containers list from cluster", "stderr, ", stderr.String(), "container", container.Name)
 			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
 		}
 		response := resources.ClusterContainersResponse{}
@@ -1175,4 +1194,14 @@ func (r *WekaClusterReconciler) SelectS3Containers(containers []*wekav1alpha1.We
 		}
 	}
 	return s3Containers
+}
+
+func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
+	for _, container := range containers {
+		if container.Status.ClusterContainerID != nil {
+			return container
+		}
+	}
+	return nil
+
 }
