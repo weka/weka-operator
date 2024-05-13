@@ -40,6 +40,7 @@ type WekaService interface {
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
+	JoinS3Cluster(ctx context.Context, containerId int) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -65,6 +66,29 @@ type S3ClusterExists struct {
 type CliWekaService struct {
 	ExecService ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "JoinS3Cluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "containers", "add", strconv.Itoa(containerId),
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "JoinS3Cluster", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to join S3 cluster", "stderr", stderr.String())
+		return err
+	}
+
+	return nil
 }
 
 func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
