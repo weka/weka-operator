@@ -11,6 +11,7 @@ Copyright 2023.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -692,6 +693,13 @@ func (in *WekaContainerSpec) DeepCopyInto(out *WekaContainerSpec) {
 		in, out := &in.S3Params, &out.S3Params
 		*out = new(S3Params)
 		**out = **in
+	}
+	if in.Tolerations != nil {
+		in, out := &in.Tolerations, &out.Tolerations
+		*out = make([]corev1.Toleration, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
