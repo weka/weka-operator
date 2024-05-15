@@ -859,6 +859,9 @@ func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *weka
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	var containersMap resources.ClusterContainersMap
 	container := r.SelectActiveContainer(containers)
+	if container == nil {
+		container = containers[0] // a fallback if we have none active, this is most surely initial clusterform
+	}
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container_name", container.Name)
 	defer end()
