@@ -56,19 +56,24 @@ const (
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Manager     ctrl.Manager
-	Recorder    record.EventRecorder
-	ExecService services.ExecService
+	Scheme   *runtime.Scheme
+	Manager  ctrl.Manager
+	Recorder record.EventRecorder
+
+	ExecService        services.ExecService
+	WekaClusterService services.WekaClusterService
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
+	client := mgr.GetClient()
 	return &WekaClusterReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Manager:     mgr,
-		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
-		ExecService: services.NewExecService(mgr),
+		Client:   client,
+		Scheme:   mgr.GetScheme(),
+		Manager:  mgr,
+		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
+
+		ExecService:        services.NewExecService(mgr),
+		WekaClusterService: services.NewWekaClusterService(client),
 	}
 }
 
@@ -147,7 +152,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer end()
 
 	// Fetch the WekaCluster instance
-	wekaCluster, err := r.GetCluster(initContext, req)
+	wekaCluster, err := r.WekaClusterService.GetCluster(initContext, req)
 	if err != nil {
 		logger.SetError(err, "Failed to get wekaCluster")
 		return ctrl.Result{}, err
@@ -423,25 +428,6 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 		logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
 	}
 	return nil
-}
-
-func (r *WekaClusterReconciler) GetCluster(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaCluster, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "FetchCluster")
-	defer end()
-
-	wekaCluster := &wekav1alpha1.WekaCluster{}
-	err := r.Get(ctx, req.NamespacedName, wekaCluster)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("wekaCluster resource not found. Ignoring since object must be deleted")
-			return nil, nil
-		}
-		// Error reading the object - requeue the request.
-		logger.Error(err, "Failed to get wekaCluster")
-		return nil, err
-	}
-
-	return wekaCluster, nil
 }
 
 func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *wekav1alpha1.WekaCluster) (context.Context, error) {
@@ -1206,5 +1192,4 @@ func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1
 		}
 	}
 	return nil
-
 }

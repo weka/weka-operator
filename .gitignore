@@ -42,3 +42,4 @@ k3s.yaml
 /drivers
 cover.html
 *.pyc
+mock_*.go
