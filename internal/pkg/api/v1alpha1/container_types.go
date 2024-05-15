@@ -46,8 +46,8 @@ type WekaContainerSpec struct {
 	WekaContainerName string            `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
-	NumCores   int    `json:"numCores"`   //numCores is weka-specific cores
-	ExtraCores int    `json:"extraCores"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
+	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
+	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
 	CoreIds    []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto

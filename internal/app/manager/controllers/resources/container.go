@@ -39,17 +39,6 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-type WekaUsersResponse struct {
-	// OrgId    int    `json:"org_id"`
-	// PosixGid string `json:"posix_gid"`
-	// PosixUid string `json:"posix_uid"`
-	// Role     string `json:"role"`
-	// S3Policy string `json:"s3_policy"`
-	// Source   string `json:"source"`
-	// Uid      string `json:"uid"`
-	Username string `json:"username"`
-}
-
 const PersistentContainersLocation = "/opt/k8s-weka/containers"
 
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
