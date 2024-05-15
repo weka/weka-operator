@@ -122,6 +122,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 
 	var joinIps []string
 
+	created := false
 	ensureContainers := func(role string, containersNum int) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainers", "role", role, "containersNum", containersNum)
 		defer end()
@@ -165,6 +166,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 					end()
 					return err
 				}
+				created = true
 				foundContainers = append(foundContainers, wekaContainer)
 				l.Info("Container created")
 			} else {
@@ -187,6 +189,12 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	if err := ensureContainers("s3", template.S3Containers); err != nil {
 		logger.Error(err, "Failed to ensure S3 containers")
 		return nil, err
+	}
+
+	if created {
+		logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
+	} else {
+		logger.SetStatus(codes.Ok, "All cluster containers already exist")
 	}
 
 	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))

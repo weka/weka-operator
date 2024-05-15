@@ -17,7 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -94,6 +97,10 @@ func (c *WekaCluster) GetUserClusterUsername() string {
 	return "weka" + c.GetLastGuidPart()
 }
 
+func (c *WekaCluster) GetClusterClientUsername() string {
+	return "wekaclient" + c.GetLastGuidPart()
+}
+
 func (c *WekaCluster) GetOperatorClusterUsername() string {
 	return "weka-operator-" + c.GetLastGuidPart()
 }
@@ -101,6 +108,11 @@ func (c *WekaCluster) GetOperatorClusterUsername() string {
 func (c *WekaCluster) GetUserSecretName() string {
 	name := c.Name
 	return "weka-cluster-" + name
+}
+
+func (c *WekaCluster) GetClientSecretName() string {
+	name := c.Name
+	return "weka-client-" + name
 }
 
 func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
@@ -124,7 +136,22 @@ func (c *WekaCluster) NewOperatorLoginSecret() *v1.Secret {
 			Namespace: c.Namespace,
 		},
 		StringData: map[string]string{
-			"username": c.GetOperatorClusterUsername(),
+			"username":    c.GetOperatorClusterUsername(),
+			"password":    util.GeneratePassword(32),
+			"join-secret": util.GeneratePassword(64),
+			"org":         DefaultOrg,
+		},
+	}
+}
+
+func (c *WekaCluster) NewClientSecret() *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.GetClientSecretName(),
+			Namespace: c.Namespace,
+		},
+		StringData: map[string]string{
+			"username": c.GetClusterClientUsername(),
 			"password": util.GeneratePassword(32),
 			"org":      DefaultOrg,
 		},
@@ -163,7 +190,7 @@ func (status *WekaClusterStatus) InitStatus() {
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:   condition.CondClusterCreated,
 		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Secrets are not applied yet",
+		Message: "Cluster is not formed yet",
 	})
 
 	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
@@ -183,6 +210,25 @@ func (status *WekaClusterStatus) InitStatus() {
 		Status: metav1.ConditionFalse, Reason: "Init",
 		Message: "Default fsgroup and filesystem are not created yet",
 	})
+}
+
+func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*WekaContainer, role string) *WekaContainer {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "selectActiveContainer", "role", role)
+	defer end()
+
+	for _, container := range containers {
+		if container.Spec.Mode != role {
+			continue
+		}
+		if container.Status.ClusterContainerID == nil {
+			continue
+		}
+		return container
+	}
+
+	err := errors.New("No container with role found")
+	logger.SetError(err, "No container with role found", "role", role)
+	return nil
 }
 
 func init() {
