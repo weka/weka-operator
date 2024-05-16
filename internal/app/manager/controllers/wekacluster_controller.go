@@ -476,7 +476,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 		return err
 	}
 	allocator := domain.NewAllocator(topology)
-	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	allocations, allocConfigMap, err := r.CrdManager.GetOrInitAllocMap(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to get alloc map")
 		return err
@@ -500,7 +500,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureWekaContainers", "cluster", cluster.Name, "template", cluster.Spec.Template, "topology", cluster.Spec.Topology)
 	defer end()
 
-	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
+	allocations, allocConfigMap, err := r.CrdManager.GetOrInitAllocMap(ctx)
 	if err != nil {
 		logger.Error(err, "could not init allocmap")
 		return nil, err
@@ -627,55 +627,6 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 
 	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
 	return foundContainers, nil
-}
-
-func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOrInitAllocMap")
-	defer end()
-	// fetch alloc map from configmap
-	allocations := &domain.Allocations{
-		NodeMap: domain.AllocationsMap{},
-	}
-	allocMap := allocations.NodeMap
-	yamlData, err := yaml.Marshal(&allocMap)
-	if err != nil {
-		logger.Error(err, "Failed to marshal alloc map")
-		return nil, nil, err
-	}
-
-	allocMapConfigMap := &v1.ConfigMap{}
-	podNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		logger.Error(err, "Failed to get pod namespace")
-		return nil, nil, err
-	}
-	key := client.ObjectKey{Namespace: podNamespace, Name: "weka-operator-allocmap"}
-	err = r.Get(ctx, key, allocMapConfigMap)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define a new ConfigMap
-		allocMapConfigMap = &v1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "weka-operator-allocmap",
-				Namespace: podNamespace,
-			},
-			Data: map[string]string{
-				"allocmap.yaml": string(yamlData),
-			},
-		}
-		err = r.Create(ctx, allocMapConfigMap)
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		if err != nil {
-			return nil, nil, err
-		}
-		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocations)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return allocations, allocMapConfigMap, nil
 }
 
 func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
