@@ -140,6 +140,7 @@ build: ## Build manager binary.
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
+	find . -+ame 'prog.bin' -delete
 	rm -rf dist
 	rm -rf cover.out cover.html
 

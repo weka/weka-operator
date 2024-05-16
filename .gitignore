@@ -43,3 +43,4 @@ k3s.yaml
 cover.html
 *.pyc
 mock_*.go
+prog.bin
