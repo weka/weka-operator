@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/kr/pretty"
@@ -60,8 +59,8 @@ type WekaClusterReconciler struct {
 	Manager  ctrl.Manager
 	Recorder record.EventRecorder
 
-	ExecService        services.ExecService
-	WekaClusterService services.WekaClusterService
+	CrdManager  services.CrdManager
+	ExecService services.ExecService
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
@@ -73,8 +72,8 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		ExecService:        services.NewExecService(config),
-		WekaClusterService: services.NewWekaClusterService(client),
+		CrdManager:  services.NewCrdManager(mgr),
+		ExecService: services.NewExecService(config),
 	}
 }
 
@@ -153,7 +152,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer end()
 
 	// Fetch the WekaCluster instance
-	wekaCluster, err := r.WekaClusterService.GetCluster(initContext, req)
+	wekaClusterService, err := r.CrdManager.GetCluster(ctx, req)
+	if err != nil {
+		logger.Error(err, "GetCluster failed")
+		return ctrl.Result{}, err
+	}
+
+	wekaCluster := wekaClusterService.GetCluster()
 	if err != nil {
 		logger.SetError(err, "Failed to get wekaCluster")
 		return ctrl.Result{}, err
@@ -238,7 +243,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
-		err = r.CreateCluster(ctx, wekaCluster, containers)
+		err = wekaClusterService.Create(ctx, containers)
 		if err != nil {
 			logger.Error(err, "Failed to create cluster")
 			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
@@ -792,55 +797,6 @@ func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1al
 	}
 
 	return container, nil
-}
-
-func (r *WekaClusterReconciler) CreateCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateCluster", "cluster", cluster.Name, "containers", len(containers))
-	defer end()
-
-	if len(containers) == 0 {
-		err := pretty.Errorf("containers list is empty")
-		logger.Error(err, "containers list is empty")
-		return err
-	}
-
-	var hostIps []string
-	var hostnamesList []string
-
-	for _, container := range containers {
-		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
-		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
-	}
-	hostIpsStr := strings.Join(hostIps, ",")
-	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr)
-	logger.Info("Creating cluster", "cmd", cmd)
-
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		logger.Error(err, "Could not create executor")
-		return errors.Wrap(err, "Could not create executor")
-	}
-	stdout, stderr, err := executor.ExecNamed(ctx, "WekaStatusOrWekaClusterCreate", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.Error(err, "Failed to create cluster")
-		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
-	}
-	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
-
-	// update cluster name
-	clusterName := cluster.GetUID()
-	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
-	logger.Debug("Updating cluster name")
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
-	}
-
-	if err := r.Status().Update(ctx, cluster); err != nil {
-		return errors.Wrap(err, "Failed to update wekaCluster status")
-	}
-	logger.SetPhase("Cluster created")
-	return nil
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {

@@ -1,4 +1,4 @@
-//go:generate mockgen -destination=mocks/mock_manager.go -package=mocks sigs.k8s.io/controller-runtime/pkg/manager Manager
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_manager.go -package=mocks sigs.k8s.io/controller-runtime/pkg/manager Manager
 package services
 
 import (
