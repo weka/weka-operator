@@ -22,10 +22,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,12 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
-	"github.com/weka/weka-operator/internal/app/manager/services"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // ClientReconciler reconciles a Client object
@@ -105,7 +106,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	applicableNodes, err := getNodesByLabels(ctx, r.Client, wekaClient.Spec.NodeSelector)
+	applicableNodes, err := domain.GetNodesByLabels(ctx, r.Client, wekaClient.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "Failed to get applicable nodes by labels")
 		return ctrl.Result{}, err

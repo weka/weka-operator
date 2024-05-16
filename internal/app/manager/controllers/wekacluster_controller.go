@@ -1,19 +1,3 @@
-/*
-Copyright 2024.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controllers
 
 import (
@@ -24,14 +8,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kr/pretty"
-	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
+
+	"github.com/kr/pretty"
+	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v3"
@@ -485,18 +471,18 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 		logger.Info("Topology is not set, skipping deallocation")
 		return nil
 	}
-	topology, err := Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
+	topology, err := domain.Topologies[cluster.Spec.Topology](ctx, r, cluster.Spec.NodeSelector)
 	if err != nil {
 		return err
 	}
-	allocator := NewAllocator(topology)
+	allocator := domain.NewAllocator(topology)
 	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to get alloc map")
 		return err
 	}
 
-	changed := allocator.DeallocateCluster(OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
+	changed := allocator.DeallocateCluster(domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
 	if changed {
 		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
 			logger.Error(err, "Failed to update alloc map")
@@ -521,20 +507,20 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	}
 
 	foundContainers := []*wekav1alpha1.WekaContainer{}
-	template, ok := WekaClusterTemplates[cluster.Spec.Template]
+	template, ok := domain.WekaClusterTemplates[cluster.Spec.Template]
 	if !ok {
-		keys := make([]string, 0, len(WekaClusterTemplates))
-		for k := range WekaClusterTemplates {
+		keys := make([]string, 0, len(domain.WekaClusterTemplates))
+		for k := range domain.WekaClusterTemplates {
 			keys = append(keys, k)
 		}
 		err := fmt.Errorf("Template not found")
 		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
 		return nil, err
 	}
-	topology_fn, ok := Topologies[cluster.Spec.Topology]
+	topology_fn, ok := domain.Topologies[cluster.Spec.Topology]
 	if !ok {
-		keys := make([]string, 0, len(Topologies))
-		for k := range Topologies {
+		keys := make([]string, 0, len(domain.Topologies))
+		for k := range domain.Topologies {
 			keys = append(keys, k)
 		}
 		err := fmt.Errorf("Topology not found")
@@ -542,14 +528,14 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 		return nil, err
 	}
 	topology, err := topology_fn(ctx, r, cluster.Spec.NodeSelector)
-	allocator := NewAllocator(topology)
+	allocator := domain.NewAllocator(topology)
 	if err != nil {
 		logger.Error(err, "Failed to get topology", "topology", cluster.Spec.Topology)
 		return nil, err
 	}
 	allocations, err, changed := allocator.Allocate(
 		ctx,
-		OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
+		domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
 		template,
 		allocations,
 		cluster.Spec.Size)
@@ -578,12 +564,13 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 		for i := 0; i < containersNum; i++ {
 			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainer", "index", i)
 			// Check if the WekaContainer object exists
-			owner := Owner{
-				OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
-				fmt.Sprintf("%s%d", role, i), role,
+			owner := domain.Owner{
+				OwnerCluster: domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
+				Container:    fmt.Sprintf("%s%d", role, i),
+				Role:         role,
 			} // apparently need helper function with a role.
 
-			ownedResources, _ := GetOwnedResources(owner, allocations)
+			ownedResources, _ := domain.GetOwnedResources(owner, allocations)
 			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				logger.Error(err, "newWekaContainerForWekaCluster")
@@ -642,12 +629,12 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 	return foundContainers, nil
 }
 
-func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*Allocations, *v1.ConfigMap, error) {
+func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOrInitAllocMap")
 	defer end()
 	// fetch alloc map from configmap
-	allocations := &Allocations{
-		NodeMap: AllocationsMap{},
+	allocations := &domain.Allocations{
+		NodeMap: domain.AllocationsMap{},
 	}
 	allocMap := allocations.NodeMap
 	yamlData, err := yaml.Marshal(&allocMap)
@@ -692,9 +679,9 @@ func (r *WekaClusterReconciler) GetOrInitAllocMap(ctx context.Context) (*Allocat
 }
 
 func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
-	ownedResources OwnedResources,
-	template ClusterTemplate,
-	topology Topology,
+	ownedResources domain.OwnedResources,
+	template domain.ClusterTemplate,
+	topology domain.Topology,
 	role string, i int,
 ) (*wekav1alpha1.WekaContainer, error) {
 	labels := map[string]string{
@@ -926,7 +913,7 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	return true, nil
 }
 
-func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, allocations *Allocations, configMap *v1.ConfigMap) error {
+func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error {
 	yamlData, err := yaml.Marshal(&allocations)
 	if err != nil {
 		return err
