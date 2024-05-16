@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
+
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -18,8 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"slices"
-	"time"
 )
 
 type TombstoneReconciller struct {
@@ -44,12 +45,13 @@ type TombstoneConfig struct {
 }
 
 func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *TombstoneReconciller {
+	restConfig := mgr.GetConfig()
 	reconciler := &TombstoneReconciller{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Manager:     mgr,
 		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
-		ExecService: services.NewExecService(mgr),
+		ExecService: services.NewExecService(restConfig),
 		KubeService: services.NewKubeService(mgr.GetClient()),
 	}
 

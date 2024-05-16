@@ -66,13 +66,14 @@ type WekaClusterReconciler struct {
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	client := mgr.GetClient()
+	config := mgr.GetConfig()
 	return &WekaClusterReconciler{
 		Client:   client,
 		Scheme:   mgr.GetScheme(),
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		ExecService:        services.NewExecService(mgr),
+		ExecService:        services.NewExecService(config),
 		WekaClusterService: services.NewWekaClusterService(client),
 	}
 }

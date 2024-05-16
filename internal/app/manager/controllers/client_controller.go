@@ -61,13 +61,14 @@ type ClientReconciler struct {
 }
 
 func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
+	config := mgr.GetConfig()
 	return &ClientReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Recorder:    mgr.GetEventRecorderFor("weka-operator"),
 		Logger:      mgr.GetLogger().WithName("controllers").WithName("WekaClient"),
 		Manager:     mgr,
-		ExecService: services.NewExecService(mgr),
+		ExecService: services.NewExecService(config),
 	}
 }
 
