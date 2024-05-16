@@ -1,4 +1,4 @@
-package controllers
+package domain
 
 import (
 	"context"
@@ -222,7 +222,7 @@ OUTER:
 
 func (n *NodeAllocations) NumS3ContainersInTotal() int {
 	count := 0
-	for owner, _ := range n.Cpu {
+	for owner := range n.Cpu {
 		if owner.Role == "s3" {
 			count += 1
 		}
@@ -342,7 +342,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 
 	changed := false
 	// Code Improvements post existing tests...might need to change even more
-	var lastAllocFailureReason = ""
+	lastAllocFailureReason := ""
 
 	allocateResources := func(role string, numContainers int) error {
 	CONTAINERS:

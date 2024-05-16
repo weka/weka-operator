@@ -14,9 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
@@ -39,19 +38,19 @@ func (c *Cluster) ValidateWekaCluster(t *testing.T) {
 	}
 
 	template := cluster.Spec.Template
-	_, ok := controllers.WekaClusterTemplates[template]
+	_, ok := domain.WekaClusterTemplates[template]
 	if !ok {
 		t.Fatalf("template %q not found in WekaClusterTemplates", template)
 	}
 
 	topology := cluster.Spec.Topology
-	_, ok = controllers.Topologies[topology]
+	_, ok = domain.Topologies[topology]
 	if !ok {
 		t.Fatalf("topology %q not found", topology)
 	}
 }
 
-func (c *Cluster) testingCluster() *v1alpha1.WekaCluster {
+func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 	driversDistService := fmt.Sprintf("http://weka-driver-builder.%s.svc.cluster.local:60002", c.Namespace)
 	cluster := &wekav1alpha1.WekaCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -107,7 +106,7 @@ func (c *Cluster) DeployWekaCluster(t *testing.T) {
 	t.Run("Pods Created Condition", c.PodsCreatedCondition(ctx, cluster))
 }
 
-func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
@@ -117,7 +116,7 @@ func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *v1alpha1
 	}
 }
 
-func (c *Cluster) PodsCreatedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) PodsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
@@ -158,7 +157,7 @@ func (c *Cluster) VerifyWekaContainers(t *testing.T) {
 	t.Run("Drives Added Condition", c.ContainerDrivesAddedCondition(ctx, driveContainers))
 }
 
-func (c *Cluster) ContainerDrivesAddedCondition(ctx context.Context, containers *v1alpha1.WekaContainerList) func(t *testing.T) {
+func (c *Cluster) ContainerDrivesAddedCondition(ctx context.Context, containers *wekav1alpha1.WekaContainerList) func(t *testing.T) {
 	return func(t *testing.T) {
 		for _, container := range containers.Items {
 			t.Run(container.Name, func(t *testing.T) {
@@ -183,7 +182,7 @@ func (c *Cluster) ContainerDrivesAddedCondition(ctx context.Context, containers 
 	}
 }
 
-func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *v1alpha1.WekaContainerList) func(t *testing.T) {
+func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *wekav1alpha1.WekaContainerList) func(t *testing.T) {
 	return func(t *testing.T) {
 		for _, container := range container.Items {
 			t.Run(container.Name, func(t *testing.T) {
@@ -208,7 +207,7 @@ func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *v1alph
 	}
 }
 
-func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *v1alpha1.WekaContainerList) func(t *testing.T) {
+func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *wekav1alpha1.WekaContainerList) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, logger, done := instrumentation.GetLogSpan(ctx, "JoinedClusterCondition")
 		defer done()
@@ -258,7 +257,7 @@ func (c *Cluster) VerifyWekaCluster(t *testing.T) {
 	t.Run("IO Started Condition", c.IOStartedCondition(ctx, cluster))
 }
 
-func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
@@ -268,7 +267,7 @@ func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *v1alpha1.Weka
 	}
 }
 
-func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
@@ -278,7 +277,7 @@ func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *v1alpha1
 	}
 }
 
-func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
@@ -288,7 +287,7 @@ func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *v1alpha1
 	}
 }
 
-func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
@@ -298,7 +297,7 @@ func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *v1alpha1.We
 	}
 }
 
-func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *v1alpha1.WekaCluster) func(t *testing.T) {
+func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		defer cancel()
@@ -308,7 +307,7 @@ func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *v1alpha1.Weka
 	}
 }
 
-func waitForCondition(ctx context.Context, c client.Client, cluster *v1alpha1.WekaCluster, cond string) error {
+func waitForCondition(ctx context.Context, c client.Client, cluster *wekav1alpha1.WekaCluster, cond string) error {
 	ctx, logger, done := instrumentation.GetLogSpan(ctx, "waitForCondition")
 	defer done()
 
