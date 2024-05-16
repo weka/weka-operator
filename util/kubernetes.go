@@ -21,7 +21,16 @@ import (
 	"k8s.io/utils/exec"
 )
 
-type Exec struct {
+const DevModeNamespace = "weka-operator-system"
+
+type Exec interface {
+	Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
+	ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
+	ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
+	GetNodeName() string
+}
+
+type PodExec struct {
 	ClientSet *kubernetes.Clientset
 	Pod       *v1.Pod
 	Config    *rest.Config
@@ -36,20 +45,20 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(config *rest.Config, pod *v1.Pod) (*Exec, error) {
+func NewExecWithConfig(config *rest.Config, pod *v1.Pod) (Exec, error) {
 	clientset, err := KubernetesClientSet(config)
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
 	}
 
-	return &Exec{
+	return &PodExec{
 		ClientSet: clientset,
 		Pod:       pod,
 		Config:    config,
 	}, nil
 }
 
-func NewExecInPod(pod *v1.Pod) (*Exec, error) {
+func NewExecInPod(pod *v1.Pod) (Exec, error) {
 	config, err := KubernetesConfiguration()
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
@@ -58,10 +67,10 @@ func NewExecInPod(pod *v1.Pod) (*Exec, error) {
 	return NewExecWithConfig(config, pod)
 }
 
-func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Exec", "command_name", name)
 	defer end()
-	//TODO: hide sensitive data
+	// TODO: hide sensitive data
 	logger.SetValues(
 		"pod", e.Pod.Name,
 	)
@@ -115,17 +124,21 @@ func (e *Exec) exec(ctx context.Context, name string, sensitive bool, command []
 }
 
 // Exec executes a command in a pod. Logs input and output if exit code != 0. Should be used in rare cases as might reveal sensitive data.
-func (e *Exec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, "", false, command)
 }
 
 // ExecNamed executes a command in a pod. Logs input and output if exit code != 0. However, provides a name for the span.
-func (e *Exec) ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), false, command)
 }
 
-func (e *Exec) ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
+func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
+}
+
+func (e *PodExec) GetNodeName() string {
+	return e.Pod.Spec.NodeName
 }
 
 func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
@@ -153,7 +166,7 @@ func GetPodNamespace() (string, error) {
 	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 	if err != nil {
 		if os.IsNotExist(err) && os.Getenv("OPERATOR_DEV_MODE") == "true" {
-			return "weka-operator-system", nil
+			return DevModeNamespace, nil
 		}
 		return "", err
 	}

@@ -36,12 +36,13 @@ import (
 const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
+	config := mgr.GetConfig()
 	return &ContainerController{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
 		KubeService: services.NewKubeService(mgr.GetClient()),
-		ExecService: services.NewExecService(mgr),
+		ExecService: services.NewExecService(config),
 	}
 }
 
@@ -696,7 +697,7 @@ func getSignatureDevice(drive string) string {
 	return driveSignTarget
 }
 
-func (r *ContainerController) reSignDrive(ctx context.Context, executor *util.Exec, drive string) error {
+func (r *ContainerController) reSignDrive(ctx context.Context, executor util.Exec, drive string) error {
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
 	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
 	if err != nil {
@@ -730,11 +731,11 @@ func (r *ContainerController) isExistingCluster(ctx context.Context, s string) (
 	return false, nil
 }
 
-func (r *ContainerController) validateNotMounted(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
+func (r *ContainerController) validateNotMounted(ctx context.Context, executor util.Exec, drive string) (bool, error) {
 	return false, nil
 }
 
-func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *util.Exec, drive string) (bool, error) {
+func (r *ContainerController) isDrivePresigned(ctx context.Context, executor util.Exec, drive string) (bool, error) {
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriveIsPresigned", []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
 	if err != nil {
 		r.Logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
@@ -744,7 +745,7 @@ func (r *ContainerController) isDrivePresigned(ctx context.Context, executor *ut
 	return strings.TrimSpace(stdout.String()) == WEKA_SIGNATURE, nil
 }
 
-func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor *util.Exec, drive string) error {
+func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1alpha1.WekaContainer, executor util.Exec, drive string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "claimDrive", "drive", drive)
 	defer end()
 
@@ -791,7 +792,7 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 	return nil
 }
 
-func (r *ContainerController) getDriveUUID(ctx context.Context, executor *util.Exec, drive string) (string, error) {
+func (r *ContainerController) getDriveUUID(ctx context.Context, executor util.Exec, drive string) (string, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getDriveUUID")
 	defer end()
 
@@ -919,8 +920,8 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	return nil
 }
 
-func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.Exec, drive string) string {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverDrive", "drive", drive, "node_name", executor.Pod.Spec.NodeName)
+func (r *ContainerController) discoverDrive(ctx context.Context, executor util.Exec, drive string) string {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverDrive", "drive", drive, "node_name", executor.GetNodeName())
 	defer end()
 
 	if strings.HasPrefix(drive, "aws_") {
@@ -943,7 +944,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor *util.
 	return drive
 }
 
-func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor *util.Exec, drive string) error {
+func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor util.Exec, drive string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "initSignCloudDrives")
 	defer end()
 
@@ -1057,7 +1058,7 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	}
 
 	if !unschedulable {
-		return nil //cleanin up only unschedulable
+		return nil // cleanin up only unschedulable
 	}
 
 	if pod.Spec.NodeName != "" {
@@ -1077,7 +1078,7 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
 	if container.IsBackend() {
-		rescheduleAfter = 3 * time.Second //TODO: Change, this is dev mode
+		rescheduleAfter = 3 * time.Second // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {
 		logger.Info("Deleting unschedulable client container")
