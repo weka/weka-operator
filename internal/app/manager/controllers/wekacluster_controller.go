@@ -45,21 +45,24 @@ type WekaClusterReconciler struct {
 	Manager  ctrl.Manager
 	Recorder record.EventRecorder
 
-	CrdManager  services.CrdManager
-	ExecService services.ExecService
+	CrdManager     services.CrdManager
+	SecretsService services.SecretsService
+	ExecService    services.ExecService
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	client := mgr.GetClient()
 	config := mgr.GetConfig()
+	scheme := mgr.GetScheme()
 	return &WekaClusterReconciler{
 		Client:   client,
-		Scheme:   mgr.GetScheme(),
+		Scheme:   scheme,
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:  services.NewCrdManager(mgr),
-		ExecService: services.NewExecService(config),
+		CrdManager:     services.NewCrdManager(mgr),
+		SecretsService: services.NewSecretsService(client, scheme),
+		ExecService:    services.NewExecService(config),
 	}
 }
 
@@ -186,8 +189,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	// generate login credentials
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsCreated) {
-		err = r.ensureLoginCredentials(ctx, wekaCluster)
-		if err != nil {
+		if err = r.SecretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
+			logger.Error(err, "EnsureLoginCredentials failed")
 			return ctrl.Result{}, err
 		}
 
@@ -872,40 +875,6 @@ func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, 
 	configMap.Data["allocmap.yaml"] = string(yamlData)
 	err = r.Update(ctx, configMap)
 	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *WekaClusterReconciler) ensureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureLoginCredentials")
-	defer end()
-
-	// generate random password
-	operatorLogin := cluster.NewOperatorLoginSecret()
-	userLogin := cluster.NewUserLoginSecret()
-
-	ensureSecret := func(secret *v1.Secret) error {
-		err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secret.Name}, secret)
-		if err != nil && apierrors.IsNotFound(err) {
-			err := ctrl.SetControllerReference(cluster, secret, r.Scheme)
-			if err != nil {
-				return err
-			}
-
-			err = r.Create(ctx, secret)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	if err := ensureSecret(operatorLogin); err != nil {
-		return err
-	}
-	if err := ensureSecret(userLogin); err != nil {
 		return err
 	}
 	return nil

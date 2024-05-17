@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/services/mocks"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 )
@@ -79,38 +78,4 @@ func TestCreate(t *testing.T) {
 			}
 		})
 	}
-}
-
-type fixtures struct {
-	ctrl *gomock.Controller
-
-	mockClient      *mocks.MockClient
-	mockExec        *mocks.MockExec
-	mockExecService *mocks.MockExecService
-	mockManager     *mocks.MockManager
-	mockStatus      *mocks.MockStatusWriter
-}
-
-func setup(t *testing.T) *fixtures {
-	ctrl := gomock.NewController(t)
-
-	mockClient := mocks.NewMockClient(ctrl)
-	mockExec := mocks.NewMockExec(ctrl)
-	mockExecService := mocks.NewMockExecService(ctrl)
-	mockManager := mocks.NewMockManager(ctrl)
-	mockStatus := mocks.NewMockStatusWriter(ctrl)
-
-	return &fixtures{
-		ctrl: ctrl,
-
-		mockClient:      mockClient,
-		mockExec:        mockExec,
-		mockExecService: mockExecService,
-		mockManager:     mockManager,
-		mockStatus:      mockStatus,
-	}
-}
-
-func (f *fixtures) teardown() {
-	f.ctrl.Finish()
 }
