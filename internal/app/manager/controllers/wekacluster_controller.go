@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
+	"github.com/weka/weka-operator/internal/app/manager/factory"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -47,6 +47,8 @@ type WekaClusterReconciler struct {
 	CrdManager     services.CrdManager
 	SecretsService services.SecretsService
 	ExecService    services.ExecService
+
+	WekaContainerFactory factory.WekaContainerFactory
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
@@ -62,6 +64,8 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		CrdManager:     services.NewCrdManager(mgr),
 		SecretsService: services.NewSecretsService(client, scheme),
 		ExecService:    services.NewExecService(config),
+
+		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
 	}
 }
 
@@ -573,7 +577,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 			} // apparently need helper function with a role.
 
 			ownedResources, _ := domain.GetOwnedResources(owner, allocations)
-			wekaContainer, err := r.newWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
+			wekaContainer, err := r.WekaContainerFactory.NewWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				logger.Error(err, "newWekaContainerForWekaCluster")
 				end()
@@ -629,114 +633,6 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 
 	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
 	return foundContainers, nil
-}
-
-func (r *WekaClusterReconciler) newWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
-	ownedResources domain.OwnedResources,
-	template domain.ClusterTemplate,
-	topology domain.Topology,
-	role string, i int,
-) (*wekav1alpha1.WekaContainer, error) {
-	labels := map[string]string{
-		"weka.io/mode": role, // in addition to spec for indexing on k8s side for filtering by mode
-	}
-
-	var hugePagesNum int
-	var appendSetupCommand string
-	var numCores int
-	if role == "drive" {
-		hugePagesNum = template.DriveHugepages
-		appendSetupCommand = cluster.Spec.DriveAppendSetupCommand
-		numCores = template.DriveCores
-	} else if role == "compute" {
-		hugePagesNum = template.ComputeHugepages
-		appendSetupCommand = cluster.Spec.ComputeAppendSetupCommand
-		numCores = template.ComputeCores
-	} else if role == "s3" {
-		hugePagesNum = template.S3FrontendHugepages
-		numCores = template.S3Cores
-	}
-
-	network, err := resources.GetContainerNetwork(topology.Network)
-	if err != nil {
-		return nil, err
-	}
-
-	potentialDrives := ownedResources.Drives[:]
-	availableDrives := topology.GetAllNodesDrives(ownedResources.Node)
-	for i := 0; i < len(availableDrives); i++ {
-		if slices.Contains(potentialDrives, availableDrives[i]) {
-			continue
-		}
-		potentialDrives = append(potentialDrives, availableDrives[i])
-	}
-	// Selected by ownership drives are first in the list and will be attempted first, granting happy flow
-
-	secretKey := cluster.GetOperatorSecretName()
-	containerPrefix := cluster.GetLastGuidPart()
-
-	if topology.ForcedCpuPolicy != "" {
-		cluster.Spec.CpuPolicy = topology.ForcedCpuPolicy
-	}
-
-	if cluster.Spec.CpuPolicy == wekav1alpha1.CpuPolicyAuto {
-		return nil, errors.New("CpuPolicyAuto is not supported on cluster level. Should be set explicitly or defined by topology")
-	}
-
-	coreIds := ownedResources.CoreIds
-	if !slices.Contains([]wekav1alpha1.CpuPolicy{wekav1alpha1.CpuPolicyShared}, cluster.Spec.CpuPolicy) {
-		coreIds = []int{}
-	}
-
-	var s3Params *wekav1alpha1.S3Params
-	if role == "s3" {
-		s3Params = &wekav1alpha1.S3Params{
-			EnvoyPort:      ownedResources.EnvoyPort,
-			EnvoyAdminPort: ownedResources.EnvoyAdminPort,
-			S3Port:         ownedResources.S3Port,
-		}
-	}
-
-	container := &wekav1alpha1.WekaContainer{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "weka.weka.io/v1alpha1",
-			Kind:       "WekaContainer",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.GetContainerName(cluster, role, i),
-			Namespace: cluster.Namespace,
-			Labels:    labels,
-		},
-		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:        ownedResources.Node,
-			Port:                ownedResources.Port,
-			AgentPort:           ownedResources.AgentPort,
-			Image:               cluster.Spec.Image,
-			ImagePullSecret:     cluster.Spec.ImagePullSecret,
-			WekaContainerName:   fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
-			Mode:                role,
-			NumCores:            numCores,
-			CoreIds:             coreIds,
-			Network:             network,
-			Hugepages:           hugePagesNum,
-			HugepagesSize:       template.HugePageSize,
-			HugepagesOverride:   template.HugePagesOverride,
-			NumDrives:           len(ownedResources.Drives),
-			PotentialDrives:     potentialDrives,
-			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
-			DriversDistService:  cluster.Spec.DriversDistService,
-			CpuPolicy:           cluster.Spec.CpuPolicy,
-			AppendSetupCommand:  appendSetupCommand,
-			TracesConfiguration: cluster.Spec.TracesConfiguration,
-			S3Params:            s3Params,
-		},
-	}
-
-	if err := ctrl.SetControllerReference(cluster, container, r.Scheme); err != nil {
-		return nil, err
-	}
-
-	return container, nil
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
