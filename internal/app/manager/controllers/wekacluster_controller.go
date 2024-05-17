@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -193,15 +194,21 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsCreated) {
-		if err = r.SecretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			logger.Error(err, "EnsureLoginCredentials failed")
-			return ctrl.Result{}, err
-		}
-
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
-	} else {
-		logger.SetPhase("CLUSTER_SECRETS_ALREADY_CREATED")
+	steps := &lifecycle.ReconciliationSteps{
+		Reconciler: r,
+		Cluster:    wekaCluster,
+		Steps: []lifecycle.Step{
+			{
+				Condition:             "ClusterSecretsCreated",
+				Predicates:            []lifecycle.PredicateFunc{}, // default value
+				SkipOwnConditionCheck: false,                       // default value
+				Reconcile:             lifecycle.ClusterSecretsCreated(r.SecretsService),
+			},
+		},
+	}
+	if err := steps.Reconcile(ctx); err != nil {
+		logger.Error(err, "Failed to reconcile cluster")
+		return ctrl.Result{}, err
 	}
 
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
