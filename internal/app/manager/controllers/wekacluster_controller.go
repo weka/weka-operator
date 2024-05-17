@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -146,7 +147,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	// Fetch the WekaCluster instance
 	wekaClusterService, err := r.CrdManager.GetClusterService(ctx, req)
 	if err != nil {
-		logger.Error(err, "GetClusterService failed")
+		if !apierrors.IsNotFound(err) {
+			logger.Error(err, "GetClusterService failed")
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -193,15 +196,21 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsCreated) {
-		if err = r.SecretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			logger.Error(err, "EnsureLoginCredentials failed")
-			return ctrl.Result{}, err
-		}
-
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
-	} else {
-		logger.SetPhase("CLUSTER_SECRETS_ALREADY_CREATED")
+	steps := &lifecycle.ReconciliationSteps{
+		Reconciler: r,
+		Cluster:    wekaCluster,
+		Steps: []lifecycle.Step{
+			{
+				Condition:             "ClusterSecretsCreated",
+				Predicates:            []lifecycle.PredicateFunc{}, // default value
+				SkipOwnConditionCheck: false,                       // default value
+				Reconcile:             lifecycle.ClusterSecretsCreated(r.SecretsService),
+			},
+		},
+	}
+	if err := steps.Reconcile(ctx); err != nil {
+		logger.Error(err, "Failed to reconcile cluster")
+		return ctrl.Result{}, err
 	}
 
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
@@ -417,7 +426,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	err = r.HandleUpgrade(ctx, wekaCluster)
 	if err != nil {
-		//TODO: separate unknown from expected reconcilation errors for info/error logging,
+		// TODO: separate unknown from expected reconcilation errors for info/error logging,
 		// right now err is swallowed as meaningless for known cases
 		logger.Info("upgrade in process", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
