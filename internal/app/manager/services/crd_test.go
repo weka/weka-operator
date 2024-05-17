@@ -40,6 +40,7 @@ func TestGetCluster(t *testing.T) {
 	}
 
 	failedToGetClusterError := errors.New("Failed to get wekaCluster")
+	notFoundError := apierrors.NewNotFound(schema.GroupResource{}, "test-name")
 	cluster := &wekav1alpha1.WekaCluster{}
 	tests := []struct {
 		name     string
@@ -50,8 +51,8 @@ func TestGetCluster(t *testing.T) {
 		{
 			name:     "cluster not found",
 			cluster:  nil,
-			apiError: apierrors.NewNotFound(schema.GroupResource{}, "test-name"),
-			err:      nil,
+			apiError: notFoundError,
+			err:      notFoundError,
 		},
 		{
 			name:     "cluster found",
@@ -73,6 +74,10 @@ func TestGetCluster(t *testing.T) {
 			clusterService, err := subject.GetClusterService(ctx, req)
 			if err != tt.err {
 				t.Errorf("Expected %v, got %v", tt.err, err)
+				return
+			}
+			if clusterService == nil {
+				return
 			}
 			cluster := clusterService.GetCluster()
 			if (tt.cluster == nil && cluster != nil) || (tt.cluster != nil && cluster == nil) {
