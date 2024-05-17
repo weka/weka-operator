@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
@@ -10,11 +12,9 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
 )
 
 type CrdManager interface {
@@ -39,10 +39,7 @@ func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (W
 	wekaCluster := &wekav1alpha1.WekaCluster{}
 	err := r.getClient().Get(ctx, req.NamespacedName, wekaCluster)
 	if err != nil {
-		wekaCluster = nil
-		if apierrors.IsNotFound(err) {
-			err = nil
-		}
+		return nil, err
 	}
 
 	wekaClusterService := NewWekaClusterService(r.Manager, wekaCluster)
@@ -104,7 +101,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	k8sClient := r.Manager.GetClient()
 	if len(currentContainers) == 0 {
 		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
-		//TODO: should've be just own step function
+		// TODO: should've be just own step function
 		err = topologyAllocator.AllocateClusterRange(ctx, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to allocate cluster range")
@@ -128,13 +125,13 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 
 	var joinIps []string
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || len(cluster.Spec.ExpandEndpoints) != 0 {
-		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
+		// TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
 		allowExpansion := false
 		if err != nil {
 			allowExpansion = strings.Contains(err.Error(), "No join IP port pairs found") || strings.Contains(err.Error(), "No compute containers found")
 		}
-		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { //TO
+		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { // TO
 			joinIps = cluster.Spec.ExpandEndpoints
 		} else {
 			if err != nil {
