@@ -591,7 +591,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 				// if we post cluster form should join existing cluster
 				if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
 					if joinIps == nil {
-						joinIps, err = GetJoinIps(ctx, r.Client, cluster)
+						joinIps, err = services.GetJoinIps(ctx, r.Client, cluster)
 						if err != nil {
 							logger.Error(err, "Failed to get join ips")
 							end()
