@@ -206,7 +206,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
 	var containers []*wekav1alpha1.WekaContainer
 
-	containers, err = r.ensureWekaContainers(ctx, wekaCluster)
+	containers, err = r.CrdManager.EnsureWekaContainers(ctx, wekaCluster)
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
@@ -500,139 +500,6 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 			cluster.Name,
 			cluster.Namespace))
 	return nil
-}
-
-func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureWekaContainers", "cluster", cluster.Name, "template", cluster.Spec.Template, "topology", cluster.Spec.Topology)
-	defer end()
-
-	allocations, allocConfigMap, err := r.CrdManager.GetOrInitAllocMap(ctx)
-	if err != nil {
-		logger.Error(err, "could not init allocmap")
-		return nil, err
-	}
-
-	foundContainers := []*wekav1alpha1.WekaContainer{}
-	template, ok := domain.WekaClusterTemplates[cluster.Spec.Template]
-	if !ok {
-		keys := make([]string, 0, len(domain.WekaClusterTemplates))
-		for k := range domain.WekaClusterTemplates {
-			keys = append(keys, k)
-		}
-		err := fmt.Errorf("Template not found")
-		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
-		return nil, err
-	}
-	topology_fn, ok := domain.Topologies[cluster.Spec.Topology]
-	if !ok {
-		keys := make([]string, 0, len(domain.Topologies))
-		for k := range domain.Topologies {
-			keys = append(keys, k)
-		}
-		err := fmt.Errorf("Topology not found")
-		logger.Error(err, "Topology not found", "topology", cluster.Spec.Topology, "keys", keys)
-		return nil, err
-	}
-	topology, err := topology_fn(ctx, r, cluster.Spec.NodeSelector)
-	allocator := domain.NewAllocator(topology)
-	if err != nil {
-		logger.Error(err, "Failed to get topology", "topology", cluster.Spec.Topology)
-		return nil, err
-	}
-	allocations, err, changed := allocator.Allocate(
-		ctx,
-		domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
-		template,
-		allocations,
-		cluster.Spec.Size)
-	if err != nil {
-		logger.Error(err, "Failed to allocate resources")
-		return nil, err
-	}
-	if changed {
-		if err := r.CrdManager.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
-			logger.Error(err, "Failed to update alloc map")
-			return nil, err
-		}
-	}
-
-	size := cluster.Spec.Size
-	if size == 0 {
-		size = 1
-	}
-	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
-
-	var joinIps []string
-
-	ensureContainers := func(role string, containersNum int) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainers", "role", role, "containersNum", containersNum)
-		defer end()
-		for i := 0; i < containersNum; i++ {
-			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainer", "index", i)
-			// Check if the WekaContainer object exists
-			owner := domain.Owner{
-				OwnerCluster: domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
-				Container:    fmt.Sprintf("%s%d", role, i),
-				Role:         role,
-			} // apparently need helper function with a role.
-
-			ownedResources, _ := domain.GetOwnedResources(owner, allocations)
-			wekaContainer, err := r.WekaContainerFactory.NewWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
-			if err != nil {
-				logger.Error(err, "newWekaContainerForWekaCluster")
-				end()
-				return err
-			}
-			l := logger.WithValues("container_name", wekaContainer.Name)
-
-			found := &wekav1alpha1.WekaContainer{}
-			err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
-			if err != nil && apierrors.IsNotFound(err) {
-				// if we post cluster form should join existing cluster
-				if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
-					if joinIps == nil {
-						joinIps, err = services.GetJoinIps(ctx, r.Client, cluster)
-						if err != nil {
-							logger.Error(err, "Failed to get join ips")
-							end()
-							return err
-						}
-					}
-					wekaContainer.Spec.JoinIps = joinIps
-				}
-				l.Info("Creating container")
-				err = r.Create(ctx, wekaContainer)
-				if err != nil {
-					logger.Error(err, "Failed to create WekaContainer")
-					end()
-					return err
-				}
-				foundContainers = append(foundContainers, wekaContainer)
-				l.Info("Container created")
-			} else {
-				foundContainers = append(foundContainers, found)
-				l.Info("Container already exists")
-			}
-			end()
-		}
-		return nil
-	}
-	if err := ensureContainers("drive", template.DriveContainers); err != nil {
-		logger.Error(err, "Failed to ensure drive containers")
-		return nil, err
-	}
-	if err := ensureContainers("compute", template.ComputeContainers); err != nil {
-		logger.Error(err, "Failed to ensure compute containers")
-		return nil, err
-	}
-
-	if err := ensureContainers("s3", template.S3Containers); err != nil {
-		logger.Error(err, "Failed to ensure S3 containers")
-		return nil, err
-	}
-
-	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
-	return foundContainers, nil
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
