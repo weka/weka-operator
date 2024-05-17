@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -47,10 +48,7 @@ func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (W
 	wekaCluster := &wekav1alpha1.WekaCluster{}
 	err := r.getClient().Get(ctx, req.NamespacedName, wekaCluster)
 	if err != nil {
-		wekaCluster = nil
-		if apierrors.IsNotFound(err) {
-			err = nil
-		}
+		return nil, err
 	}
 
 	wekaClusterService := NewWekaClusterService(r.Manager, wekaCluster)
