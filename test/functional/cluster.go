@@ -61,7 +61,7 @@ func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 			Size:               1,
 			Template:           "small",
 			Topology:           "discover_oci",
-			Image:              "quay.io/weka.io/weka-in-container:4.2.10-k8so.0",
+			Image:              c.Image,
 			ImagePullSecret:    "quay-cred",
 			DriversDistService: driversDistService,
 			NodeSelector: map[string]string{

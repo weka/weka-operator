@@ -72,7 +72,9 @@ func setup(t *testing.T, ctx context.Context) *SystemTest {
 		Namespace:       "default",
 		SystemNamespace: "weka-operator-system",
 		ClusterName:     "ft-cluster",
-		environment:     environment,
+		Image:           "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.2",
+
+		environment: environment,
 	}
 
 	return st

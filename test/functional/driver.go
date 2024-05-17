@@ -41,7 +41,7 @@ func (d *DriverBuilder) DeployDriverBuilder(t *testing.T) {
 			NodeSelector: map[string]string{
 				"weka.io/role": "builder",
 			},
-			Image:           "quay.io/weka.io/weka-in-container:4.2.10-k8so.0",
+			Image:           d.Image,
 			ImagePullSecret: "quay-cred",
 			Mode:            "dist",
 			NumCores:        1,
@@ -85,7 +85,7 @@ func (d *DriverBuilder) DeployDriverBuilder(t *testing.T) {
 
 	// Wait for the driver builder to be ready so that we can fix a build path
 	builderPod := &v1.Pod{}
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	waitFor(ctx, func(ctx context.Context) bool {
 		key := client.ObjectKeyFromObject(container)
 		err := d.Get(ctx, key, builderPod)
