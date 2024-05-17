@@ -122,7 +122,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		wg.Add(1)
 		go func(node string) {
 			err := func(node string) error {
-				return EnsureNodeDiscovered(ctx, r.Client, OwnerWekaObject{
+				return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
 					Image:           wekaClient.Spec.Image,
 					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
 				}, node, r.ExecService)
@@ -248,7 +248,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
 	defer end()
 
-	cpuPolicy, err := ResolveCpuPolicy(ctx, r.Client, node, wekaClient.Spec.CpuPolicy)
+	cpuPolicy, err := services.ResolveCpuPolicy(ctx, r.Client, node, wekaClient.Spec.CpuPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -306,12 +306,12 @@ func (r *ClientReconciler) resolveJoinIps(ctx context.Context, wekaClient *wekav
 		return nil
 	}
 
-	cluster, err := GetCluster(ctx, r.Client, wekaClient.Spec.TargetCluster)
+	cluster, err := services.GetCluster(ctx, r.Client, wekaClient.Spec.TargetCluster)
 	if err != nil {
 		return err
 	}
 
-	joinIps, err := GetJoinIps(ctx, r.Client, cluster)
+	joinIps, err := services.GetJoinIps(ctx, r.Client, cluster)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package controllers
+package services
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
@@ -83,7 +82,7 @@ type OwnerWekaObject struct {
 	ImagePullSecret string `json:"imagePullSecrets"`
 }
 
-func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec services.ExecService) error {
+func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
 	node := &corev1.Node{}
 	err := c.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
