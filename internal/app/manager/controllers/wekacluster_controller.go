@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/thoas/go-funk"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -36,6 +38,16 @@ const (
 	WekaFinalizer     = "weka.weka.io/finalizer"
 	ClusterStatusInit = "Init"
 )
+
+type ReconciliationError struct {
+	Err     error
+	Cluster *wekav1alpha1.WekaCluster
+	Step    lifecycle.Step
+}
+
+func (e ReconciliationError) Error() string {
+	return fmt.Sprintf("error reconciling cluster %s during phase %s: %v", e.Cluster.Name, e.Step.Condition, e.Err)
+}
 
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
@@ -193,15 +205,22 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsCreated) {
-		if err = r.SecretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			logger.Error(err, "EnsureLoginCredentials failed")
-			return ctrl.Result{}, err
-		}
-
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
-	} else {
-		logger.SetPhase("CLUSTER_SECRETS_ALREADY_CREATED")
+	steps := &reconciliationSteps{
+		Reconciler: r,
+		Cluster:    wekaCluster,
+		Steps: []lifecycle.Step{
+			{
+				Condition: "ClusterSecretsCreated",
+				Preconditions: []lifecycle.PreconditionFunc{
+					lifecycle.IsNotTrue(condition.CondClusterSecretsCreated),
+				},
+				Reconcile: lifecycle.ClusterSecretsCreated(r.SecretsService, r),
+			},
+		},
+	}
+	if err := steps.reconcile(ctx, wekaCluster); err != nil {
+		logger.Error(err, "Failed to reconcile cluster")
+		return ctrl.Result{}, err
 	}
 
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
@@ -810,5 +829,29 @@ func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context,
 		return err
 	}
 	logger.SetStatus(codes.Ok, "Client login credentials applied")
+	return nil
+}
+
+type reconciliationSteps struct {
+	Reconciler *WekaClusterReconciler
+	Cluster    *wekav1alpha1.WekaCluster
+	Steps      []lifecycle.Step
+}
+
+func (r *reconciliationSteps) reconcile(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+	for _, step := range r.Steps {
+
+		failedPreconditions := funk.Filter(step.Preconditions, func(precondition lifecycle.PreconditionFunc) bool {
+			return !precondition(cluster.Status.Conditions)
+		}).([]lifecycle.PreconditionFunc)
+		if len(failedPreconditions) > 0 {
+			continue
+		}
+
+		err := step.Reconcile(ctx, cluster)
+		if err != nil {
+			return &ReconciliationError{Err: err, Cluster: cluster, Step: step}
+		}
+	}
 	return nil
 }
