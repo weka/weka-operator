@@ -125,8 +125,9 @@ func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[strin
 		Nodes:           nodeNames,
 		MinCore:         2, // TODO: How to determine, other then querying machines?
 		CoreStep:        2,
-		MaxCore:         4,
+		MaxCore:         15,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers: 1,
 	}, nil
 }
 
