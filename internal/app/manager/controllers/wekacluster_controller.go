@@ -62,9 +62,9 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:     services.NewCrdManager(mgr),
-		SecretsService: services.NewSecretsService(client, scheme, execService),
-		ExecService:    execService,
+		CrdManager:           services.NewCrdManager(mgr),
+		SecretsService:       services.NewSecretsService(client, scheme, execService),
+		ExecService:          execService,
 		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
 	}
 }
