@@ -19,6 +19,7 @@ import (
 type CrdManager interface {
 	GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
+	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
 }
 
 func NewCrdManager(mgr ctrl.Manager) CrdManager {
@@ -96,6 +97,15 @@ func (r *crdManager) GetOrInitAllocMap(ctx context.Context) (*domain.Allocations
 		}
 	}
 	return allocations, allocMapConfigMap, nil
+}
+
+func (r *crdManager) UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error {
+	yamlData, err := yaml.Marshal(&allocations)
+	if err != nil {
+		return err
+	}
+	configMap.Data["allocmap.yaml"] = string(yamlData)
+	return r.getClient().Update(ctx, configMap)
 }
 
 func (r *crdManager) getClient() client.Client {

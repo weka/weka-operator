@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
 	"github.com/pkg/errors"
@@ -136,6 +137,56 @@ func TestGetOrInitAllocMap(t *testing.T) {
 				t.Errorf("Expected %v, got %v", tt.err, err)
 			}
 			tt.validateConfigMap(configMap)
+		})
+	}
+}
+
+func TestUpdateAllocationsConfigmap(t *testing.T) {
+	fixtures := setup(t)
+	defer fixtures.teardown()
+
+	config := &rest.Config{}
+
+	fixtures.mockManager.EXPECT().GetClient().Return(fixtures.mockClient).AnyTimes()
+	fixtures.mockManager.EXPECT().GetConfig().Return(config).AnyTimes()
+
+	subject := &crdManager{
+		Manager: fixtures.mockManager,
+	}
+
+	ctx := context.Background()
+
+	expectedError := errors.New("expected error")
+	tests := []struct {
+		name     string
+		apiError error
+		err      error
+	}{
+		{
+			name:     "success",
+			apiError: nil,
+			err:      nil,
+		},
+		{
+			name:     "error",
+			apiError: expectedError,
+			err:      expectedError,
+		},
+	}
+
+	allocations := &domain.Allocations{}
+	configMap := &v1.ConfigMap{
+		Data: map[string]string{},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixtures.mockClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(tt.apiError)
+
+			err := subject.UpdateAllocationsConfigmap(ctx, allocations, configMap)
+			if !errors.Is(err, tt.err) {
+				t.Errorf("Expected %v, got %v", tt.err, err)
+			}
 		})
 	}
 }

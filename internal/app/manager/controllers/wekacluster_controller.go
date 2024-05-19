@@ -20,7 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -487,7 +486,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 
 	changed := allocator.DeallocateCluster(domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
 	if changed {
-		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
+		if err := r.CrdManager.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
 			logger.Error(err, "Failed to update alloc map")
 			return err
 		}
@@ -547,7 +546,7 @@ func (r *WekaClusterReconciler) ensureWekaContainers(ctx context.Context, cluste
 		return nil, err
 	}
 	if changed {
-		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
+		if err := r.CrdManager.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
 			logger.Error(err, "Failed to update alloc map")
 			return nil, err
 		}
@@ -865,19 +864,6 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	}
 	logger.InfoWithStatus(codes.Ok, "Containers are ready")
 	return true, nil
-}
-
-func (r *WekaClusterReconciler) UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error {
-	yamlData, err := yaml.Marshal(&allocations)
-	if err != nil {
-		return err
-	}
-	configMap.Data["allocmap.yaml"] = string(yamlData)
-	err = r.Update(ctx, configMap)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
