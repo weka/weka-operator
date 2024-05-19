@@ -40,3 +40,23 @@ spec:
       targetPort: 60002
   selector:
     app: weka-driver-builder
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.2
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-client-cluster-dev
+  nodeSelector:
+    node.kubernetes.io/instance-type: k3s
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  coresNum: 1
+#  joinIpPorts: ["10.0.1.168:16101"] # dropped as targetCluster replaces this functionality for cases its both backends and clients in same k8s cluster
