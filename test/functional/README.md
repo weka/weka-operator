@@ -61,6 +61,10 @@ This will break the operator.
 
 Run the test suite: `make test-functional RUN=TestWekaCluster`
 
+- The `RUN` variable is required.
+- The `test-name` is the name of the test case you want to run from `test/functional/e2e_test.go`.
+- Example: `make test-functional RUN=TestWekaCluster`
+
 ## Caveats
 
 Functional test suites are, by their nature, less reliable than unit tests.
