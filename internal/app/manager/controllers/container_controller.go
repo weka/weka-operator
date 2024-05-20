@@ -383,12 +383,10 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
 		return ctrl.Result{}, err
 	}
-	if len(response) != 1 {
-		if !(container.Spec.Mode == wekav1alpha1.WekaContainerModeS3) {
-			logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
-			return ctrl.Result{}, errors.New("expected exactly one container to be present")
-		}
-		// TODO: Report s3 specific status
+
+	if len(response) == 0 {
+		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected at least one container to be present, none found"))
+		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 
 	found := false

@@ -58,7 +58,10 @@ def wait_for_agent():
 
 async def ensure_drivers():
     logging.info("waiting for drivers")
-    for driver in "wekafsio wekafsgw igb_uio mpin_user uio_pci_generic".split():
+    drivers = "wekafsio wekafsgw igb_uio mpin_user".split()
+    if version_params.get('uio_pci_generic') is not False:
+        drivers.append("uio_pci_generic")
+    for driver in drivers:
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
             if ec == 0:
@@ -78,7 +81,13 @@ async def ensure_drivers():
     logging.info("All drivers loaded successfully")
 
 
+# This atrocities should be replaced by new weka driver build/publish/download/install functionality
 VERSION_TO_DRIVERS_MAP_WEKAFS = {
+    "4.3.1.29791-9f57657d1fb70e71a3fb914ff7d75eee-dev": dict(
+        wekafs="cc9937c66eb1d0be-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
     "4.2.7.64-k8so-beta.10": dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
@@ -117,26 +126,28 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
 IGB_UIO_DRIVER_VERSION = "weka1.0.2"
 MPIN_USER_DRIVER_VERSION = "1.0.1"
 UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
-DEPENDENCIES_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
+DEFAULT_DEPENDENCY_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
+
+version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").split(":")[-1])
+assert version_params
 
 
 async def load_drivers():
-    weka_driver_version = \
-        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
-            "wekafs"]
+    weka_driver_version = version_params.get('wekafs')
+
     stdout, stderr, ec = await run_command(dedent(f"""
+        mkdir -p /opt/weka/dist/drivers
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-
+        # {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko 
         lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
         lsmod | grep uio || modprobe uio
         lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+        # {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
     """))
     if ec != 0:  # It is fine to abort like this, as we expect to have all drivers to present on dist service already
@@ -148,12 +159,13 @@ async def copy_drivers():
         VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
             "wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
+      mkdir -p /opt/weka/dist/drivers 
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
 
       cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+      {"" if version_params.get('uio_pci_generic') == False else f"cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
     """))
     if ec != 0:
         logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
@@ -457,11 +469,12 @@ async def override_dependencies_flag():
         ```
     """
     logging.info("overriding dependencies flag")
+    dep_version = version_params.get('dependencies', DEFAULT_DEPENDENCY_VERSION)
 
     cmd = dedent(
         f"""
-        mkdir -p /opt/weka/data/dependencies/{DEPENDENCIES_VERSION}/$(uname -r)/
-        touch /opt/weka/data/dependencies/{DEPENDENCIES_VERSION}/$(uname -r)/successful
+        mkdir -p /opt/weka/data/dependencies/{dep_version}/$(uname -r)/
+        touch /opt/weka/data/dependencies/{dep_version}/$(uname -r)/successful
         """
     )
     stdout, stderr, ec = await run_command(cmd)
@@ -668,5 +681,6 @@ try:
         time.sleep(180)
         raise
 finally:
-    logging.info("3 seconds exit-sleep") # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
+    logging.info(
+        "3 seconds exit-sleep")  # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
     time.sleep(3)
