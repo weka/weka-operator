@@ -31,6 +31,12 @@ source "amazon-ebs" "weka-eks" {
   assume_role {
     role_arn = "arn:aws:iam::381492135989:role/Root"
   }
+  ami_block_device_mappings {
+    device_name          = "/dev/xvda"
+    volume_size          = 80
+    delete_on_termination = true
+    volume_type          = "gp3"
+  }
 }
 
 build {
@@ -68,5 +74,9 @@ build {
       "uname -r",
       "cat /boot/grub/grub.cfg | grep menuentry",
     ]
+  }
+
+  post-processor "manifest" {
+    output = "manifest.json"
   }
 }
