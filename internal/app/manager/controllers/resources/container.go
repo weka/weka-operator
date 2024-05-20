@@ -557,14 +557,14 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
 		perDriveMemory := 2100
-		buffer := 400
+		buffer := 1400
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
 		managementMemory := 2200
 		perComputeMemory := 3600
-		buffer := 400
+		buffer := 1400
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores)
 	}
 
