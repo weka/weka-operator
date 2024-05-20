@@ -29,7 +29,7 @@ WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
 exiting = 0
 
 # Formatter with channel name
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 # Define handlers for stdout and stderr
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -40,19 +40,19 @@ stderr_handler.setLevel(logging.WARNING)
 # Basic configuration
 logging.basicConfig(
     level=logging.DEBUG,  # Global minimum logging level
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
-    handlers=[stdout_handler, stderr_handler]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Include timestamp
+    handlers=[stdout_handler, stderr_handler],
 )
 
 
 def wait_for_syslog():
-    while not os.path.isfile('/var/run/syslog-ng.pid'):
+    while not os.path.isfile("/var/run/syslog-ng.pid"):
         time.sleep(0.1)
         print("Waiting for syslog-ng to start")
 
 
 def wait_for_agent():
-    while not os.path.isfile('/var/run/weka-agent.pid'):
+    while not os.path.isfile("/var/run/weka-agent.pid"):
         time.sleep(1)
         print("Waiting for weka-agent to start")
 
@@ -60,7 +60,7 @@ def wait_for_agent():
 async def ensure_drivers():
     logging.info("waiting for drivers")
     drivers = "wekafsio wekafsgw igb_uio mpin_user".split()
-    if version_params.get('uio_pci_generic') is not False:
+    if version_params.get("uio_pci_generic") is not False:
         drivers.append("uio_pci_generic")
     for driver in drivers:
         while True:
@@ -174,14 +174,18 @@ MPIN_USER_DRIVER_VERSION = "1.0.1"
 UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 DEFAULT_DEPENDENCY_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
 
-version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").split(":")[-1])
+version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(
+    os.environ.get("IMAGE_NAME").split(":")[-1]
+)
 assert version_params
 
 
 async def load_drivers():
-    weka_driver_version = version_params.get('wekafs')
+    weka_driver_version = version_params.get("wekafs")
 
-    stdout, stderr, ec = await run_command(dedent(f"""
+    stdout, stderr, ec = await run_command(
+        dedent(
+            f"""
         mkdir -p /opt/weka/dist/drivers
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
@@ -195,16 +199,22 @@ async def load_drivers():
         lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         # {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
-    """))
-    if ec != 0:  # It is fine to abort like this, as we expect to have all drivers to present on dist service already
+    """
+        )
+    )
+    if (
+        ec != 0
+    ):  # It is fine to abort like this, as we expect to have all drivers to present on dist service already
         raise Exception(f"Failed to load drivers: {stderr}")
 
 
 async def copy_drivers():
-    weka_driver_version = \
-        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
-            "wekafs"]
-    stdout, stderr, ec = await run_command(dedent(f"""
+    weka_driver_version = VERSION_TO_DRIVERS_MAP_WEKAFS.get(
+        os.environ.get("IMAGE_NAME", "4.2.7.64-k8so-beta.10").split(":")[-1]
+    )["wekafs"]
+    stdout, stderr, ec = await run_command(
+        dedent(
+            f"""
       mkdir -p /opt/weka/dist/drivers 
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
@@ -212,7 +222,9 @@ async def copy_drivers():
       cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
       {"" if version_params.get('uio_pci_generic') == False else f"cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
-    """))
+    """
+        )
+    )
     if ec != 0:
         logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
         raise Exception(f"Failed to copy drivers post build: {stderr}")
@@ -229,9 +241,9 @@ def parse_cpu_allowed_list(path="/proc/1/status"):
 
 def expand_ranges(ranges_str):
     ranges = []
-    for part in ranges_str.split(','):
-        if '-' in part:
-            start, end = map(int, part.split('-'))
+    for part in ranges_str.split(","):
+        if "-" in part:
+            start, end = map(int, part.split("-"))
             ranges.extend(list(range(start, end + 1)))
         else:
             ranges.append(int(part))
@@ -258,7 +270,9 @@ def find_full_cores(n):
         if all(sibling in allowed_cores for sibling in siblings):
             if any(sibling in selected_siblings for sibling in siblings):
                 continue
-            selected_siblings.append(siblings[0])  # Select one sibling (the first for simplicity)
+            selected_siblings.append(
+                siblings[0]
+            )  # Select one sibling (the first for simplicity)
             if len(selected_siblings) == n:
                 break
 
@@ -308,9 +322,9 @@ async def run_command(command, capture_stdout=True):
         pipe = asyncio.subprocess.PIPE
     else:
         pipe = None
-    process = await asyncio.create_subprocess_shell("set -e\n" + command,
-                                                    stdout=pipe,
-                                                    stderr=pipe)
+    process = await asyncio.create_subprocess_shell(
+        "set -e\n" + command, stdout=pipe, stderr=pipe
+    )
     stdout, stderr = await process.communicate()
     logging.info(f"Command {command} finished with code {process.returncode}")
     if stdout:
@@ -328,7 +342,9 @@ async def run_logrotate():
 
 async def write_logrotate_config():
     with open("/etc/logrotate.conf", "w") as f:
-        f.write(dedent("""
+        f.write(
+            dedent(
+                """
             /var/log/syslog /var/log/errors {
                 size 1M
                 rotate 3
@@ -336,7 +352,9 @@ async def write_logrotate_config():
                 notifempty
                 compress
             } 
-"""))
+"""
+            )
+        )
 
 
 async def periodic_logrotate():
@@ -361,7 +379,7 @@ async def resolve_aws_net(device):
     nic = nics[int(idx)]
     mac = nic["mac_address"]
     ip = nic["private_ip"]
-    mask = "20" # TODO: Should not be hardcoded! This work in just one env.
+    mask = "20"  # TODO: Should not be hardcoded! This work in just one env.
     gw = "0.0.0.0"
     # gw = nic["gw"]
     net = f"'{mac}/{ip}/{mask}/{gw}'"
@@ -398,14 +416,16 @@ async def create_container():
         devices = [await resolve_aws_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
 
-    command = dedent(f"""
+    command = dedent(
+        f"""
         weka local setup container --name {NAME} --no-start --disable \
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         {net_str}  --base-port {PORT} --memory {MEMORY} \
         {f"{join_secret_flag} {join_secret}" if join_secret else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""}
-    """)
+    """
+    )
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
@@ -414,19 +434,26 @@ async def create_container():
 
 
 async def configure_traces():
-    data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
-                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1)
-    if MODE == 'dist':
-        data['enabled'] = False
-        data['retention_bytes'] = 128 * 1024 * 1024 * 1024
+    data = dict(
+        enabled=True,
+        ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
+        retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024,
+        retention_type="BYTES",
+        version=1,
+    )
+    if MODE == "dist":
+        data["enabled"] = False
+        data["retention_bytes"] = 128 * 1024 * 1024 * 1024
     data_string = json.dumps(data)
 
-    command = dedent(f"""
+    command = dedent(
+        f"""
         set -e
         mkdir -p /opt/weka/k8s-scripts
         echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
         weka local run mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
-        """)
+        """
+    )
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
         raise Exception(f"Failed to configure traces: {stderr}")
@@ -458,20 +485,22 @@ async def ensure_weka_container():
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
     if MODE == "s3":
-        resources['allow_protocols'] = True
-    resources['reserve_1g_hugepages'] = False
+        resources["allow_protocols"] = True
+    resources["reserve_1g_hugepages"] = False
 
     full_cores = find_full_cores(NUM_CORES)
     cores_cursor = 0
-    for node_id, node in resources['nodes'].items():
-        if node['dedicate_core']:
-            node['core_id'] = full_cores[cores_cursor]
+    for node_id, node in resources["nodes"].items():
+        if node["dedicate_core"]:
+            node["core_id"] = full_cores[cores_cursor]
             cores_cursor += 1
     # save resources
     with open("/tmp/weka-resources.json", "w") as f:
         json.dump(resources, f)
     # reconfigure containers
-    stdout, stderr, ec = await run_command("weka local resources import --force /tmp/weka-resources.json")
+    stdout, stderr, ec = await run_command(
+        "weka local resources import --force /tmp/weka-resources.json"
+    )
     if ec != 0:
         raise Exception(f"Failed to import resources: {stderr}")
 
@@ -492,13 +521,15 @@ async def configure_persistency():
     if not WEKA_PERSISTENCE_DIR:
         return
 
-    command = dedent(f"""
+    command = dedent(
+        f"""
         mkdir -p /opt/weka-preinstalled
         mount -o bind /opt/weka /opt/weka-preinstalled
         mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
         mkdir -p /opt/weka/dist
         mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
-    """)
+    """
+    )
 
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
@@ -518,7 +549,8 @@ async def ensure_weka_version():
 async def configure_agent(agent_handle_drivers=False):
     logging.info(f"reconfiguring agent with handle_drivers={agent_handle_drivers}")
     ignore_driver_flag = "false" if agent_handle_drivers else "true"
-    cmd = dedent(f"""
+    cmd = dedent(
+        f"""
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
 
         IGNORE_DRIVERS="{ignore_driver_flag}"
@@ -526,7 +558,8 @@ async def configure_agent(agent_handle_drivers=False):
         sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
-    """)
+    """
+    )
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to configure agent: {stderr}")
@@ -544,7 +577,7 @@ async def override_dependencies_flag():
         ```
     """
     logging.info("overriding dependencies flag")
-    dep_version = version_params.get('dependencies', DEFAULT_DEPENDENCY_VERSION)
+    dep_version = version_params.get("dependencies", DEFAULT_DEPENDENCY_VERSION)
 
     cmd = dedent(
         f"""
@@ -561,10 +594,12 @@ async def override_dependencies_flag():
 async def ensure_dist_container():
     logging.info("ensuring dist container")
 
-    cmd = dedent(f"""
+    cmd = dedent(
+        f"""
         weka local rm dist --force || true
         weka local setup container --name dist --net udp --base-port {PORT} --no-start --disable
-        """)
+        """
+    )
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to create dist container: {stderr}")
@@ -580,7 +615,8 @@ async def start_dist_container():
     # if ec != 0:
     #     raise Exception(f"Failed to start dist container: {stderr}")
     await ensure_daemon(
-        "weka local start")  # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
+        "weka local start"
+    )  # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
     # reason of being stuck: agent tries to authenticate using admin:admin into this stem container, for not known reason
     logging.info("dist container started")
 
@@ -589,9 +625,7 @@ async def discovery():
     # TODO: We should move here everything else we need to discover per node
     # This might be a good place to discover drives as well, as long we have some selector to discover by
     with open("/tmp/weka-discovery.json.tmp", "w") as f:
-        data = dict(
-            is_ht=len(read_siblings_list(0)) > 1
-        )
+        data = dict(is_ht=len(read_siblings_list(0)) > 1)
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
     logging.info("discovery done")
@@ -607,10 +641,12 @@ async def cleanup_traces_and_stop_dumper():
             continue
         break
 
-    stdout, stderr, ec = await run_command("""
+    stdout, stderr, ec = await run_command(
+        """
     weka local exec supervisorctl stop weka-trace-dumper
     rm -f /opt/weka/traces/*.shard
-    """)
+    """
+    )
     if ec != 0:
         logging.error(f"Failed to cleanup traces: {stderr}")
 
@@ -639,7 +675,9 @@ async def main():
     await configure_agent()
     await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
 
-    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+    agent_cmd = (
+        f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+    )
     await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
@@ -671,7 +709,9 @@ async def main():
 
 
 async def stop_daemon(process):
-    logging.info(f"stopping daemon with pid {process.pid} (via process group), {process}")
+    logging.info(
+        f"stopping daemon with pid {process.pid} (via process group), {process}"
+    )
 
     async def cleanup_process():
         for k, v in list(processes.items()):
@@ -762,10 +802,13 @@ try:
             raise
     except Exception as e:
         debug_sleep = int(os.environ.get("DEBUG_SLEEP", 3))
-        logging.error(f"Error: {e}, sleeping for {debug_sleep} seconds to give a chance to debug")
+        logging.error(
+            f"Error: {e}, sleeping for {debug_sleep} seconds to give a chance to debug"
+        )
         time.sleep(debug_sleep)
         raise
 finally:
     logging.info(
-        "3 seconds exit-sleep")  # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
+        "3 seconds exit-sleep"
+    )  # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
     time.sleep(3)
