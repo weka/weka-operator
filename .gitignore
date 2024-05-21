@@ -38,7 +38,7 @@ config/rbac/role.yaml
 .terraform
 .direnv
 temp.json
-k3s.yaml
+k3s*.yaml
 /drivers
 cover.html
 *.pyc
