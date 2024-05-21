@@ -80,11 +80,22 @@ See the [README](test/e2e/README.md) for more information.
 
 ## Releasing
 
+### Overview
+
 This project uses semantic release and GitHub Actions to automate releases.
-To create a new release, simply merge your changes to the `main` branch.
+
+### Creating a Release
+
+To create a new release, simply merge your changes to the `release/v0` branch.
 Once the actions workflows complete, a new release will be created under the releases tab in GitHub.
 The Helm chart and Docker image will be published to Quay.io.
 See the [Helm Repository](https://quay.io/repository/weka.io/helm/weka-operator) and the [Docker Image](https://quay.io/repository/weka.io/weka-operator).
+
+### Development Releases
+
+Development releases are not possible until we reach a minumum version of `v1`.
+This is due to limitations of the pre-release feature of semantic release.
+Development or "next release" changes should still be merged into `main`.
 
 ## Deployment
 
