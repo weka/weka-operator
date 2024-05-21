@@ -248,7 +248,6 @@ spec:
                     x-kubernetes-map-type: atomic
                 type: object
             required:
-            - extraCores
             - image
             - mode
             - name

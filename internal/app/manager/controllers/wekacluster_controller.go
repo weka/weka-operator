@@ -55,16 +55,16 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	client := mgr.GetClient()
 	config := mgr.GetConfig()
 	scheme := mgr.GetScheme()
+	execService := services.NewExecService(config)
 	return &WekaClusterReconciler{
 		Client:   client,
 		Scheme:   scheme,
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:     services.NewCrdManager(mgr),
-		SecretsService: services.NewSecretsService(client, scheme),
-		ExecService:    services.NewExecService(config),
-
+		CrdManager:           services.NewCrdManager(mgr),
+		SecretsService:       services.NewSecretsService(client, scheme, execService),
+		ExecService:          execService,
 		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
 	}
 }
@@ -152,8 +152,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	wekaCluster := wekaClusterService.GetCluster()
 	if err != nil {
-		logger.SetError(err, "Failed to get wekaCluster")
-		return ctrl.Result{}, err
+		if !apierrors.IsNotFound(err) {
+			logger.SetError(err, "Failed to get wekaCluster")
+			return ctrl.Result{}, err
+		}
 	}
 	if wekaCluster == nil {
 		logger.SetError(errors.New("WekaCluster not found"), "Existing WekaCluster not found")
@@ -303,8 +305,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.SetPhase("ALL_DRIVES_ADDED")
 	}
 
-	logger.Info("Ensuring IO is started")
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
+		logger.Info("Ensuring IO is started")
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
 		logger.Info("Starting IO")
 		err = r.StartIo(ctx, wekaCluster, containers)
@@ -354,11 +356,31 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			_ = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
-			err = r.Status().Update(ctx, wekaCluster)
+			err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+		}
+	}
+
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsCreated) {
+		err := r.SecretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsCreated, metav1.ConditionTrue, "Init", "Created client secrets")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsApplied) {
+		err := r.applyClientLoginCredentials(ctx, wekaCluster, containers)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsApplied, metav1.ConditionTrue, "Init", "Applied client secrets")
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -504,7 +526,7 @@ func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	var containersMap resources.ClusterContainersMap
-	container := r.SelectActiveContainer(containers)
+	container := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
 	if container == nil {
 		container = containers[0] // a fallback if we have none active, this is most surely initial clusterform
 	}
@@ -633,22 +655,8 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClusterCredentials")
 	defer end()
 	logger.SetPhase("APPLYING_CLUSTER_CREDENTIALS")
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return errors.Wrap(err, "Error creating executor")
-	}
 
-	existingUsers := []resources.WekaUsersResponse{}
-	cmd := "weka user -J || wekaauthcli user -J"
-	stdout, stderr, err := executor.ExecSensitive(ctx, "WekaListUsers", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return err
-	}
-	err = json.Unmarshal(stdout.Bytes(), &existingUsers)
-	if err != nil {
-		return err
-	}
+	wekaService := services.NewWekaService(r.ExecService, containers[0])
 
 	ensureUser := func(secretName string) error {
 		// fetch secret from k8s
@@ -656,19 +664,10 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		if err != nil {
 			return err
 		}
-
-		for _, user := range existingUsers {
-			if user.Username == string(username) {
-				return nil
-			}
-		}
-		// TODO: This still exposes password via Exec, solution might be to mount both secrets and create by script
-		cmd := fmt.Sprintf("weka user add %s ClusterAdmin %s", username, password)
-		_, stderr, err := executor.ExecSensitive(ctx, "AddClusterAdminUser", []string{"bash", "-ce", cmd})
+		err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
 		if err != nil {
-			return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
+			return err
 		}
-
 		return nil
 	}
 
@@ -684,17 +683,9 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		return err
 	}
 
-	for _, user := range existingUsers {
-		if user.Username == "admin" {
-			cmd = "wekaauthcli user delete admin"
-			logger.Info("Deleting default admin user")
-			_, stderr, err = executor.ExecSensitive(ctx, "DeleteDefaultAdminUser", []string{"bash", "-ce", cmd})
-			if err != nil {
-				logger.Error(err, "Failed to delete admin user")
-				return errors.Wrapf(err, "Failed to delete default admin user: %s", stderr.String())
-			}
-			return nil
-		}
+	err := wekaService.EnsureNoUser(ctx, "admin")
+	if err != nil {
+		return err
 	}
 	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
@@ -804,5 +795,22 @@ func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1
 			return container
 		}
 	}
+	return nil
+}
+
+func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClientLoginCredentials")
+	defer end()
+
+	container := r.SelectActiveContainer(containers)
+	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+	err = wekaService.EnsureUser(ctx, username, password, "regular")
+	if err != nil {
+		logger.Error(err, "Failed to ensure user")
+		return err
+	}
+	logger.SetStatus(codes.Ok, "Client login credentials applied")
 	return nil
 }

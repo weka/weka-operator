@@ -3,8 +3,11 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/util"
 	"strconv"
 	"strings"
 )
@@ -35,12 +38,27 @@ type S3Params struct {
 	ContainerIds   []int
 }
 
+type WekaUserResponse struct {
+	//OrgId    int    `json:"org_id"`
+	//PosixGid string `json:"posix_gid"`
+	// PosixUid string `json:"posix_uid"`
+	// Role     string `json:"role"`
+	// S3Policy string `json:"s3_policy"`
+	// Source   string `json:"source"`
+	// Uid      string `json:"uid"`
+	Username string `json:"username"`
+}
+
 type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
+	GenerateJoinSecret(ctx context.Context) (string, error)
+	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
+	EnsureUser(ctx context.Context, username, password, role string) error
+	EnsureNoUser(ctx context.Context, username string) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -66,6 +84,104 @@ type S3ClusterExists struct {
 type CliWekaService struct {
 	ExecService ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoUser")
+	defer end()
+
+	existingUsers, err := c.GetUsers(ctx)
+	if err != nil {
+		logger.SetError(err, "Failed to get users")
+		return err
+	}
+
+	for _, user := range existingUsers {
+		if user.Username == username {
+			executor, err := c.GetExecutor(ctx)
+			if err != nil {
+				logger.SetError(err, "Failed to get executor")
+				return err
+			}
+			cmd := fmt.Sprintf("wekaauthcli user delete %s", username)
+			_, stderr, err := executor.ExecSensitive(ctx, "RemoveUser", []string{"bash", "-ce", cmd})
+			if err != nil {
+				logger.SetError(err, "Failed to remove user", "stderr", stderr.String())
+				return err
+			}
+			return nil
+		}
+
+	}
+	return nil
+}
+
+func (c *CliWekaService) GetUsers(ctx context.Context) ([]WekaUserResponse, error) {
+	existingUsers := []WekaUserResponse{}
+	cmd := "weka user -J || wekaauthcli user -J"
+	executor, err := c.GetExecutor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	stdout, _, err := executor.ExecSensitive(ctx, "WekaListUsers", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(stdout.Bytes(), &existingUsers)
+	if err != nil {
+		return nil, err
+	}
+	return existingUsers, nil
+}
+
+func (c *CliWekaService) GetExecutor(ctx context.Context) (util.Exec, error) {
+	return c.ExecService.GetExecutor(ctx, c.Container)
+}
+
+func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, role string) error {
+	existingUsers, err := c.GetUsers(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, user := range existingUsers {
+		if user.Username == username {
+			return nil
+		}
+	}
+
+	executor, err := c.GetExecutor(ctx)
+	if err != nil {
+		return err
+	}
+
+	// A hack to handle both default user and newly created user
+	// This should move to a separate function with proper valudation if we have login
+	// since there are just few cases this is needed - ignoring for now
+	for _, cli := range []string{"weka", "wekaauthcli"} {
+		cmd := fmt.Sprintf("%s user add %s %s %s", cli, username, role, password)
+		_, stderr, err := executor.ExecSensitive(ctx, "AddClusterUser", []string{"bash", "-ce", cmd})
+		if err != nil {
+			if strings.Contains(stderr.String(), "weka user login") {
+				continue
+			}
+			return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
+		}
+		return nil
+	}
+	return errors.New("Failed to add user")
+}
+
+func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error) {
+	var data string
+	err := c.RunJsonCmd(ctx, []string{
+		"wekaauthcli", "cluster", "join-token", "generate", "--json",
+	}, "GenerateJoinSecret", &data)
+	if err != nil {
+		return "", err
+	}
+	return data, nil
 }
 
 func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) error {

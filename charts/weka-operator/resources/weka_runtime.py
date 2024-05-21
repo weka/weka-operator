@@ -82,6 +82,15 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     "4.2.7.64-k8so-beta.10": dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
+    "4.2.7.88-s3multitenancy": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
+    "4.2.7.64-s3multitenancy.2": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
+    "4.2.10.1693-251d3172589e79bd4960da8031a9a693-dev": dict(  # dev 4.2.7-based version
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
     "4.2.10.1290-e552f99e92504c69126da70e1740f6e4-dev": dict(
         wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
@@ -104,7 +113,8 @@ DEPENDENCIES_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
 
 async def load_drivers():
     weka_driver_version = \
-    VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])["wekafs"]
+        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
+            "wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
         curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
@@ -126,7 +136,8 @@ async def load_drivers():
 
 async def copy_drivers():
     weka_driver_version = \
-        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])["wekafs"]
+        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
+            "wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
@@ -282,11 +293,22 @@ async def create_container():
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
 
+    # read join secret from if file exists /var/run/secrets/weka-operator/operator-user/password
+    join_secret = ""
+    if os.path.exists("/var/run/secrets/weka-operator/operator-user/join-secret"):
+        with open("/var/run/secrets/weka-operator/operator-user/join-secret") as f:
+            join_secret_flag = "--join-secret"
+            if MODE == "client":
+                join_secret_flag = "--join-token"
+            join_secret = f.read().strip()
+
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable \
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         --net {NETWORK_DEVICE}  --base-port {PORT} --memory {MEMORY} \
-        {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} 
+        {f"{join_secret_flag} {join_secret}" if join_secret else ""} \
+        {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
+        {f"--client" if MODE == 'client' else ""}
     """)
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
@@ -460,7 +482,8 @@ async def start_dist_container():
     # stdout, stderr, ec = await run_command(cmd)
     # if ec != 0:
     #     raise Exception(f"Failed to start dist container: {stderr}")
-    await ensure_daemon("weka local start") # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
+    await ensure_daemon(
+        "weka local start")  # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
     # reason of being stuck: agent tries to authenticate using admin:admin into this stem container, for not known reason
     logging.info("dist container started")
 
@@ -486,7 +509,6 @@ async def cleanup_traces_and_stop_dumper():
             await asyncio.sleep(3)
             continue
         break
-
 
     stdout, stderr, ec = await run_command("""
     weka local exec supervisorctl stop weka-trace-dumper
@@ -545,7 +567,7 @@ async def main():
 
 async def stop_daemon(process):
     logging.info(f"stopping daemon with pid {process.pid} (via process group), {process}")
-    
+
     async def cleanup_process():
         for k, v in list(processes.items()):
             if v == process:
@@ -624,14 +646,18 @@ main_loop = loop.create_task(main())
 logrotate_task = loop.create_task(periodic_logrotate())
 
 try:
-    loop.run_until_complete(main_loop)
-    loop.run_forever()
-except RuntimeError:
-    if exiting:
-        logging.info("Cancelled")
-    else:
+    try:
+        loop.run_until_complete(main_loop)
+        loop.run_forever()
+    except RuntimeError:
+        if exiting:
+            logging.info("Cancelled")
+        else:
+            raise
+    except Exception as e:
+        logging.error(f"Error: {e}, sleeping for 3 minutes to give a chance to debug")
+        time.sleep(180)
         raise
-except Exception as e:
-    logging.error(f"Error: {e}, sleeping for 3 minutes to give a chance to debug")
-    time.sleep(180)
-    raise
+finally:
+    logging.info("3 seconds exit-sleep") # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
+    time.sleep(3)
