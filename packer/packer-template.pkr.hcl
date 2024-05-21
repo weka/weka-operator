@@ -32,8 +32,8 @@ source "amazon-ebs" "weka-eks" {
     role_arn = "arn:aws:iam::381492135989:role/Root"
   }
   ami_block_device_mappings {
-    device_name          = "/dev/xvda"
-    volume_size          = 80
+    device_name          = "/dev/sda1"
+    volume_size          = 200
     delete_on_termination = true
     volume_type          = "gp3"
   }
