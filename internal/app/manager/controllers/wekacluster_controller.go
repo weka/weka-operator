@@ -207,7 +207,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	// generate login credentials
 	steps := &reconciliationSteps{
 		Reconciler: r,
-		Cluster:    wekaCluster,
+		State: &lifecycle.ReconciliationState{
+			Cluster: wekaCluster,
+		},
 		Steps: []lifecycle.Step{
 			{
 				Condition: "ClusterSecretsCreated",
@@ -216,9 +218,16 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 				Reconcile: lifecycle.ClusterSecretsCreated(r.SecretsService, r),
 			},
+			{
+				Condition: condition.CondPodsCreated,
+				Preconditions: []lifecycle.PreconditionFunc{
+					lifecycle.IsNotTrue(condition.CondPodsCreated),
+				},
+				Reconcile: lifecycle.PodsCreated(r.CrdManager, r),
+			},
 		},
 	}
-	if err := steps.reconcile(ctx, wekaCluster); err != nil {
+	if err := steps.reconcile(ctx); err != nil {
 		logger.Error(err, "Failed to reconcile cluster")
 		return ctrl.Result{}, err
 	}
@@ -232,12 +241,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsCreated) {
-		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
-	}
-	logger.SetPhase("PODS_ALREADY_EXIST")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
 		logger.Debug("Checking if all containers are ready")
@@ -834,23 +837,23 @@ func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context,
 
 type reconciliationSteps struct {
 	Reconciler *WekaClusterReconciler
-	Cluster    *wekav1alpha1.WekaCluster
+	State      *lifecycle.ReconciliationState
 	Steps      []lifecycle.Step
 }
 
-func (r *reconciliationSteps) reconcile(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+func (r *reconciliationSteps) reconcile(ctx context.Context) error {
 	for _, step := range r.Steps {
 
 		failedPreconditions := funk.Filter(step.Preconditions, func(precondition lifecycle.PreconditionFunc) bool {
-			return !precondition(cluster.Status.Conditions)
+			return !precondition(r.State.Cluster.Status.Conditions)
 		}).([]lifecycle.PreconditionFunc)
 		if len(failedPreconditions) > 0 {
 			continue
 		}
 
-		err := step.Reconcile(ctx, cluster)
+		err := step.Reconcile(ctx, r.State)
 		if err != nil {
-			return &ReconciliationError{Err: err, Cluster: cluster, Step: step}
+			return &ReconciliationError{Err: err, Cluster: r.State.Cluster, Step: step}
 		}
 	}
 	return nil

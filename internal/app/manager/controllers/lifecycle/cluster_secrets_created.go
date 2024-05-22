@@ -23,22 +23,22 @@ func (e SecretCreationError) Error() string {
 }
 
 func ClusterSecretsCreated(secretsService services.SecretsService, statusClient StatusClient) StepFunc {
-	return func(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+	return func(ctx context.Context, state *ReconciliationState) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ClusterSecretsCreated")
 		defer end()
 
-		if wekaCluster == nil {
+		if state.Cluster == nil {
 			return &errors.ArgumentError{ArgName: "Cluster", Message: "Cluster is nil"}
 		}
-		if wekaCluster.Status.Conditions == nil {
+		if state.Cluster.Status.Conditions == nil {
 			return &errors.ArgumentError{ArgName: "Cluster.Status.Conditions", Message: "Cluster.Status.Conditions is nil"}
 		}
 		// generate login credentials
-		if err := secretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			return &SecretCreationError{Err: err, Cluster: wekaCluster}
+		if err := secretsService.EnsureLoginCredentials(ctx, state.Cluster); err != nil {
+			return &SecretCreationError{Err: err, Cluster: state.Cluster}
 		}
 
-		_ = statusClient.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
+		_ = statusClient.SetCondition(ctx, state.Cluster, condition.CondClusterSecretsCreated, metav1.ConditionTrue, "Init", "Cluster secrets are created")
 
 		return nil
 	}
