@@ -17,6 +17,12 @@ func (state *ClusterState) PodsCreated(crdManager services.CrdManager) StepFunc 
 		if err != nil {
 			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
+		if containers == nil {
+			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+		}
+		if len(containers) == 0 {
+			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+		}
 		state.Containers = containers
 
 		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")

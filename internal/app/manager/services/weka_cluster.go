@@ -3,8 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
-	"go.opentelemetry.io/otel/codes"
 	"strings"
+
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
@@ -16,6 +17,7 @@ import (
 )
 
 type WekaClusterService interface {
+	Create(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	GetCluster() *wekav1alpha1.WekaCluster
 	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	EnsureNoS3Containers(ctx context.Context) error
@@ -41,6 +43,56 @@ type wekaClusterService struct {
 
 func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
 	return r.Cluster
+}
+
+func (r *wekaClusterService) Create(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "createCluster", "cluster", r.Cluster.Name, "containers", len(containers))
+	defer end()
+
+	if len(containers) == 0 {
+		err := pretty.Errorf("containers list is empty")
+		logger.Error(err, "containers list is empty")
+		return err
+	}
+
+	var hostIps []string
+	var hostnamesList []string
+
+	for _, container := range containers {
+		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
+		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
+	}
+	hostIpsStr := strings.Join(hostIps, ",")
+	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
+	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret`", strings.Join(hostnamesList, " "), hostIpsStr)
+	logger.Info("Creating cluster", "cmd", cmd)
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		logger.Error(err, "Could not create executor")
+		return errors.Wrap(err, "Could not create executor")
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "WekaStatusOrWekaClusterCreate", []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.Error(err, "Failed to create cluster")
+		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
+	}
+	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
+
+	// update cluster name
+	clusterName := r.Cluster.GetUID()
+	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
+	logger.Debug("Updating cluster name")
+	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
+	}
+
+	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {
+		return errors.Wrap(err, "Failed to update wekaCluster status")
+	}
+	logger.SetPhase("Cluster created")
+	return nil
 }
 
 func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
