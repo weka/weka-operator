@@ -194,15 +194,26 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
+	state := &lifecycle.ClusterState{
+		ReconciliationState: lifecycle.ReconciliationState[*wekav1alpha1.WekaCluster]{
+			Subject:    wekaCluster,
+			Conditions: &wekaCluster.Status.Conditions,
+		},
+	}
+
 	steps := &lifecycle.ReconciliationSteps{
-		Reconciler: r,
-		Cluster:    wekaCluster,
+		Reconciler: r.Client,
+		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{
 			{
 				Condition:             "ClusterSecretsCreated",
 				Predicates:            []lifecycle.PredicateFunc{}, // default value
 				SkipOwnConditionCheck: false,                       // default value
-				Reconcile:             lifecycle.ClusterSecretsCreated(r.SecretsService),
+				Reconcile:             state.ClusterSecretsCreated(r.SecretsService),
+			},
+			{
+				Condition: condition.CondPodsCreated,
+				Reconcile: state.PodsCreated(r.CrdManager),
 			},
 		},
 	}
@@ -220,12 +231,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsCreated) {
-		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
-	}
-	logger.SetPhase("PODS_ALREADY_EXIST")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
 		logger.Debug("Checking if all containers are ready")
@@ -394,7 +399,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	err = r.HandleUpgrade(ctx, wekaCluster)
 	if err != nil {
-		//TODO: separate unknown from expected reconcilation errors for info/error logging,
+		// TODO: separate unknown from expected reconcilation errors for info/error logging,
 		// right now err is swallowed as meaningless for known cases
 		logger.Info("upgrade in process", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil

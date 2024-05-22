@@ -1,4 +1,5 @@
 //go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_reconciler.go -package=mocks github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle Reconciler
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_client.go -package=mocks sigs.k8s.io/controller-runtime/pkg/client StatusWriter
 package lifecycle
 
 import (
@@ -22,6 +23,8 @@ func SkipOwnConditionCheck(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockReconciler := mocks.NewMockReconciler(ctrl)
+	mockStatus := mocks.NewMockStatusWriter(ctrl)
+	mockReconciler.EXPECT().Status().Return(mockStatus).AnyTimes()
 
 	tests := []struct {
 		skip               bool
@@ -63,28 +66,40 @@ func SkipOwnConditionCheck(t *testing.T) {
 	for _, test := range tests {
 		name := fmt.Sprintf("skip=%v status=%s", test.skip, test.status)
 		t.Run(name, func(t *testing.T) {
+			state := &ReconciliationState[*wekav1alpha1.WekaCluster]{
+				Subject:    &wekav1alpha1.WekaCluster{},
+				Conditions: &[]metav1.Condition{},
+			}
 			steps := ReconciliationSteps{
 				Reconciler: mockReconciler,
-				Cluster:    &wekav1alpha1.WekaCluster{},
+				State:      state,
 				Steps: []Step{
 					{
 						Condition:             "test",
 						SkipOwnConditionCheck: test.skip,
-						Reconcile: func(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+						Reconcile: func(ctx context.Context) error {
 							return nil
 						},
 					},
 				},
 			}
 
-			mockReconciler.EXPECT().SetCondition(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(test.shouldSetCondition)
-
-			meta.SetStatusCondition(&steps.Cluster.Status.Conditions, metav1.Condition{
+			meta.SetStatusCondition(state.Conditions, metav1.Condition{
 				Type:    "test",
 				Status:  test.status,
 				Reason:  "Init",
 				Message: "Test message",
 			})
+
+			initialStatus := meta.FindStatusCondition(*state.Conditions, "test")
+			if initialStatus == nil {
+				t.Fatalf("initial status is nil")
+			}
+			if initialStatus.Status != test.status {
+				t.Fatalf("expected initial status to be %s, got %s", test.status, initialStatus.Status)
+			}
+
+			mockStatus.EXPECT().Update(gomock.Any(), state.Subject).Times(test.shouldSetCondition)
 
 			if err := steps.Reconcile(context.Background()); err != nil {
 				t.Fatalf("unexpected error: %v", err)
