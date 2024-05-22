@@ -3,27 +3,38 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/thoas/go-funk"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type (
-	StepFunc func(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error
-)
+type StepFunc func(ctx context.Context) error
+
+type RetryableError struct {
+	Err        error
+	RetryAfter time.Duration
+}
+
+func (e RetryableError) Error() string {
+	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
+}
 
 type Reconciler interface {
-	SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
-		condType string, status metav1.ConditionStatus, reason string, message string,
-	) error
+	client.Client
+}
+
+type ClusterState struct {
+	ReconciliationState[*wekav1alpha1.WekaCluster]
 }
 
 type ReconciliationSteps struct {
 	Reconciler Reconciler
-	Cluster    *wekav1alpha1.WekaCluster
+	State      *ReconciliationState[*wekav1alpha1.WekaCluster]
 	Steps      []Step
 }
 
@@ -42,6 +53,13 @@ type Step struct {
 	Reconcile StepFunc
 }
 
+type ReconciliationState[Subject client.Object] struct {
+	// Cluster    *wekav1alpha1.WekaCluster
+	Subject    Subject
+	Conditions *[]metav1.Condition
+	Containers []*wekav1alpha1.WekaContainer
+}
+
 // -- PreconditionFuncs
 type PredicateFunc func(conditions []metav1.Condition) bool
 
@@ -55,51 +73,94 @@ func IsNotTrue(condition string) PredicateFunc {
 
 type ReconciliationError struct {
 	Err     error
-	Cluster *wekav1alpha1.WekaCluster
+	Subject metav1.Object
 	Step    Step
 }
 
 func (e ReconciliationError) Error() string {
-	return fmt.Sprintf("error reconciling cluster %s during phase %s: %v", e.Cluster.Name, e.Step.Condition, e.Err)
+	return fmt.Sprintf("error reconciling cluster %s during phase %s: %v",
+		e.Subject.GetName(),
+		e.Step.Condition,
+		e.Err)
+}
+
+type ConditionUpdateError struct {
+	Err       error
+	Subject   metav1.Object
+	Condition metav1.Condition
+}
+
+func (e ConditionUpdateError) Error() string {
+	return fmt.Sprintf("error updating condition %s for object %s: %v", e.Condition.Type, e.Subject.GetName(), e.Err)
+}
+
+type StateError struct {
+	Property string
+	Message  string
+}
+
+func (e StateError) Error() string {
+	return fmt.Sprintf("invalid state: %s - %s", e.Property, e.Message)
 }
 
 // -- ReconciliationSteps -------------------------------------------------------
 
 func (r *ReconciliationSteps) Reconcile(ctx context.Context) error {
-	cluster := r.Cluster
+	// cluster := r.State.Cluster
+	if r.State == nil {
+		return &StateError{Property: "State", Message: "State is nil"}
+	}
+	if r.State.Conditions == nil {
+		return &StateError{Property: "Conditions", Message: "Conditions is nil"}
+	}
+
 	for _, step := range r.Steps {
 
 		// Check if step is already done or if the condition should be able to run again
 		if !step.SkipOwnConditionCheck {
-			if meta.IsStatusConditionTrue(cluster.Status.Conditions, step.Condition) {
+			if meta.IsStatusConditionTrue(*r.State.Conditions, step.Condition) {
 				continue
 			}
 		}
 
 		// Check preconditions
 		failedPreconditions := funk.Filter(step.Predicates, func(precondition PredicateFunc) bool {
-			return !precondition(cluster.Status.Conditions)
+			return !precondition(*r.State.Conditions)
 		}).([]PredicateFunc)
 		if len(failedPreconditions) > 0 {
 			continue
 		}
 
-		if err := step.Reconcile(ctx, cluster); err != nil {
-			if err := r.Reconciler.SetCondition(
-				ctx, cluster, step.Condition, metav1.ConditionFalse, "Error", err.Error(),
-			); err != nil {
-				return &ReconciliationError{Err: err, Cluster: cluster, Step: step}
+		if err := step.Reconcile(ctx); err != nil {
+			if err := r.setConditions(ctx, metav1.Condition{
+				Type: step.Condition, Status: metav1.ConditionFalse,
+				Reason:  "Error",
+				Message: err.Error(),
+			}); err != nil {
+				return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
 			}
-			return &ReconciliationError{Err: err, Cluster: cluster, Step: step}
+			return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
 		}
 
 		// Update condition
-		err := r.Reconciler.SetCondition(
-			ctx, cluster, step.Condition, metav1.ConditionTrue, "Init", "Condition is true",
-		)
+		err := r.setConditions(ctx, metav1.Condition{
+			Type:    step.Condition,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Init",
+			Message: "Condition is true",
+		})
 		if err != nil {
-			return &ReconciliationError{Err: err, Cluster: cluster, Step: step}
+			return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
 		}
 	}
+	return nil
+}
+
+func (r *ReconciliationSteps) setConditions(ctx context.Context, condition metav1.Condition) error {
+	meta.SetStatusCondition(r.State.Conditions, condition)
+	if err := r.Reconciler.Status().Update(ctx, r.State.Subject); err != nil {
+		return &ConditionUpdateError{Err: err, Subject: r.State.Subject, Condition: condition}
+	}
+
 	return nil
 }

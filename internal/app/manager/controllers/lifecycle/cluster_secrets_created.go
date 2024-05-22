@@ -19,20 +19,20 @@ func (e SecretCreationError) Error() string {
 	return fmt.Sprintf("error reconciling secret for cluster %s: %v", e.Cluster.Name, e.Err)
 }
 
-func ClusterSecretsCreated(secretsService services.SecretsService) StepFunc {
-	return func(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+func (state *ClusterState) ClusterSecretsCreated(secretsService services.SecretsService) StepFunc {
+	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ClusterSecretsCreated")
 		defer end()
 
-		if wekaCluster == nil {
+		if state.Subject == nil {
 			return &errors.ArgumentError{ArgName: "Cluster", Message: "Cluster is nil"}
 		}
-		if wekaCluster.Status.Conditions == nil {
+		if state.Conditions == nil {
 			return &errors.ArgumentError{ArgName: "Cluster.Status.Conditions", Message: "Cluster.Status.Conditions is nil"}
 		}
 		// generate login credentials
-		if err := secretsService.EnsureLoginCredentials(ctx, wekaCluster); err != nil {
-			return &SecretCreationError{Err: err, Cluster: wekaCluster}
+		if err := secretsService.EnsureLoginCredentials(ctx, state.Subject); err != nil {
+			return &SecretCreationError{Err: err, Cluster: state.Subject}
 		}
 
 		return nil
