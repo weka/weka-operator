@@ -250,24 +250,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
-		logger.SetPhase("CLUSTERIZING")
-		err = wekaClusterService.Create(ctx, containers)
-		if err != nil {
-			logger.Error(err, "Failed to create cluster")
-			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-				Type:   condition.CondClusterCreated,
-				Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
-			})
-			_ = r.Status().Update(ctx, wekaCluster)
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterCreated, metav1.ConditionTrue, "Init", "Cluster is formed")
-		logger.SetPhase("CLUSTER_FORMED")
-	} else {
-		logger.SetPhase("CLUSTER_ALREADY_FORMED")
-	}
-
 	// Ensure all containers are up in the cluster
 	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
