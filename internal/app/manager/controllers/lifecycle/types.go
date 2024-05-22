@@ -15,15 +15,6 @@ import (
 
 type StepFunc func(ctx context.Context) error
 
-type RetryableError struct {
-	Err        error
-	RetryAfter time.Duration
-}
-
-func (e RetryableError) Error() string {
-	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
-}
-
 type Reconciler interface {
 	client.Client
 }
@@ -107,6 +98,15 @@ type StateError struct {
 
 func (e StateError) Error() string {
 	return fmt.Sprintf("invalid state: %s - %s", e.Property, e.Message)
+}
+
+type RetryableError struct {
+	Err        error
+	RetryAfter time.Duration
+}
+
+func (e RetryableError) Error() string {
+	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
 }
 
 // -- ReconciliationSteps -------------------------------------------------------
