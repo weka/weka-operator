@@ -220,17 +220,22 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondPodsCreated,
-				Preconditions: []lifecycle.PreconditionFunc{
-					lifecycle.IsNotTrue(condition.CondPodsCreated),
-				},
 				Reconcile: lifecycle.PodsCreated(r.CrdManager, r),
 			},
 			{
 				Condition: condition.CondPodsReady,
 				Preconditions: []lifecycle.PreconditionFunc{
 					lifecycle.IsNotTrue(condition.CondPodsReady),
+					lifecycle.IsTrue(condition.CondPodsCreated),
 				},
 				Reconcile: lifecycle.PodsReady(r),
+			},
+			{
+				Condition: condition.CondClusterCreated,
+				Preconditions: []lifecycle.PreconditionFunc{
+					lifecycle.IsNotTrue(condition.CondClusterCreated),
+				},
+				Reconcile: lifecycle.ClusterCreated(wekaClusterService, r),
 			},
 		},
 	}
@@ -247,24 +252,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
-		logger.SetPhase("CLUSTERIZING")
-		err = wekaClusterService.Create(ctx, containers)
-		if err != nil {
-			logger.Error(err, "Failed to create cluster")
-			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-				Type:   condition.CondClusterCreated,
-				Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
-			})
-			_ = r.Status().Update(ctx, wekaCluster)
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterCreated, metav1.ConditionTrue, "Init", "Cluster is formed")
-		logger.SetPhase("CLUSTER_FORMED")
-	} else {
-		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
 	// Ensure all containers are up in the cluster

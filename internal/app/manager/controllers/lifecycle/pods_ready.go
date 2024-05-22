@@ -2,11 +2,13 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"time"
 
+	"github.com/kr/pretty"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/errors"
+
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,8 +22,18 @@ func PodsReady(statusClient StatusClient) StepFunc {
 		wekaCluster := state.Cluster
 		containers := state.Containers
 
+		if wekaCluster == nil {
+			return &errors.ArgumentError{ArgName: "Cluster", Message: "Cluster is nil"}
+		}
+		if containers == nil {
+			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is nil"}
+		}
+		if len(*containers) == 0 {
+			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is empty"}
+		}
+
 		logger.Debug("Checking if all containers are ready")
-		if ready, err := isContainersReady(ctx, containers); !ready {
+		if ready, err := isContainersReady(ctx, *containers); !ready {
 			logger.SetPhase("CONTAINERS_NOT_READY")
 			if err != nil {
 				logger.Error(err, "containers are not ready")
@@ -40,8 +52,9 @@ func isContainersReady(ctx context.Context, containers []*wekav1alpha1.WekaConta
 
 	for _, container := range containers {
 		if container.GetDeletionTimestamp() != nil {
-			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
-			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
+			err := pretty.Errorf("Container %s is being deleted, rejecting cluster create", container.Name)
+			logger.Error(err, "Container is being deleted")
+			return false, err
 		}
 		if container.Status.ManagementIP == "" {
 			logger.Debug("Container is not ready yet or has no valid management IP", "container_name", container.Name)

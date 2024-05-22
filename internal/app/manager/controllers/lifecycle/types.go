@@ -34,7 +34,7 @@ type StatusClient interface {
 
 type ReconciliationState struct {
 	Cluster    *wekav1alpha1.WekaCluster
-	Containers []*wekav1alpha1.WekaContainer
+	Containers *[]*wekav1alpha1.WekaContainer
 }
 
 // -- PreconditionFuncs
@@ -43,5 +43,11 @@ type PreconditionFunc func(conditions []metav1.Condition) bool
 func IsNotTrue(condition string) PreconditionFunc {
 	return func(conditions []metav1.Condition) bool {
 		return !meta.IsStatusConditionTrue(conditions, condition)
+	}
+}
+
+func IsTrue(condition string) PreconditionFunc {
+	return func(conditions []metav1.Condition) bool {
+		return meta.IsStatusConditionTrue(conditions, condition)
 	}
 }

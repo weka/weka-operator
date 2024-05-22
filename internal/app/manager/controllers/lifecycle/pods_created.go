@@ -19,7 +19,13 @@ func PodsCreated(crdManager services.CrdManager, statusClient StatusClient) Step
 		if err != nil {
 			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
-		state.Containers = containers
+		if containers == nil {
+			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+		}
+		if len(containers) == 0 {
+			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+		}
+		state.Containers = &containers
 
 		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")
 		_ = statusClient.SetCondition(ctx, state.Cluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
