@@ -1,7 +1,7 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: clustera
+  name: cluster-dev
 spec:
   size: 1
   template: small
