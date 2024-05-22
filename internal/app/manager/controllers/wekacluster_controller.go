@@ -200,15 +200,26 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
+	state := &lifecycle.ClusterState{
+		ReconciliationState: lifecycle.ReconciliationState[*wekav1alpha1.WekaCluster]{
+			Subject:    wekaCluster,
+			Conditions: &wekaCluster.Status.Conditions,
+		},
+	}
+
 	steps := &lifecycle.ReconciliationSteps{
-		Reconciler: r,
-		Cluster:    wekaCluster,
+		Reconciler: r.Client,
+		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{
 			{
 				Condition:             "ClusterSecretsCreated",
 				Predicates:            []lifecycle.PredicateFunc{}, // default value
 				SkipOwnConditionCheck: false,                       // default value
-				Reconcile:             lifecycle.ClusterSecretsCreated(r.SecretsService),
+				Reconcile:             state.ClusterSecretsCreated(r.SecretsService),
+			},
+			{
+				Condition: condition.CondPodsCreated,
+				Reconcile: state.PodsCreated(r.CrdManager),
 			},
 		},
 	}
