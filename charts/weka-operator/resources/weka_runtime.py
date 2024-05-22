@@ -88,6 +88,15 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     "4.2.7.64-s3multitenancy.2": dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
+    "4.2.7.64-s3multitenancy.3": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
+    "4.2.7.64-s3multitenancy.4": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
+    "4.2.7.64-s3multitenancy.5": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
     "4.2.10.1693-251d3172589e79bd4960da8031a9a693-dev": dict(  # dev 4.2.7-based version
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
