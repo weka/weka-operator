@@ -238,21 +238,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
-		logger.Debug("Checking if all containers are ready")
-		if ready, err := r.isContainersReady(ctx, containers); !ready {
-			logger.SetPhase("CONTAINERS_NOT_READY")
-			if err != nil {
-				logger.Error(err, "containers are not ready")
-			}
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-		}
-		logger.SetPhase("CONTAINERS_ARE_READY")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsReady, metav1.ConditionTrue, "Init", "All weka containers are ready for clusterization")
-	} else {
-		logger.SetPhase("CONTAINERS_ARE_READY")
-	}
-
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
 		err = wekaClusterService.Create(ctx, containers)
