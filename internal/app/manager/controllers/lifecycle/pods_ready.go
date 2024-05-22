@@ -2,11 +2,13 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+
+	"github.com/kr/pretty"
 	"go.opentelemetry.io/otel/codes"
 )
 
@@ -16,6 +18,12 @@ func (state *ClusterState) PodsReady() StepFunc {
 		defer end()
 
 		containers := state.Containers
+		if containers == nil {
+			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is nil"}
+		}
+		if len(containers) == 0 {
+			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is empty"}
+		}
 
 		logger.Debug("Checking if all containers are ready")
 		if ready, err := isContainersReady(ctx, containers); !ready {
@@ -36,8 +44,9 @@ func isContainersReady(ctx context.Context, containers []*wekav1alpha1.WekaConta
 
 	for _, container := range containers {
 		if container.GetDeletionTimestamp() != nil {
-			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
-			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
+			err := pretty.Errorf("Container %s is being deleted, rejecting cluster create", container.Name)
+			logger.Error(err, "Container is being deleted")
+			return false, err
 		}
 		if container.Status.ManagementIP == "" {
 			logger.Debug("Container is not ready yet or has no valid management IP", "container_name", container.Name)

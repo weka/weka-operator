@@ -33,6 +33,7 @@ NAMESPACES=(
   "default"
   "weka-operator-e2e"
   "weka-operator-e2e-system"
+  "weka-operator-system"
 )
 
 for NAMESPACE in "${NAMESPACES[@]}"; do
