@@ -221,6 +221,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondPodsCreated,
 				Reconcile: state.PodsCreated(r.CrdManager),
 			},
+			{
+				Condition: condition.CondPodsReady,
+				Reconcile: state.PodsReady(),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
