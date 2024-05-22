@@ -69,6 +69,12 @@ func IsNotTrue(condition string) PredicateFunc {
 	}
 }
 
+func IsTrue(condition string) PredicateFunc {
+	return func(conditions []metav1.Condition) bool {
+		return meta.IsStatusConditionTrue(conditions, condition)
+	}
+}
+
 // Errors ----------------------------------------------------------------------
 
 type ReconciliationError struct {
