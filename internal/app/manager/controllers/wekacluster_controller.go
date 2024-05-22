@@ -3,11 +3,12 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"os"
 	"reflect"
 	"strconv"
 	"time"
+
+	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
@@ -218,12 +219,17 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Reconcile:             state.ClusterSecretsCreated(r.SecretsService),
 			},
 			{
-				Condition: condition.CondPodsCreated,
-				Reconcile: state.PodsCreated(r.CrdManager),
+				Condition:             condition.CondPodsCreated,
+				SkipOwnConditionCheck: true,
+				Reconcile:             state.PodsCreated(r.CrdManager),
 			},
 			{
 				Condition: condition.CondPodsReady,
 				Reconcile: state.PodsReady(),
+			},
+			{
+				Condition: condition.CondClusterCreated,
+				Reconcile: state.ClusterCreated(wekaClusterService),
 			},
 		},
 	}
