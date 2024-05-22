@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
@@ -9,9 +11,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type (
-	StepFunc func(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error
-)
+type StepFunc func(ctx context.Context, state *ReconciliationState) error
+
+type RetryableError struct {
+	Err        error
+	RetryAfter time.Duration
+}
+
+func (e RetryableError) Error() string {
+	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
+}
 
 type Step struct {
 	Condition     string
@@ -21,6 +30,11 @@ type Step struct {
 
 type StatusClient interface {
 	SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster, condType string, status metav1.ConditionStatus, reason string, message string) error
+}
+
+type ReconciliationState struct {
+	Cluster    *wekav1alpha1.WekaCluster
+	Containers []*wekav1alpha1.WekaContainer
 }
 
 // -- PreconditionFuncs
