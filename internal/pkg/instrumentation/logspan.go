@@ -127,7 +127,6 @@ func (ls *SpanLogger) SetAttributes(attrs ...attribute.KeyValue) {
 		keyvals = append(keyvals, attr.Value.Emit())
 	}
 	if len(keyvals) > 0 {
-		ls.V(1).Info("Setting attributes", keyvals...)
 		ls.Span.SetAttributes(attrs...)
 	}
 }

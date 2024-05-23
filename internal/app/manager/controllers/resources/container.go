@@ -577,8 +577,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	// since this is HT, we are doubling num of cores on allocation
-
-	logger.Info("setting resources", "cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
+	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
 			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),

@@ -171,7 +171,6 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 				l.Info("Container created")
 			} else {
 				foundContainers = append(foundContainers, found)
-				l.Info("Container already exists")
 			}
 			end()
 		}
