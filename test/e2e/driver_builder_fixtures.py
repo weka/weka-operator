@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from .helm_test import helm, helm_upgrade
 from .models.kubernetes import Namespace
 
 
@@ -34,12 +33,3 @@ def driver_builder(
     result = json.loads(stdout)
     assert "items" in result
     return result
-
-
-def test_builder(driver_builder):
-    items = driver_builder["items"]
-    container = [item for item in items if item["kind"] == "WekaContainer"][0]
-    assert container["kind"] == "WekaContainer"
-
-    service = [item for item in items if item["kind"] == "Service"][0]
-    assert service["kind"] == "Service"

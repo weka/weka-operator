@@ -28,7 +28,24 @@ func TestWekaCluster(t *testing.T) {
 	t.Run("Preconditions", (&Precondition{SystemTest: *st}).Run)
 	t.Run("Helm Chart", (&Chart{SystemTest: *st}).Run)
 	t.Run("Driver Builder", (&DriverBuilder{SystemTest: *st}).Run)
-	t.Run("Weka Cluster", (&Cluster{SystemTest: *st}).Run)
+	t.Run("Weka Cluster", (&Cluster{SystemTest: *st}).CreateCluster)
+	t.Run("Validate Startup Completed", (&Cluster{SystemTest: *st}).ValidateStartupCompleted)
+}
+
+func TestWekaClusterWithDelayedDriver(t *testing.T) {
+	ctx := context.Background()
+	ctx, _, done := instrumentation.GetLogSpan(ctx, "TestWekaCluster")
+	defer done()
+
+	st := setup(t, ctx)
+	defer st.teardown(t)
+
+	// -- put tests here ---
+	t.Run("Preconditions", (&Precondition{SystemTest: *st}).Run)
+	t.Run("Helm Chart", (&Chart{SystemTest: *st}).Run)
+	t.Run("Weka Cluster", (&Cluster{SystemTest: *st}).CreateCluster)
+	t.Run("Driver Builder", (&DriverBuilder{SystemTest: *st}).Run)
+	t.Run("Validate Startup Completed", (&Cluster{SystemTest: *st}).ValidateStartupCompleted)
 }
 
 func setup(t *testing.T, ctx context.Context) *SystemTest {
@@ -72,7 +89,9 @@ func setup(t *testing.T, ctx context.Context) *SystemTest {
 		Namespace:       "default",
 		SystemNamespace: "weka-operator-system",
 		ClusterName:     "ft-cluster",
-		environment:     environment,
+		Image:           "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.2",
+
+		environment: environment,
 	}
 
 	return st

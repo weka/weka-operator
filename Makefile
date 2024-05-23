@@ -123,7 +123,7 @@ test-e2e: ## Run e2e tests.
 
 .PHONY: clean-e2e
 clean-e2e: ## Clean e2e tests.
-	- ./scripts/clean-testing.sh
+	- ./script/cleanup-testing.sh
 	- (cd ansible && ansible-playbook -i inventory.ini ./oci_clean.yaml)
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml

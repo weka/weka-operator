@@ -14,24 +14,15 @@ NAMESPACES=(
 for NAMESPACE in "${NAMESPACES[@]}"; do
   echo "Namespace: ${NAMESPACE}"
   echo "Deleting Weka Clusters"
-  CLUSTERS=$("${K}" get wekacluster -n "${NAMESPACE}" -o json | jq -r '.items[].metadata.name')
-  for CLUSTER in ${CLUSTERS}; do
-    "${K}" delete -n "${NAMESPACE}" wekacluster "${CLUSTER}" --ignore-not-found
-  done
+  "${K}" delete -n "${NAMESPACE}" wekacluster --all --ignore-not-found
   "${K}" wait --for=delete wekacluster --all
 
   echo "Deleting Weka Containers"
-  CONTAINERS=$("${K}" get wekacontainer -n "${NAMESPACE}" -o json | jq -r '.items[].metadata.name')
-  for CONTAINER in ${CONTAINERS}; do
-    "${K}" delete -n "${NAMESPACE}" wekacontainer "${CONTAINER}" --ignore-not-found
-  done
+  "${K}" delete -n "${NAMESPACE}" wekacontainer --all --ignore-not-found
   "${K}" wait --for=delete wekacontainer --all
 
   echo "Deleting tombstones"
-  TOMBSTONES=$("${K}" get tombstone -n "${NAMESPACE}" -o json | jq -r '.items[].metadata.name')
-  for TOMBSTONE in ${TOMBSTONES}; do
-    "${K}" delete -n "${NAMESPACE}" tombstone "${TOMBSTONE}" --ignore-not-found
-  done
+  "${K}" delete -n "${NAMESPACE}" tombstone --all --ignore-not-found
   "${K}" wait --for=delete tombstone --all
 
 done
