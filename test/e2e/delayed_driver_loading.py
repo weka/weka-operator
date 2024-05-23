@@ -1,0 +1,142 @@
+from functools import partial
+from pathlib import Path
+
+import pytest
+from plumbum import local
+
+from .helm_test import *
+from .k8s_cluster_test import *
+from .models.kubernetes import Condition, Namespace
+from .models.weka_cluster import WekaCluster, WekaContainer
+from .services.container_service import ContainerService
+
+
+def drive_container_names():
+    return [f"mbpk8soci-sample-drive-{i}" for i in range(5)]
+
+
+def container_names():
+    return [f"mbpk8soci-sample-compute-{i}" for i in range(5)] + drive_container_names()
+
+
+@pytest.fixture(scope="session")
+def delete(system_namespace: Namespace):
+    return partial(
+        local["kubectl"],
+        "--output",
+        "name",
+        "delete",
+        "--ignore-not-found",
+    )
+
+
+class TestDelayedDriverLoading:
+    def test_builder_not_created(
+        self, kubectl, delete, driver_builder_yaml, system_namespace: Namespace
+    ):
+        """Ensures that the driver builder is not present
+
+        This is accomplished by deleting the driver builder and then waiting
+        for it to be absent"""
+        namespace = system_namespace.metadata.name
+        delete = partial(
+            local["kubectl"],
+            "--output",
+            "name",
+            "--namespace",
+            namespace,
+            "delete",
+            "--ignore-not-found",
+        )
+        delete("-f", driver_builder_yaml)
+        kubectl("wait", "--for=delete", "-f", driver_builder_yaml)
+
+    def test_cluster_not_created(
+        self,
+        kubectl,
+        delete,
+        cluster_manifest: Path,
+        cluster_namespace: Namespace,
+    ):
+        """Ensures that the Weka cluster is not present
+
+        This is accomplished by deleting the Weka cluster and then waiting
+        for it to be absent"""
+        namespace = cluster_namespace.metadata.name
+        delete("--namespace", namespace, "-f", cluster_manifest.absolute())
+        kubectl(
+            "--namespace",
+            namespace,
+            "wait",
+            "--for=delete",
+            "-f",
+            cluster_manifest.absolute(),
+        )
+        kubectl(
+            "--namespace",
+            namespace,
+            "wait",
+            "--for=delete",
+            "wekacontainer",
+            cluster_namespace.metadata.name,
+        )
+
+    def test_pods_created_condition(self, pods_created_condition: Condition):
+        assert pods_created_condition.status == "True"
+        assert pods_created_condition.type == "PodsCreated"
+
+    def test_secrets_created_condition(self, secrets_created_condition: Condition):
+        assert secrets_created_condition.type == "ClusterSecretsCreated"
+        assert secrets_created_condition.status == "True"
+
+    def test_builder(self, driver_builder):
+        """Putting this here so that it is created after the cluster pods"""
+        items = driver_builder["items"]
+        container = [item for item in items if item["kind"] == "WekaContainer"][0]
+        assert container["kind"] == "WekaContainer"
+
+        service = [item for item in items if item["kind"] == "Service"][0]
+        assert service["kind"] == "Service"
+
+    @pytest.mark.parametrize("container", container_names(), indirect=True)
+    @pytest.mark.parametrize("condition_name", ["EnsuredDrivers", "JoinedCluster"])
+    def test_container_condition_status_is_true(
+        self,
+        container_service: ContainerService,
+        container: WekaContainer,
+        condition_name: str,
+    ):
+        assert container.metadata.name.startswith("mbpk8soci-sample-")
+        condition = container_service.wait_for_condition(container, condition_name)
+        assert condition.status == "True"
+
+    @pytest.mark.parametrize("container", drive_container_names(), indirect=True)
+    def test_drives_added_condition(
+        self, container_service: ContainerService, container: WekaContainer
+    ):
+        assert container.metadata.name.startswith("mbpk8soci-sample-drive-")
+        condition = container_service.wait_for_condition(container, "DrivesAdded")
+        assert condition.status == "True"
+
+    # @pytest.mark.parametrize(
+    # "condition",
+    # [
+    # "PodsReady",
+    # "ClusterSecretsApplied",
+    # "ClusterCreated",
+    # "DrivesAdded",
+    # "IoStarted",
+    # ],
+    # indirect=True,
+    # )
+    # def test_cluster_startup_condition_status_is_true(self, condition: Condition):
+    # assert condition.status == "True"
+
+    # def test_containers_created(self, containers):
+    # assert len(containers.items) == 10
+
+    # def test_drive_containers_created(self, drive_containers):
+    # assert len(drive_containers.items) == 5
+
+    # def test_compute_containers_created(self, compute_containers):
+    # assert len(compute_containers.items) == 5

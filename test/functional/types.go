@@ -15,6 +15,7 @@ type SystemTest struct {
 	Namespace       string
 	SystemNamespace string
 	ClusterName     string
+	Image           string
 
 	environment *envtest.Environment
 }

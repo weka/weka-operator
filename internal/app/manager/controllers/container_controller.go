@@ -179,10 +179,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
 				logger.SetPhase("DRIVERS_NOT_READY")
-				return ctrl.Result{Requeue: true}, nil
 			}
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondEnsureDrivers,
