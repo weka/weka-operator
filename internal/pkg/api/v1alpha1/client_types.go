@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -61,6 +62,8 @@ type WekaClientSpec struct {
 	CoresNumber         int                  `json:"coresNum,omitempty"`
 	CoreIds             []int                `json:"coreIds,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
+	Tolerations         []string             `json:"tolerations,omitempty"`
+	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
