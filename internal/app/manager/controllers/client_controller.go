@@ -264,6 +264,8 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 		numCores = 1
 	}
 
+	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -292,6 +294,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			DriversDistService:  wekaClient.Spec.DriversDistService,
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
+			Tolerations:         tolerations,
 		},
 	}
 	return container, nil

@@ -24,7 +24,6 @@ import (
 type CrdManager interface {
 	GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
-
 	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
 	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
 }
