@@ -9,7 +9,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ContainerJoinError struct {
@@ -20,23 +20,23 @@ func (e ContainerJoinError) Error() string {
 	return "error joining containers to cluster: " + e.Err.Error()
 }
 
-func ContainersJoinedCluster(wekaClusterService services.WekaClusterService, statusClient StatusClient) StepFunc {
-	return func(ctx context.Context, state *ReconciliationState) error {
+func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.WekaClusterService, client client.Client) StepFunc {
+	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainersJoinedCluster")
 		defer end()
 
-		if state.Cluster == nil {
+		if state.Subject == nil {
 			return &errors.ArgumentError{ArgName: "Cluster", Message: "Cluster is nil"}
 		}
-		wekaCluster := state.Cluster
+		wekaCluster := state.Subject
 
 		if state.Containers == nil {
 			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is nil"}
 		}
-		if len(*state.Containers) == 0 {
+		if len(state.Containers) == 0 {
 			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is empty"}
 		}
-		containers := *state.Containers
+		containers := state.Containers
 
 		logger.Debug("Ensuring all containers are up in the cluster")
 		joinedContainers := 0
@@ -45,13 +45,11 @@ func ContainersJoinedCluster(wekaClusterService services.WekaClusterService, sta
 				logger.Info("Container has not joined the cluster yet", "container", container.Name)
 				logger.SetPhase("CONTAINERS_NOT_JOINED_CLUSTER")
 
-				statusClient.SetCondition(ctx, wekaCluster, condition.CondJoinedCluster, metav1.ConditionFalse, "Init", "Containers have not joined the cluster yet")
-
 				return &RetryableError{Err: nil, RetryAfter: time.Second * 3}
 			} else {
 				if wekaCluster.Status.ClusterID == "" {
 					wekaCluster.Status.ClusterID = container.Status.ClusterID
-					if err := statusClient.UpdateStatus(ctx, wekaCluster); err != nil {
+					if err := client.Status().Update(ctx, wekaCluster); err != nil {
 						return &ContainerJoinError{Err: err}
 					}
 					logger.Info("Container joined cluster successfully", "container_name", container.Name)
@@ -71,8 +69,6 @@ func ContainersJoinedCluster(wekaClusterService services.WekaClusterService, sta
 				RetryAfter: time.Second * 3,
 			}
 		}
-
-		statusClient.SetCondition(ctx, wekaCluster, condition.CondJoinedCluster, metav1.ConditionTrue, "Init", "All containers have joined the cluster")
 
 		return nil
 	}
