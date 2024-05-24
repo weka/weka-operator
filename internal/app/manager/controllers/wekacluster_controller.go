@@ -236,9 +236,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Reconcile: state.ClusterCreated(wekaClusterService),
 			},
 			{
-				Condition:     condition.CondJoinedCluster,
-				Preconditions: []lifecycle.PreconditionFunc{},
-				Reconcile:     lifecycle.ContainersJoinedCluster(wekaClusterService, r),
+				Condition: condition.CondJoinedCluster,
+				Reconcile: state.ContainersJoinedCluster(wekaClusterService, r.Client),
+			},
+
+			{
+				Condition: condition.CondDrivesAdded,
+				Reconcile: state.DrivesAdded(),
 			},
 		},
 	}
