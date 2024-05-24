@@ -137,6 +137,10 @@ func (r *WekaClusterReconciler) SetCondition(ctx context.Context, cluster *wekav
 	return nil
 }
 
+func (r *WekaClusterReconciler) UpdateStatus(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+	return r.Status().Update(ctx, cluster)
+}
+
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(initContext, "WekaClusterReconcile", "namespace", req.Namespace, "cluster_name", req.Name)
 	defer end()
@@ -221,6 +225,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondClusterCreated,
 				Reconcile: state.ClusterCreated(wekaClusterService),
 			},
+			{
+				Condition:     condition.CondJoinedCluster,
+				Preconditions: []lifecycle.PreconditionFunc{},
+				Reconcile:     lifecycle.ContainersJoinedCluster(wekaClusterService, r),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -236,38 +245,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	// Ensure all containers are up in the cluster
-	logger.Debug("Ensuring all containers are up in the cluster")
-	joinedContainers := 0
-	for _, container := range containers {
-		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
-			logger.Info("Container has not joined the cluster yet", "container", container.Name)
-			logger.SetPhase("CONTAINERS_NOT_JOINED_CLUSTER")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
-		} else {
-			if wekaCluster.Status.ClusterID == "" {
-				wekaCluster.Status.ClusterID = container.Status.ClusterID
-				err := r.Status().Update(ctx, wekaCluster)
-				if err != nil {
-					return ctrl.Result{}, err
-				}
-				logger.Info("Container joined cluster successfully", "container_name", container.Name)
-			}
-			joinedContainers++
-		}
-	}
-	if joinedContainers == len(containers) {
-		logger.SetPhase("ALL_CONTAINERS_ALREADY_JOINED")
-	} else {
-		logger.SetPhase("CONTAINERS_JOINED_CLUSTER")
-	}
-
-	err = wekaClusterService.EnsureClusterContainerIds(ctx, containers)
-	if err != nil {
-		logger.Info("not all containers are up in the cluster", "err", err)
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
 	}
 
 	// Ensure all containers are up in the cluster
