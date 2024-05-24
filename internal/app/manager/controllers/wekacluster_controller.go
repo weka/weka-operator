@@ -332,7 +332,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.SetPhase("CONTAINERS_JOINED_CLUSTER")
 	}
 
-	err = r.EnsureClusterContainerIds(ctx, wekaCluster, containers)
+	err = wekaClusterService.EnsureClusterContainerIds(ctx, containers)
 	if err != nil {
 		logger.Info("not all containers are up in the cluster", "err", err)
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
@@ -1215,7 +1215,7 @@ func (r *WekaClusterReconciler) GCLoop() {
 	ctx := context.Background()
 	for {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
-		//getlogspan
+		// getlogspan
 		defer end()
 
 		err := r.GC(ctx)
