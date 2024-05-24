@@ -29,6 +29,15 @@ type ReconciliationSteps struct {
 	Steps      []Step
 }
 
+type StatusUpdateError struct {
+	Err     error
+	Cluster *wekav1alpha1.WekaCluster
+}
+
+func (e StatusUpdateError) Error() string {
+	return fmt.Sprintf("error updating status for cluster %s: %v", e.Cluster.Name, e.Err)
+}
+
 type Step struct {
 	// Name of the step.  This is usually a condition
 	Condition string
