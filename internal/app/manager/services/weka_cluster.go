@@ -9,6 +9,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	werrors "github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 
@@ -45,6 +46,11 @@ type wekaClusterService struct {
 	Client      client.Client
 	ExecService ExecService
 
+	Cluster *wekav1alpha1.WekaCluster
+}
+
+type WekaClusterServiceError struct {
+	werrors.WrappedError
 	Cluster *wekav1alpha1.WekaCluster
 }
 
@@ -112,48 +118,35 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return err
 	}
 
-	var hostIps []string
-	var hostnamesList []string
-
-	for _, container := range containers {
-		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
-		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
+	wekaCliService := NewWekaService(r.ExecService, containers[0])
+	if err := wekaCliService.CreateCluster(ctx, r.Cluster, containers); err != nil {
+		return &WekaClusterServiceError{
+			WrappedError: werrors.WrappedError{Err: err},
+			Cluster:      r.Cluster,
+		}
 	}
-	hostIpsStr := strings.Join(hostIps, ",")
-	// cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
-	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret`", strings.Join(hostnamesList, " "), hostIpsStr)
-	logger.Info("Creating cluster", "cmd", cmd)
 
+	cmd := "weka cluster hot-spare 0"
+	logger.Debug("Disabling hot spare")
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
 	if err != nil {
-		logger.Error(err, "Could not create executor")
-		return errors.Wrap(err, "Could not create executor")
-	}
-	stdout, stderr, err := executor.ExecNamed(ctx, "WekaStatusOrWekaClusterCreate", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.Error(err, "Failed to create cluster")
-		return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
-	}
-	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
-
-	// update cluster name
-	clusterName := r.Cluster.GetUID()
-	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
-	logger.Debug("Updating cluster name")
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
+		return &WekaClusterServiceError{
+			WrappedError: werrors.WrappedError{Err: err},
+			Cluster:      r.Cluster,
+		}
 	}
 
-	cmd = fmt.Sprintf("weka cluster hot-spare 0")
-	logger.Debug("Disabling hot spare")
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
+	_, stderr, err := executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "Failed to disable hot spare: %s", stderr.String())
 	}
 
 	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {
-		return errors.Wrap(err, "Failed to update wekaCluster status")
+		// return errors.Wrap(err, "Failed to update wekaCluster status")
+		return &WekaClusterServiceError{
+			WrappedError: werrors.WrappedError{Err: err},
+			Cluster:      r.Cluster,
+		}
 	}
 	logger.SetPhase("Cluster created")
 	return nil
