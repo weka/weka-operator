@@ -30,6 +30,7 @@ type Step struct {
 
 type StatusClient interface {
 	SetCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster, condType string, status metav1.ConditionStatus, reason string, message string) error
+	UpdateStatus(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 }
 
 type ReconciliationState struct {
