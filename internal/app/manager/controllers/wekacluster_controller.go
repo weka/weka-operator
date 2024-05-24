@@ -714,57 +714,6 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	return true, nil
 }
 
-func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClusterCredentials")
-	defer end()
-	logger.SetPhase("APPLYING_CLUSTER_CREDENTIALS")
-
-	wekaService := services.NewWekaService(r.ExecService, containers[0])
-
-	ensureUser := func(secretName string) error {
-		// fetch secret from k8s
-		username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, secretName)
-		if err != nil {
-			return err
-		}
-		err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	logger.WithValues("user_name", cluster.GetOperatorClusterUsername()).Info("Ensuring operator user")
-	if err := ensureUser(cluster.GetOperatorSecretName()); err != nil {
-		logger.Error(err, "Failed to apply operator user credentials")
-		return err
-	}
-
-	logger.WithValues("user_name", cluster.GetUserClusterUsername()).Info("Ensuring admin user")
-	if err := ensureUser(cluster.GetUserSecretName()); err != nil {
-		logger.Error(err, "Failed to apply admin user credentials")
-		return err
-	}
-
-	err := wekaService.EnsureNoUser(ctx, "admin")
-	if err != nil {
-		return err
-	}
-	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
-	return nil
-}
-
-func (r *WekaClusterReconciler) getUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error) {
-	secret := &v1.Secret{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
-	if err != nil {
-		return "", "", err
-	}
-	username := secret.Data["username"]
-	password := secret.Data["password"]
-	return string(username), string(password), nil
-}
-
 func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDefaultFs")
 	defer end()
@@ -876,8 +825,9 @@ func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context,
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClientLoginCredentials")
 	defer end()
 
+	wekaClusterService := services.NewWekaClusterService(r.Manager, cluster)
 	container := r.SelectActiveContainer(containers)
-	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
+	username, password, err := wekaClusterService.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 	err = wekaService.EnsureUser(ctx, username, password, "regular")
@@ -1036,7 +986,11 @@ func (r *WekaClusterReconciler) applyCSILoginCredentials(ctx context.Context, cl
 	defer end()
 
 	container := r.SelectActiveContainer(containers)
-	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
+	clusterService := services.NewWekaClusterService(r.Manager, cluster)
+	username, password, err := clusterService.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
+	if err != nil {
+		return err
+	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
