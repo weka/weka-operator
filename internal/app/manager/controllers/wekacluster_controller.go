@@ -236,6 +236,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondIoStarted,
 				Reconcile: state.StartIo(r.ExecService),
 			},
+			{
+				Condition: condition.CondClusterSecretsApplied,
+				Predicates: []lifecycle.PredicateFunc{
+					lifecycle.IsTrue(condition.CondIoStarted),
+				},
+				Reconcile: state.ApplyClusterSecrets(wekaClusterService, r.Client),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -253,21 +260,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
-	logger.SetPhase("CONFIGURING_CLUSTER_CREDENTIALS")
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsApplied) {
-		wekaClusterService := services.NewWekaClusterService(r.Manager, wekaCluster)
-		if err := wekaClusterService.ApplyClusterCredentials(ctx, containers); err != nil {
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsApplied, metav1.ConditionTrue, "Init", "Applied cluster secrets")
-		wekaCluster.Status.Status = "Ready"
-		wekaCluster.Status.TraceId = ""
-		wekaCluster.Status.SpanID = ""
-		err = r.Status().Update(ctx, wekaCluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 	logger.SetPhase("CLUSTER_READY")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
