@@ -38,6 +38,15 @@ func (e StatusUpdateError) Error() string {
 	return fmt.Sprintf("error updating status for cluster %s: %v", e.Cluster.Name, e.Err)
 }
 
+type ConditionExecutionError struct {
+	Err       error
+	Condition string
+}
+
+func (e ConditionExecutionError) Error() string {
+	return fmt.Sprintf("error executing condition %s: %v", e.Condition, e.Err)
+}
+
 type Step struct {
 	// Name of the step.  This is usually a condition
 	Condition string
