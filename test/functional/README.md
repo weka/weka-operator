@@ -25,7 +25,11 @@ If this is undesirable, you can remove individual resources as needed.
 - See `./script/clean-testing.sh` script.
 - This script will attempt to clean up all resources and namespaces that will be touched by the test suite.
 
-4. Run the test suite: `make test-functional`
+4. Run the test suite: `make test-functional RUN=<test-name>`
+
+- The `RUN` variable is required.
+- The `test-name` is the name of the test case you want to run from `test/functional/e2e_test.go`.
+- Example: `make test-functional RUN=TestWekaCluster`
 
 ## Caveats
 
