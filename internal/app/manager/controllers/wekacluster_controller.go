@@ -233,11 +233,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDrivesAdded,
 				Reconcile: state.DrivesAdded(),
 			},
-
 			{
-				Condition:     condition.CondDrivesAdded,
-				Preconditions: []lifecycle.PreconditionFunc{},
-				Reconcile:     lifecycle.DrivesAdded(r),
+				Condition: condition.CondIoStarted,
+				Reconcile: state.StartIo(r.ExecService),
 			},
 		},
 	}
@@ -254,20 +252,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
-		logger.Info("Ensuring IO is started")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
-		logger.Info("Starting IO")
-		wekaService := services.NewWekaService(r.ExecService, containers[0])
-		err = wekaService.StartIo(ctx, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionTrue, "Init", "IO is started")
-		logger.SetPhase("IO_IS_STARTED")
 	}
 
 	logger.SetPhase("CONFIGURING_CLUSTER_CREDENTIALS")
