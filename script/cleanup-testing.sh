@@ -12,18 +12,18 @@ REMOVE_RELEASE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --remove-namespaces)
-      REMOVE_NAMESPACES=true
-      shift
-      ;;
-    --remove-release)
-      REMOVE_RELEASE=true
-      shift
-      ;;
-    *)
-      echo "Unknown argument: $1"
-      exit 1
-      ;;
+  --remove-namespaces)
+    REMOVE_NAMESPACES=true
+    shift
+    ;;
+  --remove-release)
+    REMOVE_RELEASE=true
+    shift
+    ;;
+  *)
+    echo "Unknown argument: $1"
+    exit 1
+    ;;
   esac
 done
 
