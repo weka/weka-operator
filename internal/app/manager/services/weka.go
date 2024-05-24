@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
-	"strconv"
-	"strings"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type WekaStatusCapacity struct {
@@ -22,8 +25,7 @@ type WekaStatusResponse struct {
 	Capacity WekaStatusCapacity `json:"capacity"`
 }
 
-type WekaFilesystem struct {
-}
+type WekaFilesystem struct{}
 
 type FSParams struct {
 	TotalCapacity             string
@@ -39,8 +41,8 @@ type S3Params struct {
 }
 
 type WekaUserResponse struct {
-	//OrgId    int    `json:"org_id"`
-	//PosixGid string `json:"posix_gid"`
+	// OrgId    int    `json:"org_id"`
+	// PosixGid string `json:"posix_gid"`
 	// PosixUid string `json:"posix_uid"`
 	// Role     string `json:"role"`
 	// S3Policy string `json:"s3_policy"`
@@ -70,7 +72,8 @@ type WekaService interface {
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, endpoint string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
-	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
+	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
+	StartIo(ctx context.Context, containers []*v1alpha1.WekaContainer) error
 }
 
 func NewWekaService(ExecService ExecService, container *v1alpha1.WekaContainer) WekaService {
@@ -78,6 +81,26 @@ func NewWekaService(ExecService ExecService, container *v1alpha1.WekaContainer) 
 		ExecService: ExecService,
 		Container:   container,
 	}
+}
+
+type WekaServiceError struct {
+	Err       error
+	Container *v1alpha1.WekaContainer
+	Message   string
+}
+
+func (e WekaServiceError) Error() string {
+	return fmt.Sprintf("error in weka service: %s, container: %s, cause: %v", e.Message, e.Container.Name, e.Err)
+}
+
+type WekaCliError struct {
+	WekaServiceError
+	Command string
+	Stderr  string
+}
+
+func (e WekaCliError) Error() string {
+	return fmt.Sprintf("error executing CLI command: %s, container: %s, cause: %v, command: %s, stderr: %s", e.Message, e.Container.Name, e.Err, e.Command, e.Stderr)
 }
 
 type FilesystemGroupExists struct {
@@ -138,7 +161,6 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error
 	}
 
 	return nil
-
 }
 
 func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) error {
@@ -166,7 +188,6 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 			}
 			return nil
 		}
-
 	}
 	return nil
 }
@@ -368,5 +389,44 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 		return err
 	}
 
+	return nil
+}
+
+func (c *CliWekaService) StartIo(ctx context.Context, containers []*v1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "StartIo")
+	defer end()
+
+	if len(containers) == 0 {
+		err := pretty.Errorf("containers list is empty")
+		logger.Error(err, "containers list is empty")
+		return err
+	}
+
+	container := containers[0]
+	executor, err := c.ExecService.GetExecutor(ctx, container)
+	if err != nil {
+		return &WekaServiceError{
+			Err:       err,
+			Container: container,
+			Message:   "Failed to create executor",
+		}
+	}
+
+	logger.SetPhase("STARTING_IO")
+	cmd := "weka cluster start-io"
+	_, stderr, err := executor.ExecNamed(ctx, "StartIO", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return &WekaCliError{
+			WekaServiceError: WekaServiceError{
+				Err:       err,
+				Container: container,
+				Message:   "Failed to start-io",
+			},
+			Command: cmd,
+			Stderr:  stderr.String(),
+		}
+	}
+	logger.InfoWithStatus(codes.Ok, "IO started")
+	logger.SetPhase("IO_STARTED")
 	return nil
 }

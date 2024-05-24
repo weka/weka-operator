@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kr/pretty"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -19,7 +20,6 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 
-	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
