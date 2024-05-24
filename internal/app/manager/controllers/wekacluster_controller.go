@@ -2,20 +2,17 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"github.com/weka/weka-operator/util"
 
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
@@ -269,7 +266,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.SetPhase("CONTAINERS_JOINED_CLUSTER")
 	}
 
-	err = r.EnsureClusterContainerIds(ctx, wekaCluster, containers)
+	err = wekaClusterService.EnsureClusterContainerIds(ctx, containers)
 	if err != nil {
 		logger.Info("not all containers are up in the cluster", "err", err)
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
@@ -555,83 +552,6 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			cluster.Name,
 			cluster.Namespace))
-	return nil
-}
-
-func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	var containersMap resources.ClusterContainersMap
-	container := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if container == nil {
-		container = containers[0] // a fallback if we have none active, this is most surely initial clusterform
-	}
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container_name", container.Name)
-	defer end()
-
-	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(container).Create(ctx)
-		if err != nil {
-			logger.Error(err, "Could not find executor pod")
-			return err
-		}
-		clusterizePod := &v1.Pod{}
-		err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: pod.Name}, clusterizePod)
-		if err != nil {
-			logger.Error(err, "Could not find clusterize pod")
-			return err
-		}
-		executor, err := util.NewExecInPod(clusterizePod)
-		if err != nil {
-			return errors.Wrap(err, "Could not create executor")
-		}
-		cmd := "weka cluster container -J"
-		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsApplied) {
-			cmd = "wekaauthcli cluster container -J"
-		}
-		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
-		if err != nil {
-			logger.Error(err, "Failed to fetch containers list from cluster", "stderr, ", stderr.String(), "container", container.Name)
-			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
-		}
-		response := resources.ClusterContainersResponse{}
-		err = json.Unmarshal(stdout.Bytes(), &response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
-		}
-		containersMap, err = resources.MapByContainerName(response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to map containers")
-		}
-		return nil
-	}
-
-	for _, container := range containers {
-		if container.Status.ClusterContainerID == nil {
-			if containersMap == nil {
-				err := fetchContainers()
-				if err != nil {
-					logger.Error(err, "Failed to fetch containers list from cluster")
-					return err
-				}
-			}
-
-			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
-				err := errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
-				logger.Error(err, "Container not found in cluster", "container_name", container.Name)
-				return err
-			} else {
-				containerId, err := clusterContainer.ContainerId()
-				if err != nil {
-					return errors.Wrap(err, "Failed to parse container id")
-				}
-				container.Status.ClusterContainerID = &containerId
-				if err := r.Status().Update(ctx, container); err != nil {
-					return errors.Wrap(err, "Failed to update container status")
-				}
-			}
-		}
-	}
-	logger.InfoWithStatus(codes.Ok, "Cluster container ids are set")
 	return nil
 }
 
