@@ -14,7 +14,6 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
-	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -255,7 +254,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Info("Ensuring IO is started")
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
 		logger.Info("Starting IO")
-		err = r.StartIo(ctx, wekaCluster, containers)
+		wekaService := services.NewWekaService(r.ExecService, containers[0])
+		err = wekaService.StartIo(ctx, containers)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -481,33 +481,6 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			cluster.Name,
 			cluster.Namespace))
-	return nil
-}
-
-func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "StartIo")
-	defer end()
-
-	if len(containers) == 0 {
-		err := pretty.Errorf("containers list is empty")
-		logger.Error(err, "containers list is empty")
-		return err
-	}
-
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
-	if err != nil {
-		return errors.Wrap(err, "Error creating executor")
-	}
-
-	logger.SetPhase("STARTING_IO")
-	cmd := "weka cluster start-io"
-	_, stderr, err := executor.ExecNamed(ctx, "StartIO", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.WithValues("stderr", stderr.String()).Error(err, "Failed to start-io")
-		return errors.Wrapf(err, "Failed to start-io: %s", stderr.String())
-	}
-	logger.InfoWithStatus(codes.Ok, "IO started")
-	logger.SetPhase("IO_STARTED")
 	return nil
 }
 
