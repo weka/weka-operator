@@ -91,7 +91,11 @@ func ValidateConditions(container *wekav1alpha1.WekaContainer) func(t *testing.T
 	return func(t *testing.T) {
 		conditions := container.Status.Conditions
 		if len(conditions) != 0 {
-			t.Errorf("expected 1 condition, got %d", len(conditions))
+			names := make([]string, 0, len(conditions))
+			for _, c := range conditions {
+				names = append(names, c.Type)
+			}
+			t.Errorf("expected 0 condition, got %v", names)
 		}
 	}
 }
