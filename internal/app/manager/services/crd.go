@@ -194,8 +194,6 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	} else {
 		logger.SetStatus(codes.Ok, "All cluster containers already exist")
 	}
-
-	logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
 	return foundContainers, nil
 }
 
