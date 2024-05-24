@@ -235,6 +235,12 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDrivesAdded,
 				Reconcile: state.DrivesAdded(),
 			},
+
+			{
+				Condition:     condition.CondDrivesAdded,
+				Preconditions: []lifecycle.PreconditionFunc{},
+				Reconcile:     lifecycle.DrivesAdded(r),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -250,26 +256,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	// Ensure all containers are up in the cluster
-	logger.Debug("Ensuring all drives are up in the cluster")
-	for _, container := range containers {
-		if container.Spec.Mode != "drive" {
-			continue
-		}
-		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) {
-			logger.Info("Containers did not add drives yet", "container", container.Name)
-			logger.InfoWithStatus(codes.Unset, "Containers did not add drives yet")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
-		}
-	}
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDrivesAdded) {
-		err := r.SetCondition(ctx, wekaCluster, condition.CondDrivesAdded, metav1.ConditionTrue, "Init", "All drives are added")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		logger.SetPhase("ALL_DRIVES_ADDED")
 	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
