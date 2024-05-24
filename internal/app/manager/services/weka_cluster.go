@@ -30,6 +30,8 @@ type WekaClusterService interface {
 	EnsureNoS3Containers(ctx context.Context) error
 	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
 	EnsureClusterContainerIds(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error)
+	ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -283,5 +285,41 @@ func (r *wekaClusterService) EnsureClusterContainerIds(ctx context.Context, cont
 		}
 	}
 	logger.InfoWithStatus(codes.Ok, "Cluster container ids are set")
+	return nil
+}
+
+func (r *wekaClusterService) GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error) {
+	secret := &v1.Secret{}
+	err := r.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	if err != nil {
+		return "", "", err
+	}
+	username := secret.Data["username"]
+	password := secret.Data["password"]
+	return string(username), string(password), nil
+}
+
+func (r *wekaClusterService) ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	wekaService := NewWekaService(r.ExecService, containers[0])
+
+	cluster := r.GetCluster()
+	credentials := []string{
+		cluster.GetOperatorSecretName(),
+		cluster.GetUserSecretName(),
+	}
+	for _, secretName := range credentials {
+		username, password, err := r.GetUsernameAndPassword(ctx, cluster.Namespace, secretName)
+		if err != nil {
+			return err
+		}
+		if err = wekaService.EnsureUser(ctx, username, password, "clusteradmin"); err != nil {
+			return err
+		}
+	}
+
+	if err := wekaService.EnsureNoUser(ctx, "admin"); err != nil {
+		return err
+	}
+
 	return nil
 }
