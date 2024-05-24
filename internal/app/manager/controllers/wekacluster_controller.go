@@ -244,6 +244,12 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDrivesAdded,
 				Reconcile: state.DrivesAdded(),
 			},
+
+			{
+				Condition:     condition.CondDrivesAdded,
+				Preconditions: []lifecycle.PreconditionFunc{},
+				Reconcile:     lifecycle.DrivesAdded(r),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
