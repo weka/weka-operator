@@ -244,11 +244,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDrivesAdded,
 				Reconcile: state.DrivesAdded(),
 			},
-
 			{
-				Condition:     condition.CondDrivesAdded,
-				Preconditions: []lifecycle.PreconditionFunc{},
-				Reconcile:     lifecycle.DrivesAdded(r),
+				Condition: condition.CondIoStarted,
+				Reconcile: state.StartIo(r.ExecService),
 			},
 		},
 	}

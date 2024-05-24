@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -73,7 +72,7 @@ type WekaService interface {
 	SetWekaHome(ctx context.Context, endpoint string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
-	StartIo(ctx context.Context, containers []*v1alpha1.WekaContainer) error
+	StartIo(ctx context.Context) error
 }
 
 func NewWekaService(ExecService ExecService, container *v1alpha1.WekaContainer) WekaService {
@@ -392,17 +391,11 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 	return nil
 }
 
-func (c *CliWekaService) StartIo(ctx context.Context, containers []*v1alpha1.WekaContainer) error {
+func (c *CliWekaService) StartIo(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "StartIo")
 	defer end()
 
-	if len(containers) == 0 {
-		err := pretty.Errorf("containers list is empty")
-		logger.Error(err, "containers list is empty")
-		return err
-	}
-
-	container := containers[0]
+	container := c.Container
 	executor, err := c.ExecService.GetExecutor(ctx, container)
 	if err != nil {
 		return &WekaServiceError{

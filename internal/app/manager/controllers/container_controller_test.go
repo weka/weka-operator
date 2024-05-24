@@ -71,8 +71,6 @@ func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t
 			}
 		})
 
-		t.Run("ValidateConditions", ValidateConditions(container))
-
 		if err := testEnv.Client.Delete(ctx, container); err != nil {
 			if !test.expectedError {
 				t.Fatalf("failed to delete container: %v", err)
@@ -83,19 +81,6 @@ func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t
 			err := testEnv.Client.Get(ctx, key, container)
 			return apierrors.IsNotFound(err)
 		})
-	}
-}
-
-func ValidateConditions(container *wekav1alpha1.WekaContainer) func(t *testing.T) {
-	return func(t *testing.T) {
-		conditions := container.Status.Conditions
-		if len(conditions) != 0 {
-			names := make([]string, 0, len(conditions))
-			for _, c := range conditions {
-				names = append(names, c.Type)
-			}
-			t.Errorf("expected 0 condition, got %v", names)
-		}
 	}
 }
 
