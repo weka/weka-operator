@@ -88,6 +88,11 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
         uio_pci_generic=False,
         dependencies="6b519d501ea82063",
     ),
+    "4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3": dict(
+        wekafs="1acd22f9ddbda67d-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
     "4.2.7.64-k8so-beta.10": dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
