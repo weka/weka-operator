@@ -1258,7 +1258,7 @@ func (r *ContainerController) finalizeContainer(ctx context.Context, container *
 }
 
 func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	//TODO: Can we search pods by ownership?
+	// TODO: Can we search pods by ownership?
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
 	defer end()
