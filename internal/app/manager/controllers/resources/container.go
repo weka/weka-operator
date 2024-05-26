@@ -416,7 +416,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, corev1.Container{
 			Name: "buildkit",
 			// TODO: update container image to automatic buildkit image
-			Image:         "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:2421e498039bc6118e902cef9531af6c90a3cacbe51ecb4efd37476c25caadad",
+			Image:         f.container.Spec.BuildkitImage,
 			Command:       []string{"/bin/sh", "-c", "mkdir -p /shared-buildkit/lib; mkdir -p /shared-buildkit/usr; cp -RLrf /usr/src /shared-buildkit/usr; cp -RLrf /lib/modules /shared-buildkit/lib"},
 			Args:          nil,
 			WorkingDir:    "",
