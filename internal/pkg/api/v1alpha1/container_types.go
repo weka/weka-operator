@@ -163,3 +163,7 @@ func (w *WekaContainer) IsDriversBuilder() bool {
 func (w *WekaContainer) IsBackend() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
 }
+
+func (w *WekaContainer) IsDiscoveryContainer() bool {
+	return w.Spec.Mode == WekaContainerModeDiscovery
+}

@@ -285,6 +285,23 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		},
 	}
 
+	// for discovery container, we need to mount /lib to correctly fetch OS info
+	if f.container.IsDiscoveryContainer() {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "osrelease",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/lib/os-release",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+				},
+			},
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "osrelease",
+			MountPath: "/lib/os-release",
+		})
+	}
+
 	err := f.setResources(ctx, pod)
 	if err != nil {
 		return nil, err
