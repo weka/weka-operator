@@ -409,7 +409,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	err = r.HandleUpgrade(ctx, wekaCluster)
 	if err != nil {
-		//TODO: separate unknown from expected reconcilation errors for info/error logging,
+		// TODO: separate unknown from expected reconcilation errors for info/error logging,
 		// right now err is swallowed as meaningless for known cases
 		logger.Info("upgrade in process", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
@@ -973,5 +973,4 @@ func (r *WekaClusterReconciler) applyCSILoginCredentials(ctx context.Context, cl
 	}
 	logger.SetStatus(codes.Ok, "CSI login credentials applied")
 	return nil
-
 }

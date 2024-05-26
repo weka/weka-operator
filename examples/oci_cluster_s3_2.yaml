@@ -1,3 +1,4 @@
+---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
