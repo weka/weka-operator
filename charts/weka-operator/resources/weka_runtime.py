@@ -819,6 +819,7 @@ async def main():
         for i in range(max_retries):
             try:
                 await load_drivers()
+                return
             except:
                 if i == max_retries - 1:
                     raise
