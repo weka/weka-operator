@@ -47,24 +47,12 @@ func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	}
 }
 
-type CompatibilityMode string
-
-const (
-	CompatibilityModeKubernetes CompatibilityMode = "kubernetes"
-	CompatibilityModeOpenShift  CompatibilityMode = "openshift"
-)
-
-type CompatibilityModeConfig struct {
-	CompatibilityMode CompatibilityMode
-}
-
 type ContainerController struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	Logger                  logr.Logger
-	KubeService             services.KubeService
-	ExecService             services.ExecService
-	CompatibilityModeConfig CompatibilityModeConfig
+	Scheme      *runtime.Scheme
+	Logger      logr.Logger
+	KubeService services.KubeService
+	ExecService services.ExecService
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
