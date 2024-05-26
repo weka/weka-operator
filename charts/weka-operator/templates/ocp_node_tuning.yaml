@@ -1,0 +1,27 @@
+# TODO: replace it, quick and dirty solution for hugepages settings on WHOLE cluster, should be done by role\
+# and should be done by machineconfigpool with configurable hugepages size and node labels
+
+{{- if .Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints" }}
+{{- if .Values.ocpCompatibility.hugepageConfiguration.setHugePages }}
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: {{ .Values.ocpCompatibility.hugepageConfiguration.machineConfigNodeLabel }}
+  name: worker-hugepages-settings
+spec:
+  kernelArguments:
+    - hugepagesz={{.Values.ocpCompatibility.hugepageConfiguration.hugepageSize }} hugepages={{ .Values.ocpCompatibility.hugepageConfiguration.hugepagesCount }}
+
+...
+
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: hugepages
+spec:
+  machineConfigSelector:
+    matchExpressions:
+      - {key: machineconfiguration.openshift.io/role, operator: In, values: [{{ .Values.ocpCompatibility.hugepageConfiguration.machineConfigNodeLabel }}]}
+{{- end }}
+{{- end }}

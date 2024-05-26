@@ -69,7 +69,7 @@ func newResource() *resource.Resource {
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("weka-operator"),
+			semconv.ServiceNameKey.String("weka-operator-openshift"),
 			semconv.ServiceVersionKey.String("v1.0.0"),
 		),
 	)
