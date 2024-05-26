@@ -43,6 +43,8 @@ spec:
                   s3:
                     type: integer
                 type: object
+              buildkitImagePullSecret:
+                type: string
               computeAppendSetupCommand:
                 type: string
               cpuPolicy:

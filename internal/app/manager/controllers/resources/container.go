@@ -392,6 +392,58 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
+	// for Dist container, if running on OCP / COS / other containerized OS
+	if f.container.IsDriversBuilder() && f.container.Spec.BuildkitImagePullSecret != "" {
+		// we need to add the buildkit image pull secret
+		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+			Name: f.container.Spec.BuildkitImagePullSecret,
+		})
+
+		// add info about the compatibility mode
+		// TODO: remove this once we have automatic buildkit image
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "COMPATIBILITY_MODE",
+			Value: "openshift",
+		})
+
+		// add ephemeral volume to share the buildkit container
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "shared-buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+
+		ContainerMountProp := corev1.MountPropagationHostToContainer
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "shared-buildkit", MountPath: "/buildkit", ReadOnly: false, MountPropagation: &ContainerMountProp})
+
+		BuildkitMountProp := corev1.MountPropagationBidirectional
+		pod.Spec.InitContainers = append(pod.Spec.InitContainers, corev1.Container{
+			Name: "buildkit",
+			// TODO: update container image to automatic buildkit image
+			Image:         "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:2421e498039bc6118e902cef9531af6c90a3cacbe51ecb4efd37476c25caadad",
+			Command:       []string{"/bin/sh", "-c", "mkdir -p /shared-buildkit/lib; mkdir -p /shared-buildkit/usr; cp -RLrf /usr/src /shared-buildkit/usr; cp -RLrf /lib/modules /shared-buildkit/lib"},
+			Args:          nil,
+			WorkingDir:    "",
+			Ports:         nil,
+			EnvFrom:       nil,
+			Env:           pod.Spec.Containers[0].Env,
+			Resources:     corev1.ResourceRequirements{},
+			ResizePolicy:  nil,
+			RestartPolicy: nil,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &BuildkitMountProp},
+			},
+			VolumeDevices:            nil,
+			LivenessProbe:            nil,
+			ReadinessProbe:           nil,
+			StartupProbe:             nil,
+			Lifecycle:                nil,
+			TerminationMessagePath:   "",
+			TerminationMessagePolicy: "",
+			ImagePullPolicy:          "",
+			SecurityContext:          pod.Spec.Containers[0].SecurityContext,
+			Stdin:                    false,
+			StdinOnce:                false,
+			TTY:                      false,
+		})
+	}
+
 	return pod, nil
 }
 
