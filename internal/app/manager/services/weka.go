@@ -32,10 +32,12 @@ type FSParams struct {
 }
 
 type S3Params struct {
-	EnvoyPort      int
-	EnvoyAdminPort int
-	S3Port         int
-	ContainerIds   []int
+	EnvoyPort          int
+	EnvoyAdminPort     int
+	S3Port             int
+	ContainerIds       []int
+	MinioContainerName string
+	EnvoyContainerName string
 }
 
 type WekaUserResponse struct {
@@ -221,6 +223,8 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
 		"--internal-port", strconv.Itoa(s3Params.S3Port),
 		"--container", commaSeparatedInts(s3Params.ContainerIds),
+		//"--container-name", s3Params.MinioContainerName,
+		//"--envoy-container-name", s3Params.EnvoyContainerName,
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "CreateS3Cluster", cmd)

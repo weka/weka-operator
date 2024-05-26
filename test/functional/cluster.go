@@ -85,7 +85,7 @@ func (c *Cluster) DeployWekaCluster(t *testing.T) {
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("cluster already exists")
 		} else {
-			logger.Error(err, "Create cluster")
+			logger.Error(err, "FormCluster cluster")
 			t.Fatalf("failed to create weka cluster: %v", err)
 		}
 	}
@@ -93,7 +93,7 @@ func (c *Cluster) DeployWekaCluster(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	t.Run("Create Weka Cluster", func(t *testing.T) {
+	t.Run("FormCluster Weka Cluster", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		waitFor(ctx, func(ctx context.Context) bool {

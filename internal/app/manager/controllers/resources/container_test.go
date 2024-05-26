@@ -27,17 +27,17 @@ func TestCreate(t *testing.T) {
 	ctx := context.Background()
 	pod, err := factory.Create(ctx)
 	if err != nil {
-		t.Errorf("Create() returned error: %v", err)
+		t.Errorf("FormCluster() returned error: %v", err)
 		return
 	}
 
 	if pod == nil {
-		t.Errorf("Create() returned nil")
+		t.Errorf("FormCluster() returned nil")
 		return
 	}
 
 	if pod.Name != "weka-container" {
-		t.Errorf("Create() returned pod with name %s", pod.Name)
+		t.Errorf("FormCluster() returned pod with name %s", pod.Name)
 		return
 	}
 }

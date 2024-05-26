@@ -130,7 +130,7 @@ func TestNewWekaClusterReconciler(t *testing.T) {
 		}
 	}
 	test := ReconcilerTestCase{Reconciler: subject}
-	t.Run("doFinalizerOperationsForwekaCluster", doFinalizerOperationsForwekaCluster(testEnv, test))
+	t.Run("finalizeWekaCluster", doFinalizerOperationsForwekaCluster(testEnv, test))
 }
 
 func doFinalizerOperationsForwekaCluster(testEnv *TestEnvironment, test ReconcilerTestCase) func(t *testing.T) {
@@ -138,7 +138,7 @@ func doFinalizerOperationsForwekaCluster(testEnv *TestEnvironment, test Reconcil
 		recorder := record.NewFakeRecorder(1)
 		test.Reconciler.Recorder = recorder
 
-		if err := test.Reconciler.doFinalizerOperationsForwekaCluster(testEnv.Ctx, testingCluster()); err != nil {
+		if err := test.Reconciler.finalizeWekaCluster(testEnv.Ctx, testingCluster()); err != nil {
 			t.Fatalf("failed to do finalizer operations: %v", err)
 		}
 

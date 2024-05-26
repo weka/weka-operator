@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -28,7 +27,7 @@ type CrdManager interface {
 	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
 }
 
-func NewCrdManager(mgr ctrl.Manager) CrdManager {
+func NewCrdManager(mgr ctrl.Manager) *crdManager {
 	scheme := mgr.GetScheme()
 	return &crdManager{
 		Manager:              mgr,

@@ -183,10 +183,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.SetPhase("CLUSTER_RECONCILE_INITIALIZED")
 
 	if wekaCluster.GetDeletionTimestamp() != nil {
-		err = r.handleDeletion(ctx, wekaCluster)
+		panic("wtf")
+		err = r.handleDeletion(ctx, wekaClusterService)
 		if err != nil {
 			logger.Error(err, "Failed to handle deletion")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		}
 		logger.SetPhase("CLUSTER_IS_BEING_DELETED")
 		return ctrl.Result{}, nil
@@ -237,7 +238,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
-		err = wekaClusterService.Create(ctx, containers)
+		err = wekaClusterService.FormCluster(ctx, containers)
 		if err != nil {
 			logger.Error(err, "Failed to create cluster")
 			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
@@ -352,7 +353,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.SetPhase("CONFIGURING_DEFAULT_FS")
 		containers := r.SelectS3Containers(containers)
 		if len(containers) > 0 {
-			err := r.ensureS3Cluster(ctx, containers)
+			err := r.ensureS3Cluster(ctx, wekaCluster, containers)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -388,16 +389,16 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, clusterService services.WekaClusterService) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleDeletion")
 	defer end()
-
+	wekaCluster := clusterService.GetCluster()
 	if controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
 		// Perform all operations required before remove the finalizer and allow
 		// the Kubernetes API to remove the custom resource.
-		err := r.doFinalizerOperationsForwekaCluster(ctx, wekaCluster)
+		err := r.finalizeWekaCluster(ctx, clusterService)
 		if err != nil {
 			return err
 		}
@@ -490,9 +491,17 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 		Complete(wrappedReconcile)
 }
 
-func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "doFinalizerOperationsForwekaCluster")
+func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, clusterService services.WekaClusterService) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeWekaCluster")
 	defer end()
+
+	cluster := clusterService.GetCluster()
+
+	err := clusterService.EnsureNoS3(ctx)
+	if err != nil {
+		return err
+	}
+
 	if cluster.Spec.Topology == "" {
 		logger.Info("Topology is not set, skipping deallocation")
 		return nil
@@ -750,7 +759,7 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 	return nil
 }
 
-func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
 	defer end()
 
@@ -762,10 +771,12 @@ func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, containers 
 	}
 
 	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:      container.Spec.S3Params.EnvoyPort,
-		EnvoyAdminPort: container.Spec.S3Params.EnvoyAdminPort,
-		S3Port:         container.Spec.S3Params.S3Port,
-		ContainerIds:   containerIds,
+		EnvoyPort:          container.Spec.S3Params.EnvoyPort,
+		EnvoyAdminPort:     container.Spec.S3Params.EnvoyAdminPort,
+		S3Port:             container.Spec.S3Params.S3Port,
+		ContainerIds:       containerIds,
+		EnvoyContainerName: fmt.Sprintf("%senvoy", cluster.GetLastGuidPart()),
+		MinioContainerName: fmt.Sprintf("%ss3be", cluster.GetLastGuidPart()),
 	})
 	if err != nil {
 		if !errors.As(err, &services.S3ClusterExists{}) {
