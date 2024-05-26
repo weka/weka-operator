@@ -588,6 +588,11 @@ async def ensure_dist_container():
     logging.info("ensuring dist container")
 
     cmd = dedent(f"""
+        if [ -d /buildkit ]; then
+            # Copying kernel modules from buildkit to dist container            
+            mount -o bind /buildkit/lib/modules /lib/modules
+            mount -o bind /buildkit/usr/src /usr/src
+        fi
         weka local rm dist --force || true
         weka local setup container --name dist --net udp --base-port {PORT} --no-start --disable
         """)

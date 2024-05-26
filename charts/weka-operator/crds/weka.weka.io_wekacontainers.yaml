@@ -37,6 +37,8 @@ spec:
                 type: integer
               appendSetupCommand:
                 type: string
+              buildkitImagePullSecret:
+                type: string
               coreIds:
                 items:
                   type: integer
