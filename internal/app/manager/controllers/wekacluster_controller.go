@@ -183,7 +183,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.SetPhase("CLUSTER_RECONCILE_INITIALIZED")
 
 	if wekaCluster.GetDeletionTimestamp() != nil {
-		panic("wtf")
 		err = r.handleDeletion(ctx, wekaClusterService)
 		if err != nil {
 			logger.Error(err, "Failed to handle deletion")
@@ -497,7 +496,7 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 
 	cluster := clusterService.GetCluster()
 
-	err := clusterService.EnsureNoS3(ctx)
+	err := clusterService.EnsureNoS3Containers(ctx)
 	if err != nil {
 		return err
 	}
