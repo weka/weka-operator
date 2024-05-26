@@ -205,7 +205,7 @@ async def copy_drivers():
         VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
             "wekafs"]
     stdout, stderr, ec = await run_command(dedent(f"""
-      mkdir -p /opt/weka/dist/drivers 
+      mkdir -p /opt/weka/dist/drivers
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
 
@@ -655,6 +655,7 @@ async def main():
         for i in range(max_retries):
             try:
                 await load_drivers()
+                return
             except:
                 if i == max_retries - 1:
                     raise
