@@ -18,7 +18,7 @@ import (
 type WekaClusterService interface {
 	GetCluster() *wekav1alpha1.WekaCluster
 	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
-	EnsureNoS3(ctx context.Context) error
+	EnsureNoS3Containers(ctx context.Context) error
 	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
 }
 
@@ -119,7 +119,7 @@ func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string
 	return containers, nil
 }
 
-func (r *wekaClusterService) EnsureNoS3(ctx context.Context) error {
+func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoS3Containers", "cluster", r.Cluster.Name)
 	defer end()
 

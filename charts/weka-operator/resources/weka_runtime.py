@@ -543,7 +543,15 @@ async def cleanup_traces_and_stop_dumper():
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
-        await load_drivers()
+        max_retries = 10
+        for i in range(max_retries):
+            try:
+                await load_drivers()
+            except:
+                if i == max_retries - 1:
+                    raise
+                logging.info("retrying drivers download")
+                await asyncio.sleep(1)
         return
 
     if MODE == "discovery":
