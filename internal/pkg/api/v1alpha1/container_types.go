@@ -37,13 +37,14 @@ type S3Params struct {
 }
 
 type WekaContainerSpec struct {
-	NodeAffinity      string            `json:"nodeAffinity,omitempty"`
-	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
-	Port              int               `json:"port,omitempty"`
-	AgentPort         int               `json:"agentPort,omitempty"`
-	Image             string            `json:"image"`
-	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
-	WekaContainerName string            `json:"name"`
+	NodeAffinity            string            `json:"nodeAffinity,omitempty"`
+	NodeSelector            map[string]string `json:"nodeSelector,omitempty"`
+	Port                    int               `json:"port,omitempty"`
+	AgentPort               int               `json:"agentPort,omitempty"`
+	Image                   string            `json:"image"`
+	ImagePullSecret         string            `json:"imagePullSecret,omitempty"`
+	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
+	WekaContainerName       string            `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores

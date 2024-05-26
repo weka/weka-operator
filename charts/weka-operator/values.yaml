@@ -26,3 +26,21 @@ persistence:
       enabled: true
       interval: 5m
       retention: 72h
+
+ocpCompatibility:
+  # -- automatically create Tuned profile for the cluster nodes to apply hugepages configuration.
+  # -- WARNING: do not enable this feature if you are already using custom Tuned profiles for setting hugepages
+  hugepageConfiguration:
+    # -- if enabled, the operator will configure hugepages for the OCP nodes
+    setHugePages: true
+    # -- on which nodes to configure hugepages
+    machineConfigNodeLabel: "master"
+    # -- hugepage size
+    hugepageSize: "2M"
+    # -- hugepage count
+    hugepagesCount: 4000
+  # -- set the buildkit parameters for building the drivers
+  buildKit:
+    buildkitUrlBase: ""
+    buildKitImagePullSecret: ""
+

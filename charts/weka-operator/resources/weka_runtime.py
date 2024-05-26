@@ -244,6 +244,32 @@ def read_siblings_list(cpu_index):
         return expand_ranges(file.read().strip())
 
 
+async def get_host_info():
+    path = "/lib/os-release"
+    ret = dict()
+
+    try:
+        with open(path) as file:
+            for line in file:
+                if line.startswith("OPENSHIFT_VERSION"):
+                    ret['kubernetes_flavor'] = "openshift"
+                elif line.startswith("ID"):
+                    ret['os'] = line.split("=")[1].strip().replace('"', '')
+                elif line.startswith("VERSION_ID"):
+                    ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
+                elif line.startswith("VERSION"):
+                    ret['os_version'] = line.split("=")[1].strip().replace('"', '')
+    except FileNotFoundError:
+        logging.info("Not running on openshift node")
+    else:
+        logging.error("Failed to read os-release file")
+    stdout, stderr, ec = await run_command("uname -r")
+    if ec != 0:
+        raise Exception(f"Failed to get kernel version: {stderr}")
+    ret['kernel_version'] = stdout.decode('utf-8').strip()
+    return ret
+
+
 @lru_cache
 def find_full_cores(n):
     if CORE_IDS != "auto":
@@ -590,8 +616,10 @@ async def discovery():
     # This might be a good place to discover drives as well, as long we have some selector to discover by
     with open("/tmp/weka-discovery.json.tmp", "w") as f:
         data = dict(
-            is_ht=len(read_siblings_list(0)) > 1
+            is_ht=len(read_siblings_list(0)) > 1,
+            kubernetes_flavor="k8s",
         )
+        data.update(await get_host_info())
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
     logging.info("discovery done")
