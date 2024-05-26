@@ -1,6 +1,3 @@
-# TODO: replace it, quick and dirty solution for hugepages settings on WHOLE cluster, should be done by role\
-# and should be done by machineconfigpool with configurable hugepages size and node labels
-
 {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints" }}
 {{- if .Values.ocpCompatibility.hugepageConfiguration.setHugePages }}
 apiVersion: machineconfiguration.openshift.io/v1

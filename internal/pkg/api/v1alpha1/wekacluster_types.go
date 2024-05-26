@@ -48,6 +48,7 @@ type WekaClusterSpec struct {
 	Topology                string            `json:"topology"`
 	Image                   string            `json:"image"`
 	ImagePullSecret         string            `json:"imagePullSecret,omitempty"`
+	BuildkitImage           string            `json:"buildkitImage,omitempty"`
 	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
 	DriversDistService      string            `json:"driversDistService,omitempty"`
 	NodeSelector            map[string]string `json:"nodeSelector,omitempty"`

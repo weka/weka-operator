@@ -44,6 +44,7 @@ type WekaContainerSpec struct {
 	Image                   string            `json:"image"`
 	ImagePullSecret         string            `json:"imagePullSecret,omitempty"`
 	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
+	BuildkitImage           string            `json:"buildkitImage,omitempty"`
 	WekaContainerName       string            `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
