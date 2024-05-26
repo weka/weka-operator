@@ -6,7 +6,7 @@ spec:
   size: 1
   template: small_s3
   topology: discover_oci # to be removed in the future towards true discovery
-  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
   tolerations:
@@ -21,7 +21,7 @@ metadata:
     app: weka-driver-builder
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist
@@ -49,7 +49,7 @@ metadata:
   name: cluster-dev-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3
   imagePullSecret: "quay-io-robot-secret"
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   port: 45001
