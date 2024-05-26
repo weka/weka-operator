@@ -274,13 +274,13 @@ async def get_host_info():
     try:
         with open(path) as file:
             for line in file:
-                if line.startswith("OPENSHIFT_VERSION"):
+                if line.startswith("OPENSHIFT_VERSION="):
                     ret['kubernetes_flavor'] = "openshift"
-                elif line.startswith("ID"):
+                elif line.startswith("ID="):
                     ret['os'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("VERSION_ID"):
+                elif line.startswith("VERSION_ID="):
                     ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("VERSION"):
+                elif line.startswith("VERSION="):
                     ret['os_version'] = line.split("=")[1].strip().replace('"', '')
     except FileNotFoundError:
         logging.info("Not running on openshift node")
