@@ -66,7 +66,6 @@ func main() {
 	var probeAddr string
 	var enableClusterApi bool
 	tombstoneConfig := controllers.TombstoneConfig{}
-	compatibilityConfig := controllers.CompatibilityModeConfig{CompatibilityMode: controllers.CompatibilityModeKubernetes}
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -77,7 +76,6 @@ func main() {
 	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
 	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
-	flag.StringVar((*string)(&compatibilityConfig.CompatibilityMode), "compatibility-mode", "", "Compatibility mode for the operator, supported values are: 'kubernetes', 'openshift'")
 
 	ctx := ctrl.SetupSignalHandler()
 
