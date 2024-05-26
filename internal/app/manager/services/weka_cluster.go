@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel/codes"
 	"strings"
 
 	"github.com/kr/pretty"
@@ -16,7 +17,9 @@ import (
 
 type WekaClusterService interface {
 	GetCluster() *wekav1alpha1.WekaCluster
-	Create(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	EnsureNoS3(ctx context.Context) error
+	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -40,7 +43,7 @@ func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
 	return r.Cluster
 }
 
-func (r *wekaClusterService) Create(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "createCluster", "cluster", r.Cluster.Name, "containers", len(containers))
 	defer end()
 
@@ -88,4 +91,60 @@ func (r *wekaClusterService) Create(ctx context.Context, containers []*wekav1alp
 	}
 	logger.SetPhase("Cluster created")
 	return nil
+}
+
+func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterContainers", "cluster", r.Cluster.Name, "mode", mode, "cluster_uid", string(r.Cluster.UID))
+	defer end()
+
+	containersList := wekav1alpha1.WekaContainerList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(r.Cluster.Namespace),
+		client.MatchingFields{"metadata.ownerReferences.uid": string(r.Cluster.UID)},
+	}
+	if mode != "" {
+		listOpts = append(listOpts, client.MatchingLabels{"weka.io/mode": mode})
+	}
+	err := r.Client.List(ctx, &containersList, listOpts...)
+	logger.InfoWithStatus(codes.Ok, "Listed containers", "count", len(containersList.Items))
+
+	if err != nil {
+		return nil, err
+	}
+
+	containers := []*wekav1alpha1.WekaContainer{}
+	for i := range containersList.Items {
+		containers = append(containers, &containersList.Items[i])
+	}
+	return containers, nil
+}
+
+func (r *wekaClusterService) EnsureNoS3(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoS3Containers", "cluster", r.Cluster.Name)
+	defer end()
+
+	containers, err := r.GetOwnedContainers(ctx, "s3")
+	if err != nil {
+		logger.Error(err, "Failed to get owned containers")
+		return err
+	}
+
+	for _, container := range containers {
+		// delete object
+		// check if not already being deleted
+		if container.GetDeletionTimestamp() != nil {
+			continue
+		}
+		err := r.Client.Delete(ctx, container)
+		if err != nil {
+			logger.Error(err, "Failed to delete container", "container", container.Name)
+			return err
+		}
+	}
+	if len(containers) == 0 {
+		logger.SetStatus(codes.Ok, "No S3 containers found")
+		return nil
+	} else {
+		return errors.New("Waiting for all containers to stop")
+	}
 }

@@ -121,13 +121,13 @@ func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[strin
 		return Topology{}, err
 	}
 	return Topology{
-		Drives:          []string{"/dev/oracleoci/oraclevdb"},
+		Drives:          []string{"/dev/oracleoci/oraclevdb", "/dev/oracleoci/oraclevdc"},
 		Nodes:           nodeNames,
 		MinCore:         2, // TODO: How to determine, other then querying machines?
 		CoreStep:        2,
-		MaxCore:         15,
+		MaxCore:         31,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
-		MaxS3Containers: 1,
+		MaxS3Containers: 2,
 	}, nil
 }
 

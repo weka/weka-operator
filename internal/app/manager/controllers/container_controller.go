@@ -110,12 +110,11 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
 		logger.SetPhase("DELETING")
-		err := r.ensureTombstone(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error ensuring tombstone")
-			return ctrl.Result{}, errors.Wrap(err, "Failed to ensure tombstone")
-		}
 		// remove finalizer
+		err := r.finalizeContainer(ctx, container)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		controllerutil.RemoveFinalizer(container, WekaFinalizer)
 		err = r.Update(ctx, container)
 		if err != nil {
@@ -403,7 +402,6 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	}
 
 	status := response[0].RunStatus
-	logger.Info("Status", "status", status)
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
@@ -1078,10 +1076,10 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
 	if container.IsBackend() {
-		rescheduleAfter = 3 * time.Second // TODO: Change, this is dev mode
+		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {
-		logger.Info("Deleting unschedulable client container")
+		logger.Info("Deleting unschedulable container")
 		err := r.Delete(ctx, container)
 		if err != nil {
 			logger.Error(err, "Error deleting client container")
@@ -1090,4 +1088,46 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 		return errors.New("Pod is outdated and will be deleted")
 	}
 	return nil
+}
+
+func (r *ContainerController) finalizeContainer(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
+	defer end()
+
+	// ensure no pod exists
+	err := r.ensureNoPod(ctx, container)
+	if r != nil {
+		return err
+	}
+
+	err = r.ensureTombstone(ctx, container)
+	if err != nil {
+		logger.Error(err, "Error ensuring tombstone")
+		return err
+	}
+	return nil
+}
+
+func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	//TODO: Can we search pods by ownership?
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
+	defer end()
+
+	pod := &v1.Pod{}
+	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		logger.Error(err, "Error getting pod")
+		return err
+	}
+	err = r.Delete(ctx, pod)
+	if err != nil {
+		logger.Error(err, "Error deleting pod")
+		return err
+	}
+	logger.AddEvent("Pod deleted")
+	return errors.New("Pod deleted, reconciling for retry")
 }

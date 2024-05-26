@@ -134,7 +134,7 @@ func (api *ClusterAPI) createCluster(w rest.ResponseWriter, r *rest.Request) {
 		Spec: clusterSpec,
 	}
 
-	// Create the cluster object
+	// FormCluster the cluster object
 	logger.Info("Creating cluster", "name", cluster.Name, "namespace", cluster.Namespace)
 	ctx := r.Context()
 	key := client.ObjectKey{Name: cluster.Name, Namespace: cluster.Namespace}

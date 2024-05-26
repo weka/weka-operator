@@ -70,7 +70,7 @@ func TestCreate(t *testing.T) {
 			fixtures.mockClient.EXPECT().Status().Return(fixtures.mockStatus).AnyTimes()
 			fixtures.mockStatus.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-			err := subject.Create(ctx, tt.containers)
+			err := subject.FormCluster(ctx, tt.containers)
 			if tt.err != nil || err != nil {
 				if err.Error() != tt.err.Error() {
 					t.Errorf("Expected %v, got %v for %d contaienrs", tt.err, err, len(tt.containers))
