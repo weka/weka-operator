@@ -248,6 +248,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDefaultFsCreated,
 				Reconcile: state.DefaultFsCreated(wekaClusterService),
 			},
+			{
+				Condition: condition.CondS3ClusterCreated,
+				Reconcile: state.S3ClusterCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -266,21 +270,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		containers := r.SelectS3Containers(containers)
-		if len(containers) > 0 {
-			err := r.ensureS3Cluster(ctx, wekaCluster, containers)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsCreated) {
 		err := r.SecretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers)
@@ -478,45 +467,6 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	}
 	logger.InfoWithStatus(codes.Ok, "Containers are ready")
 	return true, nil
-}
-
-func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
-	defer end()
-
-	container := containers[0]
-	wekaService := services.NewWekaService(r.ExecService, container)
-	containerIds := []int{}
-	for _, c := range containers {
-		containerIds = append(containerIds, *c.Status.ClusterContainerID)
-	}
-
-	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:          container.Spec.S3Params.EnvoyPort,
-		EnvoyAdminPort:     container.Spec.S3Params.EnvoyAdminPort,
-		S3Port:             container.Spec.S3Params.S3Port,
-		ContainerIds:       containerIds,
-		EnvoyContainerName: fmt.Sprintf("%senvoy", cluster.GetLastGuidPart()),
-		MinioContainerName: fmt.Sprintf("%ss3be", cluster.GetLastGuidPart()),
-	})
-	if err != nil {
-		if !errors.As(err, &services.S3ClusterExists{}) {
-			return err
-		}
-	}
-
-	logger.SetStatus(codes.Ok, "S3 cluster ensured")
-	return nil
-}
-
-func (r *WekaClusterReconciler) SelectS3Containers(containers []*wekav1alpha1.WekaContainer) []*wekav1alpha1.WekaContainer {
-	var s3Containers []*wekav1alpha1.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
-			s3Containers = append(s3Containers, container)
-		}
-	}
-	return s3Containers
 }
 
 func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
