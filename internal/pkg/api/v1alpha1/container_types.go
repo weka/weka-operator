@@ -78,6 +78,7 @@ type WekaContainerStatus struct {
 	ClusterContainerID *int               `json:"containerID,omitempty"`
 	ClusterID          string             `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage   string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes

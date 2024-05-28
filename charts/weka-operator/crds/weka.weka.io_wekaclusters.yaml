@@ -198,6 +198,8 @@ spec:
                   - type
                   type: object
                 type: array
+              lastAppliedImage:
+                type: string
               spanId:
                 type: string
               status:

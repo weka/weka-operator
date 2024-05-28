@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from functools import lru_cache, partial
+from os.path import exists
 from textwrap import dedent
 
 MODE = os.environ.get("MODE")
@@ -90,6 +91,31 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     ),
     "4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3": dict(
         wekafs="1acd22f9ddbda67d-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev4": dict(
+        wekafs="1acd22f9ddbda67d-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev5": dict(
+        wekafs="1acd22f9ddbda67d-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev2": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev3": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
         uio_pci_generic=False,
         dependencies="6b519d501ea82063",
     ),
@@ -630,7 +656,8 @@ async def shutdown():
 
     logging.warning("Received signal, stopping all processes")
     if MODE not in ["drivers-loader", "discovery"]:
-        await run_command("weka local stop")
+        stop_flag = " -g" if not exists("/tmp/.allow-force-stop") else ""
+        await run_command(f"weka local stop{stop_flag}")
         logging.info("finished stopping weka container")
 
     for key, process in dict(processes.items()).items():

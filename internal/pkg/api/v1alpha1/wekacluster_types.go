@@ -60,12 +60,13 @@ type WekaClusterSpec struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status     string             `json:"status"`
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	Throughput string             `json:"throughput"`
-	ClusterID  string             `json:"clusterID,omitempty"`
-	TraceId    string             `json:"traceId,omitempty"`
-	SpanID     string             `json:"spanId,omitempty"`
+	Status           string             `json:"status"`
+	Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	Throughput       string             `json:"throughput"`
+	ClusterID        string             `json:"clusterID,omitempty"`
+	TraceId          string             `json:"traceId,omitempty"`
+	SpanID           string             `json:"spanId,omitempty"`
+	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 }
 
 // +kubebuilder:object:root=true
