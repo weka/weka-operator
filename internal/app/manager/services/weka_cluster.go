@@ -30,11 +30,12 @@ type WekaClusterService interface {
 	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	EnsureNoS3Containers(ctx context.Context) error
 	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
-	EnsureClusterContainerIds(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
-	GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error)
+	ApplyClientLoginCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	EnsureClusterContainerIds(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	EnsureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error
 	EnsureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error)
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -57,6 +58,14 @@ type wekaClusterService struct {
 type WekaClusterServiceError struct {
 	werrors.WrappedError
 	Cluster *wekav1alpha1.WekaCluster
+}
+
+type NoActiveContainerError struct {
+	WekaClusterServiceError
+}
+
+func (e NoActiveContainerError) Error() string {
+	return fmt.Sprintf("no active container found in cluster %s", e.Cluster.Name)
 }
 
 func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
@@ -323,6 +332,51 @@ func (r *wekaClusterService) GetUsernameAndPassword(ctx context.Context, namespa
 	username := secret.Data["username"]
 	password := secret.Data["password"]
 	return string(username), string(password), nil
+}
+
+func (r *wekaClusterService) ApplyClientLoginCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ApplyClientLoginCredentials")
+	defer end()
+
+	container := selectActiveContainer(containers)
+	if container == nil {
+		return &NoActiveContainerError{
+			WekaClusterServiceError: WekaClusterServiceError{
+				Cluster: r.GetCluster(),
+				WrappedError: werrors.WrappedError{
+					Err: nil,
+				},
+			},
+		}
+	}
+	cluster := r.GetCluster()
+	username, password, err := r.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
+	if err != nil {
+		return &WekaClusterServiceError{
+			Cluster: r.GetCluster(),
+			WrappedError: werrors.WrappedError{
+				Err: err,
+			},
+		}
+	}
+
+	wekaService := NewWekaService(r.ExecService, container)
+	err = wekaService.EnsureUser(ctx, username, password, "regular")
+	if err != nil {
+		logger.Error(err, "Failed to ensure user")
+		return err
+	}
+	logger.SetStatus(codes.Ok, "Client login credentials applied")
+	return nil
+}
+
+func selectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
+	for _, container := range containers {
+		if container.Status.ClusterContainerID != nil {
+			return container
+		}
+	}
+	return nil
 }
 
 func (r *wekaClusterService) ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {

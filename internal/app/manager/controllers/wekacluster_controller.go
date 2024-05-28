@@ -267,6 +267,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondClusterClientSecretsCreated,
 				Reconcile: state.ClusterClientSecretsCreated(r.SecretsService),
 			},
+			{
+				Condition: condition.CondClusterClientSecretsApplied,
+				Predicates: []lifecycle.PredicateFunc{
+					lifecycle.IsTrue(condition.CondClusterClientSecretsCreated),
+				},
+				Reconcile: state.ClusterClientSecretsApplied(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
