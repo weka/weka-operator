@@ -9,6 +9,8 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.2
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
+  tolerations:
+    - "test.weka.io/some-toleration"
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
@@ -59,4 +61,6 @@ spec:
     name: cluster-dev
     namespace: default
   coresNum: 1
+  tolerations:
+    - "test.weka.io/some-toleration"
 #  joinIpPorts: ["10.0.1.168:16101"] # dropped as targetCluster replaces this functionality for cases its both backends and clients in same k8s cluster

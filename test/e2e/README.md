@@ -36,23 +36,4 @@ At this time, the cluster must:
 
 ## Running the Tests
 
-To run the tests, you will need to have a Kubernetes cluster running.
-The KUBECONFIG environment variable must be set to the path of the kubeconfig
-for this cluster.
-
-```bash
-export KUBECONFIG=/path/to/kubeconfig
-```
-
-To run the tests, execute the following command:
-
-```bash
-make test-e2e
-```
-
-These tests will attempt to re-use existing resources if they exist.
-If you want to start from a clean slate, you can delete the resources using this command:
-
-```bash
-make clean-e2e
-```
+You will need to create a cluster and run the tests as described in the [Operator Dev Flow](https://www.notion.so/wekaio/Operator-Dev-Flow-df4e43f07ad14618beff57bbcd80e0c9) documents in Notion.

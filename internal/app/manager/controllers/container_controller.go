@@ -80,7 +80,7 @@ type ContainerController struct {
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "name", req.Name)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
 	defer end()
 
 	container, err := r.refreshContainer(ctx, req)
@@ -104,7 +104,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		attribute.String("management_ip", container.Status.ManagementIP),
 		attribute.String("uuid", string(container.GetUID())),
 	)
-	logger.Info("Container refreshed")
 	r.initState(ctx, container)
 	logger.SetPhase("INIT_STATE")
 
@@ -179,10 +178,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
 				logger.SetPhase("DRIVERS_NOT_READY")
-				return ctrl.Result{Requeue: true}, nil
 			}
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondEnsureDrivers,
@@ -317,7 +315,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	logger.Info("Reconcile completed", "name", container.Name)
 	logger.SetPhase("CONTAINER_IS_READY")
 	return ctrl.Result{}, nil
 }
@@ -419,7 +416,7 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		logger.WithValues("status", status).Info("Status updated")
 		return ctrl.Result{Requeue: true}, nil
 	}
-	logger.InfoWithStatus(codes.Ok, "Status reconciled")
+	logger.SetStatus(codes.Ok, "Status reconciled")
 	return ctrl.Result{}, nil
 }
 
@@ -432,7 +429,7 @@ func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Req
 		logger.Error(err, "Error refreshing container")
 		return nil, errors.Wrap(err, "refreshContainer")
 	}
-	logger.InfoWithStatus(codes.Ok, "Container refreshed")
+	logger.SetStatus(codes.Ok, "Container refreshed")
 	return container, nil
 }
 
@@ -556,6 +553,11 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 		logger.InfoWithStatus(codes.Unset, "Slots not found")
 		return true, errors.New("slots not found")
 	}
+
+	if !container.IsBackend() {
+		return false, nil // TODO: clients do not update clusterId, need better way to validate if client indeed joined and can serve IOs
+	}
+
 	clusterId := response[container.Spec.WekaContainerName].Slots[0].ClusterID
 	if clusterId == "" || clusterId == "00000000-0000-0000-0000-000000000000" {
 		logger.InfoWithStatus(codes.Unset, "Cluster not ready")
@@ -1032,11 +1034,11 @@ func (r *ContainerController) ensureFinalizer(ctx context.Context, container *we
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureFinalizer")
 	defer end()
 
-	logger.Info("Adding Finalizer for weka cluster")
 	if ok := controllerutil.AddFinalizer(container, WekaFinalizer); !ok {
-		logger.Info("Failed to add finalizer for wekaCluster")
 		return nil
 	}
+
+	logger.Info("Adding Finalizer for weka container")
 	err := r.Update(ctx, container)
 	if err != nil {
 		logger.Error(err, "Failed to update wekaCluster with finalizer")

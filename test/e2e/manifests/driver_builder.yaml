@@ -10,7 +10,7 @@ spec:
   agentPort: 60001
   nodeSelector:
     weka.io/role: builder
-  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.2
   imagePullSecret: "quay-cred"
   mode: "dist"
   name: dist

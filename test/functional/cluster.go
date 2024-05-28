@@ -24,9 +24,12 @@ type Cluster struct {
 	SystemTest
 }
 
-func (c *Cluster) Run(t *testing.T) {
+func (c *Cluster) CreateCluster(t *testing.T) {
 	t.Run("Validate Weka Cluster", c.ValidateWekaCluster)
 	t.Run("Deploy Weka Cluster", c.DeployWekaCluster)
+}
+
+func (c *Cluster) ValidateStartupCompleted(t *testing.T) {
 	t.Run("Verify Weka Containers", c.VerifyWekaContainers)
 	t.Run("Verify Weka Cluster", c.VerifyWekaCluster)
 }
@@ -61,7 +64,7 @@ func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 			Size:               1,
 			Template:           "small",
 			Topology:           "discover_oci",
-			Image:              "quay.io/weka.io/weka-in-container:4.2.10-k8so.0",
+			Image:              c.Image,
 			ImagePullSecret:    "quay-cred",
 			DriversDistService: driversDistService,
 			NodeSelector: map[string]string{

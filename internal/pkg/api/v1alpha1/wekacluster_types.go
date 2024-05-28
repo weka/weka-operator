@@ -54,6 +54,8 @@ type WekaClusterSpec struct {
 	DriveAppendSetupCommand   string               `json:"driveAppendSetupCommand,omitempty"`
 	ComputeAppendSetupCommand string               `json:"computeAppendSetupCommand,omitempty"`
 	TracesConfiguration       *TracesConfiguration `json:"tracesConfiguration,omitempty"`
+	Tolerations               []string             `json:"tolerations,omitempty"`
+	RawTolerations            []v1.Toleration      `json:"rawTolerations,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster

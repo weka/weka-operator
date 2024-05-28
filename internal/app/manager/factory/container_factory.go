@@ -132,6 +132,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 			AppendSetupCommand:  appendSetupCommand,
 			TracesConfiguration: cluster.Spec.TracesConfiguration,
 			S3Params:            s3Params,
+			Tolerations:         resources.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
 		},
 	}
 

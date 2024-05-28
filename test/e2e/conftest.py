@@ -4,7 +4,10 @@ import pytest
 from kubernetes import client, config
 from plumbum import ProcessExecutionError, local
 
+from .driver_builder_fixtures import *
+from .helm_fixtures import *
 from .models.kubernetes import Namespace
+from .weka_cluster_fixtures import *
 
 
 @pytest.fixture(scope="session")
