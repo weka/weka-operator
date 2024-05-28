@@ -255,6 +255,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 				Reconcile: state.ApplyClusterSecrets(wekaClusterService, r.Client),
 			},
+			{
+				Condition: condition.CondDefaultFsCreated,
+				Reconcile: state.DefaultFsCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
