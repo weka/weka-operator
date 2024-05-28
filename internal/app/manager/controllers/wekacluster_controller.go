@@ -249,6 +249,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDefaultFsCreated,
 				Reconcile: state.DefaultFsCreated(wekaClusterService),
 			},
+			{
+				Condition: condition.CondS3ClusterCreated,
+				Reconcile: state.S3ClusterCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -267,21 +271,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		containers := r.SelectS3Containers(containers)
-		if len(containers) > 0 {
-			err := r.ensureS3Cluster(ctx, wekaCluster, containers)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsCreated) {
 		err := r.SecretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers)

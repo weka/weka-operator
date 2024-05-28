@@ -34,6 +34,7 @@ type WekaClusterService interface {
 	GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error)
 	ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	EnsureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error
+	EnsureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -368,5 +369,32 @@ func (r *wekaClusterService) EnsureDefaultFs(ctx context.Context, container *wek
 			return err
 		}
 	}
+	return nil
+}
+
+func (r *wekaClusterService) EnsureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
+	defer end()
+
+	container := containers[0]
+	wekaService := NewWekaService(r.ExecService, container)
+	containerIds := []int{}
+	for _, c := range containers {
+		containerIds = append(containerIds, *c.Status.ClusterContainerID)
+	}
+
+	err := wekaService.CreateS3Cluster(ctx, S3Params{
+		EnvoyPort:      container.Spec.S3Params.EnvoyPort,
+		EnvoyAdminPort: container.Spec.S3Params.EnvoyAdminPort,
+		S3Port:         container.Spec.S3Params.S3Port,
+		ContainerIds:   containerIds,
+	})
+	if err != nil {
+		if !errors.As(err, &S3ClusterExists{}) {
+			return err
+		}
+	}
+
+	logger.SetStatus(codes.Ok, "S3 cluster ensured")
 	return nil
 }
