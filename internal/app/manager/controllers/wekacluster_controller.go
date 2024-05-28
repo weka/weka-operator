@@ -254,6 +254,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondClusterClientSecretsCreated,
 				Reconcile: state.ClusterClientSecretsCreated(r.SecretsService),
 			},
+			{
+				Condition: condition.CondClusterClientSecretsApplied,
+				Predicates: []lifecycle.PredicateFunc{
+					lifecycle.IsTrue(condition.CondClusterClientSecretsCreated),
+				},
+				Reconcile: state.ClusterClientSecretsApplied(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -261,28 +268,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
-	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
-	var containers []*wekav1alpha1.WekaContainer
-
-	containers, err = r.CrdManager.EnsureWekaContainers(ctx, wekaCluster)
-	if err != nil {
-		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
-		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsApplied) {
-		err := r.applyClientLoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsApplied, metav1.ConditionTrue, "Init", "Applied client secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 	logger.SetPhase("CLUSTER_READY")
 
 	err = r.HandleUpgrade(ctx, wekaCluster)
@@ -436,29 +421,6 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 			cluster.Name,
 			cluster.Namespace))
 	return nil
-}
-
-func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, containers []*wekav1alpha1.WekaContainer) (bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isContainersReady")
-	defer end()
-
-	for _, container := range containers {
-		if container.GetDeletionTimestamp() != nil {
-			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
-			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
-		}
-		if container.Status.ManagementIP == "" {
-			logger.Debug("Container is not ready yet or has no valid management IP", "container_name", container.Name)
-			return false, nil
-		}
-
-		if container.Status.Status != "Running" {
-			logger.Debug("Container is not running yet", "container_name", container.Name)
-			return false, nil
-		}
-	}
-	logger.InfoWithStatus(codes.Ok, "Containers are ready")
-	return true, nil
 }
 
 func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
