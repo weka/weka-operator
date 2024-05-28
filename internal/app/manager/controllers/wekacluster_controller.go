@@ -457,7 +457,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Info("upgrade in process", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -468,7 +467,7 @@ func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.Weka
 
 	wekaHomeEndpoint := wekaCluster.Spec.WekaHomeEndpoint
 	if wekaHomeEndpoint == "" {
-		//get from env var instead
+		// get from env var instead
 		var isSet bool
 		wekaHomeEndpoint, isSet = os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENDPOINT")
 		if !isSet {
@@ -946,7 +945,7 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 		// before upgrade, if if all drive nodes are still in old version - invoke upgrade prepare commands
 		prepareForUpgrade := true
 		for _, container := range driveContainers {
-			//i.e if any container already on new target version - we should not prepare for drive phase
+			// i.e if any container already on new target version - we should not prepare for drive phase
 			if container.Spec.Image == cluster.Spec.Image {
 				prepareForUpgrade = false
 			}
@@ -1180,7 +1179,6 @@ func (r *WekaClusterReconciler) HandleSpecUpdates(ctx context.Context, cluster *
 
 	}
 	return nil
-
 }
 
 func (r *WekaClusterReconciler) GCLoop() {
