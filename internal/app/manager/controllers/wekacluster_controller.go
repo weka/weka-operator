@@ -263,6 +263,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondS3ClusterCreated,
 				Reconcile: state.S3ClusterCreated(wekaClusterService),
 			},
+			{
+				Condition: condition.CondClusterClientSecretsCreated,
+				Reconcile: state.ClusterClientSecretsCreated(r.SecretsService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
