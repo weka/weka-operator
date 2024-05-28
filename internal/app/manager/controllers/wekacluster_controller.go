@@ -259,6 +259,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondDefaultFsCreated,
 				Reconcile: state.DefaultFsCreated(wekaClusterService),
 			},
+			{
+				Condition: condition.CondS3ClusterCreated,
+				Reconcile: state.S3ClusterCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
