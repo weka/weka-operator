@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -245,6 +244,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 				Reconcile: state.ApplyClusterSecrets(wekaClusterService, r.Client),
 			},
+			{
+				Condition: condition.CondDefaultFsCreated,
+				Reconcile: state.DefaultFsCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -263,19 +266,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		err := r.ensureDefaultFs(ctx, containers[0])
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
-		err = r.Status().Update(ctx, wekaCluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
 		logger.SetPhase("CONFIGURING_DEFAULT_FS")
@@ -488,56 +478,6 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	}
 	logger.InfoWithStatus(codes.Ok, "Containers are ready")
 	return true, nil
-}
-
-func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDefaultFs")
-	defer end()
-
-	wekaService := services.NewWekaService(r.ExecService, container)
-	status, err := wekaService.GetWekaStatus(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = wekaService.CreateFilesystemGroup(ctx, "default")
-	if err != nil {
-		if !errors.As(err, &services.FilesystemGroupExists{}) {
-			return err
-		}
-	}
-
-	// This defaults are not meant to be configurable, as instead weka should not require them.
-	// Until then, user configuratino post cluster create
-
-	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
-	const s3ReservedCapacity = 100 * 1024 * 1024 * 1024
-	var configFsSize int64 = 3 * 1024 * 1024 * 1024
-
-	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
-		ThinProvisioningEnabled:   true,
-	})
-	if err != nil {
-		if !errors.As(err, &services.FilesystemExists{}) {
-			return err
-		}
-	}
-
-	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(s3ReservedCapacity, 10),
-		ThinProvisioningEnabled:   true,
-	})
-	if err != nil {
-		if !errors.As(err, &services.FilesystemExists{}) {
-			return err
-		}
-	}
-
-	logger.SetStatus(codes.Ok, "default filesystem ensured")
-	return nil
 }
 
 func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
