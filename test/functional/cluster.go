@@ -253,60 +253,24 @@ func (c *Cluster) VerifyWekaCluster(t *testing.T) {
 
 	logger.SetValues("cluster", cluster.Name)
 
-	t.Run("Pods Ready Condition", c.PodsReadyCondition(ctx, cluster))
-	t.Run("Secrets Applied Condition", c.SecretsAppliedCondition(ctx, cluster))
-	t.Run("Cluster Created Condition", c.ClusterCreatedCondition(ctx, cluster))
-	t.Run("Drives Added Condition", c.DrivesAddedCondition(ctx, cluster))
-	t.Run("IO Started Condition", c.IOStartedCondition(ctx, cluster))
-}
-
-func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondPodsReady); err != nil {
-			t.Fatalf("failed to wait for Pods Ready condition: %v", err)
-		}
+	conditions := []string{
+		condition.CondPodsReady,
+		condition.CondClusterSecretsApplied,
+		condition.CondClusterCreated,
+		condition.CondDrivesAdded,
+		condition.CondIoStarted,
+		condition.CondDefaultFsCreated,
 	}
-}
+	for _, cond := range conditions {
+		name := fmt.Sprintf("Condition %q", cond)
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
 
-func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondClusterSecretsApplied); err != nil {
-			t.Fatalf("failed to wait for Secrets Applied condition: %v", err)
-		}
-	}
-}
-
-func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondClusterCreated); err != nil {
-			t.Fatalf("failed to wait for Cluster Created condition: %v", err)
-		}
-	}
-}
-
-func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondDrivesAdded); err != nil {
-			t.Fatalf("failed to wait for Drives Added condition: %v", err)
-		}
-	}
-}
-
-func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
-		if err := waitForCondition(ctx, c, cluster, condition.CondIoStarted); err != nil {
-			t.Fatalf("failed to wait for IO Started condition: %v", err)
-		}
+			if err := waitForCondition(ctx, c, cluster, cond); err != nil {
+				t.Fatalf("failed to wait for condition %q: %v", cond, err)
+			}
+		})
 	}
 }
 

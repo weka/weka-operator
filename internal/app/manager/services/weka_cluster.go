@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -32,6 +33,7 @@ type WekaClusterService interface {
 	EnsureClusterContainerIds(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
 	GetUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error)
 	ApplyClusterCredentials(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
+	EnsureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -321,5 +323,50 @@ func (r *wekaClusterService) ApplyClusterCredentials(ctx context.Context, contai
 		return err
 	}
 
+	return nil
+}
+
+func (r *wekaClusterService) EnsureDefaultFs(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	wekaService := NewWekaService(r.ExecService, container)
+	status, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = wekaService.CreateFilesystemGroup(ctx, "default")
+	if err != nil {
+		if !errors.As(err, &FilesystemGroupExists{}) {
+			return err
+		}
+	}
+
+	// This defaults are not meant to be configurable, as instead weka should not require them.
+	// Until then, user configuratino post cluster create
+
+	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
+	const s3ReservedCapacity = 100 * 1024 * 1024 * 1024
+	var configFsSize int64 = 3 * 1024 * 1024 * 1024
+
+	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &FilesystemExists{}) {
+			return err
+		}
+	}
+
+	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(s3ReservedCapacity, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &FilesystemExists{}) {
+			return err
+		}
+	}
 	return nil
 }
