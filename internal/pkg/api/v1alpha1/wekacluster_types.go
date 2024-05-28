@@ -127,6 +127,10 @@ func (c *WekaCluster) GetUserClusterUsername() string {
 	return "weka" + c.GetLastGuidPart()
 }
 
+func (c *WekaCluster) GetClusterCsiUsername() string {
+	return "weka-csi-" + c.GetLastGuidPart()
+}
+
 func (c *WekaCluster) GetClusterClientUsername() string {
 	return "wekaclient" + c.GetLastGuidPart()
 }
@@ -159,6 +163,21 @@ func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
 			"username": c.GetUserClusterUsername(),
 			"password": util.GeneratePassword(32),
 			"org":      DefaultOrg,
+		},
+	}
+}
+
+func (c *WekaCluster) NewCsiLoginSecret() *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.GetUserSecretName(),
+			Namespace: c.Namespace,
+		},
+		StringData: map[string]string{
+			"username":     c.GetClusterCsiUsername(),
+			"password":     util.GeneratePassword(32),
+			"organization": DefaultOrg,
+			"scheme":       "http",
 		},
 	}
 }
