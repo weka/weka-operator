@@ -245,6 +245,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 				Reconcile: state.ApplyClusterSecrets(wekaClusterService, r.Client),
 			},
+			{
+				Condition: condition.CondDefaultFsCreated,
+				Reconcile: state.DefaultFsCreated(wekaClusterService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -263,19 +267,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		err := r.ensureDefaultFs(ctx, containers[0])
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
-		err = r.Status().Update(ctx, wekaCluster)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
 		logger.SetPhase("CONFIGURING_DEFAULT_FS")
