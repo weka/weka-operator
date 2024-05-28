@@ -144,9 +144,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer end()
 
 	// Fetch the WekaCluster instance
-	wekaClusterService, err := r.CrdManager.GetCluster(ctx, req)
+	wekaClusterService, err := r.CrdManager.GetClusterService(ctx, req)
 	if err != nil {
-		logger.Error(err, "GetCluster failed")
+		logger.Error(err, "GetClusterService failed")
 		return ctrl.Result{}, err
 	}
 
@@ -383,8 +383,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			return ctrl.Result{}, err
 		}
 	}
-
 	logger.SetPhase("CLUSTER_READY")
+
+	err = r.HandleUpgrade(ctx, wekaCluster)
+	if err != nil {
+		//TODO: separate unknown from expected reconcilation errors for info/error logging,
+		// right now err is swallowed as meaningless for known cases
+		logger.Info("upgrade in process", "lastErr", err)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -424,6 +431,7 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 	if !controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 
 		wekaCluster.Status.InitStatus()
+		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
 
 		err := r.Status().Update(ctx, wekaCluster)
 		if err != nil {
@@ -820,5 +828,99 @@ func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context,
 		return err
 	}
 	logger.SetStatus(codes.Ok, "Client login credentials applied")
+	return nil
+}
+
+func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
+	defer end()
+
+	updateContainer := func(container *wekav1alpha1.WekaContainer) error {
+		if container.Status.LastAppliedImage != cluster.Spec.Image {
+			if container.Spec.Image != cluster.Spec.Image {
+				container.Spec.Image = cluster.Spec.Image
+				if err := r.Update(ctx, container); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	areUpgraded := func(containers []*wekav1alpha1.WekaContainer) bool {
+		for _, container := range containers {
+			if container.Status.LastAppliedImage != container.Spec.Image {
+				return false
+			}
+		}
+		return true
+	}
+
+	allAtOnceUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
+		for _, container := range containers {
+			if err := updateContainer(container); err != nil {
+				return err
+			}
+		}
+		if !areUpgraded(containers) {
+			return errors.New("containers upgrade not finished yet")
+		}
+		return nil
+	}
+
+	rollingUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
+		for _, container := range containers {
+			if container.Status.LastAppliedImage != container.Spec.Image {
+				return errors.New("container upgrade not finished yet")
+			}
+		}
+
+		for _, container := range containers {
+			if container.Spec.Image != cluster.Spec.Image {
+				err := updateContainer(container)
+				if err != nil {
+					return err
+				}
+				return errors.New("container upgrade not finished yet")
+			}
+		}
+		return nil
+	}
+
+	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
+		logger.Info("Image upgrade sequence")
+		service, err := r.CrdManager.GetClusterService(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Name}})
+		if err != nil {
+			return err
+		}
+		driveContainers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+		if err != nil {
+			return err
+		}
+		err = allAtOnceUpgrade(driveContainers)
+		if err != nil {
+			return err
+		}
+
+		computeContainers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeCompute)
+		if err != nil {
+			return err
+		}
+		err = allAtOnceUpgrade(computeContainers)
+		if err != nil {
+			return err
+		}
+
+		s3Containers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeS3)
+		if err != nil {
+			return err
+		}
+		err = rollingUpgrade(s3Containers)
+
+		cluster.Status.LastAppliedImage = cluster.Spec.Image
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

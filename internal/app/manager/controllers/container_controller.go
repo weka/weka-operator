@@ -104,7 +104,10 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		attribute.String("management_ip", container.Status.ManagementIP),
 		attribute.String("uuid", string(container.GetUID())),
 	)
-	r.initState(ctx, container)
+	err = r.initState(ctx, container)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	logger.SetPhase("INIT_STATE")
 
 	if container.GetDeletionTimestamp() != nil {
@@ -311,6 +314,47 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				r.Logger.Error(err, "Error updating status")
 				return ctrl.Result{}, err
 			}
+		}
+	}
+
+	if container.Spec.Image != container.Status.LastAppliedImage {
+		pod, err := r.refreshPod(ctx, container)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "refreshPod")
+		}
+		var wekaPodContainer v1.Container
+		found := false
+		for _, podContainer := range pod.Spec.Containers {
+			if podContainer.Name == "weka-container" {
+				wekaPodContainer = podContainer
+				found = true
+			}
+		}
+		if !found {
+			return ctrl.Result{}, errors.New("weka-container not found in pod")
+		}
+
+		if wekaPodContainer.Image != container.Spec.Image {
+			// delete pod
+			err := r.Delete(ctx, pod)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Delete pod")
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		if pod.GetDeletionTimestamp() != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
+		}
+
+		if pod.Status.Phase != v1.PodRunning {
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
+		}
+
+		container.Status.LastAppliedImage = container.Spec.Image
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "Update container status")
 		}
 	}
 
@@ -809,7 +853,7 @@ func (r *ContainerController) getDriveUUID(ctx context.Context, executor util.Ex
 	return serial, nil
 }
 
-func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) {
+func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	if container.Status.Conditions == nil {
 		container.Status.Conditions = []metav1.Condition{}
 	}
@@ -817,10 +861,26 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 	// All container types are being set to False on init
 	// This includes types not listed here (beyond dist and drivers-loader)
 	// TODO: Is this expected?
+	changes := false
 	if !container.DriversReady() && container.SupportsEnsureDriversCondition() {
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init"})
-		_ = r.Status().Update(ctx, container)
+		changes = true
+		meta.SetStatusCondition(&container.Status.Conditions,
+			metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init", Reason: "Init"},
+		)
 	}
+
+	if container.Status.LastAppliedImage == "" {
+		container.Status.LastAppliedImage = container.Spec.Image
+		changes = true
+	}
+
+	if changes {
+		err := r.Status().Update(ctx, container)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
@@ -1123,6 +1183,21 @@ func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1
 		logger.Error(err, "Error getting pod")
 		return err
 	}
+
+	if pod.Status.Phase == v1.PodRunning {
+		executor, err := util.NewExecInPod(pod)
+		if err != nil {
+			logger.Error(err, "Error creating executor")
+			return err
+
+		}
+		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
+		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
+		if err != nil {
+			return err
+		}
+	}
+
 	err = r.Delete(ctx, pod)
 	if err != nil {
 		logger.Error(err, "Error deleting pod")

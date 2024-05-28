@@ -327,6 +327,8 @@ spec:
                 type: array
               containerID:
                 type: integer
+              lastAppliedImage:
+                type: string
               managementIP:
                 type: string
               status:

@@ -86,6 +86,13 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
 	}
 
+	cmd = fmt.Sprintf("wekaauthcli cluster hot-spare 0")
+	logger.Debug("Disabling hot spare")
+	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to disable hot spare: %s", stderr.String())
+	}
+
 	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}

@@ -70,7 +70,7 @@ func TestGetCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixtures.mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.apiError)
-			clusterService, err := subject.GetCluster(ctx, req)
+			clusterService, err := subject.GetClusterService(ctx, req)
 			if err != tt.err {
 				t.Errorf("Expected %v, got %v", tt.err, err)
 			}
