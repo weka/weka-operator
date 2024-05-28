@@ -250,6 +250,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondS3ClusterCreated,
 				Reconcile: state.S3ClusterCreated(wekaClusterService),
 			},
+			{
+				Condition: condition.CondClusterClientSecretsCreated,
+				Reconcile: state.ClusterClientSecretsCreated(r.SecretsService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -269,16 +273,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	logger.SetPhase("CLUSTER_READY")
 
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsCreated) {
-		err := r.SecretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsCreated, metav1.ConditionTrue, "Init", "Created client secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsApplied) {
 		err := r.applyClientLoginCredentials(ctx, wekaCluster, containers)
 		if err != nil {
