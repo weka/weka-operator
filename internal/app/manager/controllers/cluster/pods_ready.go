@@ -1,9 +1,10 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 	"time"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -12,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-func (state *ClusterState) PodsReady() StepFunc {
+func (state *ClusterState) PodsReady() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "PodsReady")
 		defer end()

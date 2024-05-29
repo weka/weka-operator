@@ -1,17 +1,18 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	"k8s.io/apimachinery/pkg/api/meta"
 )
 
-func (state *ClusterState) DrivesAdded() StepFunc {
+func (state *ClusterState) DrivesAdded() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		_, logger, end := instrumentation.GetLogSpan(ctx, "DrivesAdded")
 		defer end()

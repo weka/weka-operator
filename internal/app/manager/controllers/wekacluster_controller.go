@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/cluster"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
@@ -195,7 +196,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	// generate login credentials
-	state := &lifecycle.ClusterState{
+	state := &cluster.ClusterState{
 		ReconciliationState: lifecycle.ReconciliationState[*wekav1alpha1.WekaCluster]{
 			Subject:    wekaCluster,
 			Conditions: &wekaCluster.Status.Conditions,
@@ -220,6 +221,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			{
 				Condition: condition.CondPodsReady,
 				Reconcile: state.PodsReady(),
+				Predicates: []lifecycle.PredicateFunc{
+					lifecycle.IsTrue(condition.CondPodsCreated),
+				},
 			},
 			{
 				Condition: condition.CondClusterCreated,

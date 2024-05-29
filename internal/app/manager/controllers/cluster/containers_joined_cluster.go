@@ -1,10 +1,11 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -20,7 +21,7 @@ func (e ContainerJoinError) Error() string {
 	return "error joining containers to cluster: " + e.Err.Error()
 }
 
-func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.WekaClusterService, client client.Client) StepFunc {
+func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.WekaClusterService, client client.Client) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainersJoinedCluster")
 		defer end()
