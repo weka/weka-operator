@@ -1,9 +1,10 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -19,7 +20,7 @@ func (e SecretCreationError) Error() string {
 	return fmt.Sprintf("error reconciling secret for cluster %s: %v", e.Cluster.Name, e.Err)
 }
 
-func (state *ClusterState) ClusterSecretsCreated(secretsService services.SecretsService) StepFunc {
+func (state *ClusterState) ClusterSecretsCreated(secretsService services.SecretsService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ClusterSecretsCreated")
 		defer end()

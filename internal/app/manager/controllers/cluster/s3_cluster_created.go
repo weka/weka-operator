@@ -1,8 +1,9 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -17,7 +18,7 @@ func (e S3ClusterCreatedError) Error() string {
 	return "error creating S3 cluster: " + e.WrappedError.Error()
 }
 
-func (state *ClusterState) S3ClusterCreated(wekaClusterService services.WekaClusterService) StepFunc {
+func (state *ClusterState) S3ClusterCreated(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "S3ClusterCreated")
 		defer end()

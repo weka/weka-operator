@@ -19,10 +19,6 @@ type Reconciler interface {
 	client.Client
 }
 
-type ClusterState struct {
-	ReconciliationState[*wekav1alpha1.WekaCluster]
-}
-
 type ReconciliationSteps struct {
 	Reconciler Reconciler
 	State      *ReconciliationState[*wekav1alpha1.WekaCluster]

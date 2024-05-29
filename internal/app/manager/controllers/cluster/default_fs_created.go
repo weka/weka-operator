@@ -1,8 +1,9 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -16,7 +17,7 @@ func (e DefaultFsCreatedError) Error() string {
 	return "error creating default filesystem: " + e.WrappedError.Error()
 }
 
-func (state *ClusterState) DefaultFsCreated(wekaClusterService services.WekaClusterService) StepFunc {
+func (state *ClusterState) DefaultFsCreated(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "DefaultFsCreated")
 		defer end()

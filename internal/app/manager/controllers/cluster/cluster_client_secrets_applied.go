@@ -1,8 +1,9 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -13,7 +14,7 @@ type ClientSecretApplicationError struct {
 	Cluster *wekav1alpha1.WekaCluster
 }
 
-func (state *ClusterState) ClusterClientSecretsApplied(wekaClusterService services.WekaClusterService) StepFunc {
+func (state *ClusterState) ClusterClientSecretsApplied(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		wekaCluster := state.Subject
 		if wekaCluster == nil {
