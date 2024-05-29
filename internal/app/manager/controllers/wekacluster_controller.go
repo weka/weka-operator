@@ -213,7 +213,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		},
 	}
 
-	steps := &lifecycle.ReconciliationSteps{
+	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaCluster]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{

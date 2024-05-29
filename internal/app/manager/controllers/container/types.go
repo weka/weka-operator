@@ -1,17 +1,10 @@
 package container
 
 import (
-	"context"
-
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 )
 
-type StepFunc func(ctx context.Context, state *ReconciliationState) error
-
-type ReconciliationState struct{}
-
-type Step struct {
-	Condition     string
-	Preconditions []lifecycle.PredicateFunc
-	Reconcile     StepFunc
+type ContainerState struct {
+	lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]
 }
