@@ -107,6 +107,10 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				Predicates: []lifecycle.PredicateFunc{},
 				Reconcile:  state.RefreshContainer(r.CrdManager),
 			},
+			{
+				Condition: "EnsureFinalizer",
+				Reconcile: state.EnsureFinalizer(r.Client, WekaFinalizer),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -1092,23 +1096,6 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			logger.Error(err, "Error creating tombstone")
 			return err
 		}
-	}
-	return nil
-}
-
-func (r *ContainerController) ensureFinalizer(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureFinalizer")
-	defer end()
-
-	if ok := controllerutil.AddFinalizer(container, WekaFinalizer); !ok {
-		return nil
-	}
-
-	logger.Info("Adding Finalizer for weka container")
-	err := r.Update(ctx, container)
-	if err != nil {
-		logger.Error(err, "Failed to update wekaCluster with finalizer")
-		return err
 	}
 	return nil
 }
