@@ -1,10 +1,11 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -21,7 +22,7 @@ func (e SecretApplicationError) Error() string {
 	return fmt.Sprintf("secret application error: %v cluster: %s", e.Err, e.Cluster.Name)
 }
 
-func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaClusterService, client client.Client) StepFunc {
+func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaClusterService, client client.Client) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ApplyClusterSecrets")
 		defer end()

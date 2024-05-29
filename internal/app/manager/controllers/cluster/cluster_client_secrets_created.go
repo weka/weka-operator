@@ -1,8 +1,9 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -12,7 +13,7 @@ type ClientSecretCreationError struct {
 	errors.WrappedError
 }
 
-func (state *ClusterState) ClusterClientSecretsCreated(secretsService services.SecretsService) StepFunc {
+func (state *ClusterState) ClusterClientSecretsCreated(secretsService services.SecretsService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ClusterClientSecretsCreated")
 		defer end()
