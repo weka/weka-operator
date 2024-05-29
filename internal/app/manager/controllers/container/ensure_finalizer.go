@@ -25,11 +25,10 @@ func (state *ContainerState) EnsureFinalizer(client client.Client, finalizer str
 		}
 
 		logger.Info("Adding Finalizer for weka container")
-		err := client.Update(ctx, container)
-		if err != nil {
+		if err := client.Update(ctx, container); err != nil {
 			return &ContainerUpdateError{
 				WrappedError: errors.WrappedError{Err: err},
-				Name:         container.Name,
+				Container:    container,
 			}
 		}
 		return nil
