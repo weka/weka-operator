@@ -34,7 +34,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -113,6 +112,11 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				Condition: "EnsureFinalizer",
 				Reconcile: state.EnsureFinalizer(r.Client, WekaFinalizer),
 			},
+			{
+				Condition:             "DeleteContainer",
+				SkipOwnConditionCheck: true,
+				Reconcile:             state.DeleteContainer(r.Client, r.CrdManager, WekaFinalizer),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -142,23 +146,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	logger.SetPhase("INIT_STATE")
 
-	if container.GetDeletionTimestamp() != nil {
-		logger.Info("Container is being deleted", "name", container.Name)
-		logger.SetPhase("DELETING")
-		// remove finalizer
-		err := r.finalizeContainer(ctx, container)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-		}
-		controllerutil.RemoveFinalizer(container, WekaFinalizer)
-		err = r.Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error removing finalizer")
-			return ctrl.Result{}, errors.Wrap(err, "Failed to remove finalizer")
-		}
-		return ctrl.Result{}, nil
-	}
-
 	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
@@ -176,7 +163,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	logger.SetPhase("BOOT_CONFIG_MAP_EXISTS")
 
-	actualPod, err := r.refreshPod(ctx, container)
+	actualPod, err := r.CrdManager.RefreshPod(ctx, container)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.SetPhase("CREATING_POD")
@@ -392,7 +379,7 @@ func (r *ContainerController) handleImageUpdate(ctx context.Context, container *
 		return nil
 	}
 	if container.Spec.Image != container.Status.LastAppliedImage {
-		pod, err := r.refreshPod(ctx, container)
+		pod, err := r.CrdManager.RefreshPod(ctx, container)
 		if err != nil {
 			return err
 		}
@@ -538,19 +525,6 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	}
 	logger.SetStatus(codes.Ok, "Status reconciled")
 	return ctrl.Result{}, nil
-}
-
-func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "refreshPod")
-	defer end()
-
-	pod := &v1.Pod{}
-	key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
-	if err := r.Get(ctx, key, pod); err != nil {
-		logger.Error(err, "Error refreshing pod", "key", key)
-		return nil, err
-	}
-	return pod, nil
 }
 
 func (r *ContainerController) updatePod(ctx context.Context, pod *v1.Pod) error {
@@ -1023,7 +997,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
 	defer end()
 
-	pod, err := r.refreshPod(ctx, container)
+	pod, err := r.CrdManager.RefreshPod(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error refreshing pod")
 		return err
@@ -1148,47 +1122,6 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
 }
 
-func (r *ContainerController) ensureTombstone(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTombstone")
-	defer end()
-
-	nodeAffinity := container.Spec.NodeAffinity
-	if nodeAffinity == "" {
-		// attempting to find persistent location of the container based on actual pod
-		pod, err := r.refreshPod(ctx, container)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("no affinity on container and actual pod not found to set affinity")
-				return nil
-			}
-		}
-		if pod.Spec.NodeName != "" {
-			nodeAffinity = pod.Spec.NodeName
-		}
-	}
-
-	tombstone := &wekav1alpha1.Tombstone{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("wekacontainer-%s", container.GetUID()),
-			Namespace: container.Namespace,
-		},
-		Spec: wekav1alpha1.TombstoneSpec{
-			CrType:       "WekaContainer",
-			CrId:         string(container.UID),
-			NodeAffinity: nodeAffinity,
-		},
-	}
-
-	err := r.Create(ctx, tombstone)
-	if err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			logger.Error(err, "Error creating tombstone")
-			return err
-		}
-	}
-	return nil
-}
-
 func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
 	kubeService := r.KubeService
 
@@ -1240,14 +1173,14 @@ func (r *ContainerController) finalizeContainer(ctx context.Context, container *
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
 
-	err := r.ensureTombstone(ctx, container)
+	err := r.CrdManager.EnsureTombstone(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error ensuring tombstone")
 		return err
 	}
 
-	//tombstone first, delete pod next
-	//tombstone will have to ensure that no pod exists by itself
+	// tombstone first, delete pod next
+	// tombstone will have to ensure that no pod exists by itself
 
 	// ensure no pod exists
 	err = r.ensureNoPod(ctx, container)
