@@ -379,7 +379,7 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	if container.Spec.Network.EthDevice != "" {
 		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
 	} else {
-		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
+		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n1")
 	}
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
@@ -635,6 +635,11 @@ DRIVES:
 			l.Info("Attempting to configure drive")
 			drive := container.Spec.PotentialDrives[driveCursor]
 			drive = r.discoverDrive(ctx, executor, drive)
+			if drive == "" {
+				l.Info("Drive not found, moving to next")
+				driveCursor++
+				continue
+			}
 			driveSignTarget := getSignatureDevice(drive)
 
 			l.Info("Verifying drive signature")
@@ -995,7 +1000,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor util.E
 		stdout, stderr, err := executor.ExecNamed(ctx, "DiscoverDrivePciSlot", []string{"bash", "-ce", cmd})
 		if err != nil {
 			logger.WithValues("slot", slot, "stderr", stderr.String()).Error(err, "Error parsing PCI slot for drive")
-			return drive
+			return ""
 		}
 		return fmt.Sprintf("/dev/disk/by-path/pci-0000:%s-nvme-1", strings.TrimSpace(stdout.String()))
 	}

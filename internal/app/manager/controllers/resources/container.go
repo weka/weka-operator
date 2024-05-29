@@ -68,6 +68,9 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	if f.container.Spec.Network.EthDevice != "" {
 		netDevice = f.container.Spec.Network.EthDevice
 	}
+	if len(f.container.Spec.Network.EthDevices) > 0 {
+		netDevice = strings.Join(f.container.Spec.Network.EthDevices, ",")
+	}
 	if f.container.Spec.Network.UdpMode {
 		netDevice = "udp"
 		udpMode = "true"
@@ -312,6 +315,24 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		}
 	}
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
+
+	if f.container.Spec.NodeInfoConfigMap != "" {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "node-info",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: f.container.Spec.NodeInfoConfigMap,
+					},
+				},
+			},
+		})
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "node-info",
+			MountPath: "/etc/wekaio/node-info",
+		})
+	}
 
 	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{

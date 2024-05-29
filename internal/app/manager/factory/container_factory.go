@@ -60,7 +60,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		numCores = template.S3Cores
 	}
 
-	network, err := resources.GetContainerNetwork(topology.Network)
+	network, err := resources.GetContainerNetwork(topology.Network, &ownedResources)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +100,10 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		}
 	}
 
+	nodeConfigMap := ""
+	if topology.NodeConfigMapPattern != "" {
+		nodeConfigMap = fmt.Sprintf(topology.NodeConfigMapPattern, ownedResources.Node)
+	}
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -133,6 +137,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 			TracesConfiguration: cluster.Spec.TracesConfiguration,
 			S3Params:            s3Params,
 			Tolerations:         resources.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
+			NodeInfoConfigMap:   nodeConfigMap,
 		},
 	}
 

@@ -105,17 +105,32 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
         dependencies="6b519d501ea82063",
     ),
     "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev": dict(
-        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.3.28-k8s-alpha-dev": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.3.28-k8s-alpha-dev2": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="6b519d501ea82063",
+    ),
+    "4.3.3.28-k8s-alpha-dev3": dict(
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
         uio_pci_generic=False,
         dependencies="6b519d501ea82063",
     ),
     "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev2": dict(
-        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
         uio_pci_generic=False,
         dependencies="6b519d501ea82063",
     ),
     "4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev3": dict(
-        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748-debug",
+        wekafs="1cb1639d52a2b9ca-GW_556972ab1ad2a29b0db5451e9db18748",
         uio_pci_generic=False,
         dependencies="6b519d501ea82063",
     ),
@@ -286,12 +301,16 @@ async def ensure_daemon(command, alias=""):
     return process
 
 
-async def run_command(command):
+async def run_command(command, capture_stdout=True):
     # TODO: Wrap stdout of commands via INFO via logging
     logging.info("Running command: " + command)
+    if capture_stdout:
+        pipe = asyncio.subprocess.PIPE
+    else:
+        pipe = None
     process = await asyncio.create_subprocess_shell("set -e\n" + command,
-                                                    stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE)
+                                                    stdout=pipe,
+                                                    stderr=pipe)
     stdout, stderr = await process.communicate()
     logging.info(f"Command {command} finished with code {process.returncode}")
     if stdout:
@@ -330,6 +349,25 @@ async def periodic_logrotate():
 loop = asyncio.get_event_loop()
 
 
+async def resolve_aws_net(device):
+    idx = device.split("_")[-1]
+    # read configmap
+    with open("/etc/wekaio/node-info/node-info.json") as f:
+        config = json.load(f)
+    nics = config["nics"]
+    nics = list(filter(lambda x: not x["primary"], nics))
+    nics = list(sorted(nics, key=lambda x: x["mac_address"]))
+
+    nic = nics[int(idx)]
+    mac = nic["mac_address"]
+    ip = nic["private_ip"]
+    mask = "20" # TODO: Should not be hardcoded! This work in just one env.
+    gw = "0.0.0.0"
+    # gw = nic["gw"]
+    net = f"'{mac}/{ip}/{mask}/{gw}'"
+    return net
+
+
 async def create_container():
     full_cores = find_full_cores(NUM_CORES)
     mode_part = ""
@@ -354,10 +392,16 @@ async def create_container():
                 join_secret_flag = "--join-token"
             join_secret = f.read().strip()
 
+    net_str = f"--net {NETWORK_DEVICE}"
+    if "aws_" in NETWORK_DEVICE:
+        devices = NETWORK_DEVICE.split(",")
+        devices = [await resolve_aws_net(dev) for dev in devices]
+        net_str = " ".join([f"--net {d}" for d in devices])
+
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable \
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
-        --net {NETWORK_DEVICE}  --base-port {PORT} --memory {MEMORY} \
+        {net_str}  --base-port {PORT} --memory {MEMORY} \
         {f"{join_secret_flag} {join_secret}" if join_secret else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""}
@@ -657,7 +701,7 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     if MODE not in ["drivers-loader", "discovery"]:
         stop_flag = " -g" if not exists("/tmp/.allow-force-stop") else ""
-        await run_command(f"weka local stop{stop_flag}")
+        await run_command(f"weka local stop{stop_flag}", capture_stdout=False)
         logging.info("finished stopping weka container")
 
     for key, process in dict(processes.items()).items():
@@ -717,8 +761,9 @@ try:
         else:
             raise
     except Exception as e:
-        logging.error(f"Error: {e}, sleeping for 3 minutes to give a chance to debug")
-        time.sleep(180)
+        debug_sleep = int(os.environ.get("DEBUG_SLEEP", 3))
+        logging.error(f"Error: {e}, sleeping for {debug_sleep} seconds to give a chance to debug")
+        time.sleep(debug_sleep)
         raise
 finally:
     logging.info(
