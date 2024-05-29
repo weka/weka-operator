@@ -12,5 +12,5 @@ type ContainerState struct {
 
 type ContainerUpdateError struct {
 	errors.WrappedError
-	Name string
+	Container *wekav1alpha1.WekaContainer
 }
