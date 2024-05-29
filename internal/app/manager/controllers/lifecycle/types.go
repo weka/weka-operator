@@ -7,10 +7,11 @@ import (
 
 	"github.com/thoas/go-funk"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type StepFunc func(ctx context.Context) error
@@ -19,9 +20,9 @@ type Reconciler interface {
 	client.Client
 }
 
-type ReconciliationSteps struct {
+type ReconciliationSteps[Subject client.Object] struct {
 	Reconciler Reconciler
-	State      *ReconciliationState[*wekav1alpha1.WekaCluster]
+	State      *ReconciliationState[Subject]
 	Steps      []Step
 }
 
@@ -60,6 +61,7 @@ type Step struct {
 
 type ReconciliationState[Subject client.Object] struct {
 	// Cluster    *wekav1alpha1.WekaCluster
+	Request    ctrl.Request
 	Subject    Subject
 	Conditions *[]metav1.Condition
 	Containers []*wekav1alpha1.WekaContainer
@@ -125,7 +127,7 @@ func (e RetryableError) Error() string {
 
 // -- ReconciliationSteps -------------------------------------------------------
 
-func (r *ReconciliationSteps) Reconcile(ctx context.Context) error {
+func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 	// cluster := r.State.Cluster
 	if r.State == nil {
 		return &StateError{Property: "State", Message: "State is nil"}
@@ -176,7 +178,7 @@ func (r *ReconciliationSteps) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-func (r *ReconciliationSteps) setConditions(ctx context.Context, condition metav1.Condition) error {
+func (r *ReconciliationSteps[Subject]) setConditions(ctx context.Context, condition metav1.Condition) error {
 	meta.SetStatusCondition(r.State.Conditions, condition)
 	if err := r.Reconciler.Status().Update(ctx, r.State.Subject); err != nil {
 		return &ConditionUpdateError{Err: err, Subject: r.State.Subject, Condition: condition}
