@@ -8,11 +8,12 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	werrors "github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
+
 	"go.opentelemetry.io/otel/codes"
 	"gopkg.in/yaml.v2"
-
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -26,6 +27,7 @@ type CrdManager interface {
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
 	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
 	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
+	RefreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error)
 }
 
 func NewCrdManager(mgr ctrl.Manager) *crdManager {
@@ -252,6 +254,36 @@ func (r *crdManager) UpdateAllocationsConfigmap(ctx context.Context, allocations
 	return r.getClient().Update(ctx, configMap)
 }
 
+func (r *crdManager) RefreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "refreshContainer")
+	defer end()
+
+	container := &wekav1alpha1.WekaContainer{}
+	if err := r.getClient().Get(ctx, req.NamespacedName, container); err != nil {
+		if apierrors.IsNotFound(err) {
+			err = &werrors.NotFoundError{
+				WrappedError: werrors.WrappedError{Err: err},
+			}
+		}
+		return nil, &ContainerRefreshError{
+			WrappedError: werrors.WrappedError{Err: err},
+			Name:         req.Name,
+		}
+	}
+	logger.SetStatus(codes.Ok, "Container refreshed")
+	return container, nil
+}
+
 func (r *crdManager) getClient() client.Client {
 	return r.Manager.GetClient()
+}
+
+// Errors ----------------------------------------------------------------------
+type ContainerRefreshError struct {
+	werrors.WrappedError
+	Name string
+}
+
+func (e *ContainerRefreshError) Error() string {
+	return fmt.Sprintf("Error refreshing container: %s", e.WrappedError.Error())
 }
