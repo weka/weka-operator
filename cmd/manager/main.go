@@ -19,16 +19,17 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
+	"os"
+	"time"
+
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.uber.org/zap/zapcore"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"log"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,7 +38,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	//+kubebuilder:scaffold:imports
@@ -93,18 +93,18 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress:    metricsAddr,
-			ExtraHandlers:  nil,
-			FilterProvider: nil,
-			CertDir:        "",
-			CertName:       "",
-			KeyName:        "",
-			TLSOpts:        nil,
-		},
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "ad0b5146.weka.io",
+		//Metrics: metricsserver.Options{
+		//	BindAddress:    metricsAddr,
+		//	ExtraHandlers:  nil,
+		//	FilterProvider: nil,
+		//	CertDir:        "",
+		//	CertName:       "",
+		//	KeyName:        "",
+		//	TLSOpts:        nil,
+		//},
+		//HealthProbeBindAddress: probeAddr,
+		LeaderElection:   enableLeaderElection,
+		LeaderElectionID: "ad0b5146.weka.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
