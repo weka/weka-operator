@@ -11,15 +11,16 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/services"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/container"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
@@ -31,25 +32,32 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	config := mgr.GetConfig()
+	client := mgr.GetClient()
 	return &ContainerController{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
-		KubeService: services.NewKubeService(mgr.GetClient()),
+		Client: client,
+		Scheme: mgr.GetScheme(),
+		Logger: mgr.GetLogger().WithName("controllers").WithName("Container"),
+
+		CrdManager:  services.NewCrdManager(mgr),
+		KubeService: services.NewKubeService(client),
 		ExecService: services.NewExecService(config),
 	}
 }
 
 type ContainerController struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Logger      logr.Logger
+	Scheme *runtime.Scheme
+	Logger logr.Logger
+
+	CrdManager  services.CrdManager
 	KubeService services.KubeService
 	ExecService services.ExecService
 }
@@ -83,19 +91,30 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
 	defer end()
 
-	container, err := r.refreshContainer(ctx, req)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Debug("Container not found")
-			return ctrl.Result{}, nil
-		}
-		logger.Error(err, "Error refreshing container")
-		return ctrl.Result{}, errors.Wrap(err, "ClientController.Reconcile")
+	state := &container.ContainerState{
+		ReconciliationState: lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]{
+			Request:    req,
+			Subject:    &wekav1alpha1.WekaContainer{},
+			Conditions: &[]metav1.Condition{},
+		},
 	}
-	err = r.ensureFinalizer(ctx, container)
-	if err != nil {
+	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
+		Reconciler: r.Client,
+		State:      &state.ReconciliationState,
+		Steps: []lifecycle.Step{
+			{
+				Condition:  "RefreshContainer",
+				Predicates: []lifecycle.PredicateFunc{},
+				Reconcile:  state.RefreshContainer(r.CrdManager),
+			},
+		},
+	}
+	if err := steps.Reconcile(ctx); err != nil {
+		logger.Error(err, "Error reconciling container")
 		return ctrl.Result{}, err
 	}
+
+	container := steps.State.Subject
 
 	logger.SetAttributes(
 		attribute.String("container", container.Name),
@@ -104,8 +123,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		attribute.String("management_ip", container.Status.ManagementIP),
 		attribute.String("uuid", string(container.GetUID())),
 	)
-	err = r.initState(ctx, container)
-	if err != nil {
+	if err := r.initState(ctx, container); err != nil {
 		return ctrl.Result{}, err
 	}
 	logger.SetPhase("INIT_STATE")
@@ -272,7 +290,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
-	container, err = r.refreshContainer(ctx, req)
+	container, err = r.CrdManager.RefreshContainer(ctx, req)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
 	}
@@ -458,19 +476,6 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	}
 	logger.SetStatus(codes.Ok, "Status reconciled")
 	return ctrl.Result{}, nil
-}
-
-func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "refreshContainer")
-	defer end()
-
-	container := &wekav1alpha1.WekaContainer{}
-	if err := r.Get(ctx, req.NamespacedName, container); err != nil {
-		logger.Error(err, "Error refreshing container")
-		return nil, errors.Wrap(err, "refreshContainer")
-	}
-	logger.SetStatus(codes.Ok, "Container refreshed")
-	return container, nil
 }
 
 func (r *ContainerController) refreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
