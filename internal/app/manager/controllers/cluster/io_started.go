@@ -1,4 +1,4 @@
-package lifecycle
+package cluster
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -21,7 +22,7 @@ func (e CondStartIoError) Error() string {
 	return fmt.Sprintf("error starting IO for cluster %s: %v", e.Cluster.Name, e.Err)
 }
 
-func (state *ClusterState) StartIo(execService services.ExecService) StepFunc {
+func (state *ClusterState) StartIo(execService services.ExecService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "StartIo")
 		defer end()
