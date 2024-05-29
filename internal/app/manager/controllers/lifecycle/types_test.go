@@ -70,7 +70,7 @@ func SkipOwnConditionCheck(t *testing.T) {
 				Subject:    &wekav1alpha1.WekaCluster{},
 				Conditions: &[]metav1.Condition{},
 			}
-			steps := ReconciliationSteps{
+			steps := ReconciliationSteps[*wekav1alpha1.WekaCluster]{
 				Reconciler: mockReconciler,
 				State:      state,
 				Steps: []Step{
