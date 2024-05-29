@@ -27,7 +27,12 @@ func TestAllocatePort(t *testing.T) {
 		CoreStep: 1,
 		MaxCore:  11,
 		Network: v1alpha1.NetworkSelector{
-			EthDevice: "mlnx0",
+			EthSlots: []string{"aws_0", "aws_1", "aws_2",
+				"aws_3", "aws_4", "aws_5",
+				"aws_6", "aws_7", "aws_8",
+				"aws_9", "aws_10", "aws_11",
+				"aws_12", "aws_13", "aws_14",
+			},
 		},
 	}
 

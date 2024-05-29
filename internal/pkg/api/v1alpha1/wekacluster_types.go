@@ -31,8 +31,9 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type NetworkSelector struct {
-	EthDevice string `json:"ethDevice,omitempty"`
-	UdpMode   bool   `json:"udpMode,omitempty"`
+	EthSlots  []string `json:"ethSlots,omitempty"`
+	EthDevice string   `json:"ethDevice,omitempty"`
+	UdpMode   bool     `json:"udpMode,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster

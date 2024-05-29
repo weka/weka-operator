@@ -67,6 +67,10 @@ spec:
                 properties:
                   ethDevice:
                     type: string
+                  ethSlots:
+                    items:
+                      type: string
+                    type: array
                   udpMode:
                     type: boolean
                 type: object

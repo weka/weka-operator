@@ -113,6 +113,7 @@ func (c *OwnerRole) UnmarshalYAML(unmarshal func(interface{}) error) error {
 type NodeAllocations struct {
 	Cpu                map[Owner][]int
 	Drives             map[Owner][]string
+	EthSlots           map[Owner][]string
 	AgentPorts         map[Owner]int
 	EnvoyPorts         map[Owner]int
 	EnvoyAdminPorts    map[Owner]int
@@ -190,6 +191,21 @@ CPULOOP:
 		freeCpus = append(freeCpus, cpu)
 	}
 	return freeCpus
+}
+
+func (n *NodeAllocations) GetFreeEthSlots(ethSlots []string) []string {
+	freeEthSlots := []string{}
+ETHSLOTLOOP:
+	for _, ethSlot := range ethSlots {
+		for _, ethSlotAlloc := range n.EthSlots {
+			if slices.Contains(ethSlotAlloc, ethSlot) {
+				fmt.Println("skipping", ethSlotAlloc, ethSlot)
+				continue ETHSLOTLOOP
+			}
+		}
+		freeEthSlots = append(freeEthSlots, ethSlot)
+	}
+	return freeEthSlots
 }
 
 func (n *NodeAllocations) AllocateClusterWideRolePort(owner OwnerRole, port int, step int, ports AllocRoleMap) {
@@ -270,12 +286,12 @@ type Allocations struct {
 }
 
 type Allocator struct {
-	ClusterLevel Topology
+	Topology Topology
 }
 
 func NewAllocator(clusterConfig Topology) *Allocator {
 	return &Allocator{
-		ClusterLevel: clusterConfig,
+		Topology: clusterConfig,
 	}
 }
 
@@ -322,15 +338,15 @@ func (a *Allocator) Allocate(ctx context.Context,
 	if template.MaxFdsPerNode == 0 {
 		template.MaxFdsPerNode = 1
 	}
-	initAllocationsMap(allocations, a.ClusterLevel.Nodes)
+	initAllocationsMap(allocations, a.Topology.Nodes)
 	allocationsMap := allocations.NodeMap
-	nodes := a.ClusterLevel.Nodes
+	nodes := a.Topology.Nodes
 	logger.Info("Allocating resources", "ownerCluster", ownerCluster.ClusterName, "size", size, "nodes", len(nodes))
 	slices.SortFunc(nodes, func(i, j string) int {
 		iAlloc := allocationsMap[NodeName(i)]
-		iDrives := iAlloc.GetFreeDrives(a.ClusterLevel.Drives)
+		iDrives := iAlloc.GetFreeDrives(a.Topology.Drives)
 		jAlloc := allocationsMap[NodeName(j)]
-		jDrives := jAlloc.GetFreeDrives(a.ClusterLevel.Drives)
+		jDrives := jAlloc.GetFreeDrives(a.Topology.Drives)
 		if len(iDrives) < len(jDrives) {
 			return 1
 		} else if len(iDrives) == len(jDrives) {
@@ -347,10 +363,13 @@ func (a *Allocator) Allocate(ctx context.Context,
 	allocateResources := func(role string, numContainers int) error {
 	CONTAINERS:
 		for i := 0; i < numContainers; i++ {
+			var requiredCpus int
+			var requiredNics int
 			logger := logger.WithValues("role", role, "numContainers", numContainers)
 			containerName := fmt.Sprintf("%s%d", role, i)
 			owner := Owner{ownerCluster, containerName, role}
 			resources, found := GetOwnedResources(owner, allocations)
+
 			if found {
 				// Does node still exist? If not, lets clean this allocation and look for another node
 				if !slices.Contains(nodes, resources.Node) {
@@ -360,14 +379,25 @@ func (a *Allocator) Allocate(ctx context.Context,
 					continue
 				}
 			}
+
+			if len(a.Topology.Network.EthSlots) > 0 {
+				switch role {
+				case "drive":
+					requiredNics = template.DriveCores
+				case "compute":
+					requiredNics = template.ComputeCores
+				case "s3":
+					requiredNics = template.S3Cores
+				}
+			}
+
 			for _, node := range nodes {
 				nodeAlloc := allocationsMap[NodeName(node)]
 				var availableDrives []string
-				var requiredCpus int
 				if role == "drive" {
-					availableDrives = nodeAlloc.GetFreeDrives(a.ClusterLevel.Drives)
+					availableDrives = nodeAlloc.GetFreeDrives(a.Topology.Drives)
 					if len(availableDrives) < template.NumDrives {
-						logger.Info("Not enough drives to allocate request", "role", role, "availableDrives", availableDrives, "template.NumDrives", template.NumDrives, "topology drives", a.ClusterLevel.Drives)
+						logger.Info("Not enough drives to allocate request", "role", role, "availableDrives", availableDrives, "template.NumDrives", template.NumDrives, "topology drives", a.Topology.Drives)
 						logger.Info("NodeAlloc", "nodeAlloc", nodeAlloc)
 						continue
 					}
@@ -376,6 +406,9 @@ func (a *Allocator) Allocate(ctx context.Context,
 						continue
 					}
 					requiredCpus = template.DriveCores
+					if len(a.Topology.Network.EthSlots) > 0 {
+						requiredNics = template.DriveCores
+					}
 				} else if role == "compute" {
 					if nodeAlloc.NumComputeContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
 						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
@@ -390,7 +423,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 						lastAllocFailureReason = "No drive container on host"
 						continue
 					}
-					if nodeAlloc.NumS3ContainersInTotal() >= a.ClusterLevel.MaxS3Containers {
+					if nodeAlloc.NumS3ContainersInTotal() >= a.Topology.MaxS3Containers {
 						lastAllocFailureReason = "MaxS3Containers reached"
 						continue
 					}
@@ -400,12 +433,25 @@ func (a *Allocator) Allocate(ctx context.Context,
 					}
 					requiredCpus = template.S3Cores + template.S3ExtraCores
 				}
-				freeCpus := nodeAlloc.GetFreeCpus(a.ClusterLevel.GetAvailableCpus())
+				freeCpus := nodeAlloc.GetFreeCpus(a.Topology.GetAvailableCpus())
 				if len(freeCpus) < requiredCpus {
 					logger.Info("Not enough CPUs to allocate request", "role", role, "freeCpus", freeCpus, "requiredCpus", requiredCpus)
 					lastAllocFailureReason = "Not enough CPUs"
 					continue
 				}
+
+				if requiredNics > 0 {
+					freeNics := nodeAlloc.GetFreeEthSlots(a.Topology.Network.EthSlots)
+
+					if len(freeNics) < requiredNics {
+						logger.Info("Not enough NICs to allocate request", "role", role, "freeNics", freeNics, "requiredNics", requiredNics)
+						lastAllocFailureReason = "Not enough NICs"
+						continue
+					}
+
+					nodeAlloc.EthSlots[owner] = append(nodeAlloc.EthSlots[owner], freeNics[0:requiredNics]...)
+				}
+
 				// All looks good, allocating
 				changed = true
 				if role == "drive" {
@@ -457,6 +503,7 @@ func (a *Allocator) DeallocateCluster(cluster OwnerCluster, allocations *Allocat
 				changed = true
 				delete(alloc.Cpu, owner)
 				delete(alloc.Drives, owner)
+				delete(alloc.EthSlots, owner)
 			}
 		}
 	}
@@ -508,6 +555,7 @@ func initAllocationsMap(allocations *Allocations, nodes []string) {
 		}
 		allocations.NodeMap[NodeName(node)] = NodeAllocations{
 			Cpu:                map[Owner][]int{},
+			EthSlots:           map[Owner][]string{},
 			Drives:             map[Owner][]string{},
 			AgentPorts:         map[Owner]int{},
 			EnvoyPorts:         map[Owner]int{},
@@ -521,6 +569,7 @@ func initAllocationsMap(allocations *Allocations, nodes []string) {
 type OwnedResources struct {
 	CoreIds        []int
 	Drives         []string
+	EthSlots       []string
 	Port           int
 	AgentPort      int
 	S3Port         int
@@ -539,6 +588,7 @@ func GetOwnedResources(owner Owner, allocations *Allocations) (OwnedResources, b
 			resources.Port = alloc.WekaContainerPorts[owner]
 			resources.AgentPort = alloc.AgentPorts[owner]
 			resources.Drives = append(resources.Drives, alloc.Drives[owner]...)
+			resources.EthSlots = append(resources.EthSlots, alloc.EthSlots[owner]...)
 			if owner.Role == "s3" {
 				resources.S3Port = alloc.S3Ports[owner]
 				resources.EnvoyPort = alloc.EnvoyPorts[owner]

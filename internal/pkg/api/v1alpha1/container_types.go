@@ -65,11 +65,13 @@ type WekaContainerSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	S3Params            *S3Params            `json:"s3Params,omitempty"`
 	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
+	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
 }
 
 type Network struct {
-	EthDevice string `json:"ethDevice,omitempty"`
-	UdpMode   bool   `json:"udpMode,omitempty"`
+	EthDevices []string `json:"ethDevices,omitempty"`
+	EthDevice  string   `json:"ethDevice,omitempty"`
+	UdpMode    bool     `json:"udpMode,omitempty"`
 }
 
 type WekaContainerStatus struct {
