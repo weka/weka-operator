@@ -23,11 +23,21 @@ import (
 )
 
 type CrdManager interface {
+	// Cluster
 	GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
+	GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
 	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
+
+	// Containers
 	RefreshContainer(ctx context.Context, req ctrl.Request) (*wekav1alpha1.WekaContainer, error)
+
+	// Tombstones
+	EnsureTombstone(ctx context.Context, container *wekav1alpha1.WekaContainer) error
+
+	// Built-ins
+	RefreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error)
 }
 
 func NewCrdManager(mgr ctrl.Manager) *crdManager {
@@ -41,6 +51,24 @@ func NewCrdManager(mgr ctrl.Manager) *crdManager {
 type crdManager struct {
 	Manager              ctrl.Manager
 	WekaContainerFactory factory.WekaContainerFactory
+}
+
+func (r *crdManager) GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "FetchCluster")
+	defer end()
+
+	wekaCluster := &wekav1alpha1.WekaCluster{}
+	err := r.getClient().Get(ctx, req.NamespacedName, wekaCluster)
+	if err != nil {
+		wekaCluster = nil
+		if apierrors.IsNotFound(err) {
+			err = nil
+		}
+	}
+
+	wekaClusterService := NewWekaClusterService(r.Manager, wekaCluster)
+
+	return wekaClusterService, err
 }
 
 func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
@@ -269,6 +297,66 @@ func (r *crdManager) RefreshContainer(ctx context.Context, req ctrl.Request) (*w
 	logger.SetStatus(codes.Ok, "Container refreshed")
 	return container, nil
 }
+
+// Tombstones ------------------------------------------------------------------
+
+func (r *crdManager) EnsureTombstone(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTombstone")
+	defer end()
+
+	nodeAffinity := container.Spec.NodeAffinity
+	if nodeAffinity == "" {
+		// attempting to find persistent location of the container based on actual pod
+		pod, err := r.RefreshPod(ctx, container)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("no affinity on container and actual pod not found to set affinity")
+				return nil
+			}
+		}
+		if pod.Spec.NodeName != "" {
+			nodeAffinity = pod.Spec.NodeName
+		}
+	}
+
+	tombstone := &wekav1alpha1.Tombstone{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("wekacontainer-%s", container.GetUID()),
+			Namespace: container.Namespace,
+		},
+		Spec: wekav1alpha1.TombstoneSpec{
+			CrType:       "WekaContainer",
+			CrId:         string(container.UID),
+			NodeAffinity: nodeAffinity,
+		},
+	}
+
+	err := r.getClient().Create(ctx, tombstone)
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			logger.Error(err, "Error creating tombstone")
+			return err
+		}
+	}
+	return nil
+}
+
+// Built-ins -------------------------------------------------------------------
+
+func (r *crdManager) RefreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RefreshPod")
+	defer end()
+
+	pod := &v1.Pod{}
+	key := client.ObjectKey{Name: container.Name, Namespace: container.Namespace}
+	if err := r.getClient().Get(ctx, key, pod); err != nil {
+		logger.Error(err, "Error refreshing pod", "key", key)
+		return nil, err
+	}
+	return pod, nil
+}
+
+// Internal --------------------------------------------------------------------
 
 func (r *crdManager) getClient() client.Client {
 	return r.Manager.GetClient()
