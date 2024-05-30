@@ -24,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -151,6 +150,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	logger.SetPhase("INIT_STATE")
 
+	containerService := services.NewWekaContainerService(r.Client, r.CrdManager, container)
+	wekaService := services.NewWekaService(r.ExecService, container)
+
 	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
@@ -163,6 +165,17 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				Condition:             "EnsurePod",
 				SkipOwnConditionCheck: true,
 				Reconcile:             state.EnsurePod(r.Client, r.CrdManager, r.KubeService, r.Scheme),
+			},
+			{
+				Condition: "EnsureDriverLoader",
+				Predicates: []lifecycle.PredicateFunc{
+					lifecycle.IsNotTrue(condition.CondEnsureDrivers),
+				},
+				Reconcile: state.EnsureDriversLoader(containerService),
+			},
+			{
+				Condition: condition.CondEnsureDrivers,
+				Reconcile: state.EnsureDrivers(r.Client, wekaService),
 			},
 		},
 	}
@@ -187,30 +200,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	actualPod := state.Pod
 	if actualPod == nil {
 		return ctrl.Result{Requeue: true}, nil
-	}
-
-	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
-		!container.IsServiceContainer() {
-		err := r.reconcileDriversStatus(ctx, container, actualPod)
-		if err != nil {
-			if strings.Contains(err.Error(), "No such file or directory") {
-				logger.SetPhase("DRIVERS_NOT_READY")
-			}
-			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
-			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
-		}
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-			Type:   condition.CondEnsureDrivers,
-			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured",
-		})
-		err = r.Status().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error updating status for drivers ensured")
-			return ctrl.Result{}, err
-		}
-		logger.SetPhase("DRIVERS_ENSURED")
-	} else {
-		logger.SetPhase("DRIVERS_ALREADY_ENSURED")
 	}
 
 	if !container.IsServiceContainer() {
@@ -823,101 +812,6 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 		if err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileDriversStatus")
-	defer end()
-
-	if container.IsServiceContainer() {
-		return nil
-	}
-
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return err
-	}
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
-	if err != nil {
-		logger.WithValues("stderr", stderr.String()).Error(err, "Error executing command")
-		return errors.Wrap(err, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) == "" {
-		logger.InfoWithStatus(codes.Ok, "Drivers already loaded")
-		return nil
-	}
-
-	if container.Spec.DriversDistService != "" {
-		logger.Info("Drivers not loaded, ensuring drivers dist service")
-		err2 := r.ensureDriversLoader(ctx, container)
-		if err2 != nil {
-			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
-		}
-	}
-
-	return errors.New("Drivers not loaded")
-}
-
-func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
-	defer end()
-
-	pod, err := r.CrdManager.RefreshPod(ctx, container)
-	if err != nil {
-		logger.Error(err, "Error refreshing pod")
-		return err
-	}
-	// namespace := pod.Namespace
-	namespace, err := util.GetPodNamespace()
-	if err != nil {
-		logger.Error(err, "GetPodNamespace")
-		return err
-	}
-	loaderContainer := &wekav1alpha1.WekaContainer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
-			Namespace: namespace,
-		},
-		Spec: wekav1alpha1.WekaContainerSpec{
-			Image:               container.Spec.Image,
-			Mode:                wekav1alpha1.WekaContainerModeDriversLoader,
-			ImagePullSecret:     container.Spec.ImagePullSecret,
-			Hugepages:           0,
-			NodeAffinity:        container.Spec.NodeAffinity,
-			DriversDistService:  container.Spec.DriversDistService,
-			TracesConfiguration: container.Spec.TracesConfiguration,
-		},
-	}
-
-	found := &wekav1alpha1.WekaContainer{}
-	err = r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
-	l := logger.WithValues("container", loaderContainer.Name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			l.Info("Creating drivers loader pod", "node_name", pod.Spec.NodeName, "namespace", loaderContainer.Namespace)
-			err = r.Create(ctx, loaderContainer)
-			if err != nil {
-				l.Error(err, "Error creating drivers loader pod")
-				return err
-			}
-		}
-	}
-	if found != nil {
-		logger.InfoWithStatus(codes.Ok, "Drivers loader pod already exists")
-		return nil // TODO: Update handling?
-	}
-	// Should we have an owner? Or should we just delete it once done? We cant have owner in different namespace
-	// It would be convenient, if container would just exit.
-	// Maybe, we should just replace this with completely different entry point and consolidate everything under single script
-	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
-	loaderContainer.Status.Status = "Active"
-	if err := r.Status().Update(ctx, loaderContainer); err != nil {
-		l.Error(err, "Failed to update status of container")
-		return err
-
 	}
 	return nil
 }
