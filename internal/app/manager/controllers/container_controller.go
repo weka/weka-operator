@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
@@ -103,9 +102,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{
 			{
-				Condition:  "RefreshContainer",
-				Predicates: []lifecycle.PredicateFunc{},
-				Reconcile:  state.RefreshContainer(r.CrdManager),
+				Condition:             "RefreshContainer",
+				SkipOwnConditionCheck: true,
+				Reconcile:             state.RefreshContainer(r.CrdManager),
 			},
 			{
 				Condition: "EnsureFinalizer",
@@ -118,7 +117,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			},
 		},
 	}
-	if err := steps.Reconcile(ctx); err != nil {
+	if err := setupSteps.Reconcile(ctx); err != nil {
 		reconciliatiolnError := err.(*lifecycle.ReconciliationError)
 		if reconciliatiolnError.Err != nil {
 			wrappedError := reconciliatiolnError.Err
@@ -127,6 +126,13 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				return ctrl.Result{}, nil
 			}
 		}
+
+		var retryableError *lifecycle.RetryableError
+		if errors.As(err, &retryableError) {
+			logger.Debug("Retryable error", "error", err)
+			return ctrl.Result{Requeue: true, RequeueAfter: retryableError.RetryAfter}, retryableError.Err
+		}
+
 		logger.Error(err, "Error reconciling container")
 		return ctrl.Result{}, err
 	}
@@ -147,58 +153,40 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
 		Reconciler: r.Client,
-		State:      setupSteps.State,
+		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{
 			{
 				Condition: "EnsureBootConfigMap",
 				Reconcile: state.EnsureBootConfigMap(r.Client, bootScriptConfigName),
 			},
+			{
+				Condition:             "EnsurePod",
+				SkipOwnConditionCheck: true,
+				Reconcile:             state.EnsurePod(r.Client, r.CrdManager, r.KubeService, r.Scheme),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
+		var retryableError *lifecycle.RetryableError
+		if errors.As(err, &retryableError) {
+			logger.Debug("Retryable error", "error", err)
+			return ctrl.Result{Requeue: true, RequeueAfter: retryableError.RetryAfter}, retryableError.Err
+		}
 		logger.Error(err, "Error reconciling container")
 		return ctrl.Result{}, err
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
-	if err != nil {
-		logger.Error(err, "Error creating pod spec")
-		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
-	}
-
-	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
-		logger.Error(err, "Error setting controller reference")
-		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
-	}
-
-	actualPod, err := r.CrdManager.RefreshPod(ctx, container)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.SetPhase("CREATING_POD")
-			if err := r.Create(ctx, desiredPod); err != nil {
-				logger.Error(err, "Error creating pod", "pod_name", container.Name)
-				return ctrl.Result{}, pretty.Errorf("Error creating pod", err, desiredPod)
-			}
-			logger.SetPhase("POD_CREATED")
-			return ctrl.Result{Requeue: true}, nil
-		} else {
-			logger.SetPhase("POD_REFRESH_ERROR")
-			return ctrl.Result{}, errors.Wrap(err, "Failed to refresh pod")
-		}
-	} else {
-		logger.SetPhase("POD_ALREADY_EXISTS")
-		if actualPod.Status.Phase == v1.PodPending {
-			// Do we actually have a node that is assigned to it?
-			err := r.CleanupIfNeeded(ctx, container, actualPod)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-
-		if actualPod.Status.Phase != v1.PodRunning {
-			logger.SetPhase("POD_NOT_RUNNING")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
-		}
+	//actualPod, err := r.CrdManager.RefreshPod(ctx, container)
+	//if err != nil {
+	//if apierrors.IsNotFound(err) {
+	//return ctrl.Result{Requeue: true}, nil
+	//}
+	//logger.Error(err, "Error refreshing pod")
+	//return ctrl.Result{}, err
+	//}
+	actualPod := state.Pod
+	if actualPod == nil {
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
@@ -299,7 +287,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.SetPhase("CLUSTER_ALREADY_FORMED")
 	}
 
-	container, err = r.CrdManager.RefreshContainer(ctx, req)
+	container, err := r.CrdManager.RefreshContainer(ctx, req)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
 	}
@@ -999,108 +987,4 @@ func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1
 	}
 	logger.InfoWithStatus(codes.Error, "Loader not finished")
 	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
-}
-
-func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
-	kubeService := r.KubeService
-
-	unschedulable := false
-	unschedulableSince := time.Time{}
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionFalse && condition.Reason == "Unschedulable" {
-			unschedulable = true
-			unschedulableSince = condition.LastTransitionTime.Time
-		}
-	}
-
-	if !unschedulable {
-		return nil // cleanin up only unschedulable
-	}
-
-	if pod.Spec.NodeName != "" {
-		return nil // cleaning only such that scheduled by node affinity
-	}
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupIfNeeded")
-	defer end()
-
-	_, err := kubeService.GetNode(ctx, pod.Spec.NodeName)
-	if !apierrors.IsNotFound(err) {
-		return nil // node still exists, handling only not found node
-	}
-
-	// We are safe to delete clients after a configurable while
-	// TODO: Make configurable, for now we delete after 5 minutes since downtime
-	// relying onlastTransitionTime of Unschedulable condition
-	rescheduleAfter := 5 * time.Minute
-	if container.IsBackend() {
-		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
-	}
-	if time.Since(unschedulableSince) > rescheduleAfter {
-		logger.Info("Deleting unschedulable container")
-		err := r.Delete(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error deleting client container")
-			return err
-		}
-		return errors.New("Pod is outdated and will be deleted")
-	}
-	return nil
-}
-
-func (r *ContainerController) finalizeContainer(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
-	defer end()
-
-	// ensure no pod exists
-	err := r.ensureNoPod(ctx, container)
-	if r != nil {
-		return err
-	}
-
-	err = r.CrdManager.EnsureTombstone(ctx, container)
-	if err != nil {
-		logger.Error(err, "Error ensuring tombstone")
-		return err
-	}
-	return nil
-}
-
-func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	// TODO: Can we search pods by ownership?
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
-	defer end()
-
-	pod := &v1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		logger.Error(err, "Error getting pod")
-		return err
-	}
-
-	if pod.Status.Phase == v1.PodRunning {
-		executor, err := util.NewExecInPod(pod)
-		if err != nil {
-			logger.Error(err, "Error creating executor")
-			return err
-
-		}
-		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
-		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
-		if err != nil {
-			return err
-		}
-	}
-
-	err = r.Delete(ctx, pod)
-	if err != nil {
-		logger.Error(err, "Error deleting pod")
-		return err
-	}
-	logger.AddEvent("Pod deleted")
-	return errors.New("Pod deleted, reconciling for retry")
 }

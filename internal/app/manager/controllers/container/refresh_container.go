@@ -36,6 +36,9 @@ func (state *ContainerState) RefreshContainer(crdManager services.CrdManager) li
 		if req == (ctrl.Request{}) {
 			return &errors.ArgumentError{ArgName: "Request", Message: "request is empty"}
 		}
+		if req.Name == "" {
+			return &errors.ArgumentError{ArgName: "Request.Name", Message: "request name is empty"}
+		}
 
 		if req.Name == "" {
 			return nil
