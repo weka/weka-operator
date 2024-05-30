@@ -97,7 +97,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			Conditions: &[]metav1.Condition{},
 		},
 	}
-	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
+	setupSteps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
 		Steps: []lifecycle.Step{
@@ -117,12 +117,12 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			},
 		},
 	}
-	if err := steps.Reconcile(ctx); err != nil {
+	if err := setupSteps.Reconcile(ctx); err != nil {
 		logger.Error(err, "Error reconciling container")
 		return ctrl.Result{}, err
 	}
 
-	container := steps.State.Subject
+	container := setupSteps.State.Subject
 
 	logger.SetAttributes(
 		attribute.String("container", container.Name),
@@ -136,6 +136,21 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	logger.SetPhase("INIT_STATE")
 
+	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
+		Reconciler: r.Client,
+		State:      setupSteps.State,
+		Steps: []lifecycle.Step{
+			{
+				Condition: "EnsureBootConfigMap",
+				Reconcile: state.EnsureBootConfigMap(r.Client, bootScriptConfigName),
+			},
+		},
+	}
+	if err := steps.Reconcile(ctx); err != nil {
+		logger.Error(err, "Error reconciling container")
+		return ctrl.Result{}, err
+	}
+
 	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
@@ -146,12 +161,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		logger.Error(err, "Error setting controller reference")
 		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
 	}
-
-	err = r.ensureBootConfigMapInTargetNamespace(ctx, container)
-	if err != nil {
-		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
-	}
-	logger.SetPhase("BOOT_CONFIG_MAP_EXISTS")
 
 	actualPod, err := r.CrdManager.RefreshPod(ctx, container)
 	if err != nil {
@@ -486,56 +495,6 @@ func (r *ContainerController) SetupWithManager(mgr ctrl.Manager, wrappedReconcil
 		Owns(&v1.Pod{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
 		Complete(wrappedReconcile)
-}
-
-func (r *ContainerController) ensureBootConfigMapInTargetNamespace(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureBootConfigMapInTargetNamespace")
-	defer end()
-
-	bundledConfigMap := &v1.ConfigMap{}
-	podNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		logger.Error(err, "Error getting pod namespace")
-		return err
-	}
-	key := client.ObjectKey{Namespace: podNamespace, Name: bootScriptConfigName}
-	if err := r.Get(ctx, key, bundledConfigMap); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Error(err, "Bundled config map not found")
-			return err
-		}
-		logger.Error(err, "Error getting bundled config map")
-		return err
-	}
-
-	bootScripts := &v1.ConfigMap{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: bootScriptConfigName}, bootScripts)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			bootScripts.Namespace = container.Namespace
-			bootScripts.Name = bootScriptConfigName
-			bootScripts.Data = bundledConfigMap.Data
-			if err := r.Create(ctx, bootScripts); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					logger.Info("Boot scripts config map already exists in designated namespace")
-				} else {
-					logger.Error(err, "Error creating boot scripts config map")
-				}
-			}
-			logger.Info("Created boot scripts config map in designated namespace")
-		}
-	}
-
-	if !util.IsEqualConfigMapData(bootScripts, bundledConfigMap) {
-		bootScripts.Data = bundledConfigMap.Data
-		if err := r.Update(ctx, bootScripts); err != nil {
-			logger.Error(err, "Error updating boot scripts config map")
-			return err
-		}
-		logger.InfoWithStatus(codes.Ok, "Updated and reconciled boot scripts config map in designated namespace")
-
-	}
-	return nil
 }
 
 func (r *ContainerController) reconcileClusterStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
