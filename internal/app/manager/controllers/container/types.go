@@ -16,3 +16,9 @@ type ContainerUpdateError struct {
 	errors.WrappedError
 	Container *wekav1alpha1.WekaContainer
 }
+
+type ConditionUpdateError struct {
+	errors.WrappedError
+	Container *wekav1alpha1.WekaContainer
+	Condition string
+}

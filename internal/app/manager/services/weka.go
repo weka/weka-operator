@@ -13,6 +13,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 	"go.opentelemetry.io/otel/codes"
+	v1 "k8s.io/api/core/v1"
 )
 
 type WekaStatusCapacity struct {
@@ -54,6 +55,7 @@ type WekaUserResponse struct {
 }
 
 type WekaService interface {
+	// Cluster Management
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
@@ -66,6 +68,9 @@ type WekaService interface {
 	EnsureNoUser(ctx context.Context, username string) error
 	// GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 	StartIo(ctx context.Context) error
+
+	// Container Management
+	ReconcileDriversStatus(ctx context.Context, pod *v1.Pod) error
 }
 
 func NewWekaService(ExecService ExecService, container *v1alpha1.WekaContainer) WekaService {
@@ -430,4 +435,48 @@ func (c *CliWekaService) StartIo(ctx context.Context) error {
 	logger.InfoWithStatus(codes.Ok, "IO started")
 	logger.SetPhase("IO_STARTED")
 	return nil
+}
+
+// Container Management --------------------------------------------------------
+
+func (c *CliWekaService) ReconcileDriversStatus(ctx context.Context, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileDriversStatus")
+	defer end()
+
+	container := c.Container
+
+	if container.IsServiceContainer() {
+		return nil
+	}
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
+		return &WekaServiceError{
+			Err:       err,
+			Container: container,
+			Message:   "ReconcileDriverStatus: Failed to create executor",
+		}
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
+	if err != nil {
+		return &WekaCliError{
+			WekaServiceError: WekaServiceError{
+				Err:       err,
+				Container: container,
+				Message:   "ReconcileDriverStatus: Error executing command",
+			},
+			Command: "cat /tmp/weka-drivers.log",
+			Stderr:  stderr.String(),
+		}
+	}
+	if strings.TrimSpace(stdout.String()) == "" {
+		logger.InfoWithStatus(codes.Ok, "Drivers already loaded")
+		return nil
+	}
+
+	return &WekaServiceError{
+		Err:       errors.New("Drivers not loaded"),
+		Container: container,
+		Message:   "ReconcileDriverStatus: Drivers not loaded",
+	}
 }
