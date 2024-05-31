@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -14,6 +15,7 @@ import (
 type SecretsService interface {
 	EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error
+	EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error
 }
 
 func NewSecretsService(client client.Client, scheme *runtime.Scheme, service ExecService) SecretsService {
@@ -28,6 +30,33 @@ type secretsService struct {
 	Client      client.Client
 	Scheme      *runtime.Scheme
 	ExecService ExecService
+}
+
+func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureCSILoginCredentials")
+	defer end()
+
+	kubeService := NewKubeService(r.Client)
+	containers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
+	}
+
+	endpoints := []string{}
+	for _, container := range containers {
+		endpoints = append(endpoints, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
+	}
+
+	cluster := clusterService.GetCluster()
+	clientSecret := cluster.NewCsiSecret(endpoints)
+
+	if err := kubeService.EnsureSecret(ctx, clientSecret, &K8sOwnerRef{
+		Scheme: r.Scheme,
+		Obj:    cluster,
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
