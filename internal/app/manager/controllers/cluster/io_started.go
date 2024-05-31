@@ -14,7 +14,7 @@ import (
 )
 
 type CondStartIoError struct {
-	ConditionExecutionError
+	lifecycle.ConditionExecutionError
 	Cluster *wekav1alpha1.WekaCluster
 }
 
@@ -43,8 +43,11 @@ func (state *ClusterState) StartIo(execService services.ExecService) lifecycle.S
 		wekaService := services.NewWekaService(execService, containers[0])
 		if err := wekaService.StartIo(ctx); err != nil {
 			return &CondStartIoError{
-				ConditionExecutionError: ConditionExecutionError{Err: err, Condition: condition.CondIoStarted},
-				Cluster:                 wekaCluster,
+				ConditionExecutionError: lifecycle.ConditionExecutionError{
+					Err:       err,
+					Condition: condition.CondIoStarted,
+				},
+				Cluster: wekaCluster,
 			}
 		}
 		logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())

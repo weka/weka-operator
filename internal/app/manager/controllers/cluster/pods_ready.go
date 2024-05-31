@@ -32,7 +32,7 @@ func (state *ClusterState) PodsReady() lifecycle.StepFunc {
 			if err != nil {
 				logger.Error(err, "containers are not ready")
 			}
-			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		logger.SetPhase("CONTAINERS_ARE_READY")
 		return nil
