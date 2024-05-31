@@ -759,7 +759,7 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 	// Until then, user configuratino post cluster create
 
 	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
-	const s3ReservedCapacity = 100 * 1024 * 1024 * 1024
+	fsReservedCapacity := status.Capacity.TotalBytes / 100
 	var configFsSize int64 = 3 * 1024 * 1024 * 1024
 
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
@@ -775,7 +775,18 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 
 	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(s3ReservedCapacity, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &services.FilesystemExists{}) {
+			return err
+		}
+	}
+
+	err = wekaService.CreateFilesystem(ctx, "default", "default", services.FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
 	})
 	if err != nil {
