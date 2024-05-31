@@ -14,7 +14,7 @@ import (
 )
 
 type SecretApplicationError struct {
-	ConditionExecutionError
+	lifecycle.ConditionExecutionError
 	Cluster *wekav1alpha1.WekaCluster
 }
 
@@ -43,8 +43,11 @@ func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaC
 		logger.SetPhase("CONFIGURING_CLUSTER_CREDENTIALS")
 		if err := wekaClusterService.ApplyClusterCredentials(ctx, containers); err != nil {
 			return &SecretApplicationError{
-				ConditionExecutionError: ConditionExecutionError{Err: err, Condition: condition.CondClusterSecretsApplied},
-				Cluster:                 wekaCluster,
+				ConditionExecutionError: lifecycle.ConditionExecutionError{
+					Err:       err,
+					Condition: condition.CondClusterSecretsApplied,
+				},
+				Cluster: wekaCluster,
 			}
 		}
 
@@ -52,7 +55,7 @@ func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaC
 		wekaCluster.Status.TraceId = ""
 		wekaCluster.Status.SpanID = ""
 		if err := client.Status().Update(ctx, wekaCluster); err != nil {
-			return &StatusUpdateError{
+			return &lifecycle.StatusUpdateError{
 				Err:     err,
 				Cluster: wekaCluster,
 			}
