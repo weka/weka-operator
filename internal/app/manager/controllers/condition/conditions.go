@@ -6,6 +6,8 @@ const (
 	CondClusterSecretsApplied       = "ClusterSecretsApplied"
 	CondClusterClientSecretsCreated = "ClusterClientsSecretsCreated"
 	CondClusterClientSecretsApplied = "ClusterClientsSecretsApplied"
+	CondClusterCSISecretsCreated    = "ClusterCSIsSecretsCreated"
+	CondClusterCSISecretsApplied    = "ClusterCSIsSecretsApplied"
 	CondDefaultFsCreated            = "CondDefaultFsCreated"
 	CondS3ClusterCreated            = "CondS3ClusterCreated" //not pre-set on purpose, as optional
 	CondPodsReady                   = "PodsReady"
