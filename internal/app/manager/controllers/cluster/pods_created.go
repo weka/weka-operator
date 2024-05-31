@@ -16,13 +16,13 @@ func (state *ClusterState) PodsCreated(crdManager services.CrdManager) lifecycle
 
 		containers, err := crdManager.EnsureWekaContainers(ctx, state.Subject)
 		if err != nil {
-			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		if containers == nil {
-			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		if len(containers) == 0 {
-			return &RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		state.Containers = containers
 

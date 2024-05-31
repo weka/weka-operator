@@ -2,8 +2,6 @@ package cluster
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -13,42 +11,6 @@ import (
 
 type ClusterState struct {
 	lifecycle.ReconciliationState[*wekav1alpha1.WekaCluster]
-}
-
-type RetryableError struct {
-	Err        error
-	RetryAfter time.Duration
-}
-
-func (e RetryableError) Error() string {
-	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
-}
-
-type StatusUpdateError struct {
-	Err     error
-	Cluster *wekav1alpha1.WekaCluster
-}
-
-func (e StatusUpdateError) Error() string {
-	return fmt.Sprintf("error updating status for cluster %s: %v", e.Cluster.Name, e.Err)
-}
-
-type ConditionUpdateError struct {
-	StatusUpdateError
-	Condition string
-}
-
-type ConditionExecutionError struct {
-	Err       error
-	Condition string
-}
-
-func (e ConditionExecutionError) Error() string {
-	return fmt.Sprintf("error executing condition %s: %v", e.Condition, e.Err)
-}
-
-func (e ConditionUpdateError) Error() string {
-	return fmt.Sprintf("error updating condition %s for cluster %s: %v", e.Condition, e.Cluster.Name, e.Err)
 }
 
 type ReconciliationSteps struct {
