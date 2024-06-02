@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"time"
 
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -37,8 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers"
 	//+kubebuilder:scaffold:imports

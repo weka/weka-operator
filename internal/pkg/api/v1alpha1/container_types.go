@@ -65,11 +65,13 @@ type WekaContainerSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	S3Params            *S3Params            `json:"s3Params,omitempty"`
 	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
+	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
 }
 
 type Network struct {
-	EthDevice string `json:"ethDevice,omitempty"`
-	UdpMode   bool   `json:"udpMode,omitempty"`
+	EthDevices []string `json:"ethDevices,omitempty"`
+	EthDevice  string   `json:"ethDevice,omitempty"`
+	UdpMode    bool     `json:"udpMode,omitempty"`
 }
 
 type WekaContainerStatus struct {
@@ -78,6 +80,7 @@ type WekaContainerStatus struct {
 	ClusterContainerID *int               `json:"containerID,omitempty"`
 	ClusterID          string             `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage   string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes

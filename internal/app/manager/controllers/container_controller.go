@@ -104,18 +104,20 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		attribute.String("management_ip", container.Status.ManagementIP),
 		attribute.String("uuid", string(container.GetUID())),
 	)
-	r.initState(ctx, container)
+	err = r.initState(ctx, container)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	logger.SetPhase("INIT_STATE")
 
 	if container.GetDeletionTimestamp() != nil {
 		logger.Info("Container is being deleted", "name", container.Name)
 		logger.SetPhase("DELETING")
-		err := r.ensureTombstone(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error ensuring tombstone")
-			return ctrl.Result{}, errors.Wrap(err, "Failed to ensure tombstone")
-		}
 		// remove finalizer
+		err := r.finalizeContainer(ctx, container)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		controllerutil.RemoveFinalizer(container, WekaFinalizer)
 		err = r.Update(ctx, container)
 		if err != nil {
@@ -315,6 +317,47 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	if container.Spec.Image != container.Status.LastAppliedImage {
+		pod, err := r.refreshPod(ctx, container)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "refreshPod")
+		}
+		var wekaPodContainer v1.Container
+		found := false
+		for _, podContainer := range pod.Spec.Containers {
+			if podContainer.Name == "weka-container" {
+				wekaPodContainer = podContainer
+				found = true
+			}
+		}
+		if !found {
+			return ctrl.Result{}, errors.New("weka-container not found in pod")
+		}
+
+		if wekaPodContainer.Image != container.Spec.Image {
+			// delete pod
+			err := r.Delete(ctx, pod)
+			if err != nil {
+				return ctrl.Result{}, errors.Wrap(err, "Delete pod")
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+
+		if pod.GetDeletionTimestamp() != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
+		}
+
+		if pod.Status.Phase != v1.PodRunning {
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
+		}
+
+		container.Status.LastAppliedImage = container.Spec.Image
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "Update container status")
+		}
+	}
+
 	logger.SetPhase("CONTAINER_IS_READY")
 	return ctrl.Result{}, nil
 }
@@ -336,7 +379,7 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	if container.Spec.Network.EthDevice != "" {
 		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
 	} else {
-		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n 1")
+		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n1")
 	}
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
@@ -383,12 +426,10 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
 		return ctrl.Result{}, err
 	}
-	if len(response) != 1 {
-		if !(container.Spec.Mode == wekav1alpha1.WekaContainerModeS3) {
-			logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected exactly one container to be present, found %d", len(response)))
-			return ctrl.Result{}, errors.New("expected exactly one container to be present")
-		}
-		// TODO: Report s3 specific status
+
+	if len(response) == 0 {
+		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected at least one container to be present, none found"))
+		return ctrl.Result{}, errors.New("expected exactly one container to be present")
 	}
 
 	found := false
@@ -405,7 +446,6 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 	}
 
 	status := response[0].RunStatus
-	logger.Info("Status", "status", status)
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
@@ -595,6 +635,11 @@ DRIVES:
 			l.Info("Attempting to configure drive")
 			drive := container.Spec.PotentialDrives[driveCursor]
 			drive = r.discoverDrive(ctx, executor, drive)
+			if drive == "" {
+				l.Info("Drive not found, moving to next")
+				driveCursor++
+				continue
+			}
 			driveSignTarget := getSignatureDevice(drive)
 
 			l.Info("Verifying drive signature")
@@ -813,7 +858,7 @@ func (r *ContainerController) getDriveUUID(ctx context.Context, executor util.Ex
 	return serial, nil
 }
 
-func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) {
+func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	if container.Status.Conditions == nil {
 		container.Status.Conditions = []metav1.Condition{}
 	}
@@ -821,10 +866,26 @@ func (r *ContainerController) initState(ctx context.Context, container *wekav1al
 	// All container types are being set to False on init
 	// This includes types not listed here (beyond dist and drivers-loader)
 	// TODO: Is this expected?
+	changes := false
 	if !container.DriversReady() && container.SupportsEnsureDriversCondition() {
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init"})
-		_ = r.Status().Update(ctx, container)
+		changes = true
+		meta.SetStatusCondition(&container.Status.Conditions,
+			metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init", Reason: "Init"},
+		)
 	}
+
+	if container.Status.LastAppliedImage == "" {
+		container.Status.LastAppliedImage = container.Spec.Image
+		changes = true
+	}
+
+	if changes {
+		err := r.Status().Update(ctx, container)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *ContainerController) reconcileDriversStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) error {
@@ -939,7 +1000,7 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor util.E
 		stdout, stderr, err := executor.ExecNamed(ctx, "DiscoverDrivePciSlot", []string{"bash", "-ce", cmd})
 		if err != nil {
 			logger.WithValues("slot", slot, "stderr", stderr.String()).Error(err, "Error parsing PCI slot for drive")
-			return drive
+			return ""
 		}
 		return fmt.Sprintf("/dev/disk/by-path/pci-0000:%s-nvme-1", strings.TrimSpace(stdout.String()))
 	}
@@ -1080,10 +1141,10 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
 	if container.IsBackend() {
-		rescheduleAfter = 3 * time.Second // TODO: Change, this is dev mode
+		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {
-		logger.Info("Deleting unschedulable client container")
+		logger.Info("Deleting unschedulable container")
 		err := r.Delete(ctx, container)
 		if err != nil {
 			logger.Error(err, "Error deleting client container")
@@ -1092,4 +1153,61 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 		return errors.New("Pod is outdated and will be deleted")
 	}
 	return nil
+}
+
+func (r *ContainerController) finalizeContainer(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
+	defer end()
+
+	// ensure no pod exists
+	err := r.ensureNoPod(ctx, container)
+	if r != nil {
+		return err
+	}
+
+	err = r.ensureTombstone(ctx, container)
+	if err != nil {
+		logger.Error(err, "Error ensuring tombstone")
+		return err
+	}
+	return nil
+}
+
+func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	//TODO: Can we search pods by ownership?
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
+	defer end()
+
+	pod := &v1.Pod{}
+	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		logger.Error(err, "Error getting pod")
+		return err
+	}
+
+	if pod.Status.Phase == v1.PodRunning {
+		executor, err := util.NewExecInPod(pod)
+		if err != nil {
+			logger.Error(err, "Error creating executor")
+			return err
+
+		}
+		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
+		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
+		if err != nil {
+			return err
+		}
+	}
+
+	err = r.Delete(ctx, pod)
+	if err != nil {
+		logger.Error(err, "Error deleting pod")
+		return err
+	}
+	logger.AddEvent("Pod deleted")
+	return errors.New("Pod deleted, reconciling for retry")
 }

@@ -7,21 +7,27 @@ packer {
   }
 }
 
-variables {
+locals {
+  internal_users = ["459693375476", "460079793829", "854561606399", "237520467869", "130745022161", "643793144496", "919961283311", "613151511434", "720378078651", "869376154687", "031156366157", "078726528415", "704541115166", "339712935457", "750977848747"]
+  external_users = ["924994152927", "591822521499"]
+  all_users = concat(local.internal_users, local.external_users)
+
   aws_regions = {
     "eu-west-1" = {
       ami = "ami-0cca685d73cf4fd6b",
-      ami_users = [],
+      ami_users = local.all_users
     }
     "us-east-1" = {
       ami = "ami-0757bdb3268077f9f",
-      ami_users = ["924994152927"]
+      ami_users = local.all_users
     }
     "us-west-2" = {
       ami = "ami-09d72b72587e6e07c",
-      ami_users = ["591822521499"]
+      ami_users = local.all_users
     }
   }
+
+
 }
 
 source "amazon-ebs" "weka-eks" {
@@ -32,8 +38,8 @@ source "amazon-ebs" "weka-eks" {
     role_arn = "arn:aws:iam::381492135989:role/Root"
   }
   ami_block_device_mappings {
-    device_name          = "/dev/xvda"
-    volume_size          = 80
+    device_name          = "/dev/sda1"
+    volume_size          = 200
     delete_on_termination = true
     volume_type          = "gp3"
   }
@@ -42,7 +48,7 @@ source "amazon-ebs" "weka-eks" {
 build {
   name = "weka-eks"
   dynamic "source" {
-    for_each = var.aws_regions
+    for_each = local.aws_regions
     labels = ["amazon-ebs.weka-eks"]
     content {
       region        = source.key

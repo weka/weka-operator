@@ -144,9 +144,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer end()
 
 	// Fetch the WekaCluster instance
-	wekaClusterService, err := r.CrdManager.GetCluster(ctx, req)
+	wekaClusterService, err := r.CrdManager.GetClusterService(ctx, req)
 	if err != nil {
-		logger.Error(err, "GetCluster failed")
+		logger.Error(err, "GetClusterService failed")
 		return ctrl.Result{}, err
 	}
 
@@ -183,10 +183,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.SetPhase("CLUSTER_RECONCILE_INITIALIZED")
 
 	if wekaCluster.GetDeletionTimestamp() != nil {
-		err = r.handleDeletion(ctx, wekaCluster)
+		err = r.handleDeletion(ctx, wekaClusterService)
 		if err != nil {
 			logger.Error(err, "Failed to handle deletion")
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
 		}
 		logger.SetPhase("CLUSTER_IS_BEING_DELETED")
 		return ctrl.Result{}, nil
@@ -237,7 +237,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
-		err = wekaClusterService.Create(ctx, containers)
+		err = wekaClusterService.FormCluster(ctx, containers)
 		if err != nil {
 			logger.Error(err, "Failed to create cluster")
 			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
@@ -352,7 +352,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.SetPhase("CONFIGURING_DEFAULT_FS")
 		containers := r.SelectS3Containers(containers)
 		if len(containers) > 0 {
-			err := r.ensureS3Cluster(ctx, containers)
+			err := r.ensureS3Cluster(ctx, wekaCluster, containers)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -384,20 +384,49 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		}
 	}
 
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCSISecretsCreated) {
+		err := r.SecretsService.EnsureCSILoginCredentials(ctx, wekaClusterService)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterCSISecretsCreated, metav1.ConditionTrue, "Init", "Created CSI secrets")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCSISecretsApplied) {
+		err := r.applyCSILoginCredentials(ctx, wekaCluster, containers)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterCSISecretsApplied, metav1.ConditionTrue, "Init", "Applied CSI secrets")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	logger.SetPhase("CLUSTER_READY")
+
+	err = r.HandleUpgrade(ctx, wekaCluster)
+	if err != nil {
+		//TODO: separate unknown from expected reconcilation errors for info/error logging,
+		// right now err is swallowed as meaningless for known cases
+		logger.Info("upgrade in process", "lastErr", err)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
-func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, wekaCluster *wekav1alpha1.WekaCluster) error {
+func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, clusterService services.WekaClusterService) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleDeletion")
 	defer end()
-
+	wekaCluster := clusterService.GetCluster()
 	if controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
 		// Perform all operations required before remove the finalizer and allow
 		// the Kubernetes API to remove the custom resource.
-		err := r.doFinalizerOperationsForwekaCluster(ctx, wekaCluster)
+		err := r.finalizeWekaCluster(ctx, clusterService)
 		if err != nil {
 			return err
 		}
@@ -424,6 +453,7 @@ func (r *WekaClusterReconciler) initState(ctx context.Context, wekaCluster *weka
 	if !controllerutil.ContainsFinalizer(wekaCluster, WekaFinalizer) {
 
 		wekaCluster.Status.InitStatus()
+		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
 
 		err := r.Status().Update(ctx, wekaCluster)
 		if err != nil {
@@ -490,9 +520,17 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 		Complete(wrappedReconcile)
 }
 
-func (r *WekaClusterReconciler) doFinalizerOperationsForwekaCluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "doFinalizerOperationsForwekaCluster")
+func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, clusterService services.WekaClusterService) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeWekaCluster")
 	defer end()
+
+	cluster := clusterService.GetCluster()
+
+	err := clusterService.EnsureNoS3Containers(ctx)
+	if err != nil {
+		return err
+	}
+
 	if cluster.Spec.Topology == "" {
 		logger.Info("Topology is not set, skipping deallocation")
 		return nil
@@ -721,7 +759,7 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 	// Until then, user configuratino post cluster create
 
 	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
-	const s3ReservedCapacity = 100 * 1024 * 1024 * 1024
+	fsReservedCapacity := status.Capacity.TotalBytes / 100
 	var configFsSize int64 = 3 * 1024 * 1024 * 1024
 
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
@@ -737,7 +775,18 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 
 	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(s3ReservedCapacity, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
+		ThinProvisioningEnabled:   true,
+	})
+	if err != nil {
+		if !errors.As(err, &services.FilesystemExists{}) {
+			return err
+		}
+	}
+
+	err = wekaService.CreateFilesystem(ctx, "default", "default", services.FSParams{
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
 	})
 	if err != nil {
@@ -750,7 +799,7 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 	return nil
 }
 
-func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
 	defer end()
 
@@ -762,10 +811,12 @@ func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, containers 
 	}
 
 	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:      container.Spec.S3Params.EnvoyPort,
-		EnvoyAdminPort: container.Spec.S3Params.EnvoyAdminPort,
-		S3Port:         container.Spec.S3Params.S3Port,
-		ContainerIds:   containerIds,
+		EnvoyPort:          container.Spec.S3Params.EnvoyPort,
+		EnvoyAdminPort:     container.Spec.S3Params.EnvoyAdminPort,
+		S3Port:             container.Spec.S3Params.S3Port,
+		ContainerIds:       containerIds,
+		EnvoyContainerName: fmt.Sprintf("%senvoy", cluster.GetLastGuidPart()),
+		MinioContainerName: fmt.Sprintf("%ss3be", cluster.GetLastGuidPart()),
 	})
 	if err != nil {
 		if !errors.As(err, &services.S3ClusterExists{}) {
@@ -811,4 +862,116 @@ func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context,
 	}
 	logger.SetStatus(codes.Ok, "Client login credentials applied")
 	return nil
+}
+
+func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
+	defer end()
+
+	updateContainer := func(container *wekav1alpha1.WekaContainer) error {
+		if container.Status.LastAppliedImage != cluster.Spec.Image {
+			if container.Spec.Image != cluster.Spec.Image {
+				container.Spec.Image = cluster.Spec.Image
+				if err := r.Update(ctx, container); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	areUpgraded := func(containers []*wekav1alpha1.WekaContainer) bool {
+		for _, container := range containers {
+			if container.Status.LastAppliedImage != container.Spec.Image {
+				return false
+			}
+		}
+		return true
+	}
+
+	allAtOnceUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
+		for _, container := range containers {
+			if err := updateContainer(container); err != nil {
+				return err
+			}
+		}
+		if !areUpgraded(containers) {
+			return errors.New("containers upgrade not finished yet")
+		}
+		return nil
+	}
+
+	rollingUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
+		for _, container := range containers {
+			if container.Status.LastAppliedImage != container.Spec.Image {
+				return errors.New("container upgrade not finished yet")
+			}
+		}
+
+		for _, container := range containers {
+			if container.Spec.Image != cluster.Spec.Image {
+				err := updateContainer(container)
+				if err != nil {
+					return err
+				}
+				return errors.New("container upgrade not finished yet")
+			}
+		}
+		return nil
+	}
+
+	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
+		logger.Info("Image upgrade sequence")
+		service, err := r.CrdManager.GetClusterService(ctx, ctrl.Request{NamespacedName: client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Name}})
+		if err != nil {
+			return err
+		}
+		driveContainers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+		if err != nil {
+			return err
+		}
+		err = allAtOnceUpgrade(driveContainers)
+		if err != nil {
+			return err
+		}
+
+		computeContainers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeCompute)
+		if err != nil {
+			return err
+		}
+		err = allAtOnceUpgrade(computeContainers)
+		if err != nil {
+			return err
+		}
+
+		s3Containers, err := service.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeS3)
+		if err != nil {
+			return err
+		}
+		err = rollingUpgrade(s3Containers)
+
+		cluster.Status.LastAppliedImage = cluster.Spec.Image
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *WekaClusterReconciler) applyCSILoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCSILoginCredentials")
+	defer end()
+
+	container := r.SelectActiveContainer(containers)
+	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
+	if err != nil {
+		logger.Error(err, "Failed to ensure user")
+		return err
+	}
+	logger.SetStatus(codes.Ok, "CSI login credentials applied")
+	return nil
+
 }

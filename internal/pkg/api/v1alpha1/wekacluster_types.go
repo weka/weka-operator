@@ -25,14 +25,16 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strings"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type NetworkSelector struct {
-	EthDevice string `json:"ethDevice,omitempty"`
-	UdpMode   bool   `json:"udpMode,omitempty"`
+	EthSlots  []string `json:"ethSlots,omitempty"`
+	EthDevice string   `json:"ethDevice,omitempty"`
+	UdpMode   bool     `json:"udpMode,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
@@ -60,12 +62,13 @@ type WekaClusterSpec struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status     string             `json:"status"`
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	Throughput string             `json:"throughput"`
-	ClusterID  string             `json:"clusterID,omitempty"`
-	TraceId    string             `json:"traceId,omitempty"`
-	SpanID     string             `json:"spanId,omitempty"`
+	Status           string             `json:"status"`
+	Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	Throughput       string             `json:"throughput"`
+	ClusterID        string             `json:"clusterID,omitempty"`
+	TraceId          string             `json:"traceId,omitempty"`
+	SpanID           string             `json:"spanId,omitempty"`
+	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 }
 
 // +kubebuilder:object:root=true
@@ -117,6 +120,10 @@ func (c *WekaCluster) GetClientSecretName() string {
 	return "weka-client-" + name
 }
 
+func (c *WekaCluster) GetCSISecretName() string {
+	return "weka-csi-" + c.Name
+}
+
 func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
 	return &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -156,6 +163,21 @@ func (c *WekaCluster) NewClientSecret() *v1.Secret {
 			"username": c.GetClusterClientUsername(),
 			"password": util.GeneratePassword(32),
 			"org":      DefaultOrg,
+		},
+	}
+}
+
+func (c *WekaCluster) NewCsiSecret(endpoints []string) *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      c.GetCSISecretName(),
+			Namespace: c.Namespace,
+		},
+		StringData: map[string]string{
+			"username":     c.GetClusterCSIUsername(),
+			"password":     util.GeneratePassword(32),
+			"organization": DefaultOrg,
+			"endpoints":    strings.Join(endpoints, ","),
 		},
 	}
 }
@@ -231,6 +253,10 @@ func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*W
 	err := errors.New("No container with role found")
 	logger.SetError(err, "No container with role found", "role", role)
 	return nil
+}
+
+func (c *WekaCluster) GetClusterCSIUsername() string {
+	return "wekacsi" + c.GetLastGuidPart()
 }
 
 func init() {

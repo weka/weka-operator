@@ -1,13 +1,11 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: cluster-dev
+  name: cluster-second
 spec:
   size: 1
-  template: small
+  template: small_s3
   topology: discover_oci # to be removed in the future towards true discovery
   image: quay.io/weka.io/weka-in-container:4.3.2.783-f5fe2ec58286d9fa8fc033f920e6c842-dev
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
-  nodeSelector:
-    node.kubernetes.io/instance-type: k3s

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
@@ -22,13 +21,13 @@ import (
 )
 
 type CrdManager interface {
-	GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
+	GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
 	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
 	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
 }
 
-func NewCrdManager(mgr ctrl.Manager) CrdManager {
+func NewCrdManager(mgr ctrl.Manager) *crdManager {
 	scheme := mgr.GetScheme()
 	return &crdManager{
 		Manager:              mgr,
@@ -41,7 +40,7 @@ type crdManager struct {
 	WekaContainerFactory factory.WekaContainerFactory
 }
 
-func (r *crdManager) GetCluster(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
+func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "FetchCluster")
 	defer end()
 

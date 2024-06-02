@@ -30,14 +30,15 @@ type ClusterTemplate struct {
 // abstracting them here and then working towards smarter scheduler that wont require such object
 // Hugepages is the only resource we let K8s allocate right now, it can't allocate drives and cant allocate CPUs the way we need
 type Topology struct {
-	Drives          []string                 `json:"drives"`
-	Nodes           []string                 `json:"availableHosts"`
-	MinCore         int                      `json:"minCore"`
-	MaxCore         int                      `json:"maxCore"`
-	CoreStep        int                      `json:"coreStep"`
-	Network         v1alpha1.NetworkSelector `json:"network"`
-	ForcedCpuPolicy v1alpha1.CpuPolicy       `json:"forcedCpuPolicy"`
-	MaxS3Containers int                      `json:"maxS3Containers"`
+	Drives               []string                 `json:"drives"`
+	Nodes                []string                 `json:"availableHosts"`
+	MinCore              int                      `json:"minCore"`
+	MaxCore              int                      `json:"maxCore"`
+	CoreStep             int                      `json:"coreStep"`
+	Network              v1alpha1.NetworkSelector `json:"network"`
+	ForcedCpuPolicy      v1alpha1.CpuPolicy       `json:"forcedCpuPolicy"`
+	MaxS3Containers      int                      `json:"maxS3Containers"`
+	NodeConfigMapPattern string                   `json:"nodeConfigMap"`
 }
 
 func (k *Topology) GetAvailableCpus() []int {
@@ -110,9 +111,10 @@ var Topologies = map[string]topologyGetter{
 	"dev_wekabox": func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 		return DevboxWekabox, nil
 	},
-	"discover_oci":         getOciDev,
-	"discover_aws_i3en6x":  getAwsI3en6x,
+	"discover_oci":        getOciDev,
+	"discover_aws_i3en6x": getAwsI3en6x,
 	"aws_i3en6x_udp_bless": blessUdpi3en6x,
+	"aws_i3en6x_bless":    getAwsI3en6xBless,
 }
 
 func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
@@ -122,13 +124,13 @@ func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[strin
 		return Topology{}, err
 	}
 	return Topology{
-		Drives:          []string{"/dev/oracleoci/oraclevdb"},
+		Drives:          []string{"/dev/oracleoci/oraclevdb", "/dev/oracleoci/oraclevdc"},
 		Nodes:           nodeNames,
 		MinCore:         2, // TODO: How to determine, other then querying machines?
 		CoreStep:        2,
-		MaxCore:         15,
+		MaxCore:         31,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
-		MaxS3Containers: 1,
+		MaxS3Containers: 2,
 	}, nil
 }
 
@@ -146,6 +148,31 @@ func getAwsI3en6x(ctx context.Context, reader client.Reader, nodeSelector map[st
 		MaxCore:         11,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers: 1,
+	}, nil
+}
+
+func getAwsI3en6xBless(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
+	// get nodes via reader
+	nodeNames, err := GetNodesByLabels(ctx, reader, nodeSelector)
+	if err != nil {
+		return Topology{}, err
+	}
+	return Topology{
+		Drives: []string{"aws_0", "aws_1"}, // container-side discovery by slot num
+		Network: v1alpha1.NetworkSelector{
+			EthSlots: []string{"aws_0", "aws_1", "aws_2", "aws_3", "aws_4", "aws_5", "aws_6"},
+		},
+		//Network: v1alpha1.NetworkSelector{
+		//	EthDevice: "ens5",
+		//	UdpMode:   true,
+		//},
+		Nodes:                nodeNames,
+		MinCore:              2, // TODO: How to determine, other then querying machines?
+		CoreStep:             1,
+		MaxCore:              11,
+		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers:      1,
+		NodeConfigMapPattern: "node-config-%s",
 	}, nil
 }
 

@@ -88,10 +88,16 @@ spec:
                 properties:
                   ethDevice:
                     type: string
+                  ethDevices:
+                    items:
+                      type: string
+                    type: array
                   udpMode:
                     type: boolean
                 type: object
               nodeAffinity:
+                type: string
+              nodeInfoConfigMap:
                 type: string
               nodeSelector:
                 additionalProperties:
@@ -327,6 +333,8 @@ spec:
                 type: array
               containerID:
                 type: integer
+              lastAppliedImage:
+                type: string
               managementIP:
                 type: string
               status:

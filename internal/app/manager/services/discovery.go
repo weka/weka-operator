@@ -52,6 +52,7 @@ func GetJoinIps(ctx context.Context, c client.Client, cluster *v1alpha1.WekaClus
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha1.WekaCluster, mode string) []*v1alpha1.WekaContainer {
+	// partially moved to crd.go, need to move the rest
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterContainers", "cluster", cluster.Name, "mode", mode, "cluster_uid", string(cluster.UID))
 	defer end()
 
@@ -94,7 +95,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 		return nil
 	}
 
-	// Create a WekaContainer with mode "discovery"
+	// FormCluster a WekaContainer with mode "discovery"
 	operatorNamespace, err := util.GetPodNamespace()
 	if err != nil {
 		return err

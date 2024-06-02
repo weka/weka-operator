@@ -83,7 +83,7 @@ func (env *TestEnvironment) deleteNamespace(name string) {
 	})
 }
 
-func testingCluster() *wekav1alpha1.WekaCluster {
+func testingClusterService() *wekav1alpha1.WekaCluster {
 	key := client.ObjectKey{Name: "test-cluster", Namespace: "default"}
 	cluster := &wekav1alpha1.WekaCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -130,7 +130,7 @@ func TestNewWekaClusterReconciler(t *testing.T) {
 		}
 	}
 	test := ReconcilerTestCase{Reconciler: subject}
-	t.Run("doFinalizerOperationsForwekaCluster", doFinalizerOperationsForwekaCluster(testEnv, test))
+	t.Run("finalizeWekaCluster", doFinalizerOperationsForwekaCluster(testEnv, test))
 }
 
 func doFinalizerOperationsForwekaCluster(testEnv *TestEnvironment, test ReconcilerTestCase) func(t *testing.T) {
@@ -138,7 +138,7 @@ func doFinalizerOperationsForwekaCluster(testEnv *TestEnvironment, test Reconcil
 		recorder := record.NewFakeRecorder(1)
 		test.Reconciler.Recorder = recorder
 
-		if err := test.Reconciler.doFinalizerOperationsForwekaCluster(testEnv.Ctx, testingCluster()); err != nil {
+		if err := test.Reconciler.finalizeWekaCluster(testEnv.Ctx, testingClusterService()); err != nil {
 			t.Fatalf("failed to do finalizer operations: %v", err)
 		}
 
@@ -229,23 +229,23 @@ func TestDeleteCluster(t *testing.T) {
 	defer cancel()
 
 	key := client.ObjectKey{Name: "test-cluster", Namespace: "default"}
-	cluster := testingCluster()
-	if err := testEnv.Client.Create(ctx, cluster); err != nil {
+	clusterService := testingClusterService()
+	if err := testEnv.Client.Create(ctx, clusterService); err != nil {
 		t.Fatalf("failed to create cluster: %v", err)
 	}
 	waitFor(ctx, func(ctx context.Context) bool {
-		err := testEnv.Client.Get(ctx, key, cluster)
+		err := testEnv.Client.Get(ctx, key, clusterService)
 		return err == nil
 	})
 
 	t.Run(fmt.Sprintf("ShouldSetAFinalizer-%s", key.Name), ShouldSetAFinalizer(testEnv, ClusterTestCase{key: key}))
 
 	// Delete the cluster
-	if err := testEnv.Client.Delete(ctx, cluster); err != nil {
+	if err := testEnv.Client.Delete(ctx, clusterService); err != nil {
 		t.Fatalf("failed to delete cluster: %v", err)
 	}
 	waitFor(ctx, func(ctx context.Context) bool {
-		err := testEnv.Client.Get(ctx, key, cluster)
+		err := testEnv.Client.Get(ctx, key, clusterService)
 		return apierrors.IsNotFound(err)
 	})
 }

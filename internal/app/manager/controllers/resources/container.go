@@ -68,6 +68,9 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	if f.container.Spec.Network.EthDevice != "" {
 		netDevice = f.container.Spec.Network.EthDevice
 	}
+	if len(f.container.Spec.Network.EthDevices) > 0 {
+		netDevice = strings.Join(f.container.Spec.Network.EthDevices, ",")
+	}
 	if f.container.Spec.Network.UdpMode {
 		netDevice = "udp"
 		udpMode = "true"
@@ -313,6 +316,24 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
+	if f.container.Spec.NodeInfoConfigMap != "" {
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "node-info",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: f.container.Spec.NodeInfoConfigMap,
+					},
+				},
+			},
+		})
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "node-info",
+			MountPath: "/etc/wekaio/node-info",
+		})
+	}
+
 	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-credentials",
@@ -557,14 +578,14 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
 		perDriveMemory := 2100
-		buffer := 400
+		buffer := 1400
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
 		managementMemory := 2200
 		perComputeMemory := 3600
-		buffer := 400
+		buffer := 1400
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores)
 	}
 
