@@ -336,7 +336,7 @@ func (r *ContainerController) reconcileManagementIP(ctx context.Context, contain
 	if container.Spec.Network.EthDevice != "" {
 		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
 	} else {
-		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}'")
+		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n 1")
 	}
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
