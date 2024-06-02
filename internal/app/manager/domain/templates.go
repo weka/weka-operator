@@ -111,10 +111,10 @@ var Topologies = map[string]topologyGetter{
 	"dev_wekabox": func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 		return DevboxWekabox, nil
 	},
-	"discover_oci":        getOciDev,
-	"discover_aws_i3en6x": getAwsI3en6x,
+	"discover_oci":         getOciDev,
+	"discover_aws_i3en6x":  getAwsI3en6x,
 	"aws_i3en6x_udp_bless": blessUdpi3en6x,
-	"aws_i3en6x_bless":    getAwsI3en6xBless,
+	"aws_i3en6x_bless":     getAwsI3en6xBless,
 }
 
 func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {

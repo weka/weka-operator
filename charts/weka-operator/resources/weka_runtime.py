@@ -174,9 +174,14 @@ MPIN_USER_DRIVER_VERSION = "1.0.1"
 UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 DEFAULT_DEPENDENCY_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
 
+IMAGE_NAME = os.environ.get("IMAGE_NAME")
 version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").split(":")[-1])
 assert version_params
-
+if ":4.2" in IMAGE_NAME:
+    # 4.2 does not support graceful exit, so rotating images ungracefully
+    # note: this might prevent s3 from going down if trying to upgrade 4.2 version with s3 running
+    with open("/tmp/.allow-force-stop", 'w') as file:
+        file.write('')
 
 async def load_drivers():
     weka_driver_version = version_params.get('wekafs')
