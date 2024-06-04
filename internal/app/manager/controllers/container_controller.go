@@ -117,13 +117,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		},
 	}
 	if err := setupSteps.Reconcile(ctx); err != nil {
-		reconciliatiolnError := err.(*lifecycle.ReconciliationError)
-		if reconciliatiolnError.Err != nil {
-			wrappedError := reconciliatiolnError.Err
-			var notFoundError *werrors.NotFoundError
-			if errors.As(wrappedError, &notFoundError) {
-				return ctrl.Result{}, nil
-			}
+		var notFoundError *werrors.NotFoundError
+		if errors.As(err, &notFoundError) {
+			return ctrl.Result{}, nil
 		}
 
 		var retryableError *lifecycle.RetryableError
