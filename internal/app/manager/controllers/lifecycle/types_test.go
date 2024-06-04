@@ -67,7 +67,11 @@ func SkipOwnConditionCheck(t *testing.T) {
 		name := fmt.Sprintf("skip=%v status=%s", test.skip, test.status)
 		t.Run(name, func(t *testing.T) {
 			state := &ReconciliationState[*wekav1alpha1.WekaCluster]{
-				Subject:    &wekav1alpha1.WekaCluster{},
+				Subject: &wekav1alpha1.WekaCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test",
+					},
+				},
 				Conditions: &[]metav1.Condition{},
 			}
 			steps := ReconciliationSteps[*wekav1alpha1.WekaCluster]{

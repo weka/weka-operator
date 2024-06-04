@@ -16,11 +16,12 @@ func (e ArgumentError) Error() string {
 
 // WrappedError is a base error type that provides a default implementation of the Unwrap method.
 type WrappedError struct {
-	Err error
+	Err  error
+	Span string // Is this name correct?
 }
 
 func (e WrappedError) Error() string {
-	return fmt.Sprintf("wrapped error: %v", e.Err)
+	return fmt.Sprintf("%s > wrapped error: %v", e.Span, e.Err)
 }
 
 func (e WrappedError) Unwrap() error {

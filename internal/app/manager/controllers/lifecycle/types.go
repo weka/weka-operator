@@ -7,6 +7,8 @@ import (
 
 	"github.com/thoas/go-funk"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/errors"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,7 +87,7 @@ func IsTrue(condition string) PredicateFunc {
 // Errors ----------------------------------------------------------------------
 
 type ReconciliationError struct {
-	Err     error
+	errors.WrappedError
 	Subject metav1.Object
 	Step    Step
 }
@@ -154,14 +156,24 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 		}
 
 		if err := step.Reconcile(ctx); err != nil {
-			if err := r.setConditions(ctx, metav1.Condition{
-				Type: step.Condition, Status: metav1.ConditionFalse,
-				Reason:  "Error",
-				Message: err.Error(),
-			}); err != nil {
-				return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
+			if r.State.Subject.GetName() != "" {
+				if err := r.setConditions(ctx, metav1.Condition{
+					Type: step.Condition, Status: metav1.ConditionFalse,
+					Reason:  "Error",
+					Message: err.Error(),
+				}); err != nil {
+					return err
+				}
 			}
-			return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
+			return &ReconciliationError{
+				WrappedError: errors.WrappedError{Err: err},
+				Subject:      r.State.Subject,
+				Step:         step,
+			}
+		}
+
+		if r.State.Subject.GetName() == "" {
+			continue
 		}
 
 		// Update condition
@@ -172,7 +184,14 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 			Message: "Condition is true",
 		})
 		if err != nil {
-			return &ReconciliationError{Err: err, Subject: r.State.Subject, Step: step}
+			return &ReconciliationError{
+				WrappedError: errors.WrappedError{
+					Err:  err,
+					Span: instrumentation.GetLogName(ctx),
+				},
+				Subject: r.State.Subject,
+				Step:    step,
+			}
 		}
 	}
 	return nil
@@ -180,6 +199,10 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 
 func (r *ReconciliationSteps[Subject]) setConditions(ctx context.Context, condition metav1.Condition) error {
 	meta.SetStatusCondition(r.State.Conditions, condition)
+
+	if r.State.Subject.GetName() == "" {
+		return &StateError{Property: "Subject", Message: "Cannot update status of object with no name"}
+	}
 	if err := r.Reconciler.Status().Update(ctx, r.State.Subject); err != nil {
 		return &ConditionUpdateError{Err: err, Subject: r.State.Subject, Condition: condition}
 	}
