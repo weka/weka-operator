@@ -8,17 +8,16 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	werrors "github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.opentelemetry.io/otel/attribute"
 )
 
-type ReconcileManagementIPError struct {
+type ReconcileWekaLocalStatusError struct {
 	werrors.WrappedError
 	Container *wekav1alpha1.WekaContainer
 }
 
-func (state *ContainerState) ReconcileManagementIP(containerService services.WekaContainerService, parentLogger *instrumentation.SpanLogger) lifecycle.StepFunc {
+func (state *ContainerState) ReconcileWekaLocalStatus(containerService services.WekaContainerService) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ReconcileManagementIP")
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ReconcileWekaLocalStatus")
 		defer end()
 
 		container := state.Subject
@@ -29,8 +28,8 @@ func (state *ContainerState) ReconcileManagementIP(containerService services.Wek
 			}
 		}
 
-		if err := containerService.ReconcileManagementIP(ctx); err != nil {
-			return &ReconcileManagementIPError{
+		if err := containerService.ReconcileWekaLocalStatus(ctx); err != nil {
+			return &ReconcileWekaLocalStatusError{
 				WrappedError: werrors.WrappedError{
 					Err:  err,
 					Span: instrumentation.GetLogName(ctx),
@@ -38,10 +37,6 @@ func (state *ContainerState) ReconcileManagementIP(containerService services.Wek
 				Container: state.Subject,
 			}
 		}
-
-		parentLogger.SetAttributes(
-			attribute.String("management_ip", container.Status.ManagementIP),
-		)
 
 		return nil
 	}
