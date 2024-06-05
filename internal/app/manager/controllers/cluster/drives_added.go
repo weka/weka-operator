@@ -38,7 +38,7 @@ func (state *ClusterState) DrivesAdded() lifecycle.StepFunc {
 			if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) {
 				logger.Info("Containers did not add drives yet", "container", container.Name)
 				logger.InfoWithStatus(codes.Unset, "Containers did not add drives yet")
-				return &lifecycle.RetryableError{Err: nil, RetryAfter: time.Second * 3}
+				return &errors.RetryableError{Err: nil, RetryAfter: time.Second * 3}
 			}
 		}
 

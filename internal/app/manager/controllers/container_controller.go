@@ -99,7 +99,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	setupSteps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
-		Steps: []lifecycle.Step{
+		Steps: []lifecycle.Step[*wekav1alpha1.WekaContainer]{
 			{
 				Condition:             "RefreshContainer",
 				SkipOwnConditionCheck: true,
@@ -122,7 +122,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, nil
 		}
 
-		var retryableError *lifecycle.RetryableError
+		var retryableError *werrors.RetryableError
 		if errors.As(err, &retryableError) {
 			logger.Debug("Retryable error", "error", err)
 			return ctrl.Result{Requeue: true, RequeueAfter: retryableError.RetryAfter}, retryableError.Err
@@ -132,27 +132,27 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	container := setupSteps.State.Subject
+	subject := setupSteps.State.Subject
 
 	logger.SetAttributes(
-		attribute.String("container", container.Name),
-		attribute.String("namespace", container.Namespace),
-		attribute.String("mode", container.Spec.Mode),
-		attribute.String("management_ip", container.Status.ManagementIP),
-		attribute.String("uuid", string(container.GetUID())),
+		attribute.String("container", subject.Name),
+		attribute.String("namespace", subject.Namespace),
+		attribute.String("mode", subject.Spec.Mode),
+		attribute.String("management_ip", subject.Status.ManagementIP),
+		attribute.String("uuid", string(subject.GetUID())),
 	)
-	if err := r.initState(ctx, container); err != nil {
+	if err := r.initState(ctx, subject); err != nil {
 		return ctrl.Result{}, err
 	}
 	logger.SetPhase("INIT_STATE")
 
-	containerService := services.NewWekaContainerService(r.Client, r.CrdManager, container)
-	wekaService := services.NewWekaService(r.ExecService, container)
+	containerService := services.NewWekaContainerService(r.Client, r.CrdManager, r.ExecService, subject)
+	wekaService := services.NewWekaService(r.ExecService, subject)
 
 	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
-		Steps: []lifecycle.Step{
+		Steps: []lifecycle.Step[*wekav1alpha1.WekaContainer]{
 			{
 				Condition: "EnsureBootConfigMap",
 				Reconcile: state.EnsureBootConfigMap(r.Client, bootScriptConfigName),
@@ -164,8 +164,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			},
 			{
 				Condition: "EnsureDriverLoader",
-				Predicates: []lifecycle.PredicateFunc{
-					lifecycle.IsNotTrue(condition.CondEnsureDrivers),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+					lifecycle.IsNotTrue[*wekav1alpha1.WekaContainer](condition.CondEnsureDrivers),
 				},
 				Reconcile: state.EnsureDriversLoader(containerService),
 			},
@@ -173,10 +173,20 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 				Condition: condition.CondEnsureDrivers,
 				Reconcile: state.EnsureDrivers(r.Client, wekaService),
 			},
+			{
+				Condition: "ReconcileManagementIP",
+				Reconcile: state.ReconcileManagementIP(containerService),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+						subject := state.Subject
+						return !subject.IsServiceContainer() && subject.Status.ManagementIP == ""
+					},
+				},
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
-		var retryableError *lifecycle.RetryableError
+		var retryableError *werrors.RetryableError
 		if errors.As(err, &retryableError) {
 			logger.Debug("Retryable error", "error", err)
 			return ctrl.Result{Requeue: true, RequeueAfter: retryableError.RetryAfter}, retryableError.Err
@@ -185,35 +195,20 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	//actualPod, err := r.CrdManager.RefreshPod(ctx, container)
-	//if err != nil {
-	//if apierrors.IsNotFound(err) {
-	//return ctrl.Result{Requeue: true}, nil
-	//}
-	//logger.Error(err, "Error refreshing pod")
-	//return ctrl.Result{}, err
-	//}
+	container := steps.State.Subject
 	actualPod := state.Pod
 	if actualPod == nil {
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !container.IsServiceContainer() {
-		result, err := r.reconcileManagementIP(ctx, container, actualPod)
-		if err != nil {
-			logger.Error(err, "Error reconciling management IP", "name", container.Name)
-			return ctrl.Result{}, err
-		}
-		if result.Requeue {
-			return result, nil
-		}
 		logger.SetAttributes(
 			attribute.String("management_ip", container.Status.ManagementIP),
 		)
 
 		// pre-clusterize
 		if !slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
-			result, err = r.reconcileWekaLocalStatus(ctx, container, actualPod)
+			result, err := r.reconcileWekaLocalStatus(ctx, container, actualPod)
 			if err != nil {
 				logger.Error(err, "Error reconciling status", "name", container.Name)
 				return ctrl.Result{}, err

@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/thoas/go-funk"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -25,7 +24,7 @@ type Reconciler interface {
 type ReconciliationSteps[Subject client.Object] struct {
 	Reconciler Reconciler
 	State      *ReconciliationState[Subject]
-	Steps      []Step
+	Steps      []Step[Subject]
 }
 
 type StatusUpdateError struct {
@@ -46,12 +45,12 @@ func (e ConditionExecutionError) Error() string {
 	return fmt.Sprintf("error executing condition %s: %v", e.Condition, e.Err)
 }
 
-type Step struct {
+type Step[Subject client.Object] struct {
 	// Name of the step.  This is usually a condition
 	Condition string
 
 	// Predicates must all be true for the step to be executed
-	Predicates []PredicateFunc
+	Predicates []PredicateFunc[Subject]
 
 	// Should the step be run if the condition is already true
 	// Preconditions will also be evaluated and must be true
@@ -70,16 +69,18 @@ type ReconciliationState[Subject client.Object] struct {
 }
 
 // -- PreconditionFuncs
-type PredicateFunc func(conditions []metav1.Condition) bool
+type PredicateFunc[Subject client.Object] func(state *ReconciliationState[Subject]) bool
 
-func IsNotTrue(condition string) PredicateFunc {
-	return func(conditions []metav1.Condition) bool {
+func IsNotTrue[Subject client.Object](condition string) PredicateFunc[Subject] {
+	return func(state *ReconciliationState[Subject]) bool {
+		conditions := *state.Conditions
 		return !meta.IsStatusConditionTrue(conditions, condition)
 	}
 }
 
-func IsTrue(condition string) PredicateFunc {
-	return func(conditions []metav1.Condition) bool {
+func IsTrue[Subject client.Object](condition string) PredicateFunc[Subject] {
+	return func(state *ReconciliationState[Subject]) bool {
+		conditions := *state.Conditions
 		return meta.IsStatusConditionTrue(conditions, condition)
 	}
 }
@@ -89,13 +90,13 @@ func IsTrue(condition string) PredicateFunc {
 type ReconciliationError struct {
 	errors.WrappedError
 	Subject metav1.Object
-	Step    Step
+	Step    string
 }
 
 func (e ReconciliationError) Error() string {
 	return fmt.Sprintf("error reconciling cluster %s during phase %s: %v",
 		e.Subject.GetName(),
-		e.Step.Condition,
+		e.Step,
 		e.Err)
 }
 
@@ -116,15 +117,6 @@ type StateError struct {
 
 func (e StateError) Error() string {
 	return fmt.Sprintf("invalid state: %s - %s", e.Property, e.Message)
-}
-
-type RetryableError struct {
-	Err        error
-	RetryAfter time.Duration
-}
-
-func (e RetryableError) Error() string {
-	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
 }
 
 // -- ReconciliationSteps -------------------------------------------------------
@@ -148,9 +140,9 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 		}
 
 		// Check preconditions
-		failedPreconditions := funk.Filter(step.Predicates, func(precondition PredicateFunc) bool {
-			return !precondition(*r.State.Conditions)
-		}).([]PredicateFunc)
+		failedPreconditions := funk.Filter(step.Predicates, func(precondition PredicateFunc[Subject]) bool {
+			return !precondition(r.State)
+		}).([]PredicateFunc[Subject])
 		if len(failedPreconditions) > 0 {
 			continue
 		}
@@ -168,7 +160,7 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 			return &ReconciliationError{
 				WrappedError: errors.WrappedError{Err: err},
 				Subject:      r.State.Subject,
-				Step:         step,
+				Step:         step.Condition,
 			}
 		}
 
@@ -190,7 +182,7 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 					Span: instrumentation.GetLogName(ctx),
 				},
 				Subject: r.State.Subject,
-				Step:    step,
+				Step:    step.Condition,
 			}
 		}
 	}

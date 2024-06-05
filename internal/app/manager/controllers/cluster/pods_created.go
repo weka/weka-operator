@@ -6,6 +6,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
+	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
 
@@ -16,13 +17,13 @@ func (state *ClusterState) PodsCreated(crdManager services.CrdManager) lifecycle
 
 		containers, err := crdManager.EnsureWekaContainers(ctx, state.Subject)
 		if err != nil {
-			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		if containers == nil {
-			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		if len(containers) == 0 {
-			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		state.Containers = containers
 

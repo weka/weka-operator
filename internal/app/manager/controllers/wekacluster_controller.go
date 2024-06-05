@@ -205,11 +205,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaCluster]{
 		Reconciler: r.Client,
 		State:      &state.ReconciliationState,
-		Steps: []lifecycle.Step{
+		Steps: []lifecycle.Step[*wekav1alpha1.WekaCluster]{
 			{
 				Condition:             "ClusterSecretsCreated",
-				Predicates:            []lifecycle.PredicateFunc{}, // default value
-				SkipOwnConditionCheck: false,                       // default value
+				Predicates:            []lifecycle.PredicateFunc[*wekav1alpha1.WekaCluster]{}, // default value
+				SkipOwnConditionCheck: false,                                                  // default value
 				Reconcile:             state.ClusterSecretsCreated(r.SecretsService),
 			},
 			{
@@ -220,8 +220,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			{
 				Condition: condition.CondPodsReady,
 				Reconcile: state.PodsReady(),
-				Predicates: []lifecycle.PredicateFunc{
-					lifecycle.IsTrue(condition.CondPodsCreated),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaCluster]{
+					lifecycle.IsTrue[*wekav1alpha1.WekaCluster](condition.CondPodsCreated),
 				},
 			},
 			{
@@ -243,8 +243,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondClusterSecretsApplied,
-				Predicates: []lifecycle.PredicateFunc{
-					lifecycle.IsTrue(condition.CondIoStarted),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaCluster]{
+					lifecycle.IsTrue[*wekav1alpha1.WekaCluster](condition.CondIoStarted),
 				},
 				Reconcile: state.ApplyClusterSecrets(wekaClusterService, r.Client),
 			},
@@ -262,8 +262,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondClusterClientSecretsApplied,
-				Predicates: []lifecycle.PredicateFunc{
-					lifecycle.IsTrue(condition.CondClusterClientSecretsCreated),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaCluster]{
+					lifecycle.IsTrue[*wekav1alpha1.WekaCluster](condition.CondClusterClientSecretsCreated),
 				},
 				Reconcile: state.ClusterClientSecretsApplied(wekaClusterService),
 			},
