@@ -46,7 +46,7 @@ func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.W
 				logger.Info("Container has not joined the cluster yet", "container", container.Name)
 				logger.SetPhase("CONTAINERS_NOT_JOINED_CLUSTER")
 
-				return &lifecycle.RetryableError{Err: nil, RetryAfter: time.Second * 3}
+				return &errors.RetryableError{Err: nil, RetryAfter: time.Second * 3}
 			} else {
 				if wekaCluster.Status.ClusterID == "" {
 					wekaCluster.Status.ClusterID = container.Status.ClusterID
@@ -65,7 +65,7 @@ func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.W
 		}
 
 		if err := wekaClusterService.EnsureClusterContainerIds(ctx, containers); err != nil {
-			return &lifecycle.RetryableError{
+			return &errors.RetryableError{
 				Err:        &ContainerJoinError{Err: err},
 				RetryAfter: time.Second * 3,
 			}

@@ -83,7 +83,7 @@ func (state *ContainerState) EnsurePod(c client.Client, crdManager services.CrdM
 					}
 				}
 				logger.SetPhase("POD_CREATED")
-				return &lifecycle.RetryableError{Err: nil, RetryAfter: time.Second * 1}
+				return &errors.RetryableError{Err: nil, RetryAfter: time.Second * 1}
 			} else {
 				logger.SetPhase("POD_REFRESH_ERROR")
 				return &PodCreationError{
@@ -110,7 +110,7 @@ func (state *ContainerState) EnsurePod(c client.Client, crdManager services.CrdM
 
 		if actualPod.Status.Phase != v1.PodRunning {
 			logger.SetPhase("POD_NOT_RUNNING")
-			return &lifecycle.RetryableError{Err: nil, RetryAfter: time.Second * 3}
+			return &errors.RetryableError{Err: nil, RetryAfter: time.Second * 3}
 		}
 
 		return nil

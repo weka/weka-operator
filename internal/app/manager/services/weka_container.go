@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -17,22 +20,31 @@ import (
 type WekaContainerService interface {
 	// Driver Management
 	EnsureDriversLoader(ctx context.Context) error
+
+	ReconcileManagementIP(ctx context.Context) error
 }
 
-func NewWekaContainerService(client client.Client, crdManager CrdManager, container *wekav1alpha1.WekaContainer) WekaContainerService {
+func NewWekaContainerService(
+	client client.Client,
+	crdManager CrdManager,
+	execService ExecService,
+	container *wekav1alpha1.WekaContainer,
+) WekaContainerService {
 	return &wekaContainerService{
 		Container: container,
 
-		Client:     client,
-		CrdManager: crdManager,
+		Client:      client,
+		CrdManager:  crdManager,
+		ExecService: execService,
 	}
 }
 
 type wekaContainerService struct {
 	Container *wekav1alpha1.WekaContainer
 
-	Client     client.Client
-	CrdManager CrdManager
+	Client      client.Client
+	CrdManager  CrdManager
+	ExecService ExecService
 }
 
 // Errors ---------------------------------------------------------------------
@@ -113,6 +125,64 @@ func (s *wekaContainerService) EnsureDriversLoader(ctx context.Context) error {
 		l.Error(err, "Failed to update status of container")
 		return err
 
+	}
+	return nil
+}
+
+// ReconcileManagementIP -------------------------------------------------------
+func (s *wekaContainerService) ReconcileManagementIP(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ReconcileManagementIP")
+	defer end()
+
+	container := s.Container
+
+	if container.Status.ManagementIP != "" {
+		return nil
+	}
+	executor, err := s.ExecService.GetExecutor(ctx, s.Container)
+	if err != nil {
+		return &ContainerServiceError{
+			WrappedError: errors.WrappedError{
+				Err:  err,
+				Span: instrumentation.GetLogName(ctx),
+			},
+			Container: container,
+			Method:    "ReconcileManagementIP",
+			Message:   "Error getting executor",
+		}
+	}
+
+	var getIpCmd string
+	if container.Spec.Network.EthDevice != "" {
+		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
+	} else {
+		getIpCmd = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
+	if err != nil {
+		logger.Error(err, "Error executing command", "stderr", stderr.String())
+		return err
+	}
+	ipAddress := strings.TrimSpace(stdout.String())
+	logger.WithValues("management_ip", ipAddress).Info("Got management IP")
+	if container.Status.ManagementIP != ipAddress {
+		container.Status.ManagementIP = ipAddress
+		if err := s.Client.Status().Update(ctx, container); err != nil {
+			return &ContainerServiceError{
+				WrappedError: errors.WrappedError{
+					Err:  err,
+					Span: instrumentation.GetLogName(ctx),
+				},
+				Container: container,
+				Method:    "ReconcileManagementIP",
+				Message:   "Error updating container status",
+			}
+		}
+		return &errors.RetryableError{
+			Err:        nil,
+			RetryAfter: 3 * time.Second,
+		}
 	}
 	return nil
 }

@@ -36,7 +36,7 @@ func (state *ContainerState) EnsureDrivers(client client.Client, wekaService ser
 
 		err := wekaService.ReconcileDriversStatus(ctx, pod)
 		if err != nil {
-			return &lifecycle.RetryableError{Err: err, RetryAfter: 3 * time.Second}
+			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondEnsureDrivers,

@@ -3,6 +3,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 type ArgumentError struct {
@@ -42,4 +43,15 @@ func (e *NotFoundError) Error() string {
 func IsNotFoundError(err error) bool {
 	var e *NotFoundError
 	return errors.As(err, &e)
+}
+
+// RetryableError is an error type that represents an operation that did not
+// complete and should be retried.
+type RetryableError struct {
+	Err        error
+	RetryAfter time.Duration
+}
+
+func (e RetryableError) Error() string {
+	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
 }
