@@ -158,6 +158,8 @@ func (c *Cluster) VerifyWekaContainers(t *testing.T) {
 	conditions := []string{
 		condition.CondEnsureDrivers,
 		condition.CondJoinedCluster,
+		"ReconcileManagementIP",
+		"ReconcileWekaLocalStatus",
 	}
 
 	for _, cond := range conditions {
