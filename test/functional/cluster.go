@@ -155,89 +155,64 @@ func (c *Cluster) VerifyWekaContainers(t *testing.T) {
 	containers.Items = append(containers.Items, driveContainers.Items...)
 	containers.Items = append(containers.Items, computeContainers.Items...)
 
-	t.Run("Drivers Ensured Condition", c.DriversEnsuredCondition(ctx, containers))
-	t.Run("Joined Cluster Condition", c.JoinedClusterCondition(ctx, containers))
-	t.Run("Drives Added Condition", c.ContainerDrivesAddedCondition(ctx, driveContainers))
-}
+	conditions := []string{
+		condition.CondEnsureDrivers,
+		condition.CondJoinedCluster,
+	}
 
-func (c *Cluster) ContainerDrivesAddedCondition(ctx context.Context, containers *wekav1alpha1.WekaContainerList) func(t *testing.T) {
-	return func(t *testing.T) {
-		for _, container := range containers.Items {
-			t.Run(container.Name, func(t *testing.T) {
-				var driveCondition *metav1.Condition
-				waitFor(ctx, func(ctx context.Context) bool {
-					err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
-					if err != nil {
-						return false
-					}
-					driveCondition = meta.FindStatusCondition(container.Status.Conditions, condition.CondDrivesAdded)
-					return driveCondition != nil && driveCondition.Status == metav1.ConditionTrue
-				})
+	for _, cond := range conditions {
+		name := fmt.Sprintf("Condition %q", cond)
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
 
-				if driveCondition == nil {
-					t.Fatalf("condition %q not found", condition.CondDrivesAdded)
-				}
-				if driveCondition.Status != metav1.ConditionTrue {
-					t.Fatalf("condition %q is not true", condition.CondDrivesAdded)
-				}
-			})
-		}
+			if err := waitForContainerCondition(ctx, t, c, containers, cond); err != nil {
+				t.Fatalf("failed to wait for condition %q: %v", cond, err)
+			}
+		})
+	}
+
+	conditions = []string{
+		condition.CondDrivesAdded,
+	}
+	for _, cond := range conditions {
+		name := fmt.Sprintf("Condition %q", cond)
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
+
+			if err := waitForContainerCondition(ctx, t, c, driveContainers, cond); err != nil {
+				t.Fatalf("failed to wait for condition %q: %v", cond, err)
+			}
+		})
 	}
 }
 
-func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *wekav1alpha1.WekaContainerList) func(t *testing.T) {
-	return func(t *testing.T) {
-		for _, container := range container.Items {
-			t.Run(container.Name, func(t *testing.T) {
-				var driverCondition *metav1.Condition
-				waitFor(ctx, func(ctx context.Context) bool {
-					err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
-					if err != nil {
-						return false
-					}
-					driverCondition = meta.FindStatusCondition(container.Status.Conditions, condition.CondEnsureDrivers)
-					return driverCondition != nil && driverCondition.Status == metav1.ConditionTrue
-				})
+func waitForContainerCondition(ctx context.Context, t *testing.T, c client.Client, containers *wekav1alpha1.WekaContainerList, cond string) error {
+	ctx, logger, done := instrumentation.GetLogSpan(ctx, "waitForContainerCondition")
+	defer done()
 
-				if driverCondition == nil {
-					t.Fatalf("condition %q not found", condition.CondEnsureDrivers)
-				}
-				if driverCondition.Status != metav1.ConditionTrue {
-					t.Fatalf("condition %q is not true", condition.CondEnsureDrivers)
-				}
-			})
-		}
-	}
-}
-
-func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *wekav1alpha1.WekaContainerList) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, logger, done := instrumentation.GetLogSpan(ctx, "JoinedClusterCondition")
-		defer done()
-
-		for _, container := range container.Items {
+	for _, container := range containers.Items {
+		t.Run(container.Name, func(t *testing.T) {
 			logger.SetValues("container", container.Name)
-			t.Run(container.Name, func(t *testing.T) {
-				var joinedCondition *metav1.Condition
-				waitFor(ctx, func(ctx context.Context) bool {
-					err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
-					if err != nil {
-						return false
-					}
-					joinedCondition = meta.FindStatusCondition(container.Status.Conditions, condition.CondJoinedCluster)
-					return joinedCondition != nil && joinedCondition.Status == metav1.ConditionTrue
-				})
-				if joinedCondition == nil {
-					logger.Info("CondJoindCluster was nil")
-					t.Fatalf("condition %q not found", condition.CondJoinedCluster)
+			var actualCondition *metav1.Condition
+			waitFor(ctx, func(ctx context.Context) bool {
+				err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
+				if err != nil {
+					return false
 				}
-				if joinedCondition.Status != metav1.ConditionTrue {
-					logger.Info("CondJoindCluster was not true", "condition", joinedCondition)
-					t.Fatalf("condition %q is not true", condition.CondJoinedCluster)
-				}
+				actualCondition = meta.FindStatusCondition(container.Status.Conditions, cond)
+				return actualCondition != nil && actualCondition.Status == metav1.ConditionTrue
 			})
-		}
+			if actualCondition == nil {
+				t.Fatalf("condition %q not found", cond)
+			}
+			if actualCondition.Status != metav1.ConditionTrue {
+				t.Fatalf("condition %q is not true", cond)
+			}
+		})
 	}
+	return nil
 }
 
 func (c *Cluster) VerifyWekaCluster(t *testing.T) {
