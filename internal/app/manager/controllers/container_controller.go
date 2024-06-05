@@ -175,11 +175,22 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			},
 			{
 				Condition: "ReconcileManagementIP",
-				Reconcile: state.ReconcileManagementIP(containerService),
+				Reconcile: state.ReconcileManagementIP(containerService, logger),
 				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
 					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
 						subject := state.Subject
-						return !subject.IsServiceContainer() && subject.Status.ManagementIP == ""
+						return !subject.IsServiceContainer()
+					},
+				},
+			},
+			{
+				Condition: "ReconcileWekaLocalStatus",
+				Reconcile: state.ReconcileWekaLocalStatus(containerService),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+						subject := state.Subject
+						return !subject.IsServiceContainer() &&
+							!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, subject.Spec.Mode)
 					},
 				},
 			},
@@ -201,23 +212,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if !container.IsServiceContainer() {
-		logger.SetAttributes(
-			attribute.String("management_ip", container.Status.ManagementIP),
-		)
-
-		// pre-clusterize
-		if !slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
-			result, err := r.reconcileWekaLocalStatus(ctx, container, actualPod)
-			if err != nil {
-				logger.Error(err, "Error reconciling status", "name", container.Name)
-				return ctrl.Result{}, err
-			}
-			if result.Requeue {
-				return result, nil
-			}
-		}
-	}
 	// only for drivers-loader container: check if drivers loaded
 	if container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader {
 		err := r.checkIfLoaderFinished(ctx, actualPod)
@@ -354,104 +348,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	logger.SetPhase("CONTAINER_IS_READY")
-	return ctrl.Result{}, nil
-}
-
-func (r *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileManagementIP")
-	defer end()
-
-	if container.Status.ManagementIP != "" {
-		return ctrl.Result{}, nil
-	}
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return ctrl.Result{}, err
-	}
-
-	var getIpCmd string
-	if container.Spec.Network.EthDevice != "" {
-		getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
-	} else {
-		getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n1")
-	}
-
-	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
-	if err != nil {
-		logger.Error(err, "Error executing command", "stderr", stderr.String())
-		return ctrl.Result{}, err
-	}
-	ipAddress := strings.TrimSpace(stdout.String())
-	logger.WithValues("management_ip", ipAddress).Info("Got management IP")
-	if container.Status.ManagementIP != ipAddress {
-		container.Status.ManagementIP = ipAddress
-		if err := r.Status().Update(ctx, container); err != nil {
-			logger.Error(err, "Error updating status")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
-	}
-	return ctrl.Result{}, nil
-}
-
-func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileWekaLocalStatus")
-	defer end()
-
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, container.Spec.Mode) {
-		return ctrl.Result{}, nil
-	}
-
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return ctrl.Result{}, err
-	}
-
-	statusCommand := fmt.Sprintf("weka local ps -J")
-	stdout, stderr, err := executor.ExecNamed(ctx, "WekaLocalPs", []string{"bash", "-ce", statusCommand})
-	if err != nil {
-		logger.Error(err, "Error executing command", "command", statusCommand, "stderr", stderr.String())
-		return ctrl.Result{}, err
-	}
-	response := []resources.WekaLocalPs{}
-	err = json.Unmarshal(stdout.Bytes(), &response)
-	if err != nil {
-		logger.Error(err, "Error unmarshalling response", "stdout", stdout.String())
-		return ctrl.Result{}, err
-	}
-
-	if len(response) == 0 {
-		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected at least one container to be present, none found"))
-		return ctrl.Result{}, errors.New("expected exactly one container to be present")
-	}
-
-	found := false
-	for _, c := range response {
-		if c.Name == container.Spec.WekaContainerName {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		logger.InfoWithStatus(codes.Error, "Weka container not found", "name", response, "expected_name", container.Spec.WekaContainerName)
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	status := response[0].RunStatus
-	if container.Status.Status != status {
-		logger.Info("Updating status", "from", container.Status.Status, "to", status)
-		container.Status.Status = status
-		if err := r.Status().Update(ctx, container); err != nil {
-			logger.Error(err, "Error updating status")
-			return ctrl.Result{}, err
-		}
-		logger.WithValues("status", status).Info("Status updated")
-		return ctrl.Result{Requeue: true}, nil
-	}
-	logger.SetStatus(codes.Ok, "Status reconciled")
 	return ctrl.Result{}, nil
 }
 
