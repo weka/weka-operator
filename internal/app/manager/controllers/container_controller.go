@@ -194,6 +194,16 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 					},
 				},
 			},
+			{
+				Condition: "DriverLoaderFinished",
+				Reconcile: state.DriverLoaderFinished(r.Client, containerService),
+				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+						subject := state.Subject
+						return subject.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader
+					},
+				},
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -210,22 +220,6 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	actualPod := state.Pod
 	if actualPod == nil {
 		return ctrl.Result{Requeue: true}, nil
-	}
-
-	// only for drivers-loader container: check if drivers loaded
-	if container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader {
-		err := r.checkIfLoaderFinished(ctx, actualPod)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: time.Second * 3, Requeue: true}, err
-		} else {
-			// if drivers loaded we can delete this weka container
-			err := r.Delete(ctx, container)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			logger.SetPhase("DELETING_DRIVER_LOADER")
-		}
-		logger.SetPhase("DRIVERS_LOADED")
 	}
 
 	if container.IsServiceContainer() {
@@ -740,32 +734,4 @@ func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor 
 	}
 	logger.InfoWithStatus(codes.Ok, "Cloud drives signed")
 	return nil
-}
-
-func (r *ContainerController) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "checkIfLoaderFinished")
-	defer end()
-
-	logger.Info("Checking if loader finished")
-
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return err
-	}
-	cmd := "cat /tmp/weka-drivers-loader"
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", cmd})
-	if err != nil {
-		if strings.Contains(stderr.String(), "No such file or directory") {
-			return errors.New("Loader not finished")
-		}
-		logger.Error(err, "Error checking if loader finished", "stderr", stderr.String)
-		return err
-	}
-	if strings.TrimSpace(stdout.String()) == "drivers_loaded" {
-		logger.InfoWithStatus(codes.Ok, "Loader finished")
-		return nil
-	}
-	logger.InfoWithStatus(codes.Error, "Loader not finished")
-	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
 }
