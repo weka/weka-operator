@@ -23,6 +23,7 @@ import (
 type WekaContainerService interface {
 	// Driver Management
 	EnsureDriversLoader(ctx context.Context) error
+	CheckIfLoaderFinished(ctx context.Context) error
 
 	ReconcileManagementIP(ctx context.Context) error
 	ReconcileWekaLocalStatus(ctx context.Context) error
@@ -302,4 +303,61 @@ func (s *wekaContainerService) ReconcileWekaLocalStatus(ctx context.Context) err
 		}
 	}
 	return nil
+}
+
+type LoaderNotFinishedError struct {
+	ContainerExecError
+	Message string
+}
+
+// CheckIfDriverLoaderFinished ------------------------------------------------
+func (s *wekaContainerService) CheckIfLoaderFinished(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CheckIfLoaderFinished")
+	defer end()
+
+	executor, err := s.ExecService.GetExecutor(ctx, s.Container)
+	if err != nil {
+		logger.Error(err, "Error creating executor")
+		return err
+	}
+	cmd := "cat /tmp/weka-drivers-loader"
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", cmd})
+	if err != nil {
+		if strings.Contains(stderr.String(), "No such file or directory") {
+			return &LoaderNotFinishedError{
+				ContainerExecError: ContainerExecError{
+					WrappedError: errors.WrappedError{
+						Err:  err,
+						Span: instrumentation.GetLogName(ctx),
+					},
+					Container: s.Container,
+					Command:   cmd,
+					StdErr:    stderr.String(),
+				},
+			}
+		}
+		return &ContainerExecError{
+			WrappedError: errors.WrappedError{
+				Err:  err,
+				Span: instrumentation.GetLogName(ctx),
+			},
+			Container: s.Container,
+			Command:   cmd,
+			StdErr:    stderr.String(),
+		}
+	}
+	if strings.TrimSpace(stdout.String()) == "drivers_loaded" {
+		return nil
+	}
+	return &LoaderNotFinishedError{
+		ContainerExecError: ContainerExecError{
+			WrappedError: errors.WrappedError{
+				Err:  nil,
+				Span: instrumentation.GetLogName(ctx),
+			},
+			Container: s.Container,
+			Command:   cmd,
+			StdErr:    stdout.String(),
+		},
+	}
 }
