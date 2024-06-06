@@ -4,9 +4,9 @@ metadata:
   name: ocp-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
   imagePullSecret: quay-io-robot-secret
-  driversDistService: "http://172.30.180.13:60002"
+  driversDistService: "http://172.30.105.179:60002"
   port: 45001
   agentPort: 45000
   wekaSecretRef: weka-cluster-cluster-dev
