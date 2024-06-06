@@ -199,7 +199,7 @@ ETHSLOTLOOP:
 	for _, ethSlot := range ethSlots {
 		for _, ethSlotAlloc := range n.EthSlots {
 			if slices.Contains(ethSlotAlloc, ethSlot) {
-				fmt.Println("skipping", ethSlotAlloc, ethSlot)
+				// fmt.Println("skipping", ethSlotAlloc, ethSlot)
 				continue ETHSLOTLOOP
 			}
 		}

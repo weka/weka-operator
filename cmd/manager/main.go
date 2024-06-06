@@ -150,7 +150,6 @@ func main() {
 			setupLog.Error(err, "unable to add controller to manager")
 			os.Exit(1)
 		}
-
 	}
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"os"
 	"testing"
@@ -106,6 +108,11 @@ func TestEnsureWekaContainers(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
+	buffer := &bytes.Buffer{}
+	writer := bufio.NewWriter(buffer)
+	ctx = InitTestingLogger(ctx, writer)
+
 	cluster := &wekav1alpha1.WekaCluster{
 		Spec: wekav1alpha1.WekaClusterSpec{
 			Template: "small",

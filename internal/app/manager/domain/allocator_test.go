@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -11,6 +13,10 @@ import (
 
 func TestAllocatePort(t *testing.T) {
 	ctx := context.Background()
+	buffer := &bytes.Buffer{}
+	writer := bufio.NewWriter(buffer)
+	ctx = InitTestingLogger(ctx, writer)
+
 	owner := OwnerCluster{
 		ClusterName: "testCluster",
 		Namespace:   "testNamespace",
@@ -27,7 +33,8 @@ func TestAllocatePort(t *testing.T) {
 		CoreStep: 1,
 		MaxCore:  11,
 		Network: v1alpha1.NetworkSelector{
-			EthSlots: []string{"aws_0", "aws_1", "aws_2",
+			EthSlots: []string{
+				"aws_0", "aws_1", "aws_2",
 				"aws_3", "aws_4", "aws_5",
 				"aws_6", "aws_7", "aws_8",
 				"aws_9", "aws_10", "aws_11",
@@ -53,7 +60,7 @@ func TestAllocatePort(t *testing.T) {
 
 	owner.ClusterName = "a"
 	newMap, err, _ := allocator.Allocate(ctx, owner, template, allocations, 1)
-	newMap, err, changed := allocator.Allocate(context.Background(), owner, template, allocations, 1)
+	newMap, err, changed := allocator.Allocate(ctx, owner, template, allocations, 1)
 	if err != nil {
 		t.Errorf("re-allocate should not fail: %v", err)
 	}

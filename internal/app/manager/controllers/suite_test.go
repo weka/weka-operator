@@ -38,6 +38,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -71,7 +72,8 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 		logger = zapr.NewLogger(uzap.NewNop())
 	}
 
-	logf.SetLogger(logger.WithName("test"))
+	ctx, logger = instrumentation.GetLoggerForContext(ctx, &logger, "test")
+	logf.SetLogger(logger)
 
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		kubebuilderRelease := "1.26.0"

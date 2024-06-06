@@ -5,6 +5,7 @@
 package services
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"testing"
@@ -26,6 +27,11 @@ func TestCreate(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
+	buffer := &bytes.Buffer{}
+	writer := bufio.NewWriter(buffer)
+	ctx = InitTestingLogger(ctx, writer)
+
 	containers := []*wekav1alpha1.WekaContainer{
 		{
 			Spec:   wekav1alpha1.WekaContainerSpec{},

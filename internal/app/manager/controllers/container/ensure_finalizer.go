@@ -12,7 +12,7 @@ import (
 
 func (state *ContainerState) EnsureFinalizer(client client.Client, finalizer string) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureFinalizer")
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "EnsureFinalizer")
 		defer end()
 
 		container := state.Subject
@@ -24,7 +24,6 @@ func (state *ContainerState) EnsureFinalizer(client client.Client, finalizer str
 			return nil
 		}
 
-		logger.Info("Adding Finalizer for weka container")
 		if err := client.Update(ctx, container); err != nil {
 			return &ContainerUpdateError{
 				WrappedError: errors.WrappedError{Err: err},
