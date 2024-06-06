@@ -1,0 +1,14 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: ocp-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
+  imagePullSecret: quay-io-robot-secret
+  driversDistService: "http://172.30.180.13:60002"
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-cluster-cluster-dev
+  coresNum: 1
+  joinIpPorts: ["10.222.93.0:14000"]
