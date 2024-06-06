@@ -21,6 +21,10 @@ type Reconciler interface {
 	client.Client
 }
 
+type Lifecycle interface {
+	Reconcile(ctx context.Context) error
+}
+
 type ReconciliationSteps[Subject client.Object] struct {
 	Reconciler Reconciler
 	State      *ReconciliationState[Subject]
@@ -113,10 +117,11 @@ func (e ConditionUpdateError) Error() string {
 type StateError struct {
 	Property string
 	Message  string
+	Span     string
 }
 
 func (e StateError) Error() string {
-	return fmt.Sprintf("invalid state: %s - %s", e.Property, e.Message)
+	return fmt.Sprintf("invalid state: %s - %s at %s", e.Property, e.Message, e.Span)
 }
 
 // -- ReconciliationSteps -------------------------------------------------------
@@ -127,7 +132,7 @@ func (r *ReconciliationSteps[Subject]) Reconcile(ctx context.Context) error {
 		return &StateError{Property: "State", Message: "State is nil"}
 	}
 	if r.State.Conditions == nil {
-		return &StateError{Property: "Conditions", Message: "Conditions is nil"}
+		return &StateError{Property: "Conditions", Message: "Conditions is nil", Span: instrumentation.GetLogName(ctx)}
 	}
 
 	for _, step := range r.Steps {

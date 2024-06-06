@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
@@ -89,6 +90,10 @@ func (s *wekaContainerService) EnsureDriversLoader(ctx context.Context) error {
 	}
 
 	logger.SetValues("container", container.Name)
+
+	if s.CrdManager == nil {
+		return &lifecycle.StateError{Property: "CrdManager", Message: "CrdManager is nil"}
+	}
 
 	pod, err := s.CrdManager.RefreshPod(ctx, container)
 	if err != nil {

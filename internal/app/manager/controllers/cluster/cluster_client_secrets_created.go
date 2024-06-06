@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
@@ -13,7 +12,7 @@ type ClientSecretCreationError struct {
 	errors.WrappedError
 }
 
-func (state *ClusterState) ClusterClientSecretsCreated(secretsService services.SecretsService) lifecycle.StepFunc {
+func (state *ClusterState) ClusterClientSecretsCreated() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ClusterClientSecretsCreated")
 		defer end()
@@ -31,6 +30,7 @@ func (state *ClusterState) ClusterClientSecretsCreated(secretsService services.S
 			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is empty"}
 		}
 
+		secretsService := state.SecretsService
 		if err := secretsService.EnsureClientLoginCredentials(ctx, wekaCluster, containers); err != nil {
 			return &ClientSecretCreationError{}
 		}

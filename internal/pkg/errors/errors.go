@@ -1,9 +1,12 @@
 package errors
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
 
 type ArgumentError struct {
@@ -13,6 +16,22 @@ type ArgumentError struct {
 
 func (e ArgumentError) Error() string {
 	return fmt.Sprintf("argument error: %s: %s", e.ArgName, e.Message)
+}
+
+func (e ArgumentError) Is(target error) bool {
+	var a *ArgumentError
+	if !errors.As(target, &a) {
+		return false
+	}
+
+	return a.ArgName == e.ArgName && a.Message == e.Message
+}
+
+func NewWrappedError(ctx context.Context, err error) WrappedError {
+	return WrappedError{
+		Err:  err,
+		Span: instrumentation.GetLogName(ctx),
+	}
 }
 
 // WrappedError is a base error type that provides a default implementation of the Unwrap method.

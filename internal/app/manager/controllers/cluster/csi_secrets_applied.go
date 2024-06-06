@@ -18,15 +18,11 @@ type CSISecretsAppliedError struct {
 
 type stepState struct {
 	*ClusterState
-	WekaClusterService services.WekaClusterService
-	ExecService        services.ExecService
 }
 
-func (state *ClusterState) ClusterCSISecretsApplied(wekaClusterService services.WekaClusterService, execService services.ExecService) lifecycle.StepFunc {
+func (state *ClusterState) ClusterCSISecretsApplied() lifecycle.StepFunc {
 	step := &stepState{
-		ClusterState:       state,
-		WekaClusterService: wekaClusterService,
-		ExecService:        execService,
+		ClusterState: state,
 	}
 	return step.ClusterCSISecretsApplied
 }
@@ -65,11 +61,17 @@ func (state *stepState) applyCSILoginCredentials(ctx context.Context, cluster *w
 
 	container := selectActiveContainer(containers)
 	clusterService := state.WekaClusterService
+	if clusterService == nil {
+		return &lifecycle.StateError{Property: "WekaClusterService", Message: "WekaClusterService is nil"}
+	}
 	username, password, err := clusterService.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
 	if err != nil {
 		return err
 	}
 
+	if state.ExecService == nil {
+		return &lifecycle.StateError{Property: "ExecService", Message: "ExecService is nil"}
+	}
 	wekaService := services.NewWekaService(state.ExecService, container)
 	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
 	if err != nil {

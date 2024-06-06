@@ -1,4 +1,4 @@
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_factories.go -package=mocks github.com/weka/weka-operator/internal/app/manager/factory WekaContainerFactory
+//go:generate go run go.uber.org/mock/mockgen@v0.4.0 -destination=mocks/mock_factories.go -package=mocks github.com/weka/weka-operator/internal/app/manager/factory WekaContainerFactory
 package services
 
 import (

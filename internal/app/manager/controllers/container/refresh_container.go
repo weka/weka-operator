@@ -7,6 +7,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
+	"go.opentelemetry.io/otel/attribute"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -54,6 +55,12 @@ func (state *ContainerState) RefreshContainer(crdManager services.CrdManager) li
 
 		state.Subject = container
 		state.Conditions = &container.Status.Conditions
+		state.Logger.SetAttributes(
+			attribute.String("container", container.Name),
+			attribute.String("namespace", container.Namespace),
+			attribute.String("mode", container.Spec.Mode),
+			attribute.String("uuid", string(container.GetUID())),
+		)
 		return nil
 	}
 }

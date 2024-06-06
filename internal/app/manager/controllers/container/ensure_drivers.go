@@ -6,16 +6,14 @@ import (
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (state *ContainerState) EnsureDrivers(client client.Client, wekaService services.WekaService) lifecycle.StepFunc {
+func (state *ContainerState) EnsureDrivers() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "EnsureDrivers")
 		defer end()
@@ -34,6 +32,7 @@ func (state *ContainerState) EnsureDrivers(client client.Client, wekaService ser
 			return &errors.ArgumentError{ArgName: "pod", Message: "pod is nil"}
 		}
 
+		wekaService := state.NewWekaService()
 		err := wekaService.ReconcileDriversStatus(ctx, pod)
 		if err != nil {
 			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}
@@ -42,6 +41,8 @@ func (state *ContainerState) EnsureDrivers(client client.Client, wekaService ser
 			Type:   condition.CondEnsureDrivers,
 			Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured",
 		})
+
+		client := state.Client
 		if err = client.Status().Update(ctx, container); err != nil {
 			return &ConditionUpdateError{
 				WrappedError: errors.WrappedError{Err: err},

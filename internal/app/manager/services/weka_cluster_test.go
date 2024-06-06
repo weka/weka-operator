@@ -1,7 +1,7 @@
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_client.go -package=mocks sigs.k8s.io/controller-runtime/pkg/client Client,StatusWriter
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_exec.go -package=mocks github.com/weka/weka-operator/util Exec
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_exec_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services ExecService
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_manager.go -package=mocks sigs.k8s.io/controller-runtime/pkg/manager Manager
+//go:generate go run go.uber.org/mock/mockgen@v0.4.0 -destination=mocks/mock_client.go -package=mocks sigs.k8s.io/controller-runtime/pkg/client Client,StatusWriter
+//go:generate go run go.uber.org/mock/mockgen@v0.4.0 -destination=mocks/mock_exec.go -package=mocks github.com/weka/weka-operator/util Exec
+//go:generate go run go.uber.org/mock/mockgen@v0.4.0 -destination=mocks/mock_exec_service.go -package=mocks github.com/weka/weka-operator/internal/app/manager/services ExecService
+//go:generate go run go.uber.org/mock/mockgen@v0.4.0 -destination=mocks/mock_manager.go -package=mocks sigs.k8s.io/controller-runtime/pkg/manager Manager
 package services
 
 import (

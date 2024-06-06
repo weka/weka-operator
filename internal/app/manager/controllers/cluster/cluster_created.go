@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -20,7 +19,7 @@ func (e ClusterCreationError) Error() string {
 	return fmt.Sprintf("cluster creation error: %v, cluster: %s", e.Err, e.Cluster.Name)
 }
 
-func (state *ClusterState) ClusterCreated(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
+func (state *ClusterState) ClusterCreated() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClusterCreated")
 		defer end()
@@ -38,8 +37,11 @@ func (state *ClusterState) ClusterCreated(wekaClusterService services.WekaCluste
 		}
 
 		logger.SetPhase("CLUSTERIZING")
-		err := wekaClusterService.Create(ctx, containers)
+		wekaClusterService, err := state.NewWekaClusterService()
 		if err != nil {
+			return &ClusterCreationError{Err: err, Cluster: wekaCluster}
+		}
+		if err := wekaClusterService.Create(ctx, containers); err != nil {
 			return &ClusterCreationError{Err: err, Cluster: wekaCluster}
 		}
 		logger.SetPhase("CLUSTER_FORMED")

@@ -6,11 +6,9 @@ import (
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type SecretApplicationError struct {
@@ -22,7 +20,7 @@ func (e SecretApplicationError) Error() string {
 	return fmt.Sprintf("secret application error: %v cluster: %s", e.Err, e.Cluster.Name)
 }
 
-func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaClusterService, client client.Client) lifecycle.StepFunc {
+func (state *ClusterState) ApplyClusterSecrets() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ApplyClusterSecrets")
 		defer end()
@@ -41,6 +39,16 @@ func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaC
 		containers := state.Containers
 
 		logger.SetPhase("CONFIGURING_CLUSTER_CREDENTIALS")
+		wekaClusterService, err := state.NewWekaClusterService()
+		if err != nil {
+			return &SecretApplicationError{
+				ConditionExecutionError: lifecycle.ConditionExecutionError{
+					Err:       err,
+					Condition: condition.CondClusterSecretsApplied,
+				},
+				Cluster: wekaCluster,
+			}
+		}
 		if err := wekaClusterService.ApplyClusterCredentials(ctx, containers); err != nil {
 			return &SecretApplicationError{
 				ConditionExecutionError: lifecycle.ConditionExecutionError{
@@ -54,6 +62,8 @@ func (state *ClusterState) ApplyClusterSecrets(wekaClusterService services.WekaC
 		wekaCluster.Status.Status = "Ready"
 		wekaCluster.Status.TraceId = ""
 		wekaCluster.Status.SpanID = ""
+
+		client := state.Client
 		if err := client.Status().Update(ctx, wekaCluster); err != nil {
 			return &lifecycle.StatusUpdateError{
 				Err:     err,

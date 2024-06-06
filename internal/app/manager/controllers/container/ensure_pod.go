@@ -46,10 +46,13 @@ func (e *PodCleanupScheduled) Error() string {
 	return fmt.Sprintf("Pod cleanup scheduled for container %s", e.Container.Name)
 }
 
-func (state *ContainerState) EnsurePod(c client.Client, crdManager services.CrdManager, kubeService services.KubeService, scheme *runtime.Scheme) lifecycle.StepFunc {
+func (state *ContainerState) EnsurePod(kubeService services.KubeService, scheme *runtime.Scheme) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsurePod")
 		defer end()
+
+		c := state.Client
+		crdManager := state.CrdManager
 
 		container := state.Subject
 		if container == nil {

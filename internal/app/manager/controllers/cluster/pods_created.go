@@ -5,16 +5,16 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
 
-func (state *ClusterState) PodsCreated(crdManager services.CrdManager) lifecycle.StepFunc {
+func (state *ClusterState) PodsCreated() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "PodsCreated")
 		defer end()
 
+		crdManager := state.CrdManager
 		containers, err := crdManager.EnsureWekaContainers(ctx, state.Subject)
 		if err != nil {
 			return &errors.RetryableError{Err: err, RetryAfter: 3 * time.Second}

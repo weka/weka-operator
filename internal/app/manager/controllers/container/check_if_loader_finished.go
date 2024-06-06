@@ -5,14 +5,12 @@ import (
 	"time"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/attribute"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (state *ContainerState) DriverLoaderFinished(client client.Client, containerService services.WekaContainerService) lifecycle.StepFunc {
+func (state *ContainerState) DriverLoaderFinished() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "DriverLoaderFinished")
 		defer end()
@@ -29,6 +27,7 @@ func (state *ContainerState) DriverLoaderFinished(client client.Client, containe
 			}
 		}
 
+		containerService := state.NewContainerService()
 		err := containerService.CheckIfLoaderFinished(ctx)
 		if err != nil {
 			return &errors.RetryableError{
@@ -37,6 +36,7 @@ func (state *ContainerState) DriverLoaderFinished(client client.Client, containe
 			}
 		} else {
 			// if drivers loaded we can delete this weka container
+			client := state.Client
 			err := client.Delete(ctx, container)
 			if err != nil {
 				return err

@@ -22,7 +22,7 @@ func (e CondStartIoError) Error() string {
 	return fmt.Sprintf("error starting IO for cluster %s: %v", e.Cluster.Name, e.Err)
 }
 
-func (state *ClusterState) StartIo(execService services.ExecService) lifecycle.StepFunc {
+func (state *ClusterState) StartIo() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "StartIo")
 		defer end()
@@ -40,6 +40,7 @@ func (state *ClusterState) StartIo(execService services.ExecService) lifecycle.S
 		}
 
 		containers := state.Containers
+		execService := state.ExecService
 		wekaService := services.NewWekaService(execService, containers[0])
 		if err := wekaService.StartIo(ctx); err != nil {
 			return &CondStartIoError{

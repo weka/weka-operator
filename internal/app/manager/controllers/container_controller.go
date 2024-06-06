@@ -21,7 +21,6 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/util"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -58,6 +57,9 @@ type ContainerController struct {
 	CrdManager  services.CrdManager
 	KubeService services.KubeService
 	ExecService services.ExecService
+
+	// Testing Only - Use to override steps
+	Steps *lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -95,116 +97,92 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			Subject:    &wekav1alpha1.WekaContainer{},
 			Conditions: &[]metav1.Condition{},
 		},
+		Logger:      logger,
+		Client:      r.Client,
+		CrdManager:  r.CrdManager,
+		ExecService: r.ExecService,
 	}
-	setupSteps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
-		Reconciler: r.Client,
-		State:      &state.ReconciliationState,
-		Steps: []lifecycle.Step[*wekav1alpha1.WekaContainer]{
-			{
-				Condition:             "RefreshContainer",
-				SkipOwnConditionCheck: true,
-				Reconcile:             state.RefreshContainer(r.CrdManager),
+
+	var steps *lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]
+	if r.Steps == nil {
+		steps = &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
+			Reconciler: r.Client,
+			State:      &state.ReconciliationState,
+			Steps: []lifecycle.Step[*wekav1alpha1.WekaContainer]{
+				{
+					Condition:             "RefreshContainer",
+					SkipOwnConditionCheck: true,
+					Reconcile:             state.RefreshContainer(r.CrdManager),
+				},
+				{
+					Condition: "EnsureFinalizer",
+					Reconcile: state.EnsureFinalizer(r.Client, WekaFinalizer),
+				},
+				{
+					Condition:             "DeleteContainer",
+					SkipOwnConditionCheck: true,
+					Reconcile:             state.DeleteContainer(r.Client, r.CrdManager, WekaFinalizer),
+				},
+				{
+					Condition:             "InitState",
+					Reconcile:             state.InitState(r.Client),
+					SkipOwnConditionCheck: true,
+				},
+				{
+					Condition: "EnsureBootConfigMap",
+					Reconcile: state.EnsureBootConfigMap(r.Client, bootScriptConfigName),
+				},
+				{
+					Condition:             "EnsurePod",
+					SkipOwnConditionCheck: true,
+					Reconcile:             state.EnsurePod(r.KubeService, r.Scheme),
+				},
+				{
+					Condition: "EnsureDriverLoader",
+					Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+						lifecycle.IsNotTrue[*wekav1alpha1.WekaContainer](condition.CondEnsureDrivers),
+					},
+					Reconcile: state.EnsureDriversLoader(),
+				},
+				{
+					Condition: condition.CondEnsureDrivers,
+					Reconcile: state.EnsureDrivers(),
+				},
+				{
+					Condition: "ReconcileManagementIP",
+					Reconcile: state.ReconcileManagementIP(),
+					Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+						func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+							subject := state.Subject
+							return !subject.IsServiceContainer()
+						},
+					},
+				},
+				{
+					Condition: "ReconcileWekaLocalStatus",
+					Reconcile: state.ReconcileWekaLocalStatus(),
+					Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+						func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+							subject := state.Subject
+							return !subject.IsServiceContainer() &&
+								!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, subject.Spec.Mode)
+						},
+					},
+				},
+				{
+					Condition: "DriverLoaderFinished",
+					Reconcile: state.DriverLoaderFinished(),
+					Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
+						func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
+							subject := state.Subject
+							return subject.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader
+						},
+					},
+				},
 			},
-			{
-				Condition: "EnsureFinalizer",
-				Reconcile: state.EnsureFinalizer(r.Client, WekaFinalizer),
-			},
-			{
-				Condition:             "DeleteContainer",
-				SkipOwnConditionCheck: true,
-				Reconcile:             state.DeleteContainer(r.Client, r.CrdManager, WekaFinalizer),
-			},
-		},
-	}
-	if err := setupSteps.Reconcile(ctx); err != nil {
-		var notFoundError *werrors.NotFoundError
-		if errors.As(err, &notFoundError) {
-			return ctrl.Result{}, nil
 		}
-
-		var retryableError *werrors.RetryableError
-		if errors.As(err, &retryableError) {
-			logger.Debug("Retryable error", "error", err)
-			return ctrl.Result{Requeue: true, RequeueAfter: retryableError.RetryAfter}, retryableError.Err
-		}
-
-		logger.Error(err, "Error reconciling container")
-		return ctrl.Result{}, err
-	}
-
-	subject := setupSteps.State.Subject
-
-	logger.SetAttributes(
-		attribute.String("container", subject.Name),
-		attribute.String("namespace", subject.Namespace),
-		attribute.String("mode", subject.Spec.Mode),
-		attribute.String("management_ip", subject.Status.ManagementIP),
-		attribute.String("uuid", string(subject.GetUID())),
-	)
-	if err := r.initState(ctx, subject); err != nil {
-		return ctrl.Result{}, err
-	}
-	logger.SetPhase("INIT_STATE")
-
-	containerService := services.NewWekaContainerService(r.Client, r.CrdManager, r.ExecService, subject)
-	wekaService := services.NewWekaService(r.ExecService, subject)
-
-	steps := &lifecycle.ReconciliationSteps[*wekav1alpha1.WekaContainer]{
-		Reconciler: r.Client,
-		State:      &state.ReconciliationState,
-		Steps: []lifecycle.Step[*wekav1alpha1.WekaContainer]{
-			{
-				Condition: "EnsureBootConfigMap",
-				Reconcile: state.EnsureBootConfigMap(r.Client, bootScriptConfigName),
-			},
-			{
-				Condition:             "EnsurePod",
-				SkipOwnConditionCheck: true,
-				Reconcile:             state.EnsurePod(r.Client, r.CrdManager, r.KubeService, r.Scheme),
-			},
-			{
-				Condition: "EnsureDriverLoader",
-				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
-					lifecycle.IsNotTrue[*wekav1alpha1.WekaContainer](condition.CondEnsureDrivers),
-				},
-				Reconcile: state.EnsureDriversLoader(containerService),
-			},
-			{
-				Condition: condition.CondEnsureDrivers,
-				Reconcile: state.EnsureDrivers(r.Client, wekaService),
-			},
-			{
-				Condition: "ReconcileManagementIP",
-				Reconcile: state.ReconcileManagementIP(containerService, logger),
-				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
-					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
-						subject := state.Subject
-						return !subject.IsServiceContainer()
-					},
-				},
-			},
-			{
-				Condition: "ReconcileWekaLocalStatus",
-				Reconcile: state.ReconcileWekaLocalStatus(containerService),
-				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
-					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
-						subject := state.Subject
-						return !subject.IsServiceContainer() &&
-							!slices.Contains([]string{wekav1alpha1.WekaContainerModeDriversLoader}, subject.Spec.Mode)
-					},
-				},
-			},
-			{
-				Condition: "DriverLoaderFinished",
-				Reconcile: state.DriverLoaderFinished(r.Client, containerService),
-				Predicates: []lifecycle.PredicateFunc[*wekav1alpha1.WekaContainer]{
-					func(state *lifecycle.ReconciliationState[*wekav1alpha1.WekaContainer]) bool {
-						subject := state.Subject
-						return subject.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader
-					},
-				},
-			},
-		},
+	} else {
+		steps = r.Steps
 	}
 	if err := steps.Reconcile(ctx); err != nil {
 		var retryableError *werrors.RetryableError
@@ -665,36 +643,6 @@ func (r *ContainerController) getDriveUUID(ctx context.Context, executor util.Ex
 	}
 	logger.InfoWithStatus(codes.Ok, "UUID found for drive")
 	return serial, nil
-}
-
-func (r *ContainerController) initState(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-	if container.Status.Conditions == nil {
-		container.Status.Conditions = []metav1.Condition{}
-	}
-
-	// All container types are being set to False on init
-	// This includes types not listed here (beyond dist and drivers-loader)
-	// TODO: Is this expected?
-	changes := false
-	if !container.DriversReady() && container.SupportsEnsureDriversCondition() {
-		changes = true
-		meta.SetStatusCondition(&container.Status.Conditions,
-			metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init", Reason: "Init"},
-		)
-	}
-
-	if container.Status.LastAppliedImage == "" {
-		container.Status.LastAppliedImage = container.Spec.Image
-		changes = true
-	}
-
-	if changes {
-		err := r.Status().Update(ctx, container)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor util.Exec, drive string) string {

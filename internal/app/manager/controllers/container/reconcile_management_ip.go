@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	werrors "github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -16,7 +15,7 @@ type ReconcileManagementIPError struct {
 	Container *wekav1alpha1.WekaContainer
 }
 
-func (state *ContainerState) ReconcileManagementIP(containerService services.WekaContainerService, parentLogger *instrumentation.SpanLogger) lifecycle.StepFunc {
+func (state *ContainerState) ReconcileManagementIP() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ReconcileManagementIP")
 		defer end()
@@ -29,6 +28,7 @@ func (state *ContainerState) ReconcileManagementIP(containerService services.Wek
 			}
 		}
 
+		containerService := state.NewContainerService()
 		if err := containerService.ReconcileManagementIP(ctx); err != nil {
 			return &ReconcileManagementIPError{
 				WrappedError: werrors.WrappedError{
@@ -39,7 +39,7 @@ func (state *ContainerState) ReconcileManagementIP(containerService services.Wek
 			}
 		}
 
-		parentLogger.SetAttributes(
+		state.Logger.SetAttributes(
 			attribute.String("management_ip", container.Status.ManagementIP),
 		)
 

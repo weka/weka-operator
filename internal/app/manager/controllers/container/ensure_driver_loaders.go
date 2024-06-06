@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 )
@@ -14,7 +13,7 @@ type EnsureDriversLoaderError struct {
 	Container *wekav1alpha1.WekaContainer
 }
 
-func (state *ContainerState) EnsureDriversLoader(containerServer services.WekaContainerService) lifecycle.StepFunc {
+func (state *ContainerState) EnsureDriversLoader() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		container := state.Subject
 		if container == nil {
@@ -25,6 +24,7 @@ func (state *ContainerState) EnsureDriversLoader(containerServer services.WekaCo
 			return nil
 		}
 
+		containerServer := state.GetWekaContainerService()
 		err := containerServer.EnsureDriversLoader(ctx)
 		if err != nil {
 			return &EnsureDriversLoaderError{

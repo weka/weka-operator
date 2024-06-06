@@ -6,11 +6,9 @@ import (
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ContainerJoinError struct {
@@ -21,7 +19,7 @@ func (e ContainerJoinError) Error() string {
 	return "error joining containers to cluster: " + e.Err.Error()
 }
 
-func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.WekaClusterService, client client.Client) lifecycle.StepFunc {
+func (state *ClusterState) ContainersJoinedCluster() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainersJoinedCluster")
 		defer end()
@@ -50,6 +48,7 @@ func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.W
 			} else {
 				if wekaCluster.Status.ClusterID == "" {
 					wekaCluster.Status.ClusterID = container.Status.ClusterID
+					client := state.Client
 					if err := client.Status().Update(ctx, wekaCluster); err != nil {
 						return &ContainerJoinError{Err: err}
 					}
@@ -64,6 +63,10 @@ func (state *ClusterState) ContainersJoinedCluster(wekaClusterService services.W
 			logger.SetPhase("CONTAINERS_JOINED_CLUSTER")
 		}
 
+		wekaClusterService, err := state.NewWekaClusterService()
+		if err != nil {
+			return &ContainerJoinError{Err: err}
+		}
 		if err := wekaClusterService.EnsureClusterContainerIds(ctx, containers); err != nil {
 			return &errors.RetryableError{
 				Err:        &ContainerJoinError{Err: err},

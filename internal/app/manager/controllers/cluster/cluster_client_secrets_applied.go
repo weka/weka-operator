@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 )
@@ -14,7 +13,7 @@ type ClientSecretApplicationError struct {
 	Cluster *wekav1alpha1.WekaCluster
 }
 
-func (state *ClusterState) ClusterClientSecretsApplied(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
+func (state *ClusterState) ClusterClientSecretsApplied() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		wekaCluster := state.Subject
 		if wekaCluster == nil {
@@ -29,6 +28,13 @@ func (state *ClusterState) ClusterClientSecretsApplied(wekaClusterService servic
 			return &errors.ArgumentError{ArgName: "Containers", Message: "Containers is empty"}
 		}
 
+		wekaClusterService, err := state.NewWekaClusterService()
+		if err != nil {
+			return &ClientSecretApplicationError{
+				WrappedError: errors.NewWrappedError(ctx, err),
+				Cluster:      wekaCluster,
+			}
+		}
 		if err := wekaClusterService.ApplyClientLoginCredentials(ctx, containers); err != nil {
 			return &ClientSecretApplicationError{
 				WrappedError: errors.WrappedError{Err: err},

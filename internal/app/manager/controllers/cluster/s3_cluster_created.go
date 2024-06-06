@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -18,7 +17,7 @@ func (e S3ClusterCreatedError) Error() string {
 	return "error creating S3 cluster: " + e.WrappedError.Error()
 }
 
-func (state *ClusterState) S3ClusterCreated(wekaClusterService services.WekaClusterService) lifecycle.StepFunc {
+func (state *ClusterState) S3ClusterCreated() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "S3ClusterCreated")
 		defer end()
@@ -40,6 +39,12 @@ func (state *ClusterState) S3ClusterCreated(wekaClusterService services.WekaClus
 		containers = selectS3Containers(containers)
 		if len(containers) == 0 {
 			return nil
+		}
+		wekaClusterService, err := state.NewWekaClusterService()
+		if err != nil {
+			return &S3ClusterCreatedError{
+				WrappedError: errors.NewWrappedError(ctx, err),
+			}
 		}
 		if err := wekaClusterService.EnsureS3Cluster(ctx, containers); err != nil {
 			return &S3ClusterCreatedError{

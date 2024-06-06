@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/lifecycle"
-	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	werrors "github.com/weka/weka-operator/internal/pkg/errors"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -15,7 +14,7 @@ type ReconcileWekaLocalStatusError struct {
 	Container *wekav1alpha1.WekaContainer
 }
 
-func (state *ContainerState) ReconcileWekaLocalStatus(containerService services.WekaContainerService) lifecycle.StepFunc {
+func (state *ContainerState) ReconcileWekaLocalStatus() lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "ReconcileWekaLocalStatus")
 		defer end()
@@ -28,6 +27,7 @@ func (state *ContainerState) ReconcileWekaLocalStatus(containerService services.
 			}
 		}
 
+		containerService := state.NewContainerService()
 		if err := containerService.ReconcileWekaLocalStatus(ctx); err != nil {
 			return &ReconcileWekaLocalStatusError{
 				WrappedError: werrors.WrappedError{
