@@ -175,7 +175,11 @@ UIO_PCI_GENERIC_DRIVER_VERSION = "5f49bb7dc1b5d192fb01b442b17ddc0451313ea2"
 DEFAULT_DEPENDENCY_VERSION = "1.0.0-024f0fdaa33ec66087bc6c5631b85819"
 
 IMAGE_NAME = os.environ.get("IMAGE_NAME")
-version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").split(":")[-1])
+DEFAULT_PARAMS = dict(
+    weka_drivers_handling=True,
+    uio_pci_generic=False,
+)
+version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").split(":")[-1], DEFAULT_PARAMS)
 assert version_params
 if ":4.2" in IMAGE_NAME:
     # 4.2 does not support graceful exit, so rotating images ungracefully
@@ -183,29 +187,50 @@ if ":4.2" in IMAGE_NAME:
     with open("/tmp/.allow-force-stop", 'w') as file:
         file.write('')
 
-async def load_drivers():
-    weka_driver_version = version_params.get('wekafs')
 
-    stdout, stderr, ec = await run_command(dedent(f"""
-        mkdir -p /opt/weka/dist/drivers
-        curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
-        curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
-        curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
-        lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko 
-        lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
-        lsmod | grep uio || modprobe uio
-        lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
+async def load_drivers():
+    if not version_params.get("weka_drivers_handling"):
+        # LEGACY MODE
+        weka_driver_version = version_params.get('wekafs')
+        cmd = dedent(f"""
+            mkdir -p /opt/weka/dist/drivers
+            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
+            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
+            curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+            curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+            {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
+            lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko 
+            lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
+            lsmod | grep uio || modprobe uio
+            lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+            lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+            {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
+            echo "drivers_loaded"  > /tmp/weka-drivers-loader
+        """)
+    else:
+        # list directory /opt/weka/dist/version
+        # assert single json file and take json filename
+        files = os.listdir("/opt/weka/dist/release")
+        assert len(files) == 1, Exception(f"More then one release found: {files}")
+        version = files[0].partition(".spec")[0]
+
+        cmd = dedent(f"""
+        weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}
+        echo drivers downloaded
+        weka driver install --without-agent --version {version}
+        echo drivers installed
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
-    """))
+            """)
+
+    logging.info(f"Loading drivers with command: {cmd}")
+    stdout, stderr, ec = await run_command(cmd)
     if ec != 0:  # It is fine to abort like this, as we expect to have all drivers to present on dist service already
         raise Exception(f"Failed to load drivers: {stderr}")
 
 
 async def copy_drivers():
+    if version_params.get("weka_drivers_handling"):
+        return
     weka_driver_version = \
         VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
             "wekafs"]
@@ -276,7 +301,7 @@ def find_full_cores(n):
 
 async def await_agent():
     start = time.time()
-    while start < time.time()-10:
+    while start < time.time() - 10:
         _, _, ec = await run_command("weka local ps")
         if ec == 0:
             logging.info("Weka-agent started successfully")
@@ -367,7 +392,7 @@ async def resolve_aws_net(device):
     nic = nics[int(idx)]
     mac = nic["mac_address"]
     ip = nic["private_ip"]
-    mask = "20" # TODO: Should not be hardcoded! This work in just one env.
+    mask = "20"  # TODO: Should not be hardcoded! This work in just one env.
     gw = "0.0.0.0"
     # gw = nic["gw"]
     net = f"'{mac}/{ip}/{mask}/{gw}'"
@@ -405,7 +430,7 @@ async def create_container():
         net_str = " ".join([f"--net {d}" for d in devices])
 
     command = dedent(f"""
-        weka local setup container --name {NAME} --no-start --disable \
+        weka local setup container --name {NAME} --no-start --disable\
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         {net_str}  --base-port {PORT} --memory {MEMORY} \
         {f"{join_secret_flag} {join_secret}" if join_secret else ""} \
@@ -466,6 +491,7 @@ async def ensure_weka_container():
     if MODE == "s3":
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
+    resources['excluded_drivers'] = ["igb_uio"]
 
     full_cores = find_full_cores(NUM_CORES)
     cores_cursor = 0
@@ -524,12 +550,27 @@ async def ensure_weka_version():
 async def configure_agent(agent_handle_drivers=False):
     logging.info(f"reconfiguring agent with handle_drivers={agent_handle_drivers}")
     ignore_driver_flag = "false" if agent_handle_drivers else "true"
+
+    drivers_handling_cmd = f"""
+    # Check if the last line contains the pattern
+    CONFFILE="/etc/wekaio/service.conf"
+    PATTERN="skip_driver_install"
+    if tail -n 1 "$CONFFILE" | grep -q "$PATTERN"; then
+        sed -i '$d' "$CONFFILE"
+    fi
+
+
+    sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
+    if ! grep -q "skip_driver_install" /etc/wekaio/service.conf; then
+        sed -i "/\[os\]/a skip_driver_install={ignore_driver_flag}" /etc/wekaio/service.conf
+    else
+        sed -i "s/skip_driver_install=.*/skip_driver_install={ignore_driver_flag}/g" /etc/wekaio/service.conf 
+    fi
+    """
+
     cmd = dedent(f"""
+        {drivers_handling_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
-
-        IGNORE_DRIVERS="{ignore_driver_flag}"
-
-        sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
     """)
@@ -552,12 +593,18 @@ async def override_dependencies_flag():
     logging.info("overriding dependencies flag")
     dep_version = version_params.get('dependencies', DEFAULT_DEPENDENCY_VERSION)
 
-    cmd = dedent(
-        f"""
-        mkdir -p /opt/weka/data/dependencies/{dep_version}/$(uname -r)/
-        touch /opt/weka/data/dependencies/{dep_version}/$(uname -r)/successful
-        """
-    )
+    if version_params.get("weka_drivers_handling"):
+        cmd = dedent("""
+        mkdir -p /opt/weka/data/dependencies
+        touch /opt/weka/data/dependencies/skip
+        """)
+    else:
+        cmd = dedent(
+            f"""
+            mkdir -p /opt/weka/data/dependencies/{dep_version}/$(uname -r)/
+            touch /opt/weka/data/dependencies/{dep_version}/$(uname -r)/successful
+            """
+        )
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to override dependencies flag: {stderr}")
@@ -649,8 +696,9 @@ async def main():
     await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
+    await override_dependencies_flag()
 
-    if MODE not in ["dist", "drivers-loader"]:
+    if MODE not in ["dist", "drivers-loader", "build"]:
         await ensure_drivers()
 
     if MODE == "dist":
@@ -659,7 +707,6 @@ async def main():
         await configure_agent(agent_handle_drivers=True)
         await ensure_daemon(agent_cmd, alias="agent")
         await await_agent()
-        await override_dependencies_flag()
         await ensure_dist_container()
         await configure_traces()
         await stop_daemon(processes.get("agent"))
@@ -669,6 +716,18 @@ async def main():
         await copy_drivers()
         await start_dist_container()
         await cleanup_traces_and_stop_dumper()
+        return
+
+    if MODE == "build":
+        logging.info("dist-build flow")
+        # await stop_daemon(processes.get("agent"))
+        # await configure_agent(agent_handle_drivers=True)
+        # await ensure_daemon(agent_cmd, alias="agent")
+        # await await_agent()
+        await override_dependencies_flag()
+        # await configure_traces()
+        # await cleanup_traces_and_stop_dumper()
+        await asyncio.sleep(600)  # giving 10 minutes for manual hacks until this actually works
         return
 
     await ensure_weka_container()

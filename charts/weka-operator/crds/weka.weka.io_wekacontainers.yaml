@@ -81,6 +81,7 @@ spec:
                 - drivers-loader
                 - discovery
                 - s3
+                - build
                 type: string
               name:
                 type: string

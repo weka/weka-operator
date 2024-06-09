@@ -557,7 +557,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	memRequest := "7000Mi"
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
+	if f.container.IsDriversContainer() {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
@@ -571,7 +571,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
 		managementMemory := 1965
 		perFrontendMemory := 2050
-		buffer := 450
+		buffer := 550
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores)
 	}
 

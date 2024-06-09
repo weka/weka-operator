@@ -28,6 +28,7 @@ const (
 	WekaContainerModeClient        = "client"
 	WekaContainerModeDiscovery     = "discovery"
 	WekaContainerModeS3            = "s3"
+	WekaContainerModeBuild         = "build"
 )
 
 type S3Params struct {
@@ -44,7 +45,7 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3;build
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -147,11 +148,11 @@ func (w *WekaContainer) InitEnsureDriversCondition() {
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeBuild}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeBuild}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsBackend() bool {
