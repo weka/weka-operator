@@ -239,6 +239,8 @@ func (c *Cluster) VerifyWekaCluster(t *testing.T) {
 		condition.CondDefaultFsCreated,
 		condition.CondClusterClientSecretsCreated,
 		condition.CondClusterClientSecretsApplied,
+		condition.CondClusterCSISecretsCreated,
+		condition.CondClusterCSISecretsApplied,
 	}
 	for _, cond := range conditions {
 		name := fmt.Sprintf("Condition %q", cond)

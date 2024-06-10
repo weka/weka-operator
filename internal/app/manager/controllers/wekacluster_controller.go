@@ -268,6 +268,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 				Reconcile: state.ClusterClientSecretsApplied(wekaClusterService),
 			},
+
+			{
+				Condition: condition.CondClusterCSISecretsCreated,
+				Reconcile: state.ClusterCSISecretsCreated(r.SecretsService, wekaClusterService),
+			},
+			{
+				Condition: condition.CondClusterCSISecretsApplied,
+				Reconcile: state.ClusterCSISecretsApplied(wekaClusterService, r.ExecService),
+			},
 		},
 	}
 	if err := steps.Reconcile(ctx); err != nil {
@@ -277,47 +286,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	// Note: All use of conditions is only as hints for skipping actions and a visibility, not strictly a state machine
 	// All code should be idempotent and not rely on conditions for correctness, hence validation of succesful update of conditions is not done
-	var containers []*wekav1alpha1.WekaContainer
-
-	containers, err = r.CrdManager.EnsureWekaContainers(ctx, wekaCluster)
-	if err != nil {
-		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
-		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	logger.SetPhase("CLUSTER_READY")
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterClientSecretsApplied) {
-		err := r.applyClientLoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterClientSecretsApplied, metav1.ConditionTrue, "Init", "Applied client secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCSISecretsCreated) {
-		err := r.SecretsService.EnsureCSILoginCredentials(ctx, wekaClusterService)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterCSISecretsCreated, metav1.ConditionTrue, "Init", "Created CSI secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCSISecretsApplied) {
-		err := r.applyCSILoginCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterCSISecretsApplied, metav1.ConditionTrue, "Init", "Applied CSI secrets")
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 
 	logger.SetPhase("CLUSTER_READY")
 
@@ -605,33 +573,6 @@ func (r *WekaClusterReconciler) SelectS3Containers(containers []*wekav1alpha1.We
 	return s3Containers
 }
 
-func (r *WekaClusterReconciler) SelectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
-	for _, container := range containers {
-		if container.Status.ClusterContainerID != nil {
-			return container
-		}
-	}
-	return nil
-}
-
-func (r *WekaClusterReconciler) applyClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyClientLoginCredentials")
-	defer end()
-
-	wekaClusterService := services.NewWekaClusterService(r.Manager, cluster)
-	container := r.SelectActiveContainer(containers)
-	username, password, err := wekaClusterService.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
-
-	wekaService := services.NewWekaService(r.ExecService, container)
-	err = wekaService.EnsureUser(ctx, username, password, "regular")
-	if err != nil {
-		logger.Error(err, "Failed to ensure user")
-		return err
-	}
-	logger.SetStatus(codes.Ok, "Client login credentials applied")
-	return nil
-}
-
 func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
 	defer end()
@@ -723,26 +664,5 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 		}
 	}
 
-	return nil
-}
-
-func (r *WekaClusterReconciler) applyCSILoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCSILoginCredentials")
-	defer end()
-
-	container := r.SelectActiveContainer(containers)
-	clusterService := services.NewWekaClusterService(r.Manager, cluster)
-	username, password, err := clusterService.GetUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
-	if err != nil {
-		return err
-	}
-
-	wekaService := services.NewWekaService(r.ExecService, container)
-	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
-	if err != nil {
-		logger.Error(err, "Failed to ensure user")
-		return err
-	}
-	logger.SetStatus(codes.Ok, "CSI login credentials applied")
 	return nil
 }
