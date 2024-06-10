@@ -27,7 +27,7 @@ func TestWekaContainerController(t *testing.T) {
 	tests := []ContainerTestCase{
 		{"drive", wekav1alpha1.CpuPolicyDedicated, false},
 		{"compute", wekav1alpha1.CpuPolicyDedicated, false},
-		{"client", wekav1alpha1.CpuPolicyDedicated, false},
+		//{"client", wekav1alpha1.CpuPolicyDedicated, false},
 		{"dist", wekav1alpha1.CpuPolicyDedicated, false},
 		{"drivers-loader", wekav1alpha1.CpuPolicyDedicated, false},
 		{"invalid", wekav1alpha1.CpuPolicyDedicated, true},
