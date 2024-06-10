@@ -111,10 +111,11 @@ var Topologies = map[string]topologyGetter{
 	"dev_wekabox": func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
 		return DevboxWekabox, nil
 	},
-	"discover_oci":         getOciDev,
-	"discover_aws_i3en6x":  getAwsI3en6x,
-	"aws_i3en6x_udp_bless": blessUdpi3en6x,
-	"aws_i3en6x_bless":     getAwsI3en6xBless,
+	"discover_oci":          getOciDev,
+	"discover_aws_i3en6x":   getAwsI3en6x,
+	"aws_i3en6x_udp_bless":  blessUdpi3en6x,
+	"aws_i3en6x_bless":      getAwsI3en6xBless,
+	"oci_bless_multitenant": OciBlessMultitenant,
 }
 
 func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
@@ -131,6 +132,23 @@ func getOciDev(ctx context.Context, reader client.Reader, nodeSelector map[strin
 		MaxCore:         31,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers: 2,
+	}, nil
+}
+
+func OciBlessMultitenant(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
+	// get nodes via reader
+	nodeNames, err := getNodeNames(ctx, reader)
+	if err != nil {
+		return Topology{}, err
+	}
+	return Topology{
+		Drives:          []string{"/dev/oracleoci/oraclevdb", "/dev/oracleoci/oraclevdc"},
+		Nodes:           nodeNames,
+		MinCore:         2, // TODO: How to determine, other then querying machines?
+		CoreStep:        2,
+		MaxCore:         31,
+		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers: 1,
 	}, nil
 }
 
