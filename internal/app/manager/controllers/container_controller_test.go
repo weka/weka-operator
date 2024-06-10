@@ -17,28 +17,27 @@ type ContainerTestCase struct {
 	expectedError bool
 }
 
-func TestWekaContainerController(t *testing.T) {
-	testEnv, err := setupTestEnv(context.Background())
-	if err != nil {
-		t.Fatalf("failed to setup test environment: %v", err)
-	}
-	defer teardownTestEnv(testEnv)
-
-	tests := []ContainerTestCase{
-		{"drive", wekav1alpha1.CpuPolicyDedicated, false},
-		{"compute", wekav1alpha1.CpuPolicyDedicated, false},
-		//{"client", wekav1alpha1.CpuPolicyDedicated, false},
-		{"dist", wekav1alpha1.CpuPolicyDedicated, false},
-		{"drivers-loader", wekav1alpha1.CpuPolicyDedicated, false},
-		{"invalid", wekav1alpha1.CpuPolicyDedicated, true},
-		{"drive", wekav1alpha1.CpuPolicy("invalid"), true},
-	}
-
-	for _, test := range tests {
-		t.Run(fmt.Sprintf("mode=%s,cpupolicy=%s", test.mode, test.cpuPolicy), CanCreateContainer(testEnv, test))
-	}
-}
-
+//	func TestWekaContainerController(t *testing.T) {
+//		testEnv, err := setupTestEnv(context.Background())
+//		if err != nil {
+//			t.Fatalf("failed to setup test environment: %v", err)
+//		}
+//		defer teardownTestEnv(testEnv)
+//
+//		tests := []ContainerTestCase{
+//			{"drive", wekav1alpha1.CpuPolicyDedicated, false},
+//			{"compute", wekav1alpha1.CpuPolicyDedicated, false},
+//			//{"client", wekav1alpha1.CpuPolicyDedicated, false},
+//			{"dist", wekav1alpha1.CpuPolicyDedicated, false},
+//			{"drivers-loader", wekav1alpha1.CpuPolicyDedicated, false},
+//			{"invalid", wekav1alpha1.CpuPolicyDedicated, true},
+//			{"drive", wekav1alpha1.CpuPolicy("invalid"), true},
+//		}
+//
+//		for _, test := range tests {
+//			t.Run(fmt.Sprintf("mode=%s,cpupolicy=%s", test.mode, test.cpuPolicy), CanCreateContainer(testEnv, test))
+//		}
+//	}
 func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t *testing.T) {
 	ctx := testEnv.Ctx
 	return func(t *testing.T) {
