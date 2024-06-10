@@ -84,6 +84,12 @@ See the [README](test/e2e/README.md) for more information.
 
 This project uses semantic release and GitHub Actions to automate releases.
 
+### Beta Releases
+
+Definition: Beta releases are releases stable enough for QA but not yet ready for customers.
+
+Beta releases are created by merging changes to the `release/v1-beta` branch.
+
 ### Creating a Release
 
 To create a new release, simply merge your changes to the `release/v0` branch.

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - release/v0
+      - release/v1-beta
 
 permissions:
   contents: write
