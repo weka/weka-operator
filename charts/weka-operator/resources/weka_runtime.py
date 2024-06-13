@@ -220,9 +220,10 @@ async def load_drivers():
 async def copy_drivers():
     if version_params.get("weka_drivers_handling"):
         return
-    weka_driver_version = \
-        VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])[
-            "wekafs"]
+
+    weka_driver_version = version_params.get('wekafs')
+    assert weka_driver_version
+
     stdout, stderr, ec = await run_command(dedent(f"""
       mkdir -p /opt/weka/dist/drivers 
       cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
