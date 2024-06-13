@@ -8,3 +8,4 @@ minikube 1.32.0
 eksctl 0.169.0
 krew 0.4.4
 packer 1.10.2
+terraform 1.8.5

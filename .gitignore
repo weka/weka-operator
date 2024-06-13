@@ -47,3 +47,6 @@ prog.bin
 .envrc.private
 .aider*
 .VERSION
+go.work*
+.envrc.private
+.vscode

@@ -6,7 +6,9 @@ IFS=$'\n\t'
 # Usage: ./script/bliss <subcommand> [args]
 # Subcommands:
 #   - create: Create an empty k8s cluster in AWS
+#     ex: `./script/bliss create --name my-cluster --machine-template aws_small --config-file config.json`
 #   - destroy: Destroy the k8s cluster in AWS
+#
 
 # Defaults
 REINSTALL=""
@@ -14,46 +16,58 @@ export GOPRIVATE="github.com/weka"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    create)
-      CMD=create
-      shift
-      ;;
-    destroy)
-      CMD=destroy
-      shift
-      ;;
-    info)
-      CMD=info
-      shift
-      ;;
-    -n | --name)
-      CLUSTER_NAME=$2
-      shift 2
-      ;;
-    -k | --key-pair-name)
-      KEY_PAIR_NAME=$2
-      shift 2
-      ;;
-    -u | --quay-username)
-      QUAY_USERNAME=$2
-      shift 2
-      ;;
-    -p | --quay-password)
-      QUAY_PASSWORD=$2
-      shift 2
-      ;;
-    --reinstall)
-      REINSTALL="--reinstall"
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    *)
-      echo "Unknown argument: $1"
-      exit 1
-      ;;
+  create)
+    CMD=create
+    shift
+    ;;
+  destroy)
+    CMD=destroy
+    shift
+    ;;
+  info)
+    CMD=info
+    shift
+    ;;
+  -n | --name)
+    CLUSTER_NAME=$2
+    shift 2
+    ;;
+  -k | --key-pair-name)
+    KEY_PAIR_NAME=$2
+    shift 2
+    ;;
+  -u | --quay-username)
+    QUAY_USERNAME=$2
+    shift 2
+    ;;
+  -p | --quay-password)
+    QUAY_PASSWORD=$2
+    shift 2
+    ;;
+  --reinstall)
+    REINSTALL="--reinstall"
+    shift
+    ;;
+  --machine-template)
+    MACHINE_TEMPLATE=$2
+    shift 2
+    ;;
+  --config-file)
+    CONFIG_FILE=$2
+    shift 2
+    ;;
+  --operator-version)
+    OPERATOR_VERSION=$2
+    shift 2
+    ;;
+  --)
+    shift
+    break
+    ;;
+  *)
+    echo "Unknown argument: $1"
+    exit 1
+    ;;
   esac
 done
 
@@ -77,37 +91,48 @@ function create() {
     exit 1
   fi
 
-  if [[ -z "${KEY_PAIR_NAME:-}" ]]; then
-    echo "Please provide a key pair name"
-    exit 1
-  fi
-
-  if [[ -z "${QUAY_USERNAME:-}" ]]; then
-    echo "Please provide a Quay username"
-    exit 1
-  fi
-
-  if [[ -z "${QUAY_PASSWORD:-}" ]]; then
-    echo "Please provide a Quay password"
-    exit 1
-  fi
-
   # Provision
   ## Verify cluster does not already exist
   (
     set +e
-    go run github.com/weka/jobless@v1.5.0 info --cluster-name "${CLUSTER_NAME}" >/dev/null 2>&1
+    go run github.com/weka/bliss@latest info --cluster-name "${CLUSTER_NAME}" >/dev/null 2>&1
 
     if [[ $? -ne 0 ]]; then
       echo "Provisioning cluster"
-      go run github.com/weka/jobless@v1.5.0 provision \
-        --template aws_small \
-        --subnet-id subnet-0f150b5aaadcd8505 \
-        --region eu-west-1 \
-        --security-groups sg-03b539095aedf3ab9 \
-        --ami-id ami-027429546b1b42b5a \
-        --key-pair-name "${KEY_PAIR_NAME}" \
+
+      args=(
         --cluster-name "${CLUSTER_NAME}"
+      )
+
+      if [[ -n "${MACHINE_TEMPLATE:-}" ]]; then
+        args+=(--template "${MACHINE_TEMPLATE}")
+      fi
+
+      if [[ -n "${SUBNET_ID:-}" ]]; then
+        args+=(--subnet-id "${SUBNET_ID}")
+      fi
+
+      if [[ -n "${REGION:-}" ]]; then
+        args+=(--region "${REGION}")
+      fi
+
+      if [[ -n "${SECURITY_GROUP_ID:-}" ]]; then
+        args+=(--security-groups "${SECURITY_GROUP_ID}")
+      fi
+
+      if [[ -n "${AMI_ID:-}" ]]; then
+        args+=(--ami-id "${AMI_ID}")
+      fi
+
+      if [[ -n "${KEY_PAIR_NAME:-}" ]]; then
+        args+=(--key-pair-name "${KEY_PAIR_NAME}")
+      fi
+
+      if [[ -n "${CONFIG_FILE:-}" ]]; then
+        args+=(--config-file "${CONFIG_FILE}")
+      fi
+
+      go run github.com/weka/bliss@latest provision "${args[@]}"
     else
       echo "Cluster already exists"
     fi
@@ -115,11 +140,11 @@ function create() {
 
   # Scale up to 6 nodes (5 backend + 1 builder)
   CURRENT_SIZE=$(
-    LOG_LEVEL=2 go run github.com/weka/jobless@v1.5.0 info --cluster-name "${CLUSTER_NAME}" --json | jq -r '.instances|length'
+    LOG_LEVEL=2 go run github.com/weka/bliss@latest info --cluster-name "${CLUSTER_NAME}" --json | jq -r '.node_groups[]|.instances|length'
   )
   if [[ "${CURRENT_SIZE}" -ne 6 ]]; then
     echo "Scaling up to 6 nodes"
-    go run github.com/weka/jobless@v1.5.0 expand \
+    go run github.com/weka/bliss@latest expand \
       --cluster-name "${CLUSTER_NAME}" --size 6 --node-group-name Backends
   else
     echo "Cluster already has 6 nodes"
@@ -129,16 +154,19 @@ function create() {
   echo "Installing k8s"
 
   INSTALL_JSON=$(
-    LOG_LEVEL=2 go run github.com/weka/jobless@v1.5.0 install \
+    LOG_LEVEL=2 go run github.com/weka/bliss@latest install \
       --cluster-name "${CLUSTER_NAME}" \
-      --no-weka-cluster \
-      --no-csi \
-      --skip-operator \
       --quay-username="${QUAY_USERNAME}" \
       --quay-password="${QUAY_PASSWORD}" \
-      "{$REINSTALL}" \
+      --no-weka-cluster \
+      --no-weka-client \
+      --no-operator \
+      --no-csi "{$REINSTALL}" \
       --json
   )
+
+  #--no-weka-cluster \
+  #--no-operator \
   KUBECONFIG=$(jq -r '.kube_config_path' <<<"${INSTALL_JSON}")
   echo "KUBECONFIG: ${KUBECONFIG}"
   export KUBECONFIG
@@ -156,7 +184,7 @@ function create() {
 
 function destroy() {
   echo "Destroying k8s cluster in AWS"
-  go run github.com/weka/jobless@v1.5.0 delete "${CLUSTER_NAME}"
+  go run github.com/weka/bliss@latest delete "${CLUSTER_NAME}"
 }
 
 # Get cluster info
@@ -170,7 +198,7 @@ function info() {
     ARGS=(--cluster-name "${CLUSTER_NAME}")
   fi
   ARGS+=("$@")
-  go run github.com/weka/jobless@v1.5.0 info "${ARGS[@]:-}"
+  go run github.com/weka/bliss@latest info "${ARGS[@]:-}"
 }
 
 $CMD "$@"
