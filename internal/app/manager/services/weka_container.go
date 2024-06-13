@@ -16,6 +16,7 @@ import (
 	"github.com/weka/weka-operator/util"
 
 	"go.opentelemetry.io/otel/codes"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,7 +33,7 @@ type WekaContainerService interface {
 
 func NewWekaContainerService(
 	client client.Client,
-	crdManager CrdManager,
+	crdManager RefreshPod,
 	execService ExecService,
 	container *wekav1alpha1.WekaContainer,
 ) WekaContainerService {
@@ -49,8 +50,12 @@ type wekaContainerService struct {
 	Container *wekav1alpha1.WekaContainer
 
 	Client      client.Client
-	CrdManager  CrdManager
+	CrdManager  RefreshPod
 	ExecService ExecService
+}
+
+type RefreshPod interface {
+	RefreshPod(ctx context.Context, container *wekav1alpha1.WekaContainer) (*v1.Pod, error)
 }
 
 // Errors ---------------------------------------------------------------------
