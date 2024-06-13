@@ -815,7 +815,7 @@ try:
         else:
             raise
     except Exception as e:
-        debug_sleep = int(os.environ.get("DEBUG_SLEEP", 3))
+        debug_sleep = int(os.environ.get("WEKA_OPERATOR_DEBUG_SLEEP", 3))
         logging.error(f"Error: {e}, sleeping for {debug_sleep} seconds to give a chance to debug")
         time.sleep(debug_sleep)
         raise

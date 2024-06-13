@@ -26,3 +26,4 @@ persistence:
       enabled: true
       interval: 5m
       retention: 72h
+debugSleep: 3

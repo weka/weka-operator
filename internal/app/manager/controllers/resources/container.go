@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,6 +95,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	tolerations := f.getTolerations()
+
+	debugSleep := os.Getenv("WEKA_OPERATOR_DEBUG_SLEEP")
+	if debugSleep == "" {
+		debugSleep = "3"
+	}
 
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
@@ -231,6 +237,10 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "IMAGE_NAME",
 							Value: image,
+						},
+						{
+							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
+							Value: debugSleep,
 						},
 					},
 				},
