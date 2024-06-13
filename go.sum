@@ -1,3 +1,5 @@
+github.com/Code-Hex/dd v1.1.0 h1:VEtTThnS9l7WhpKUIpdcWaf0B8Vp0LeeSEsxA1DZseI=
+github.com/Code-Hex/dd v1.1.0/go.mod h1:VaMyo/YjTJ3d4qm/bgtrUkT2w+aYwJ07Y7eCWyrJr1w=
 github.com/ant0ine/go-json-rest v3.3.2+incompatible h1:nBixrkLFiDNAW0hauKDLc8yJI6XfrQumWvytE1Hk14E=
 github.com/ant0ine/go-json-rest v3.3.2+incompatible/go.mod h1:q6aCt0GfU6LhpBsnZ/2U+mwe+0XB5WStbmwyoPfc+sk=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
@@ -127,6 +129,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
+github.com/thessem/zap-prettyconsole v0.5.2 h1:knusxXGhmkD5Ho+WiI4IzD16Dz9PEcOIKdK+uX4oTPA=
+github.com/thessem/zap-prettyconsole v0.5.2/go.mod h1:3qfsE7y+bLOq7EQ+fMZHD3HYEp24ULFf5nhLSx6rjrE=
 github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c h1:oJqUAJdXXOWLTHuVxJRGypIUxEhndEK18NfQnR4LZ2c=
 github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c/go.mod h1:kjA4Lij9vLauDwKo+3/n32gTHa7n6YyIVD/IzAOnRHA=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
