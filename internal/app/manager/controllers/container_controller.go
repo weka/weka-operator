@@ -429,7 +429,7 @@ func (r *ContainerController) reconcileWekaLocalStatus(ctx context.Context, cont
 
 	if len(response) == 0 {
 		logger.InfoWithStatus(codes.Error, fmt.Sprintf("Expected at least one container to be present, none found"))
-		return ctrl.Result{}, errors.New("expected exactly one container to be present")
+		return ctrl.Result{}, errors.New("expected at least one container to be present")
 	}
 
 	found := false
@@ -1199,7 +1199,9 @@ func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1
 		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
 		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
 		if err != nil {
-			return err
+			if !strings.Contains(err.Error(), "container not found") {
+				return err
+			}
 		}
 	}
 

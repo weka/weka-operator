@@ -13,8 +13,6 @@ spec:
       labels:
         name: debug-pod
     spec:
-      nodeSelector:
-        weka.io/role: backend
       containers:
         - name: debug-container
           image: ubuntu:22.04
@@ -23,6 +21,8 @@ spec:
               cpu: "0.1"
               memory: "100Mi"
           command: ["sleep", "99999999"]
+          securityContext:
+            privileged: true
       tolerations:
         # This toleration is to ensure the daemon set pods are scheduled on the master nodes as well
         - key: "node-role.kubernetes.io/master"

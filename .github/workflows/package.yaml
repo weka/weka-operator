@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - release/v0
+      - release/v1-beta
 
 permissions:
   contents: write
@@ -32,7 +33,6 @@ jobs:
         id: semrel
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          allow-initial-development-versions: true
           hooks: goreleaser
           update-file: charts/weka-operator/Chart.yaml
         env:

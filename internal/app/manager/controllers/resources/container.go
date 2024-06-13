@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,6 +95,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	tolerations := f.getTolerations()
+
+	debugSleep := os.Getenv("WEKA_OPERATOR_DEBUG_SLEEP")
+	if debugSleep == "" {
+		debugSleep = "3"
+	}
 
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
@@ -231,6 +237,10 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "IMAGE_NAME",
 							Value: image,
+						},
+						{
+							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
+							Value: debugSleep,
 						},
 					},
 				},
@@ -557,7 +567,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	memRequest := "7000Mi"
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDist, wekav1alpha1.WekaContainerModeDriversLoader}, f.container.Spec.Mode) {
+	if f.container.IsDriversContainer() {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
@@ -571,7 +581,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
 		managementMemory := 1965
 		perFrontendMemory := 2050
-		buffer := 450
+		buffer := 550
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores)
 	}
 

@@ -7,7 +7,7 @@ metadata:
     app: weka-driver-builder
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.3.2.560-842278e2dca9375f84bd3784a4e7515c-dev3
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist
