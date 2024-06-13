@@ -3,7 +3,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Usage: e2e_test.sh --suite <suite_name>
+# Usage: e2e_test.sh --suite <suite_name> [--timeout <timeout>]
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -11,6 +11,11 @@ while [[ $# -gt 0 ]]; do
   case $key in
     --suite)
       SUITE="$2"
+      shift
+      shift
+      ;;
+    --timeout)
+      TIMEOUT="$2"
       shift
       shift
       ;;
@@ -27,5 +32,10 @@ if [[ -z "${SUITE+x}" ]]; then
   exit 1
 fi
 
+# Defaults
+# Set default timeout
+TIMEOUT="${TIMEOUT:-20m}"
+
 # Run the test SUITE
-go test -v ./test/e2e -run "${SUITE}"
+set -x
+go test -v ./test/e2e -timeout "${TIMEOUT}" -run "^${SUITE}$" -count 1 -failfast

@@ -171,6 +171,7 @@ require (
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/spf13/cobra v1.8.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/thoas/go-funk v0.9.3 // indirect
 	github.com/weka/go-weka-observability v0.0.0-20240530195438-28e21558c88c // indirect
 	github.com/weka/jobless v0.0.0-20240612084031-99c9c12a7287 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
