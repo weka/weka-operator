@@ -82,7 +82,7 @@ CRD_TYPES = internal/pkg/api/v1alpha1/driveclaims_types.go \
 		internal/pkg/api/v1alpha1/tombstone_types.go \
 		internal/pkg/api/v1alpha1/wekacluster_types.go
 
-$(CRD): controller-gen $(CRD_TYPES)
+$(CRD): $(CRD_TYPES)
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
@@ -98,10 +98,10 @@ rbac: $(RBAC) ## Generate RBAC objects.
 	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
-manifests: controller-gen crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
@@ -115,22 +115,6 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: ## Run tests.
 	go test -v ./internal/... ./util/... -coverprofile cover.out
-
-.PHONY: test-functional
-test-functional: ## Run functional tests.
-ifndef RUN
-	$(error RUN is not set.  Please set RUN to the name of the test to run.  For example, make test-functional RUN=TestWekaCluster)
-endif
-	go test -v ./test/functional/... -coverprofile cover.out -failfast -run "^$(RUN)$$"
-
-.PHONY: test-e2e
-test-e2e: ## Run e2e tests.
-	pytest -v
-
-.PHONY: clean-e2e
-clean-e2e: ## Clean e2e tests.
-	- ./script/cleanup-testing.sh
-	- (cd ansible && ansible-playbook -i inventory.ini ./oci_clean.yaml)
 
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
 .PHONY: cluster-sample
@@ -243,17 +227,12 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 ## Tool Binaries
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.15.0
 
-.PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
-	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
