@@ -373,84 +373,82 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.IsDriversContainer() {
-		// adding mount of headers only for case of drivers-related container
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "libmodules",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/lib/modules",
+	if f.container.IsDriversBuilder() {
+		if f.container.IsCos() {
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "weka-boot-scripts",
+				MountPath: "/devenv.sh",
+				SubPath:   "devenv.sh",
+			})
+		}
+		if !f.container.IsOpenshift() {
+			// adding mount of headers only for case of drivers-related container
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "libmodules",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/lib/modules",
+					},
 				},
-			},
-		})
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "usrsrc",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/usr/src",
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "usrsrc",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/usr/src",
+					},
 				},
-			},
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "libmodules",
-			MountPath: "/lib/modules",
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "usrsrc",
-			MountPath: "/usr/src",
-		})
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "libmodules",
+				MountPath: "/lib/modules",
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "usrsrc",
+				MountPath: "/usr/src",
+			})
+		}
 	}
 
 	// for Dist container, if running on OCP / COS / other containerized OS
-	if f.container.IsDriversBuilder() && f.container.Spec.BuildkitImagePullSecret != "" {
-		// we need to add the buildkit image pull secret
-		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: f.container.Spec.BuildkitImagePullSecret,
-		})
-
-		// add info about the compatibility mode
-		// TODO: remove this once we have automatic buildkit image
-		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-			Name:  "COMPATIBILITY_MODE",
-			Value: "openshift",
-		})
-
+	if f.container.IsDriversBuilder() && f.container.IsOpenshift() {
+		if f.container.Spec.BuildkitImagePullSecret != "" {
+			// we need to add the buildkit image pull secret
+			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+				Name: f.container.Spec.BuildkitImagePullSecret,
+			})
+		}
 		// add ephemeral volume to share the buildkit container
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "shared-buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 
 		ContainerMountProp := corev1.MountPropagationHostToContainer
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "shared-buildkit", MountPath: "/buildkit", ReadOnly: false, MountPropagation: &ContainerMountProp})
 
-		BuildkitMountProp := corev1.MountPropagationBidirectional
-		pod.Spec.InitContainers = append(pod.Spec.InitContainers, corev1.Container{
+		initContainerCmds := make(map[string][]string)
+		initContainerCmds[wekav1alpha1.OsNameOpenshift] = []string{"/bin/sh", "-c",
+			"mkdir -p /shared-buildkit/lib; " +
+				"mkdir -p /shared-buildkit/usr; " +
+				"cp -RLrf /usr/src /shared-buildkit/usr; " +
+				"cp -RLrf /lib/modules /shared-buildkit/lib"}
+
+		cmd := initContainerCmds[wekav1alpha1.OsNameOpenshift]
+		mountProp := corev1.MountPropagationBidirectional
+		buildkitContainer := corev1.Container{
 			Name: "buildkit",
 			// TODO: update container image to automatic buildkit image
 			Image:         f.container.Spec.BuildkitImage,
-			Command:       []string{"/bin/sh", "-c", "mkdir -p /shared-buildkit/lib; mkdir -p /shared-buildkit/usr; cp -RLrf /usr/src /shared-buildkit/usr; cp -RLrf /lib/modules /shared-buildkit/lib"},
-			Args:          nil,
-			WorkingDir:    "",
-			Ports:         nil,
-			EnvFrom:       nil,
+			Command:       cmd,
 			Env:           pod.Spec.Containers[0].Env,
 			Resources:     corev1.ResourceRequirements{},
 			ResizePolicy:  nil,
 			RestartPolicy: nil,
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &BuildkitMountProp},
+				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &mountProp},
 			},
-			VolumeDevices:            nil,
-			LivenessProbe:            nil,
-			ReadinessProbe:           nil,
-			StartupProbe:             nil,
-			Lifecycle:                nil,
-			TerminationMessagePath:   "",
-			TerminationMessagePolicy: "",
-			ImagePullPolicy:          "",
-			SecurityContext:          pod.Spec.Containers[0].SecurityContext,
-			Stdin:                    false,
-			StdinOnce:                false,
-			TTY:                      false,
-		})
+			ImagePullPolicy: corev1.PullAlways,
+			SecurityContext: pod.Spec.Containers[0].SecurityContext,
+		}
+		pod.Spec.InitContainers = append(pod.Spec.InitContainers, buildkitContainer)
 	}
 
 	return pod, nil
