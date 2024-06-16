@@ -257,6 +257,7 @@ def expand_ranges(ranges_str):
             ranges.extend(list(range(start, end + 1)))
         else:
             ranges.append(int(part))
+    ranges = [x for x in ranges if x != 0]
     return ranges
 
 
