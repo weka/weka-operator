@@ -21,13 +21,18 @@ type WekaContainer struct {
 type WekaContainerMode string
 
 const (
-	WekaContainerModeDist          = "dist"
-	WekaContainerModeDriversLoader = "drivers-loader"
-	WekaContainerModeCompute       = "compute"
-	WekaContainerModeDrive         = "drive"
-	WekaContainerModeClient        = "client"
-	WekaContainerModeDiscovery     = "discovery"
-	WekaContainerModeS3            = "s3"
+	WekaContainerModeDist             = "dist"
+	WekaContainerModeDriversLoader    = "drivers-loader"
+	WekaContainerModeCompute          = "compute"
+	WekaContainerModeDrive            = "drive"
+	WekaContainerModeClient           = "client"
+	WekaContainerModeDiscovery        = "discovery"
+	WekaContainerModeS3               = "s3"
+	PersistentContainersLocation      = "/opt/k8s-weka/containers"
+	PersistentContainersLocationCos   = "/mnt/stateful_partition/k8s-weka/containers"
+	PersistentContainersLocationRhCos = "/root/k8s-weka/containers"
+	OsNameOpenshift                   = "rhcos"
+	OsNameCos                         = "cos"
 )
 
 type S3Params struct {
@@ -166,4 +171,25 @@ func (w *WekaContainer) IsBackend() bool {
 
 func (w *WekaContainer) IsDiscoveryContainer() bool {
 	return w.Spec.Mode == WekaContainerModeDiscovery
+}
+
+func (w *WekaContainer) GetOsDistro() string {
+	return w.Spec.OsDistro
+}
+
+func (w *WekaContainer) IsOpenshift() bool {
+	return w.Spec.OsDistro == OsNameOpenshift
+}
+
+func (w *WekaContainer) IsCos() bool {
+	return w.Spec.OsDistro == OsNameCos
+}
+
+func (w *WekaContainer) GetPersistentLocation() string {
+	if w.Spec.OsDistro == OsNameOpenshift {
+		return PersistentContainersLocationRhCos //TODO: check persistence for openshift
+	} else if w.Spec.OsDistro == OsNameCos {
+		return PersistentContainersLocationCos
+	}
+	return PersistentContainersLocation
 }

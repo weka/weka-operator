@@ -39,6 +39,8 @@ spec:
                 type: string
               node_affinity:
                 type: string
+              persistence_path:
+                type: string
             required:
             - cr_id
             - cr_type
