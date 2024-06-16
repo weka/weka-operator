@@ -111,6 +111,14 @@ spec:
                 type: integer
               numDrives:
                 type: integer
+              osBuildId:
+                type: string
+              osDistro:
+                enum:
+                - cos
+                - rhcos
+                - ""
+                type: string
               port:
                 type: integer
               s3Params:

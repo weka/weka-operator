@@ -230,6 +230,14 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							Name:  "IMAGE_NAME",
 							Value: image,
 						},
+						{
+							Name:  "OS_DISTRO",
+							Value: f.container.Spec.OsDistro,
+						},
+						{
+							Name:  "OS_BUILD_ID",
+							Value: f.container.Spec.OsBuildId,
+						},
 					},
 				},
 			},

@@ -24,6 +24,9 @@ type DiscoveryNodeInfo struct {
 	OsVersion        string `json:"os_version,omitempty"`
 	OsVersionId      string `json:"os_version_id,omitempty"`
 	KernelVersion    string `json:"kernel_version,omitempty"`
+	OpenShiftRelease string `json:"openshift_release,omitempty"`
+	OsName           string `json:"os_name,omitempty"`
+	OsBuildId        string `json:"os_build_id,omitempty"`
 }
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
