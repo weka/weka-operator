@@ -245,29 +245,38 @@ def read_siblings_list(cpu_index):
 
 
 async def get_host_info():
-    path = "/lib/os-release"
+    os_release_pathes = {
+        "rhcos": "/node-root/lib/os-release",
+        "cos": "/node-root/lib/os-release",
+        "ubuntu": "/node-root/etc/os-release",
+    }
     ret = dict()
 
-    try:
+    for os_release, path in os_release_pathes.items():
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            logging.info("This is not a " + os_release + " node")
+            continue
         with open(path) as file:
             for line in file:
                 if line.startswith("OPENSHIFT_VERSION="):
                     ret['kubernetes_flavor'] = "openshift"
+                elif line.startswith("NAME="):
+                    ret['os_name'] = line.split("=")[1].strip().replace('"', '')
                 elif line.startswith("ID="):
                     ret['os'] = line.split("=")[1].strip().replace('"', '')
                 elif line.startswith("VERSION_ID="):
                     ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
                 elif line.startswith("VERSION="):
                     ret['os_version'] = line.split("=")[1].strip().replace('"', '')
-    except FileNotFoundError:
-        logging.info("Not running on openshift node")
-    else:
-        logging.error("Failed to read os-release file")
-    stdout, stderr, ec = await run_command("uname -r")
-    if ec != 0:
-        raise Exception(f"Failed to get kernel version: {stderr}")
-    ret['kernel_version'] = stdout.decode('utf-8').strip()
-    return ret
+                elif line.startswith("BUILD_ID="):
+                    ret['kubernetes_flavor'] = "gke"
+                    ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
+
+        stdout, stderr, ec = await run_command("uname -r")
+        if ec != 0:
+            raise Exception(f"Failed to get kernel version: {stderr}")
+        ret['kernel_version'] = stdout.decode('utf-8').strip()
+        return ret
 
 
 @lru_cache
