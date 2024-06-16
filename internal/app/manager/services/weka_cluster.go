@@ -78,7 +78,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	logger.Info("Cluster created", "stdout", stdout.String(), "stderr", stderr.String())
 
 	// update cluster name
-	clusterName := r.Cluster.GetUID()
+	clusterName := r.Cluster.ObjectMeta.Name
 	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
 	logger.Debug("Updating cluster name")
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})

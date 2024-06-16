@@ -7,6 +7,7 @@ const (
 	CondClusterClientSecretsCreated = "ClusterClientsSecretsCreated"
 	CondClusterClientSecretsApplied = "ClusterClientsSecretsApplied"
 	CondClusterCSISecretsCreated    = "ClusterCSIsSecretsCreated"
+	WekaHomeConfigured              = "WekaHomeConfigured"
 	CondClusterCSISecretsApplied    = "ClusterCSIsSecretsApplied"
 	CondDefaultFsCreated            = "CondDefaultFsCreated"
 	CondS3ClusterCreated            = "CondS3ClusterCreated" //not pre-set on purpose, as optional

@@ -119,6 +119,8 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              wekaHomeEndpoint:
+                type: string
             required:
             - image
             - size
