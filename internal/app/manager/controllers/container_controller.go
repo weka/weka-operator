@@ -1120,9 +1120,10 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			Namespace: container.Namespace,
 		},
 		Spec: wekav1alpha1.TombstoneSpec{
-			CrType:       "WekaContainer",
-			CrId:         string(container.UID),
-			NodeAffinity: nodeAffinity,
+			CrType:          "WekaContainer",
+			CrId:            string(container.UID),
+			NodeAffinity:    nodeAffinity,
+			PersistencePath: container.GetPersistentLocation(),
 		},
 	}
 

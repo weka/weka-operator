@@ -245,6 +245,14 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
 						},
+						{
+							Name:  "OS_DISTRO",
+							Value: f.container.Spec.OsDistro,
+						},
+						{
+							Name:  "OS_BUILD_ID",
+							Value: f.container.Spec.OsBuildId,
+						},
 					},
 				},
 			},
