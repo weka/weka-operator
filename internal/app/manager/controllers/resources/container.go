@@ -40,8 +40,6 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-const PersistentContainersLocation = "/opt/k8s-weka/containers"
-
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -102,7 +100,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
+	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,

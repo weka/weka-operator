@@ -193,12 +193,12 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Command: []string{
 								"sh",
 								"-c",
-								"rm -rf " + fmt.Sprintf("%s/%s", resources.PersistentContainersLocation, tombstone.Spec.CrId),
+								"rm -rf " + fmt.Sprintf("%s/%s", tombstone.Spec.PersistencePath, tombstone.Spec.CrId),
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "weka-containers-persistency",
-									MountPath: resources.PersistentContainersLocation,
+									MountPath: tombstone.Spec.PersistencePath,
 								},
 							},
 						},
@@ -209,7 +209,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Name: "weka-containers-persistency",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: resources.PersistentContainersLocation,
+									Path: tombstone.Spec.PersistencePath,
 									Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 								},
 							},
