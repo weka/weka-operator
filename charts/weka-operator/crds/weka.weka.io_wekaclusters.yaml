@@ -53,6 +53,8 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              ipv6:
+                type: boolean
               nodeSelector:
                 additionalProperties:
                   type: string

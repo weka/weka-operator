@@ -68,6 +68,8 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              ipv6:
+                type: boolean
               joinIpPorts:
                 items:
                   type: string

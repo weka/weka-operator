@@ -67,6 +67,7 @@ type WekaContainerSpec struct {
 	S3Params            *S3Params            `json:"s3Params,omitempty"`
 	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
 	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
+	Ipv6                bool                 `json:"ipv6,omitempty"`
 }
 
 type Network struct {

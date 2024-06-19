@@ -46,9 +46,16 @@ func GetJoinIps(ctx context.Context, c client.Client, cluster *v1alpha1.WekaClus
 		if container.Status.ManagementIP == "" {
 			return nil, errors.New("Container missing management IP")
 		}
-		joinIpPortPairs = append(joinIpPortPairs, container.Status.ManagementIP+":"+strconv.Itoa(container.Spec.Port))
+		joinIpPortPairs = append(joinIpPortPairs, WrapIpv6Brackets(container.Status.ManagementIP)+":"+strconv.Itoa(container.Spec.Port))
 	}
 	return joinIpPortPairs, nil
+}
+
+func WrapIpv6Brackets(ip string) string {
+	if util.IsIpv6(ip) {
+		return "[" + ip + "]"
+	}
+	return ip
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha1.WekaCluster, mode string) []*v1alpha1.WekaContainer {

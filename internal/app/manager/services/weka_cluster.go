@@ -57,7 +57,11 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	var hostnamesList []string
 
 	for _, container := range containers {
-		hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
+		if container.Spec.Ipv6 {
+			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", container.Status.ManagementIP, container.Spec.Port))
+		} else {
+			hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.Spec.Port))
+		}
 		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
