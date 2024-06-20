@@ -6,15 +6,17 @@ import (
 	"os"
 	"testing"
 
-	"github.com/weka/jobless/pkg/jobless"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/test/e2e/fixtures"
 	"github.com/weka/weka-operator/test/e2e/services"
+	"github.com/weka/weka-operator/test/e2e/types"
 
 	"github.com/thoas/go-funk"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 type E2ETest struct {
@@ -31,34 +33,51 @@ type ClusterTest struct {
 	Cluster *fixtures.Cluster
 }
 
-func antonVPC() *jobless.AwsParams {
-	return &jobless.AwsParams{
+func antonVPC() *types.AwsParams {
+	return &types.AwsParams{
 		Region:         "eu-west-1",
 		VpcId:          "vpc-015c3fc68c903683b",
 		SubnetId:       "subnet-0f150b5aaadcd8505",
 		SecurityGroups: []string{"sg-03b539095aedf3ab9"},
 		AmiId:          "ami-027429546b1b42b5a",
-		KeyPairName:    "mpfefferle",
+		KeyPairName:    "dev-key",
 	}
 }
 
-func BlessIPv6VPC() *jobless.AwsParams {
-	return &jobless.AwsParams{
+func BlessIPv6VPC() *types.AwsParams {
+	return &types.AwsParams{
 		Region:         "eu-west-1",
 		VpcId:          "vpc-07af87826b3029e5a",
 		SubnetId:       "subnet-0ca396539bf9a7792",
 		SecurityGroups: []string{"sg-0a425e9600ad3cdd8"},
 		AmiId:          "ami-027429546b1b42b5a",
-		KeyPairName:    "mpfefferle",
+		KeyPairName:    "dev-key",
 	}
 }
 
 func TestHappyPath(t *testing.T) {
 	operatorTemplate := "small_s3"
-	provisionTemplate := "aws_small"
-	names := []string{"mbp-operator-e2e-1", "mbp-operator-e2e-2"}
+	provisionTemplate := "aws_small_udp"
+	clusterName := os.Getenv("CLUSTER_NAME")
+	if clusterName == "" {
+		t.Fatalf("Expected CLUSTER_NAME to be set")
+	}
+	names := []string{clusterName}
 	wekaClusterName := "cluster-dev"
 	operatorNamespace := "weka-operator-system"
+
+	operatorVersion := os.Getenv("OPERATOR_VERSION")
+	if operatorVersion == "" {
+		t.Fatalf("Expected OPERATOR_VERSION to be set")
+	}
+
+	wekaImage := os.Getenv("WEKA_IMAGE")
+	if wekaImage == "" {
+		t.Fatalf("Expected WEKA_IMAGE to be set")
+	}
+
+	logger := zap.New(zap.UseDevMode(true))
+	log.SetLogger(logger)
 
 	ctx := context.Background()
 	j := services.NewJobless(ctx)
@@ -72,78 +91,20 @@ func TestHappyPath(t *testing.T) {
 
 			Jobless: j,
 
-			ProvisionParams: &jobless.ProvisionParams{
+			ProvisionParams: &types.ProvisionParams{
 				ClusterName: name,
 				Template:    provisionTemplate,
 				// AwsParams:   *BlessIPv6VPC(),
 				AwsParams: *antonVPC(),
 			},
 
-			InstallParams: &jobless.InstallParams{
+			InstallParams: &types.InstallParams{
 				ClusterName:     name,
 				NoCsi:           true,
 				QuayUsername:    os.Getenv("QUAY_USERNAME"),
 				QuayPassword:    os.Getenv("QUAY_PASSWORD"),
-				WekaImage:       "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7",
-				OperatorVersion: "v1.0.0-beta.10",
-			},
-		}
-	}).([]*fixtures.Cluster)
-
-	clusterTests := funk.Map(clusters, func(cluster *fixtures.Cluster) *ClusterTest {
-		return &ClusterTest{
-			Ctx:     ctx,
-			Jobless: j,
-			Cluster: cluster,
-		}
-	}).([]*ClusterTest)
-
-	fixture := &E2ETest{
-		Ctx:     ctx,
-		Jobless: j,
-
-		Clusters: clusterTests,
-	}
-	t.Run("Test Environment", fixture.ValidateTestEnvironment)
-	t.Run("Provision", fixture.Provision)
-	t.Run("Install", fixture.Install)
-	t.Run("Validate Startup Completed", fixture.ValidateStartupCompleted)
-	t.Run("Cleanup", fixture.Cleanup)
-}
-
-func TestIPv6VPC(t *testing.T) {
-	t.Skip("Skipping IPv6 VPC test")
-	operatorTemplate := "small_s3"
-	provisionTemplate := "aws_small"
-	names := []string{"mbp-operator-e2e-1", "mbp-operator-e2e-2"}
-	wekaClusterName := "cluster-dev"
-	operatorNamespace := "weka-operator-system"
-
-	ctx := context.Background()
-	j := services.NewJobless(ctx)
-	clusters := funk.Map(names, func(name string) *fixtures.Cluster {
-		return &fixtures.Cluster{
-			Name:              name,
-			WekaClusterName:   wekaClusterName,
-			OperatorNamespace: operatorNamespace,
-			OperatorTemplate:  operatorTemplate,
-			ProvisionTemplate: provisionTemplate,
-
-			Jobless: j,
-
-			ProvisionParams: &jobless.ProvisionParams{
-				ClusterName: name,
-				Template:    provisionTemplate,
-				AwsParams:   *BlessIPv6VPC(),
-			},
-
-			InstallParams: &jobless.InstallParams{
-				ClusterName:     name,
-				NoCsi:           true,
-				QuayUsername:    os.Getenv("QUAY_USERNAME"),
-				QuayPassword:    os.Getenv("QUAY_PASSWORD"),
-				WekaImage:       "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7",
-				OperatorVersion: "v1.0.0-beta.10",
+				WekaImage:       wekaImage,
+				OperatorVersion: operatorVersion,
 			},
 		}
 	}).([]*fixtures.Cluster)
@@ -170,9 +131,9 @@ func TestIPv6VPC(t *testing.T) {
 }
 
 func (f *E2ETest) ValidateTestEnvironment(t *testing.T) {
-	os.Setenv("AWS_PROFILE", "devkube")
+	// os.Setenv("AWS_PROFILE", "devkube")
 
-	requiredEnvVars := []string{"QUAY_USERNAME", "QUAY_PASSWORD", "AWS_PROFILE"}
+	requiredEnvVars := []string{"QUAY_USERNAME", "QUAY_PASSWORD"}
 	for _, envVar := range requiredEnvVars {
 		name := fmt.Sprintf("Environment Variable: %s", envVar)
 		t.Run(name, func(t *testing.T) {
@@ -219,7 +180,15 @@ func (f *E2ETest) Install(t *testing.T) {
 		t.Run(cluster.Name, func(t *testing.T) {
 			params := cluster.InstallParams
 
-			installation, err := f.Jobless.Install(ctx, params)
+			var installation *services.Installation
+			var err error
+			for i := range 3 {
+				installation, err = f.Jobless.Install(ctx, params)
+				if err != nil {
+					t.Logf("Failed to install, retrying %d of 3: %v", i, err)
+					continue
+				}
+			}
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}

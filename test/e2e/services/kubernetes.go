@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,24 +17,20 @@ import (
 )
 
 type Kubernetes interface {
-	Setup(ctx context.Context) error
-	TearDown(ctx context.Context) error
-	StartEnvTest(ctx context.Context) (*rest.Config, error)
-
 	GetClient(ctx context.Context) (client.Client, error)
 }
 
-func NewKubernetes(jobless Jobless, clusterName string) Kubernetes {
+func NewKubernetes(jobless Jobless, clusterName string, kubeConfig string) Kubernetes {
 	environment := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
 		UseExistingCluster:    func(b bool) *bool { return &b }(true),
 	}
-
 	return &kubernetes{
-		Environment: environment,
 		Jobless:     jobless,
 		ClusterName: clusterName,
+		KubeConfig:  kubeConfig,
+		Environment: environment,
 	}
 }
 
@@ -67,11 +64,6 @@ func (e *KubernetesError) Error() string {
 }
 
 func (k *kubernetes) Setup(ctx context.Context) error {
-	// ctx, logger, done := instrumentation.GetLogSpan(ctx, "Setup")
-	// defer done()
-	// ctrl.SetLogger(logger.Logger)
-	// logf.SetLogger(logger.Logger)
-
 	kubebuilderRelease := "1.26.0"
 	kubebuilderOs := runtime.GOOS
 	kubebuilderArch := runtime.GOARCH
@@ -106,31 +98,33 @@ func (k *kubernetes) TearDown(ctx context.Context) error {
 }
 
 func (k *kubernetes) GetClient(ctx context.Context) (client.Client, error) {
-	if k.Client == nil {
-		cfg, err := k.StartEnvTest(ctx)
-		if err != nil {
-			return nil, &KubernetesError{
-				Message: "GetClient failed to start test environment",
-				Err:     err,
-			}
-		}
-
-		if err := wekav1alpha1.AddToScheme(scheme.Scheme); err != nil {
-			return nil, &KubernetesError{
-				Message: "failed to add scheme",
-				Err:     err,
-			}
-		}
-
-		c, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
-		if err != nil {
-			return nil, &KubernetesError{
-				Message: "GetClient failed to create client",
-				Err:     err,
-			}
-		}
-		k.Client = c
+	if k.Client != nil {
+		return k.Client, nil
 	}
+
+	cfg, err := k.StartEnvTest(ctx)
+	if err != nil {
+		return nil, &KubernetesError{
+			Message: "GetClient failed to start test environment",
+			Err:     err,
+		}
+	}
+
+	if err := wekav1alpha1.AddToScheme(scheme.Scheme); err != nil {
+		return nil, &KubernetesError{
+			Message: "failed to add scheme",
+			Err:     err,
+		}
+	}
+
+	c, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		return nil, &KubernetesError{
+			Message: "GetClient failed to create client",
+			Err:     err,
+		}
+	}
+	k.Client = c
 	return k.Client, nil
 }
 
@@ -176,8 +170,13 @@ func (k *kubernetes) ExportKubeConfig(ctx context.Context) error {
 
 func (k *kubernetes) GetKubeConfigPath(ctx context.Context) (string, error) {
 	if k.KubeConfig == "" {
+
+		if k.Jobless == nil {
+			return "", errors.New("GetKubeConfigPath failed: Jobless is nil")
+		}
+
 		clusterName := k.ClusterName
-		path, err := k.Jobless.GetKubeConfig(ctx, clusterName)
+		path, err := k.Jobless.GetKubeConfig(clusterName)
 		if err != nil {
 			return "", &KubernetesError{
 				Message: "GetKubeConfigPath failed",

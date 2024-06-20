@@ -79,7 +79,7 @@ CRD_TYPES = internal/pkg/api/v1alpha1/driveclaims_types.go \
 		internal/pkg/api/v1alpha1/tombstone_types.go \
 		internal/pkg/api/v1alpha1/wekacluster_types.go
 
-$(CRD): controller-gen $(CRD_TYPES)
+$(CRD): $(CRD_TYPES)
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
@@ -87,7 +87,7 @@ crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): controller-gen internal/app/manager/controllers/client_controller.go
+$(RBAC): internal/app/manager/controllers/client_controller.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
@@ -95,10 +95,10 @@ rbac: $(RBAC) ## Generate RBAC objects.
 	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
-manifests: controller-gen crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
@@ -235,17 +235,18 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 ## Tool Binaries
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+#CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.11.1
+CONTROLLER_TOOLS_VERSION ?= v0.15.0
 
-.PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
-	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+#.PHONY: controller-gen
+#controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
+#$(CONTROLLER_GEN): $(LOCALBIN)
+	#test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
+	#GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.

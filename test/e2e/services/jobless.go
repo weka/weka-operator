@@ -2,91 +2,279 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/weka/jobless/pkg/jobless"
+	"os"
+	"os/exec"
+	"path/filepath"
 )
 
-type Jobless interface {
-	EnsureDeployment(ctx context.Context, params jobless.ProvisionParams) (jobless.Deployment, error)
-	GetDeployment(ctx context.Context, clusterName string) (jobless.Deployment, error)
+type BlissRunError struct {
+	Err     error
+	Message string
+}
 
-	Install(ctx context.Context, installParams *jobless.InstallParams) (*jobless.Installation, error)
-	GetInstallation(ctx context.Context, installParams *jobless.InstallParams) *jobless.Installation
-	GetKubeConfig(ctx context.Context, clusterName string) (string, error)
+func (e *BlissRunError) Error() string {
+	return fmt.Sprintf("Jobless run error - %s: %v", e.Message, e.Err)
+}
 
-	Provision(ctx context.Context, provisionParams jobless.ProvisionParams) error
-	DeleteDeployment(ctx context.Context, clusterName string) error
+type DeploymentError struct {
+	Err       error
+	Arguments []string
+}
+
+func (e *DeploymentError) Error() string {
+	return fmt.Sprintf("Deployment error - %v: %v", e.Arguments, e.Err)
+}
+
+type InstallationError struct {
+	Err       error
+	Arguments []string
+}
+
+func (e *InstallationError) Error() string {
+	return fmt.Sprintf("Installation error - %v: %v", e.Arguments, e.Err)
 }
 
 func NewJobless(ctx context.Context) Jobless {
-	return &joblessImpl{
-		Jobless: jobless.NewJobless(ctx),
+	return &joblessGoRun{
+		KubeConfig: make(map[string]string),
 	}
 }
 
-type joblessImpl struct {
-	Jobless       jobless.Jobless
-	InstallParams *jobless.InstallParams
-}
+type (
+	joblessGoRun struct {
+		KubeConfig map[string]string
+	}
+)
 
-func (j *joblessImpl) EnsureDeployment(ctx context.Context, params jobless.ProvisionParams) (jobless.Deployment, error) {
-	clusterName := params.ClusterName
-	deployment, err := j.GetDeployment(ctx, clusterName)
-	var notFound *jobless.DeploymentNotFoundError
-	if errors.As(err, &notFound) {
-		if err := j.Provision(ctx, params); err != nil {
-			return nil, err
+func (j *joblessGoRun) EnsureDeployment(ctx context.Context, params ProvisionParams) (*Deployment, error) {
+	template := params.GetTemplate()
+	subnetID := params.GetSubnetID()
+	region := params.GetRegion()
+	securityGroups := params.GetSecurityGroups()
+	amiID := params.GetAmiID()
+	keyPairName := params.GetKeyPairName()
+	clusterName := params.GetClusterName()
+
+	// Skip if deployment already exists
+	deployment, err := GoRunBliss[Deployment]("info", "--cluster-name", clusterName)
+	if err == nil {
+		return deployment, nil
+	}
+
+	args := []string{"provision"}
+	args = append(args, "--template", template)
+	args = append(args, "--subnet-id", subnetID)
+	args = append(args, "--region", region)
+	for _, sg := range securityGroups {
+		args = append(args, "--security-groups", sg)
+	}
+	args = append(args, "--ami-id", amiID)
+	args = append(args, "--key-pair-name", keyPairName)
+	args = append(args, "--cluster-name", clusterName)
+
+	if params.IsDualStack() {
+		args = append(args, "--dual-stack")
+	}
+
+	_, err = GoRunBliss[Deployment](args...)
+	if err != nil {
+		return nil, &DeploymentError{
+			Err:       err,
+			Arguments: args,
 		}
-		return j.GetDeployment(ctx, clusterName)
 	}
+
+	deployment, err = GoRunBliss[Deployment]("info", "--cluster-name", clusterName)
+	if err != nil {
+		return nil, &DeploymentError{
+			Err:       err,
+			Arguments: args,
+		}
+	}
+
+	return deployment, nil
+}
+
+func (j *joblessGoRun) DeleteDeployment(ctx context.Context, clusterName string) error {
+	_, err := GoRunBliss[Deployment]("delete", clusterName)
+	if err != nil {
+		return &DeploymentError{
+			Err:       err,
+			Arguments: []string{"delete", "--cluster-name", clusterName},
+		}
+	}
+
+	return nil
+}
+
+func (j *joblessGoRun) Install(ctx context.Context, params InstallParams) (*Installation, error) {
+	clusterName := params.GetClusterName()
+	quayUsername := params.GetQuayUsername()
+	quayPassword := params.GetQuayPassword()
+	hasCsi := params.HasCsi()
+
+	args := []string{"install"}
+	args = append(args, "--cluster-name", clusterName)
+	args = append(args, "--quay-username", quayUsername)
+	args = append(args, "--quay-password", quayPassword)
+	if !hasCsi {
+		args = append(args, "--no-csi")
+	}
+
+	installation, err := GoRunBliss[Installation](args...)
+	if err != nil {
+		return nil, &InstallationError{
+			Err:       err,
+			Arguments: args,
+		}
+	}
+	return installation, nil
+}
+
+func (j *joblessGoRun) GetKubeConfig(clusterName string) (string, error) {
+	kubeconfig, ok := j.KubeConfig[clusterName]
+	if !ok {
+		return "", fmt.Errorf("kubeconfig not found for cluster %s", clusterName)
+	}
+	return kubeconfig, nil
+}
+
+func GoRunBliss[T any](args ...string) (*T, error) {
+	return GoRunBlissRemote[T](args...)
+	// return GoRunBlissDev[T](args...)
+}
+
+// GoRunBlissRemote runs bliss using the latest version of the jobless module
+// This uses the go module system to fetch the latest version of the jobless module
+func GoRunBlissRemote[T any](args ...string) (*T, error) {
+	module := "github.com/weka/bliss@latest"
+
+	// Run go run jobless/main.go
+	os.Setenv("AWS_REGION", "eu-west-1")
+	// os.Setenv("AWS_PROFILE", "devkube")
+
+	// Suppress debug logs, they interfere with the JSON parsing
+	os.Setenv("LOG_LEVEL", "2")
+
+	runArgs := append([]string{"run", module, "--json"}, args...)
+	cmd := exec.Command("go", runArgs...)
+
+	outputBytes, err := cmd.Output()
+	if err != nil {
+		var message string
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			message = fmt.Sprintf("failed to run bliss: %s", string(exitErr.Stderr))
+		} else {
+			message = "failed to run bliss"
+		}
+		return nil, &BlissRunError{
+			Err:     err,
+			Message: message,
+		}
+	}
+
+	if len(outputBytes) == 0 {
+		return nil, nil
+	}
+
+	result := new(T)
+	if err := json.Unmarshal(outputBytes, result); err != nil {
+		return nil, &BlissRunError{
+			Err:     err,
+			Message: fmt.Sprintf("failed to unmarshal output: %s", string(outputBytes)),
+		}
+	}
+	return result, nil
+}
+
+// GoRunBlissDev runs bliss using the local version of jobless
+// Jobless must be checked out into a directory next to the operator
+// (ie src/github.com/weka/jobless and src/github.com/weka/weka-operator)
+func GoRunBlissDev[T any](args ...string) (*T, error) {
+	pathToMainGo, workingDir, err := localGoRun()
 	if err != nil {
 		return nil, err
 	}
 
-	return deployment, err
-}
+	// Run go run jobless/main.go
+	os.Setenv("AWS_REGION", "eu-west-1")
+	// os.Setenv("AWS_PROFILE", "devkube")
 
-func (j *joblessImpl) Install(ctx context.Context, installParams *jobless.InstallParams) (*jobless.Installation, error) {
-	return j.Jobless.Install(ctx, *installParams)
-}
+	// Suppress debug logs, they interfere with the JSON parsing
+	os.Setenv("LOG_LEVEL", "2")
 
-func (j *joblessImpl) GetInstallation(ctx context.Context, installParams *jobless.InstallParams) *jobless.Installation {
-	j.InstallParams = installParams
-	return j.Jobless.Info().GetInstallation(ctx, *installParams)
-}
+	runArgs := append([]string{"run", pathToMainGo, "--json"}, args...)
+	cmd := exec.Command("go", runArgs...)
+	cmd.Dir = workingDir
 
-func (j *joblessImpl) GetKubeConfig(ctx context.Context, clusterName string) (string, error) {
-	if j.InstallParams == nil {
-		deployment, err := j.GetDeployment(ctx, clusterName)
-		if err != nil {
-			return "", fmt.Errorf("get kubeconfig - failed to get deployment: %w", err)
+	outputBytes, err := cmd.Output()
+	if err != nil {
+		var message string
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			message = fmt.Sprintf("failed to run bliss: %s", string(exitErr.Stderr))
+		} else {
+			message = "failed to run bliss"
 		}
-		awsDeployment, ok := deployment.(*jobless.AwsDeployment)
-		if !ok {
-			return "", fmt.Errorf("get kubeconfig - deployment is not an AWS deployment")
+		return nil, &BlissRunError{
+			Err:     err,
+			Message: message,
 		}
-		region := awsDeployment.Region
-
-		installParams, err := j.Jobless.Info().GetInstallParams(ctx, clusterName, region)
-		if err != nil {
-			return "", fmt.Errorf("get kubeconfig - failed to get install params: %w", err)
-		}
-		j.InstallParams = installParams
 	}
-	installation := j.GetInstallation(ctx, j.InstallParams)
-	return installation.KubeConfigPath, nil
+
+	if len(outputBytes) == 0 {
+		return nil, nil
+	}
+
+	result := new(T)
+	if err := json.Unmarshal(outputBytes, result); err != nil {
+		return nil, &BlissRunError{
+			Err:     err,
+			Message: fmt.Sprintf("failed to unmarshal output: %s", string(outputBytes)),
+		}
+	}
+	return result, nil
 }
 
-func (j *joblessImpl) GetDeployment(ctx context.Context, clusterName string) (jobless.Deployment, error) {
-	return j.Jobless.Info().GetDeployment(ctx, clusterName)
-}
+func localGoRun() (string, string, error) {
+	// Find bliss/main.go relative to current file
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", &BlissRunError{
+			Err:     err,
+			Message: "failed to get current working directory",
+		}
+	}
 
-func (j *joblessImpl) Provision(ctx context.Context, provisionParams jobless.ProvisionParams) error {
-	return j.Jobless.Provision(ctx, provisionParams)
-}
+	workingDir := filepath.Join(cwd, "..", "..", "..", "jobless")
+	workingDir, err = filepath.Abs(workingDir)
+	if err != nil {
+		return "", "", &BlissRunError{
+			Err:     err,
+			Message: "failed to get absolute path to jobless",
+		}
+	}
 
-func (j *joblessImpl) DeleteDeployment(ctx context.Context, clusterName string) error {
-	return j.Jobless.Delete(ctx, clusterName)
+	pathToMainGo := filepath.Join(workingDir, "main.go")
+	pathToMainGo, err = filepath.Abs(pathToMainGo)
+	if err != nil {
+		return "", "", &BlissRunError{
+			Err:     err,
+			Message: "failed to get absolute path to bliss/main.go",
+		}
+	}
+
+	_, err = os.Stat(pathToMainGo)
+	if err != nil {
+		return "", "", &BlissRunError{
+			Err:     err,
+			Message: "bliss/main.go not found",
+		}
+	}
+
+	return pathToMainGo, workingDir, nil
 }

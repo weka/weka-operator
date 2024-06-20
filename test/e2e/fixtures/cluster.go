@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weka/jobless/pkg/jobless"
 	"github.com/weka/weka-operator/test/e2e/services"
-	"k8s.io/apimachinery/pkg/types"
+	"github.com/weka/weka-operator/test/e2e/types"
+	ktypes "k8s.io/apimachinery/pkg/types"
 )
 
 type Cluster struct {
@@ -16,13 +16,12 @@ type Cluster struct {
 	OperatorTemplate  string
 	ProvisionTemplate string
 
-	Jobless services.Jobless
+	Jobless         services.Jobless
+	ProvisionParams *types.ProvisionParams
+	InstallParams   *types.InstallParams
 
-	ProvisionParams *jobless.ProvisionParams
-	InstallParams   *jobless.InstallParams
-
-	Deployment   jobless.Deployment
-	Installation *jobless.Installation
+	Deployment   *services.Deployment
+	Installation *services.Installation
 
 	Kubernetes services.Kubernetes
 }
@@ -39,22 +38,8 @@ func (e *ClusterError) Error() string {
 func (c *Cluster) SetupK8s(ctx context.Context) error {
 	clusterName := c.Name
 	jobless := c.Jobless
-	k8s := services.NewKubernetes(jobless, clusterName)
-	k8s.Setup(ctx)
-
-	client, err := k8s.GetClient(ctx)
-	if err != nil {
-		return &ClusterError{
-			Message: "failed to get client",
-			Err:     err,
-		}
-	}
-	if client == nil {
-		return &ClusterError{
-			Message: "expected client to be set, got nil",
-			Err:     nil,
-		}
-	}
+	kubeconfig := c.GetKubeConfig()
+	k8s := services.NewKubernetes(jobless, clusterName, kubeconfig)
 
 	c.Kubernetes = k8s
 
@@ -62,15 +47,14 @@ func (c *Cluster) SetupK8s(ctx context.Context) error {
 }
 
 func (c *Cluster) TeardownK8s(ctx context.Context) {
-	c.Kubernetes.TearDown(ctx)
 }
 
 func (c *Cluster) GetKubeConfig() string {
-	return ""
+	return c.Installation.KubeConfigPath
 }
 
-func (c *Cluster) NamespacedName() types.NamespacedName {
-	return types.NamespacedName{
+func (c *Cluster) NamespacedName() ktypes.NamespacedName {
+	return ktypes.NamespacedName{
 		Name:      c.WekaClusterName,
 		Namespace: c.OperatorNamespace,
 	}

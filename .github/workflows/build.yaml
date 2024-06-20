@@ -27,7 +27,7 @@ jobs:
           git config --global \
             url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf \
             https://github.com/
-      - run: go mod tidy
+
       - name: Setup envtest
         run: |
           make envtest

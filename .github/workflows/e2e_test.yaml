@@ -1,9 +1,26 @@
 ---
 name: End-to-End Test
 on:
-  push:
-    branches:
-      - mbp/jobless-e2e-go
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "The test suite to run"
+        required: true
+        default: "TestHappyPath"
+
+      operator-version:
+        description: "The operator version to test"
+        required: true
+        default: "v1.0.0-beta.28"
+
+      weka-image:
+        description: "The Weka image to use"
+        required: true
+        default: "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7"
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   e2e:
@@ -26,6 +43,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Add SSH key
+        run: |
+          mkdir -p /home/runner/.ssh
+          echo "${{ secrets.WEKA_DEV_SSH_KEY }}" > /home/runner/.ssh/github_actions
+          chmod 600 /home/runner/.ssh/github_actions
+          ssh-agent -a "${SSH_AUTH_SOCK}" > /dev/null
+          ssh-add /home/runner/.ssh/github_actions
+        env:
+          SSH_AUTH_SOCK: /home/runner/.ssh-agent.sock
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: eu-west-1
+          role-to-assume: arn:aws:iam::381492135989:role/OperatorE2ETesting
+
       - uses: actions/setup-go@v4
         with:
           go-version: "~1.22.3"
@@ -40,4 +72,20 @@ jobs:
 
       - name: Test
         run: |
-          ./script/e2e_test.sh --suite TestHappyPath
+          set -e
+          ssh-add -l
+          echo "Creating a new cluster"
+          echo "Suite: ${{ inputs.suite }}"
+          echo "Operator Version: ${{ inputs.operator-version }}"
+          echo "Weka Image: ${{ inputs.weka-image }}"
+
+          ./script/e2e_test.sh --suite "${{ inputs.suite }}"
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAYUSERNAME }}
+          QUAY_PASSWORD: ${{ secrets.QUAYPASSWORD }}
+          CLUSTER_NAME: operator-e2e-${{ github.run_id }}
+          KEY_PAIR_NAME: dev-key
+          LOG_LEVEL: "1"
+          SSH_AUTH_SOCK: /home/runner/.ssh-agent.sock
+          OPERATOR_VERSION: ${{ inputs.operator-version }}
+          WEKA_IMAGE: ${{ inputs.weka-image }}
