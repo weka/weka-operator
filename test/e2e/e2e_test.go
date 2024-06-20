@@ -85,7 +85,7 @@ func TestHappyPath(t *testing.T) {
 				QuayUsername:    os.Getenv("QUAY_USERNAME"),
 				QuayPassword:    os.Getenv("QUAY_PASSWORD"),
 				WekaImage:       "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7",
-				OperatorVersion: "v1.0.0-beta.8",
+				OperatorVersion: "v1.0.0-beta.10",
 			},
 		}
 	}).([]*fixtures.Cluster)
@@ -143,7 +143,7 @@ func TestIPv6VPC(t *testing.T) {
 				QuayUsername:    os.Getenv("QUAY_USERNAME"),
 				QuayPassword:    os.Getenv("QUAY_PASSWORD"),
 				WekaImage:       "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7",
-				OperatorVersion: "v1.0.0-beta.8",
+				OperatorVersion: "v1.0.0-beta.10",
 			},
 		}
 	}).([]*fixtures.Cluster)
