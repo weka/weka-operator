@@ -1,0 +1,36 @@
+---
+version: "3"
+
+tasks:
+  default:
+    cmds:
+      - task: generate
+      - task: vet
+      - task: tidy
+      - task: manifests
+      - task: fmt
+      - task: build
+
+  generate:
+    cmds:
+      - go generate ./...
+
+  vet:
+    cmds:
+      - go vet ./...
+
+  tidy:
+    cmds:
+      - go mod tidy
+
+  manifests:
+    cmds:
+      - make manifests
+
+  fmt:
+    cmds:
+      - go fmt ./...
+
+  build:
+    cmds:
+      - go build -o ./dist/manager ./cmd/manager

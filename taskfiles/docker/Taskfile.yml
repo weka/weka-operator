@@ -1,0 +1,22 @@
+---
+version: "3"
+
+tasks:
+  default:
+    cmds:
+      - docker buildx build {{ .COMBINED_ARGS }}
+
+    vars:
+      PLATFORM: "linux/amd64"
+      REGISTRY_ENDPOINT: "quay.io/weka.io"
+      VERSION: "latest"
+      IMAGE: "{{ .REGISTRY_ENDPOINT }}/weka-operator:{{ .VERSION }}"
+      TARGET: manager
+      DOCKERFILE: Dockerfile.release
+      PATH: .
+      COMBINED_ARGS: |
+        --platform {{ .PLATFORM }} \
+        -t {{ .IMAGE }} \
+        --target={{ .TARGET }} \
+        -f {{ .DOCKERFILE }} \
+        {{ .PATH }}

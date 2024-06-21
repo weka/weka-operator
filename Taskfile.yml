@@ -2,23 +2,20 @@
 # https://taskfile.dev
 version: "3"
 
-vars:
-  GREETING: Hello, World!
+includes:
+  build: ./taskfiles/build
+  docker: ./taskfiles/docker
+  release: ./taskfiles/release
 
 tasks:
   default:
-    deps:
-      - build
-
-  build:
     cmds:
-      - go build -o ./dist/manager ./cmd/manager
-    deps:
-      - generate
+      - task: build:default
 
-  generate:
+  release:
     cmds:
-      - go generate ./...
+      - task: build
+      - task: release:default
 
   test:
     cmds:
