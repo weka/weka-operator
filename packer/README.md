@@ -19,7 +19,9 @@ packer build packer-template.pkr.hcl
 The packer template natively supports the following regions:
 
 - `us-east-1`
+- `us-east-2`
 - `us-west-2`
+- `us-west-1`
 - `eu-west-1`
 
 No special action is required to build in these regions.
