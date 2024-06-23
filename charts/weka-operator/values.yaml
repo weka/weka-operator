@@ -20,6 +20,7 @@ enableClusterApi: false
 otelExporterOtlpEndpoint: ""
 maintenanceImage: busybox
 # -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
+wekaHomeEndpoint: https://api.home.weka.io
 persistence:
   containerTombstone:
     gc:

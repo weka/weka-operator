@@ -168,7 +168,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	WEKA_OPERATOR_WEKA_HOME_ENDPOINT=https://api.home.rnd.weka.io OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
@@ -208,7 +208,8 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
-		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317"
+		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
+		--set wekaHomeEndpoint="https://api.home.rnd.weka.io"
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

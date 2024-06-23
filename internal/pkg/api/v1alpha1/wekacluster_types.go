@@ -58,6 +58,8 @@ type WekaClusterSpec struct {
 	TracesConfiguration       *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations               []string             `json:"tolerations,omitempty"`
 	RawTolerations            []v1.Toleration      `json:"rawTolerations,omitempty"`
+	WekaHomeEndpoint          string               `json:"wekaHomeEndpoint,omitempty"`
+	Ipv6                      bool                 `json:"ipv6,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster

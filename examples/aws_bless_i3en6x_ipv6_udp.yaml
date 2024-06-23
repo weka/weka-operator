@@ -6,9 +6,10 @@ metadata:
 spec:
   size: 1
   template: small
+  ipv6: true
   imagePullSecret: "quay-io-robot-secret"
   topology: aws_i3en6x_udp_bless # to be removed in the future towards true discovery
-  image: quay.io/weka.io/weka-in-container:4.3.2.3531-be415b2eda62d972f429d34ab83cecb7-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.3700-55410acc5ce8d7e5193a440c0309cb92-dev
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
 ---
 apiVersion: weka.weka.io/v1alpha1
@@ -17,7 +18,7 @@ metadata:
   name: cluster-dev-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.3.2.3531-be415b2eda62d972f429d34ab83cecb7-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.3700-55410acc5ce8d7e5193a440c0309cb92-dev
   imagePullSecret: "quay-io-robot-secret"
   driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   port: 45001
@@ -39,7 +40,7 @@ metadata:
     app: weka-driver-builder
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.3.2.3531-be415b2eda62d972f429d34ab83cecb7-dev
+  image: quay.io/weka.io/weka-in-container:4.3.2.3700-55410acc5ce8d7e5193a440c0309cb92-dev
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist

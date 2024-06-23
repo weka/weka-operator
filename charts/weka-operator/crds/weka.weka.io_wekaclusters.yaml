@@ -53,6 +53,8 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              ipv6:
+                type: boolean
               nodeSelector:
                 additionalProperties:
                   type: string
@@ -119,6 +121,8 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              wekaHomeEndpoint:
+                type: string
             required:
             - image
             - size

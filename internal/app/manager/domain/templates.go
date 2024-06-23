@@ -187,9 +187,9 @@ func getAwsI3en6xBless(ctx context.Context, reader client.Reader, nodeSelector m
 		Nodes:                nodeNames,
 		MinCore:              2, // TODO: How to determine, other then querying machines?
 		CoreStep:             1,
-		MaxCore:              11,
+		MaxCore:              23,
 		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
-		MaxS3Containers:      1,
+		MaxS3Containers:      2,
 		NodeConfigMapPattern: "node-config-%s",
 	}, nil
 }
@@ -204,10 +204,10 @@ func blessUdpi3en6x(ctx context.Context, reader client.Reader, nodeSelector map[
 		Drives:          []string{"aws_0", "aws_1"}, // container-side discovery by slot num
 		Nodes:           nodeNames,
 		MinCore:         2, // TODO: How to determine, other then querying machines?
-		CoreStep:        1,
-		MaxCore:         11,
+		CoreStep:        2,
+		MaxCore:         23,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
-		MaxS3Containers: 1,
+		MaxS3Containers: 2,
 	}, nil
 }
 

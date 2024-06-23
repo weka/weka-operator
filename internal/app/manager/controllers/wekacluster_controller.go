@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -405,6 +406,18 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		}
 	}
 
+	if !(meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.WekaHomeConfigured)) {
+		err := r.configureWekaHome(wekaCluster, ctx, containers)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		err = r.SetCondition(ctx, wekaCluster, condition.WekaHomeConfigured, metav1.ConditionTrue, "Init", "Weka home is configured")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	logger.SetPhase("CLUSTER_READY")
 
 	err = r.HandleUpgrade(ctx, wekaCluster)
@@ -415,6 +428,39 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.WekaCluster, ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	// TODO:  ReDo to use False/True on conditions, depending on success
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "configureWekaHome")
+	defer end()
+
+	wekaHomeEndpoint := wekaCluster.Spec.WekaHomeEndpoint
+	if wekaHomeEndpoint == "" {
+		//get from env var instead
+		var isSet bool
+		wekaHomeEndpoint, isSet = os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENDPOINT")
+		if !isSet {
+			wekaHomeEndpoint = "https://api.home.weka.io"
+		}
+	}
+
+	if wekaHomeEndpoint == "" {
+		// if explicitly defined by helm chart empty value - skip setup, otherwise fail on it if WH not reachable/configurd incorrectly
+		return nil
+	}
+
+	driveContainer := wekaCluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	if driveContainer == nil {
+		return errors.New("No drive container found")
+	}
+
+	wekaService := services.NewWekaService(r.ExecService, driveContainer)
+	err := wekaService.SetWekaHome(ctx, wekaHomeEndpoint)
+	if err != nil {
+		return err
+	}
+	return err
 }
 
 func (r *WekaClusterReconciler) handleDeletion(ctx context.Context, clusterService services.WekaClusterService) error {

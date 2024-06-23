@@ -61,6 +61,7 @@ type WekaService interface {
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
+	SetWekaHome(ctx context.Context, endpoint string) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -86,6 +87,27 @@ type S3ClusterExists struct {
 type CliWekaService struct {
 	ExecService ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
+	defer end()
+
+	executor, err := c.GetExecutor(ctx)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s", endpoint)
+	_, stderr, err := executor.ExecNamed(ctx, "SetWekaHome", []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.SetError(err, "Failed to set WEKA_HOME", "stderr", stderr.String())
+		return err
+	}
+
+	return nil
+
 }
 
 func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) error {

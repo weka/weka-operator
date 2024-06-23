@@ -550,12 +550,15 @@ async def configure_agent(agent_handle_drivers=False):
     fi
 
 
-    sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
+    #TODO: once moving to 4.3+ only switch to ignore_driver_spec. Problem that 4.2 had it in different category
+    # and check by skip_driver_install is sort of abuse of not anymore existing flag to have something to validate by
     if ! grep -q "skip_driver_install" /etc/wekaio/service.conf; then
         sed -i "/\[os\]/a skip_driver_install={ignore_driver_flag}" /etc/wekaio/service.conf
+        sed -i "/\[os\]/a ignore_driver_spec={ignore_driver_flag}" /etc/wekaio/service.conf
     else
         sed -i "s/skip_driver_install=.*/skip_driver_install={ignore_driver_flag}/g" /etc/wekaio/service.conf 
     fi
+    sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
     """
 
     cmd = dedent(f"""
