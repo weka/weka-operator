@@ -176,6 +176,13 @@ if ":4.2" in IMAGE_NAME:
     with open("/tmp/.allow-force-stop", 'w') as file:
         file.write('')
 
+# Implement the rest of your logic here
+import asyncio
+import os
+import signal
+
+loop = asyncio.get_event_loop()
+
 
 async def load_drivers():
     if not version_params.get("weka_drivers_handling"):
@@ -291,25 +298,75 @@ def find_full_cores(n):
 
 async def await_agent():
     start = time.time()
-    while start < time.time() - 10:
+    agent_timeout = 60
+    while start + agent_timeout > time.time():
         _, _, ec = await run_command("weka local ps")
         if ec == 0:
             logging.info("Weka-agent started successfully")
-            break
+            return
         await asyncio.sleep(0.3)
         logging.info("Waiting for weka-agent to start")
-    logging.info("agent started")
+    raise Exception(f"Agent did not come up in {agent_timeout} seconds")
 
-
-# Implement the rest of your logic here
-import asyncio
-import os
-import signal
 
 processes = {}
 
 
-async def ensure_daemon(command, alias=""):
+class Daemon:
+    def __init__(self, cmd, alias):
+        self.cmd = cmd
+        self.alias = alias
+        self.process = None
+        self.task = None
+
+    async def start(self):
+        logging.info(f"Starting daemon {self.alias} with cmd {self.cmd}")
+        self.task = asyncio.create_task(self.monitor())
+        return self.task
+
+    async def start_process(self):
+        logging.info(f"Starting process {self.cmd} for daemon {self.alias}")
+        self.process = await start_process(self.cmd, self.alias)
+        logging.info(f"Started process {self.cmd} for daemon {self.alias}")
+
+    async def stop(self):
+        logging.info(f"Stopping daemon {self.alias}")
+        if self.task:
+            self.task.cancel()
+            await self.task
+        await self.stop_process()
+
+    async def stop_process(self):
+        logging.info(f"Stopping process for daemon {self.alias}")
+        if self.process:
+            await stop_process(self.process)
+            self.process = None
+            logging.info(f"Stopped process for daemon {self.alias}")
+        logging.info(f"No process found to stop")
+
+    async def monitor(self):
+        async def with_pause():
+            await asyncio.sleep(3)
+
+        while True:
+            if self.process:
+                if self.is_running():
+                    await with_pause()
+                    continue
+                else:
+                    logging.info(f"Daemon {self.alias} is not running")
+                    await self.stop_process()
+            await self.start_process()
+
+    def is_running(self):
+        if self.process is None:
+            return False
+        running = self.process.returncode is None
+        return running
+
+
+
+async def start_process(command, alias=""):
     """Start a daemon process."""
     # TODO: Check if already exists, not really needed unless actually adding recovery flow
     # TODO: Logs are basically thrown away into stdout . wrap agent logs as debug on logging level
@@ -322,9 +379,10 @@ async def ensure_daemon(command, alias=""):
     return process
 
 
-async def run_command(command, capture_stdout=True):
+async def run_command(command, capture_stdout=True, log_execution=True):
     # TODO: Wrap stdout of commands via INFO via logging
-    logging.info("Running command: " + command)
+    if log_execution:
+        logging.info("Running command: " + command)
     if capture_stdout:
         pipe = asyncio.subprocess.PIPE
     else:
@@ -333,7 +391,8 @@ async def run_command(command, capture_stdout=True):
                                                     stdout=pipe,
                                                     stderr=pipe)
     stdout, stderr = await process.communicate()
-    logging.info(f"Command {command} finished with code {process.returncode}")
+    if log_execution:
+        logging.info(f"Command {command} finished with code {process.returncode}")
     if stdout:
         logging.info(f"Command {command} stdout: {stdout.decode('utf-8')}")
     if stderr:
@@ -342,7 +401,7 @@ async def run_command(command, capture_stdout=True):
 
 
 async def run_logrotate():
-    stdout, stderr, ec = await run_command("logrotate /etc/logrotate.conf")
+    stdout, stderr, ec = await run_command("logrotate /etc/logrotate.conf", log_execution=False)
     if ec != 0:
         raise Exception(f"Failed to run logrotate: {stderr}")
 
@@ -365,9 +424,6 @@ async def periodic_logrotate():
         await write_logrotate_config()
         await run_logrotate()
         await asyncio.sleep(60)
-
-
-loop = asyncio.get_event_loop()
 
 
 async def resolve_aws_net(device):
@@ -621,11 +677,12 @@ async def ensure_dist_container():
 
 async def start_dist_container():
     logging.info("starting dist container")
-    cmd = "weka local start"
     # stdout, stderr, ec = await run_command(cmd)
     # if ec != 0:
     #     raise Exception(f"Failed to start dist container: {stderr}")
-    await ensure_daemon(
+    # ! start_process is deprecated and this is the only place that uses it
+    # TODO: Revalidate if it needed or can be simple run_command(As it should be)
+    await start_process(
         "weka local start")  # weka local start is not returning, so we need to daemonize it, this is a hack that needs to go away
     # reason of being stuck: agent tries to authenticate using admin:admin into this stem container, for not known reason
     logging.info("dist container started")
@@ -661,6 +718,15 @@ async def cleanup_traces_and_stop_dumper():
         logging.error(f"Failed to cleanup traces: {stderr}")
 
 
+def get_agent_cmd():
+    return f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
+
+
+daemons = {
+
+}
+
+
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
@@ -683,11 +749,14 @@ async def main():
     await configure_persistency()
     # TODO: Configure agent
     await configure_agent()
-    await ensure_daemon(f"/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf")
+    syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
+    await syslog.start()
 
-    agent_cmd = f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
-    await ensure_daemon(agent_cmd, alias="agent")
+    agent_cmd = get_agent_cmd()
+    agent = Daemon(agent_cmd, "agent")
+    await agent.start()
     await await_agent()
+
     await ensure_weka_version()
     await override_dependencies_flag()
 
@@ -696,15 +765,15 @@ async def main():
 
     if MODE == "dist":
         logging.info("dist-service flow")
-        await stop_daemon(processes.get("agent"))
+        await agent.stop()
         await configure_agent(agent_handle_drivers=True)
-        await ensure_daemon(agent_cmd, alias="agent")
+        await agent.start()
         await await_agent()
         await ensure_dist_container()
         await configure_traces()
-        await stop_daemon(processes.get("agent"))
+        await agent.stop()
         await configure_agent(agent_handle_drivers=False)
-        await ensure_daemon(agent_cmd, alias="agent")
+        await agent.start()
         await await_agent()
         await copy_drivers()
         await start_dist_container()
@@ -728,7 +797,7 @@ async def main():
     await start_weka_container()
 
 
-async def stop_daemon(process):
+async def stop_process(process):
     logging.info(f"stopping daemon with pid {process.pid} (via process group), {process}")
 
     async def cleanup_process():
@@ -764,7 +833,7 @@ async def shutdown():
 
     for key, process in dict(processes.items()).items():
         logging.info(f"stopping process {process.pid}, {key}")
-        await stop_daemon(process)
+        await stop_process(process)
         logging.info(f"process {process.pid} stopped")
 
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task(loop)]
