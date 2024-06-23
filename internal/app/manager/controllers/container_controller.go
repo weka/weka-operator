@@ -174,6 +174,32 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	// reset drivers condition if pod started after last transition time. Basically every restart will cause re-go after this
+	// and considering it is every restart, we might/should for simpler solution here and recognize re-build at more appropriate place
+	// another option, where this code suits better - fetch node status and compare its uptime to when condition was set
+	if meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
+		for _, containerStatus := range actualPod.Status.ContainerStatuses {
+			if containerStatus.Name == "weka-container" && containerStatus.State.Running != nil {
+				for _, cond := range container.Status.Conditions {
+					if cond.Type == condition.CondEnsureDrivers {
+						if containerStatus.State.Running.StartedAt.After(cond.LastTransitionTime.Time) {
+							meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+								Type:   condition.CondEnsureDrivers,
+								Status: metav1.ConditionUnknown, Reason: "Reset", Message: "Drivers are not ensured",
+							})
+							err := r.Status().Update(ctx, container)
+							if err != nil {
+								logger.Error(err, "Error updating status for drivers ensured")
+								return ctrl.Result{}, err
+							}
+							logger.SetPhase("DRIVERS_RESET")
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) &&
 		!container.IsServiceContainer() {
 		err := r.reconcileDriversStatus(ctx, container, actualPod)
