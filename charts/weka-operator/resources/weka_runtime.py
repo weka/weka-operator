@@ -333,7 +333,10 @@ class Daemon:
         logging.info(f"Stopping daemon {self.alias}")
         if self.task:
             self.task.cancel()
-            await self.task
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
         await self.stop_process()
 
     async def stop_process(self):
