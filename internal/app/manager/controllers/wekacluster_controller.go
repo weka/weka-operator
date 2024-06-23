@@ -975,6 +975,21 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 		if err != nil {
 			return err
 		}
+		// before upgrade, if if all drive nodes are still in old version - invoke upgrade prepare commands
+		prepareForUpgrade := true
+		for _, container := range driveContainers {
+			//i.e if any container already on new target version - we should not prepare for drive phase
+			if container.Spec.Image == cluster.Spec.Image {
+				prepareForUpgrade = false
+			}
+		}
+		if prepareForUpgrade {
+			err := r.prepareForUpgradeDrives(ctx, driveContainers, cluster.Spec.Image)
+			if err != nil {
+				return err
+			}
+		}
+
 		err = allAtOnceUpgrade(driveContainers)
 		if err != nil {
 			return err
@@ -984,6 +999,21 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 		if err != nil {
 			return err
 		}
+
+		prepareForUpgrade = true
+		// if any compute container changed version - do not prepare for compute
+		for _, container := range computeContainers {
+			if container.Spec.Image == cluster.Spec.Image {
+				prepareForUpgrade = false
+			}
+		}
+		if prepareForUpgrade {
+			err := r.prepareForUpgradeCompute(ctx, computeContainers, cluster.Spec.Image)
+			if err != nil {
+				return err
+			}
+		}
+
 		err = allAtOnceUpgrade(computeContainers)
 		if err != nil {
 			return err
@@ -993,7 +1023,25 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 		if err != nil {
 			return err
 		}
+		prepareForUpgrade = true
+		// if any s3 container changed version - do not prepare for s3
+		for _, container := range s3Containers {
+			if container.Spec.Image == cluster.Spec.Image {
+				prepareForUpgrade = false
+			}
+		}
+		if prepareForUpgrade {
+			err := r.prepareForUpgradeS3(ctx, s3Containers, cluster.Spec.Image)
+			if err != nil {
+				return err
+			}
+		}
 		err = rollingUpgrade(s3Containers)
+
+		err = r.finalizeUpgrade(ctx, driveContainers)
+		if err != nil {
+			return err
+		}
 
 		cluster.Status.LastAppliedImage = cluster.Spec.Image
 		if err := r.Status().Update(ctx, cluster); err != nil {
@@ -1020,4 +1068,102 @@ func (r *WekaClusterReconciler) applyCSILoginCredentials(ctx context.Context, cl
 	logger.SetStatus(codes.Ok, "CSI login credentials applied")
 	return nil
 
+}
+
+func (r *WekaClusterReconciler) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")
+	defer end()
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return nil
+	}
+
+	cmd := `
+wekaauthcli debug jrpc prepare_leader_for_upgrade
+wekaauthcli debug override add --key host_drain_by_chunks
+wekaauthcli debug override add --key host_skip_unremovable_check
+wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
+`
+
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeDrives", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
+	}
+
+	return nil
+}
+
+func (r *WekaClusterReconciler) prepareForUpgradeCompute(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeCompute")
+	defer end()
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return nil
+	}
+
+	cmd := `
+wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli debug jrpc upgrade_phase_start target_phase_type=ComputeRollingPhase target_version_name=` + targetVersion + `
+`
+
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeCompute", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
+	}
+
+	return nil
+}
+
+func (r *WekaClusterReconciler) prepareForUpgradeS3(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeS3")
+	defer end()
+
+	if len(containers) == 0 {
+		logger.Info("No S3 containers found to ugprade")
+		return nil
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return nil
+	}
+
+	cmd := `
+wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli debug jrpc upgrade_phase_start target_phase_type=FrontendPhase target_version_name=` + targetVersion + `
+`
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeS3", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to prepare for upgrade: %s", stderr.String())
+	}
+
+	return nil
+}
+
+func (r *WekaClusterReconciler) finalizeUpgrade(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeUpgrade")
+	defer end()
+
+	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	if err != nil {
+		logger.Error(err, "Failed to create executor")
+		return nil
+	}
+
+	cmd := `
+wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli debug jrpc unprepare_leader_for_upgrade
+wekaauthcli debug override remove --key host_drain_by_chunks
+wekaauthcli debug override remove --key host_skip_unremovable_check
+`
+	stdout, stderr, err := executor.ExecNamed(ctx, "FinalizeUpgrade", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to finalize upgrade: STDERR: %s \n STDOUT:%s ", stderr.String(), stdout.String())
+	}
+	return nil
 }
