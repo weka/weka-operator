@@ -19,6 +19,8 @@ AGENT_PORT = os.environ.get("AGENT_PORT", "")
 MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
+OS_DISTRO = os.environ.get("OS_DISTRO")
+OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
 
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
@@ -43,6 +45,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
     handlers=[stdout_handler, stderr_handler]
 )
+
+
+def is_google_cos():
+    return OS_DISTRO == "cos"
+
+
+def is_rhcos():
+    return OS_DISTRO == "rhcos"
+
+
+def should_build_externally():
+    return is_google_cos()
 
 
 def wait_for_syslog():
