@@ -380,8 +380,33 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 				MountPath: "/devenv.sh",
 				SubPath:   "devenv.sh",
 			})
-		}
-		if !f.container.IsOpenshift() {
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "proc-sysrq-trigger",
+				MountPath: "/proc-sysrq-trigger",
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "proc-cmdline",
+				MountPath: "/proc-cmdline",
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "proc-sysrq-trigger",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/sysrq-trigger",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
+				},
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "proc-cmdline",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/cmdline",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
+				},
+			})
+		} else if !f.container.IsOpenshift() {
 			// adding mount of headers only for case of drivers-related container
 			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 				Name: "libmodules",
