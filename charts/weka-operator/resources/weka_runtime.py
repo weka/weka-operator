@@ -674,6 +674,71 @@ async def cleanup_traces_and_stop_dumper():
         logging.error(f"Failed to cleanup traces: {stderr}")
 
 
+def cos_reboot_machine():
+    logging.warning("Rebooting the host")
+    os.system("echo b > /proc-sysrq-trigger")
+
+
+async def is_secure_boot_enabled():
+    stdout, stderr, ec = await run_command("dmesg")
+    return "Secure boot enabled" in stdout.decode('utf-8')
+
+
+async def cos_configure_kernel():
+    logging.info("Checking if third party kernel modules can be installed")
+    esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
+    mount_path = "/tmp/esp"
+    grub_cfg = "efi/boot/grub.cfg"
+    sed_cmds = []
+
+    await run_command(f"mkdir -p {mount_path}")
+    await run_command(f"mount {esp_partition} {mount_path}")
+    current_path = os.curdir
+    reboot_required = False
+
+    with open("/proc-cmdline", 'r') as file:
+        for line in file.readlines():
+            logging.info(f"cmdline: {line}")
+            if "module.sig_enforce" in line:
+                if "module.sig_enforce=1" in line:
+                    sed_cmds.append(('module.sig_enforce=1', 'module.sig_enforce=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi module.sig_enforce=0'))
+            if "loadpin.enabled" in line:
+                if "loadpin.enabled=1" in line:
+                    sed_cmds.append(('loadpin.enabled=1', 'loadpin.enabled=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi loadpin.enabled=0'))
+            if "loadping.enforce" in line:
+                if "loadpin.enforce=1" in line:
+                    sed_cmds.append(('loadpin.enforce=1', 'loadpin.enforce=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi loadpin.enforce=0'))
+    if sed_cmds:
+        logging.warning("Must modify kernel parameters")
+        try:
+            os.chdir(mount_path)
+            for sed_cmd in sed_cmds:
+                await run_command(f"sed -i 's/{sed_cmd[0]}/{sed_cmd[1]}/g' {grub_cfg}")
+        except Exception as e:
+            logging.error(f"Failed to modify kernel cmdline: {e}")
+            raise
+        else:
+            reboot_required = True
+        finally:
+            os.chdir(current_path)
+            os.sync()
+            await run_command(f"umount {mount_path}")
+            if reboot_required:
+                cos_reboot_machine()
+
+
+async def cos_disable_driver_signing():
+    if not is_google_cos():
+        return
+    logging.info("Ensuring driver signing is disabled")
+    await cos_configure_kernel()
+
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
@@ -703,6 +768,9 @@ async def main():
     await ensure_daemon(agent_cmd, alias="agent")
     await await_agent()
     await ensure_weka_version()
+
+    # NOTE: at this point the container should reset the host. This is a workaround for COS only
+    await cos_disable_driver_signing()
 
     if MODE not in ["dist", "drivers-loader"]:
         await ensure_drivers()
