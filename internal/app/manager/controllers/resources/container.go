@@ -176,6 +176,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/var/log",
 							SubPath:   "var/log",
 						},
+						{
+							Name:      "weka-container-persistence-dir",
+							MountPath: "/opt/k8s-weka/boot-level",
+							SubPath:   "tmpfss/boot-level",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{

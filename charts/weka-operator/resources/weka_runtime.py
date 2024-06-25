@@ -579,6 +579,13 @@ async def configure_persistency():
         mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
         mkdir -p /opt/weka/dist
         mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
+        
+        if [ -d /opt/k8s-weka/boot-level ]; then
+            BOOT_DIR=/opt/k8s-weka/boot-level/$(cat /proc/sys/kernel/random/boot_id)
+            mkdir -p $BOOT_DIR
+            mkdir -p /opt/weka/external-mounts/cleanup
+            mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
+        fi
     """)
 
     stdout, stderr, ec = await run_command(command)
@@ -618,6 +625,10 @@ async def configure_agent(agent_handle_drivers=False):
         sed -i "s/skip_driver_install=.*/skip_driver_install={ignore_driver_flag}/g" /etc/wekaio/service.conf 
     fi
     sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
+    
+    if ! grep -q "external_mounts" /etc/wekaio/service.conf; then
+        sed -i "/\[mounts\]/a external_mounts=/opt/weka/external-mounts" /etc/wekaio/service.conf
+    fi
     """
 
     cmd = dedent(f"""
