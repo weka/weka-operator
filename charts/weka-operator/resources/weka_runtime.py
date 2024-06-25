@@ -780,6 +780,12 @@ async def discovery():
     logging.info("discovery done")
 
 
+async def install_gsutil():
+    logging.info("Installing gsutil")
+    await run_command("curl https://sdk.cloud.google.com | bash -s -- --disable-prompts")
+    os.environ["PATH"] += ":/root/google-cloud-sdk/bin"
+
+
 async def cleanup_traces_and_stop_dumper():
     while True:
         cmd = "weka local exec supervisorctl status | grep RUNNING"
