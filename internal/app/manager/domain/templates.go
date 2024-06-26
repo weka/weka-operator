@@ -115,6 +115,7 @@ var Topologies = map[string]topologyGetter{
 	"discover_aws_i3en6x":   getAwsI3en6x,
 	"aws_i3en6x_udp_bless":  blessUdpi3en6x,
 	"aws_i3en6x_bless":      getAwsI3en6xBless,
+	"aws_i3en3x_bless":      getAwsI3en3xBless,
 	"oci_bless_multitenant": OciBlessMultitenant,
 }
 
@@ -190,6 +191,27 @@ func getAwsI3en6xBless(ctx context.Context, reader client.Reader, nodeSelector m
 		MaxCore:              23,
 		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers:      2,
+		NodeConfigMapPattern: "node-config-%s",
+	}, nil
+}
+
+func getAwsI3en3xBless(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
+	// get nodes via reader
+	nodeNames, err := GetNodesByLabels(ctx, reader, nodeSelector)
+	if err != nil {
+		return Topology{}, err
+	}
+	return Topology{
+		Drives: []string{"aws_0"}, // container-side discovery by slot num
+		Network: v1alpha1.NetworkSelector{
+			EthSlots: []string{"aws_0", "aws_1", "aws_2"},
+		},
+		Nodes:                nodeNames,
+		MinCore:              2, // TODO: How to determine, other then querying machines?
+		CoreStep:             1,
+		MaxCore:              11,
+		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers:      1,
 		NodeConfigMapPattern: "node-config-%s",
 	}, nil
 }
