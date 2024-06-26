@@ -182,13 +182,12 @@ func getHpTwoDrives(ctx context.Context, reader client.Reader, nodeSelector map[
 		Network: v1alpha1.NetworkSelector{
 			EthDevice: "mlnx0",
 		},
-		Nodes:                nodeNames,
-		MinCore:              2, // TODO: How to determine, other then querying machines?
-		CoreStep:             1,
-		MaxCore:              47,
-		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
-		MaxS3Containers:      4,
-		NodeConfigMapPattern: "node-config-%s",
+		Nodes:           nodeNames,
+		MinCore:         2, // TODO: How to determine, other then querying machines?
+		CoreStep:        1,
+		MaxCore:         47,
+		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers: 4,
 	}, nil
 }
 
