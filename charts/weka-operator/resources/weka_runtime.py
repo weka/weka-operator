@@ -742,6 +742,7 @@ daemons = {
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
+        await override_dependencies_flag()
         max_retries = 10
         for i in range(max_retries):
             try:
