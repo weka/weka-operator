@@ -886,7 +886,7 @@ async def cos_configure_kernel():
                     sed_cmds.append(('loadpin.enabled=1', 'loadpin.enabled=0'))
             else:
                 sed_cmds.append(('cros_efi', 'cros_efi loadpin.enabled=0'))
-            if "loadping.enforce" in line:
+            if "loadpin.enforce" in line:
                 if "loadpin.enforce=1" in line:
                     sed_cmds.append(('loadpin.enforce=1', 'loadpin.enforce=0'))
             else:
