@@ -152,6 +152,9 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     "4.2.7.64-k8so-beta.10": dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
+    "4.2.7.64-s3multitenancy.3": dict(
+        wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+    ),
     "4.2.10.1693-251d3172589e79bd4960da8031a9a693-dev": dict(  # dev 4.2.7-based version
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
@@ -183,6 +186,9 @@ version_params = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME").
 if "4.2.7.64-s3multitenancy." in IMAGE_NAME:
     version_params = dict(
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
+        mpin_user="f8c7f8b24611c2e458103da8de26d545",
+        igb_uio="b64e22645db30b31b52f012cc75e9ea0",
+        uio_pci_generic="1.0.0-929f279ce026ddd2e31e281b93b38f52",
     )
 assert version_params
 
@@ -253,6 +259,37 @@ async def copy_drivers():
         logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
         raise Exception(f"Failed to copy drivers post build: {stderr}")
     logging.info("done copying drivers")
+
+
+async def cos_build_drivers():
+    driver_versions = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])
+    weka_driver_version = driver_versions["wekafs"]
+    weka_driver_file_version = weka_driver_version.rsplit("-", 1)[0]
+    mpin_driver_version = driver_versions["mpin_user"]
+    igb_uio_driver_version = driver_versions["igb_uio"]
+    uio_pci_generic_driver_version = driver_versions.get("uio_pci_generic", "1.0.0-929f279ce026ddd2e31e281b93b38f52")
+    weka_driver_squashfs = f'/opt/weka/dist/image/weka-driver-{weka_driver_file_version}.squashfs'
+    mpin_driver_squashfs = f'/opt/weka/dist/image/driver-mpin-user-{mpin_driver_version}.squashfs'
+    igb_uio_driver_squashfs = f'/opt/weka/dist/image/driver-igb-uio-{igb_uio_driver_version}.squashfs'
+    uio_pci_driver_squashfs = f'/opt/weka/dist/image/driver-uio-pci-generic-{uio_pci_generic_driver_version}.squashfs'
+
+    logging.info("Starting to build drivers")
+    stdout, stderr, ec = await run_command(dedent(f"""
+        apt-get install -y squashfs-tools && \
+        unsquashfs -f -l {weka_driver_squashfs} -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
+        unsquashfs -f -l {mpin_driver_squashfs} -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` &&\
+        unsquashfs -f -l {igb_uio_driver_squashfs} -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
+        unsquashfs -f -l {uio_pci_driver_squashfs} -d /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && \
+        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
+        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && \
+        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
+        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`
+    """))
+    if ec != 0:
+        logging.error(f"Failed to build drivers {stderr}: exc={ec}")
+        raise Exception(f"Failed to build drivers: {stderr}")
+
+    logging.info("Done building drivers")
 
 
 def parse_cpu_allowed_list(path="/proc/1/status"):
@@ -955,10 +992,16 @@ async def main():
 
     if MODE == "dist":
         logging.info("dist-service flow")
-        await agent.stop()
-        await configure_agent(agent_handle_drivers=True)
-        await agent.start()
-        await await_agent()
+        if not should_build_externally():
+            await agent.stop()
+            await configure_agent(agent_handle_drivers=True)
+            await agent.start()
+            await await_agent()
+        else:
+            if is_google_cos():
+                await install_gsutil()
+                await cos_build_drivers()
+
         await ensure_dist_container()
         await configure_traces()
         await agent.stop()
@@ -987,7 +1030,7 @@ async def main():
     await start_weka_container()
 
 
-async def stop_process(process):
+async def stop_daemon(process):
     logging.info(f"stopping daemon with pid {process.pid} (via process group), {process}")
 
     async def cleanup_process():
