@@ -101,13 +101,6 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
 
-	cmd = fmt.Sprintf("weka security tls strictness --value TLSNoVerify")
-	logger.Debug("Setting TLS strictness")
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetTlsStrictness", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to set TLS strictness: %s", stderr.String())
-	}
-
 	logger.SetPhase("Cluster created")
 	return nil
 }
