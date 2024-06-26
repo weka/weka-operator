@@ -12,6 +12,6 @@ spec:
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   targetCluster:
     name: cluster-dev
-    namespace: weka-operator-system
+    namespace: default
   network:
     ethDevice: mlnx0
