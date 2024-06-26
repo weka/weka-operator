@@ -627,6 +627,7 @@ async def configure_agent(agent_handle_drivers=False):
     sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
     
     sed -i "s@external_mounts=.*@external_mounts=/opt/weka/external-mounts@g" /etc/wekaio/service.conf || true
+    sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=/etc/hosts,/etc/resolv.conf@g" /etc/wekaio/service.conf || true
     """
 
     cmd = dedent(f"""
