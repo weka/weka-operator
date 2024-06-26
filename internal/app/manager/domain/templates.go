@@ -39,6 +39,7 @@ type Topology struct {
 	ForcedCpuPolicy      v1alpha1.CpuPolicy       `json:"forcedCpuPolicy"`
 	MaxS3Containers      int                      `json:"maxS3Containers"`
 	NodeConfigMapPattern string                   `json:"nodeConfigMap"`
+	ForceSignDrives      bool                     `json:"forceSignDrives"`
 }
 
 func (k *Topology) GetAvailableCpus() []int {
@@ -115,6 +116,7 @@ var Topologies = map[string]topologyGetter{
 	"discover_aws_i3en6x":   getAwsI3en6x,
 	"aws_i3en6x_udp_bless":  blessUdpi3en6x,
 	"aws_i3en6x_bless":      getAwsI3en6xBless,
+	"hp_2drives":            getHpTwoDrives,
 	"oci_bless_multitenant": OciBlessMultitenant,
 }
 
@@ -166,6 +168,27 @@ func getAwsI3en6x(ctx context.Context, reader client.Reader, nodeSelector map[st
 		MaxCore:         11,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers: 1,
+	}, nil
+}
+
+func getHpTwoDrives(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error) {
+	// get nodes via reader
+	nodeNames, err := GetNodesByLabels(ctx, reader, nil)
+	if err != nil {
+		return Topology{}, err
+	}
+	return Topology{
+		Drives: []string{"/dev/nvme1n1", "/dev/nvme2n1"},
+		Network: v1alpha1.NetworkSelector{
+			EthDevice: "mlnx0",
+		},
+		Nodes:                nodeNames,
+		MinCore:              2, // TODO: How to determine, other then querying machines?
+		CoreStep:             1,
+		MaxCore:              47,
+		ForcedCpuPolicy:      v1alpha1.CpuPolicyDedicatedHT,
+		MaxS3Containers:      4,
+		NodeConfigMapPattern: "node-config-%s",
 	}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -675,6 +676,11 @@ DRIVES:
 				continue
 			}
 			driveSignTarget := getSignatureDevice(drive)
+			forceSignDrives := false
+			forceSignDrivesEnv, found := os.LookupEnv("WEKA_OPERATOR_FORCE_SIGN_DRIVES")
+			if found && forceSignDrivesEnv == "1" {
+				forceSignDrives = true
+			}
 
 			l.Info("Verifying drive signature")
 			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
@@ -683,9 +689,10 @@ DRIVES:
 				if strings.Contains(stderr.String(), "No such file or directory") { // it can be actual missing device
 					logger.Debug("Failed to read drive signature, or partition does not exist", "drive", drive)
 					if strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "aws_") ||
-						strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "/dev/oracleoci") {
+						strings.HasPrefix(container.Spec.PotentialDrives[driveCursor], "/dev/oracleoci") ||
+						forceSignDrives {
 						l.Info("Drive is not presigned, assuming a new instance")
-						if err := r.initSignCloudDrives(ctx, executor, drive); err != nil {
+						if err := r.initialDriveSign(ctx, executor, drive); err != nil {
 							l.Error(err, "Failed to sign cloud drive, continuing to next drive")
 							// no return or continue on purpose, it is only opportunistic presigning while moving to next drive regardless
 						}
@@ -1041,8 +1048,8 @@ func (r *ContainerController) discoverDrive(ctx context.Context, executor util.E
 	return drive
 }
 
-func (r *ContainerController) initSignCloudDrives(ctx context.Context, executor util.Exec, drive string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "initSignCloudDrives")
+func (r *ContainerController) initialDriveSign(ctx context.Context, executor util.Exec, drive string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "initialDriveSign")
 	defer end()
 
 	logger.Info("Signing cloud drive", "drive", drive)
