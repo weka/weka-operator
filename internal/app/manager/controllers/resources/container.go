@@ -426,6 +426,24 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			})
+			if f.container.Spec.GcloudCredentialsSecret != "" {
+				pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+					Name: "gcloud-credentials",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: f.container.Spec.GcloudCredentialsSecret,
+						},
+					},
+				})
+				pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+					Name:      "gcloud-credentials",
+					MountPath: "/var/secrets/google",
+				})
+				pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+					Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+					Value: "/var/secrets/google/service-account.json",
+				})
+			}
 		} else if !f.container.IsOpenshift() {
 			// adding mount of headers only for case of drivers-related container
 			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
