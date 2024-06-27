@@ -393,6 +393,37 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
+	// DiscoveryContainer on GKE only will force boot to set up hugepages
+	// TODO: move this to another place OR cancel since might cause reboot storm, done for DEV purposes only
+	if f.container.IsDiscoveryContainer() && f.container.IsCos() {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "proc-sysrq-trigger",
+			MountPath: "/proc-sysrq-trigger",
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "proc-cmdline",
+			MountPath: "/proc-cmdline",
+		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "proc-sysrq-trigger",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/proc/sysrq-trigger",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+				},
+			},
+		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "proc-cmdline",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/proc/cmdline",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+				},
+			},
+		})
+	}
+
 	if f.container.IsDriversBuilder() {
 		if f.container.IsCos() {
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
