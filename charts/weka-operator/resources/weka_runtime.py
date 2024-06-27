@@ -249,24 +249,25 @@ async def cos_build_drivers():
     uio_pci_driver_squashfs = f'/opt/weka/dist/image/driver-uio-pci-generic-{uio_pci_generic_driver_version}.squashfs'
 
     logging.info("Starting to build drivers")
-    stdout, stderr, ec = await run_command(dedent(f"""
-        apt-get install -y squashfs-tools && \
-        mkdir -p /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
-        mkdir -p /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && \
-        mkdir -p /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
-        mkdir -p /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && \
-        unsquashfs -i -f -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` {weka_driver_squashfs} && \
-        unsquashfs -i -f -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`{mpin_driver_squashfs}  &&\
-        unsquashfs -i -f -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` {igb_uio_driver_squashfs} && \
-        unsquashfs -i -f -d /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` {uio_pci_driver_squashfs} && \       
-        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
-        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && \
-        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
-        /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`
-    """))
-    if ec != 0:
-        logging.error(f"Failed to build drivers {stderr}: exc={ec}")
-        raise Exception(f"Failed to build drivers: {stderr}")
+    for cmd in [
+        f"apt-get install -y squashfs-tools",
+        f"mkdir -p /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`",
+        f"mkdir -p /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`",
+        f"mkdir -p /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`",
+        f"mkdir -p /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`",
+        f"unsquashfs -i -f -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` {weka_driver_squashfs}",
+        f"unsquashfs -i -f -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` {mpin_driver_squashfs}",
+        f"unsquashfs -i -f -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` {igb_uio_driver_squashfs}",
+        f"unsquashfs -i -f -d /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` {uio_pci_driver_squashfs}",
+        f"cd /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m ",
+        f"cd /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m",
+        f"cd /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m",
+        f"cd /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m"
+    ]:
+        stdout, stderr, ec = await run_command(cmd)
+        if ec != 0:
+            logging.error(f"Failed to build drivers {stderr}: exc={ec}, last command: {cmd}")
+            raise Exception(f"Failed to build drivers: {stderr}")
 
     logging.info("Done building drivers")
 
