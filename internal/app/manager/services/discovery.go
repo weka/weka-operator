@@ -90,7 +90,7 @@ type OwnerWekaObject struct {
 	ImagePullSecret string `json:"imagePullSecrets"`
 }
 
-func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
+func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, tolerations []corev1.Toleration, exec ExecService) error {
 	node := &corev1.Node{}
 	err := c.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
@@ -118,6 +118,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 			NodeAffinity:    nodeName,
 			Image:           ownerDetails.Image,
 			ImagePullSecret: ownerDetails.ImagePullSecret,
+			Tolerations:     tolerations,
 		},
 	}
 	// Fill in the necessary fields here

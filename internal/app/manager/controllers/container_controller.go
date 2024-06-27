@@ -991,6 +991,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			NodeAffinity:        container.Spec.NodeAffinity,
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
+			Tolerations:         container.Spec.Tolerations,
 		},
 	}
 
