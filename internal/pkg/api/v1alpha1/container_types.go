@@ -80,6 +80,7 @@ type WekaContainerSpec struct {
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	ForceAllowDriveSign bool                 `json:"forceAllowDriveSign,omitempty"`
+	ServiceAccountName  string               `json:"serviceAccount,omitempty"`
 }
 
 type Network struct {

@@ -135,6 +135,8 @@ spec:
                   s3Port:
                     type: integer
                 type: object
+              serviceAccountName:
+                type: string
               tolerations:
                 items:
                   description: The pod this Toleration is attached to tolerates any
