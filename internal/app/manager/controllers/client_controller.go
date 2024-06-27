@@ -118,6 +118,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// So container container will be responsible for translating and actually updating spec or status
 	wg := sync.WaitGroup{}
 	errs := make(chan error, len(applicableNodes))
+	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	for _, node := range applicableNodes {
 		wg.Add(1)
 		go func(node string) {
@@ -125,7 +126,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
 					Image:           wekaClient.Spec.Image,
 					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
-				}, node, r.ExecService)
+				}, node, tolerations, r.ExecService)
 			}(node)
 			if err != nil {
 				errs <- err
