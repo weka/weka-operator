@@ -75,9 +75,11 @@ def wait_for_agent():
 
 async def ensure_drivers():
     logging.info("waiting for drivers")
-    drivers = "wekafsio wekafsgw igb_uio mpin_user".split()
-    if version_params.get('uio_pci_generic') is not False:
-        drivers.append("uio_pci_generic")
+    drivers = "wekafsio wekafsgw mpin_user".split()
+    if not is_google_cos():
+        drivers.append("igb_uio")
+        if version_params.get('uio_pci_generic') is not False:
+            drivers.append("uio_pci_generic")
     for driver in drivers:
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
@@ -214,8 +216,8 @@ async def load_drivers():
             {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
         lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
-        lsmod | grep uio || modprobe uio
-        lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
+        {"" if is_google_cos() else "lsmod | grep uio || modprobe uio"}
+        {"" if is_google_cos() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
         {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}echo "drivers_loaded"  > /tmp/weka-drivers-loader
         """)
@@ -231,6 +233,7 @@ async def load_drivers():
         echo drivers downloaded
         weka driver install --without-agent --version {version}
         echo drivers installed
+        {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
             """)
 
