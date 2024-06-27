@@ -92,7 +92,10 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	tolerations := f.getTolerations()
-
+	serviceAccountName := f.container.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = "default"
+	}
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
 	pod := &corev1.Pod{
@@ -120,6 +123,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			},
+			ServiceAccountName:            serviceAccountName,
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
