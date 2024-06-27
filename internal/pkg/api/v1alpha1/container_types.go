@@ -61,22 +61,23 @@ type WekaContainerSpec struct {
 	CoreIds    []int  `json:"coreIds,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	// +kubebuilder:default=auto
-	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
-	Network             Network              `json:"network,omitempty"`
-	Hugepages           int                  `json:"hugepages,omitempty"`
-	HugepagesSize       string               `json:"hugepagesSize,omitempty"`
-	HugepagesOverride   string               `json:"hugepagesSizeOverride,omitempty"`
-	PotentialDrives     []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
-	NumDrives           int                  `json:"numDrives,omitempty"`
-	DriversDistService  string               `json:"driversDistService,omitempty"`
-	WekaSecretRef       v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
-	JoinIps             []string             `json:"joinIpPorts,omitempty"`
-	AppendSetupCommand  string               `json:"appendSetupCommand,omitempty"`
-	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
-	S3Params            *S3Params            `json:"s3Params,omitempty"`
-	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
-	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
-	ServiceAccountName  string               `json:"serviceAccount,omitempty"`
+	CpuPolicy               CpuPolicy            `json:"cpuPolicy,omitempty"`
+	Network                 Network              `json:"network,omitempty"`
+	Hugepages               int                  `json:"hugepages,omitempty"`
+	HugepagesSize           string               `json:"hugepagesSize,omitempty"`
+	HugepagesOverride       string               `json:"hugepagesSizeOverride,omitempty"`
+	PotentialDrives         []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
+	NumDrives               int                  `json:"numDrives,omitempty"`
+	DriversDistService      string               `json:"driversDistService,omitempty"`
+	WekaSecretRef           v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
+	JoinIps                 []string             `json:"joinIpPorts,omitempty"`
+	AppendSetupCommand      string               `json:"appendSetupCommand,omitempty"`
+	TracesConfiguration     *TracesConfiguration `json:"tracesConfiguration,omitempty"`
+	S3Params                *S3Params            `json:"s3Params,omitempty"`
+	Tolerations             []v1.Toleration      `json:"tolerations,omitempty"`
+	NodeInfoConfigMap       string               `json:"nodeInfoConfigMap,omitempty"`
+	ServiceAccountName      string               `json:"serviceAccount,omitempty"`
+	GcloudCredentialsSecret string               `json:"gcloudCredentialsSecret,omitempty"`
 }
 
 type Network struct {
