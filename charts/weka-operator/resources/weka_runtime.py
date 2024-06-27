@@ -1038,6 +1038,7 @@ async def main():
     await override_dependencies_flag()
 
     if MODE not in ["dist", "drivers-loader", "build"]:
+    # NOTE: at this point the container should reset the host. This is a workaround for COS only
         await ensure_drivers()
 
     if MODE in ["drivers-loader"]:
