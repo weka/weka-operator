@@ -825,6 +825,7 @@ async def install_gsutil():
     logging.info("Installing gsutil")
     await run_command("curl https://sdk.cloud.google.com | bash -s -- --disable-prompts")
     os.environ["PATH"] += ":/root/google-cloud-sdk/bin"
+    await run_command("gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS")
 
 
 async def cleanup_traces_and_stop_dumper():
