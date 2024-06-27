@@ -6,6 +6,7 @@ import threading
 import time
 from functools import lru_cache, partial
 from os.path import exists
+import socket
 from textwrap import dedent
 
 MODE = os.environ.get("MODE")
@@ -734,12 +735,37 @@ async def cleanup_traces_and_stop_dumper():
 def get_agent_cmd():
     return f"exec /usr/bin/weka --agent --socket-name weka_agent_ud_socket_{AGENT_PORT}"
 
-
-daemons = {
-
-}
+# k8s lifecycle/local leadership election
 
 
+SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
+GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
+GENERATION_PATH = f'{GENERATION_PATH_DIR}/runtime-generation'
+CURRENT_GENERATION = str(time.time())
+
+def write_generation():
+    logging.info("Writing generation %s", CURRENT_GENERATION)
+    os.makedirs(GENERATION_PATH_DIR, exist_ok=True)
+    with open(GENERATION_PATH, 'w') as f:
+        f.write(CURRENT_GENERATION)
+    logging.info("current generation: %s", read_generation())
+
+def read_generation():
+    try:
+        with open(GENERATION_PATH, 'r') as f:
+            ret = f.read().strip()
+    except Exception as e:
+        logging.error("Failed to read generation: %s", e)
+        ret = ""
+    return ret
+
+async def obtain_lock():
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    server.setblocking(False)
+    server.bind(SOCKET_NAME)
+    return server
+
+_server = None
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
@@ -761,6 +787,10 @@ async def main():
         return
 
     await configure_persistency()
+    write_generation() # write own generation to kill other processes
+    global _server
+    _server = await obtain_lock() # then waiting for lock with short timeout
+
     # TODO: Configure agent
     await configure_agent()
     syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
@@ -834,15 +864,43 @@ async def stop_process(process):
     await cleanup_process()
 
 
+def is_wrong_generation():
+    if MODE in ['drivers-loader', 'discovery']:
+        return False
+
+    current_generation = read_generation()
+    if current_generation == "":
+        logging.error("No generation detected, ignoring generation")
+        return False
+
+    if current_generation != CURRENT_GENERATION:
+        logging.error("Wrong generation detected, exiting, current:%s, read: %s", CURRENT_GENERATION, read_generation())
+        return True
+    return False
+
+async def takeover_shutdown():
+    while not is_wrong_generation():
+        await asyncio.sleep(1)
+
+    await run_command("weka local stop --force", capture_stdout=False)
+
 async def shutdown():
-    while not exiting:
+    global exiting
+    while not (exiting or is_wrong_generation()):
         await asyncio.sleep(1)
         continue
 
     logging.warning("Received signal, stopping all processes")
+    exiting = True # multiple entry points of shutdown, exiting is global check for various conditions
+
     if MODE not in ["drivers-loader", "discovery"]:
-        stop_flag = " -g" if not exists("/tmp/.allow-force-stop") else ""
-        await run_command(f"weka local stop{stop_flag}", capture_stdout=False)
+        force_stop = False
+        if exists("/tmp/.allow-force-stop"):
+            force_stop = True
+        if is_wrong_generation():
+            force_stop = True
+        stop_flag = "--force" if force_stop else "-g"
+        await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
         logging.info("finished stopping weka container")
 
     for key, process in dict(processes.items()).items():
@@ -889,6 +947,8 @@ loop.add_signal_handler(signal.SIGINT, partial(signal_handler, "SIGINT"))
 loop.add_signal_handler(signal.SIGTERM, partial(signal_handler, "SIGTERM"))
 
 shutdown_task = loop.create_task(shutdown())
+takeover_shutdown_task = loop.create_task(takeover_shutdown())
+
 main_loop = loop.create_task(main())
 logrotate_task = loop.create_task(periodic_logrotate())
 
@@ -907,6 +967,8 @@ try:
         time.sleep(debug_sleep)
         raise
 finally:
+    if _server is not None:
+        _server.close()
     logging.info(
         "3 seconds exit-sleep")  # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
     time.sleep(3)
