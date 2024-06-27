@@ -76,7 +76,7 @@ type WekaContainerSpec struct {
 	S3Params                *S3Params            `json:"s3Params,omitempty"`
 	Tolerations             []v1.Toleration      `json:"tolerations,omitempty"`
 	NodeInfoConfigMap       string               `json:"nodeInfoConfigMap,omitempty"`
-	ServiceAccountName      string               `json:"serviceAccount,omitempty"`
+	ServiceAccountName      string               `json:"serviceAccountName,omitempty"`
 	GcloudCredentialsSecret string               `json:"gcloudCredentialsSecret,omitempty"`
 }
 
