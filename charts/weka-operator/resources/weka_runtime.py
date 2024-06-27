@@ -862,10 +862,11 @@ async def main():
     await ensure_weka_version()
 
     # NOTE: at this point the container should reset the host. This is a workaround for COS only
-    await cos_disable_driver_signing()
 
     if MODE not in ["dist", "drivers-loader"]:
         await ensure_drivers()
+    else:
+        await cos_disable_driver_signing()
 
     if MODE == "dist":
         logging.info("dist-service flow")
