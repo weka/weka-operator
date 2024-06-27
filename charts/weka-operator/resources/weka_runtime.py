@@ -251,10 +251,14 @@ async def cos_build_drivers():
     logging.info("Starting to build drivers")
     stdout, stderr, ec = await run_command(dedent(f"""
         apt-get install -y squashfs-tools && \
-        unsquashfs -f -l {weka_driver_squashfs} -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
-        unsquashfs -f -l {mpin_driver_squashfs} -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` &&\
-        unsquashfs -f -l {igb_uio_driver_squashfs} -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
-        unsquashfs -f -l {uio_pci_driver_squashfs} -d /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && \
+        mkdir -p /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
+        mkdir -p /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && \
+        mkdir -p /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
+        mkdir -p /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && \
+        unsquashfs -i -f -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` {weka_driver_squashfs} && \
+        unsquashfs -i -f -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`{mpin_driver_squashfs}  &&\
+        unsquashfs -i -f -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` {igb_uio_driver_squashfs} && \
+        unsquashfs -i -f -d /opt/weka/data/uio_pci_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` {uio_pci_driver_squashfs} && \       
         /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && \
         /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && \
         /devenv.sh -R {OS_BUILD_ID} -m /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && \
