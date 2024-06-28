@@ -176,6 +176,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/var/log",
 							SubPath:   "var/log",
 						},
+						{
+							Name:      "weka-container-persistence-dir",
+							MountPath: "/opt/k8s-weka/boot-level",
+							SubPath:   "tmpfss/boot-level",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -581,21 +586,21 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
 		managementMemory := 1965
 		perFrontendMemory := 2050
-		buffer := 850
+		buffer := 1150
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
 		perDriveMemory := 2100
-		buffer := 1400
+		buffer := 1800
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
 		managementMemory := 2200
 		perComputeMemory := 3600
-		buffer := 1400
+		buffer := 1600
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores)
 	}
 

@@ -180,6 +180,7 @@ func (c *WekaCluster) NewCsiSecret(endpoints []string) *v1.Secret {
 			"password":     util.GeneratePassword(32),
 			"organization": DefaultOrg,
 			"endpoints":    strings.Join(endpoints, ","),
+			"scheme":       "https",
 		},
 	}
 }
