@@ -878,10 +878,6 @@ async def cos_configure_kernel():
     mount_path = "/tmp/esp"
     grub_cfg = "efi/boot/grub.cfg"
     sed_cmds = []
-
-    await run_command(f"mkdir -p {mount_path}")
-    await run_command(f"mount {esp_partition} {mount_path}")
-    current_path = os.curdir
     reboot_required = False
 
     with open("/hostside/proc/cmdline", 'r') as file:
@@ -904,6 +900,9 @@ async def cos_configure_kernel():
                 sed_cmds.append(('cros_efi', 'cros_efi loadpin.enforce=0'))
     if sed_cmds:
         logging.warning("Must modify kernel parameters")
+        await run_command(f"mkdir -p {mount_path}")
+        await run_command(f"mount {esp_partition} {mount_path}")
+        current_path = os.curdir
         try:
             os.chdir(mount_path)
             for sed_cmd in sed_cmds:
@@ -930,12 +929,9 @@ async def cos_configure_hugepages():
     mount_path = "/tmp/esp"
     grub_cfg = "efi/boot/grub.cfg"
     sed_cmds = []
-
-    await run_command(f"mkdir -p {mount_path}")
-    await run_command(f"mount {esp_partition} {mount_path}")
-    current_path = os.curdir
     reboot_required = False
 
+    current_path = os.curdir
     with open("/hostside/proc/cmdline", 'r') as file:
         for line in file.readlines():
             logging.info(f"cmdline: {line}")
@@ -948,6 +944,8 @@ async def cos_configure_hugepages():
                 sed_cmds.append(('hugepages=[0-9]+', f'hugepages={GOOGLE_COS_HUGEPAGES}'))
     if sed_cmds:
         logging.warning("Must modify kernel HUGEPAGES parameters")
+        await run_command(f"mkdir -p {mount_path}")
+        await run_command(f"mount {esp_partition} {mount_path}")
         try:
             os.chdir(mount_path)
             for sed_cmd in sed_cmds:
