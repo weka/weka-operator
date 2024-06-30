@@ -328,38 +328,30 @@ def read_siblings_list(cpu_index):
 
 
 async def get_host_info():
-    os_release_pathes = {
-        "rhcos": "/node-root/lib/os-release",
-        "cos": "/node-root/lib/os-release",
-        "ubuntu": "/node-root/etc/os-release",
-    }
     ret = dict()
 
-    for os_release, path in os_release_pathes.items():
-        if not os.path.isfile(path) or os.path.getsize(path) == 0:
-            logging.info("This is not a " + os_release + " node")
-            continue
-        with open(path) as file:
-            for line in file:
-                if line.startswith("OPENSHIFT_VERSION="):
-                    ret['kubernetes_flavor'] = "openshift"
-                elif line.startswith("NAME="):
-                    ret['os_name'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("ID="):
-                    ret['os'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("VERSION_ID="):
-                    ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("VERSION="):
-                    ret['os_version'] = line.split("=")[1].strip().replace('"', '')
-                elif line.startswith("BUILD_ID="):
-                    ret['kubernetes_flavor'] = "gke"
-                    ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
+    with open("/hostside/etc/os-release") as file:
+        for line in file:
+            if line.startswith("OPENSHIFT_VERSION="):
+                ret['kubernetes_flavor'] = "openshift"
+                ret['openshift_release'] = await get_openshift_release()
+            elif line.startswith("NAME="):
+                ret['os_name'] = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("ID="):
+                ret['os'] = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("VERSION_ID="):
+                ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("VERSION="):
+                ret['os_version'] = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("BUILD_ID="):
+                ret['kubernetes_flavor'] = "gke"
+                ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
 
-        stdout, stderr, ec = await run_command("uname -r")
-        if ec != 0:
-            raise Exception(f"Failed to get kernel version: {stderr}")
-        ret['kernel_version'] = stdout.decode('utf-8').strip()
-        return ret
+    stdout, stderr, ec = await run_command("uname -r")
+    if ec != 0:
+        raise Exception(f"Failed to get kernel version: {stderr}")
+    ret['kernel_version'] = stdout.decode('utf-8').strip()
+    return ret
 
 
 @lru_cache

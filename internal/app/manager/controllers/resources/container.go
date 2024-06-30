@@ -320,17 +320,17 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	if f.container.IsDiscoveryContainer() {
 		// for CoreOS we need /lib/os-release, for COS we need /etc/os-release, for the rest whatever, just mount a root of the node.
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "node-root",
+			Name: "osrelease",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/",
-					Type: &[]corev1.HostPathType{corev1.HostPathDirectory}[0],
+					Path: "/etc/os-release",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
 				},
 			},
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "node-root",
-			MountPath: "/node-root",
+			Name:      "osrelease",
+			MountPath: "/hostside/etc/os-release",
 		})
 	}
 
