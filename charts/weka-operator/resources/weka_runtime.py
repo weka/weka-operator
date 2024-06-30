@@ -22,7 +22,7 @@ JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 OS_DISTRO = os.environ.get("OS_DISTRO")
 OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
-GOOGLE_COS_HUGEPAGES = 10000  # upon node discovery, we will set this to the actual value and force-boot the node
+GOOGLE_COS_HUGEPAGES = 8000  # upon node discovery, we will set this to the actual value and force-boot the node
 
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
@@ -909,11 +909,10 @@ async def cos_configure_kernel():
             os.chdir(mount_path)
             for sed_cmd in sed_cmds:
                 await run_command(f"sed -i 's/{sed_cmd[0]}/{sed_cmd[1]}/g' {grub_cfg}")
+            reboot_required = True
         except Exception as e:
             logging.error(f"Failed to modify kernel cmdline: {e}")
             raise
-        else:
-            reboot_required = True
         finally:
             os.chdir(current_path)
             await run_command(f"umount {mount_path}")
@@ -922,6 +921,11 @@ async def cos_configure_kernel():
 
 
 async def cos_configure_hugepages():
+    host_info = await get_host_info()
+    if host_info.get('os', "") != 'cos':
+        logging.info("Skipping hugepages configuration")
+        return
+
     logging.info("Checking if hugepages are set")
     esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
     mount_path = "/tmp/esp"
@@ -941,17 +945,18 @@ async def cos_configure_hugepages():
                     sed_cmds.append(('hugepagesz=1g', 'hugepagesz=2m'))
             if "hugepages=" not in line:
                 sed_cmds.append(('cros_efi', f'cros_efi hugepages={GOOGLE_COS_HUGEPAGES}'))
+            elif f"hugepages={GOOGLE_COS_HUGEPAGES}" not in line:
+                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={GOOGLE_COS_HUGEPAGES}'))
     if sed_cmds:
         logging.warning("Must modify kernel HUGEPAGES parameters")
         try:
             os.chdir(mount_path)
             for sed_cmd in sed_cmds:
                 await run_command(f"sed -i 's/{sed_cmd[0]}/{sed_cmd[1]}/g' {grub_cfg}")
+            reboot_required = True
         except Exception as e:
             logging.error(f"Failed to modify kernel cmdline: {e}")
             raise
-        else:
-            reboot_required = True
         finally:
             os.chdir(current_path)
             os.sync()
@@ -1014,8 +1019,7 @@ async def main():
 
     if MODE == "discovery":
         # self signal to exit
-        if is_google_cos():
-            await cos_configure_hugepages()
+        await cos_configure_hugepages()
         await discovery()
         return
 
