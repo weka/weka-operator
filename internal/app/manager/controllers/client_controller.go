@@ -125,6 +125,8 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
 					Image:           wekaClient.Spec.Image,
 					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
+					NodeSelector:    wekaClient.Spec.NodeSelector,
+					Tolerations:     wekaClient.Spec.RawTolerations,
 				}, node, r.ExecService)
 			}(node)
 			if err != nil {
