@@ -280,7 +280,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			Kind:       "WekaContainer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, node),
+			Name:      util.TruncateString(fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, node), 63),
 			Namespace: wekaClient.Namespace,
 			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
 		},
