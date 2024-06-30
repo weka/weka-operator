@@ -253,12 +253,29 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 }
 
 func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
 	defer end()
 
 	cpuPolicy, err := services.ResolveCpuPolicy(ctx, r.Client, node, wekaClient.Spec.CpuPolicy)
 	if err != nil {
 		return nil, err
+	}
+
+	clientOsDistro := ""
+	clientOsBuildId := ""
+
+	if wekaClient.Spec.OsDistro != "" {
+		clientOsDistro = wekaClient.Spec.OsDistro
+	}
+	if wekaClient.Spec.OsBuildId != "" {
+		clientOsBuildId = wekaClient.Spec.OsBuildId
+	}
+
+	if wekaClient.Spec.OsDistro == "" || wekaClient.Spec.OsBuildId == "" {
+		clientOsDistro, clientOsBuildId, err = services.GetClientOs(ctx, r.Client, node)
+		if err != nil {
+			logger.Error(err, "Failed to automatically discover client OS")
+		}
 	}
 
 	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector, nil)
@@ -303,6 +320,8 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
+			OsDistro:            clientOsDistro,
+			OsBuildId:           clientOsBuildId,
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 		},
 	}
