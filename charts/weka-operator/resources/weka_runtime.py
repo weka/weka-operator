@@ -857,7 +857,7 @@ def cos_reboot_machine():
     logging.warning("Rebooting the host")
     os.sync()
     time.sleep(3)  # give some time to log the message and sync
-    os.system("echo b > /proc-sysrq-trigger")
+    os.system("echo b > /hostside/proc/sysrq-trigger")
 
 
 async def is_secure_boot_enabled():
@@ -877,7 +877,7 @@ async def cos_configure_kernel():
     current_path = os.curdir
     reboot_required = False
 
-    with open("/proc-cmdline", 'r') as file:
+    with open("/hostside/proc/cmdline", 'r') as file:
         for line in file.readlines():
             logging.info(f"cmdline: {line}")
             if "module.sig_enforce" in line:
@@ -929,7 +929,7 @@ async def cos_configure_hugepages():
     current_path = os.curdir
     reboot_required = False
 
-    with open("/proc-cmdline", 'r') as file:
+    with open("/hostside/proc/cmdline", 'r') as file:
         for line in file.readlines():
             logging.info(f"cmdline: {line}")
             if "hugepagesz=" in line:

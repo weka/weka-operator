@@ -403,11 +403,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	if f.container.IsDiscoveryContainer() && f.container.IsCos() && ConfigureHugepagesOnDiscovery {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "proc-sysrq-trigger",
-			MountPath: "/proc-sysrq-trigger",
+			MountPath: "/hostside/proc/sysrq-trigger",
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "proc-cmdline",
-			MountPath: "/proc-cmdline",
+			MountPath: "/hostside/proc/cmdline",
 		})
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "proc-sysrq-trigger",
@@ -438,11 +438,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			})
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "proc-sysrq-trigger",
-				MountPath: "/proc-sysrq-trigger",
+				MountPath: "/hostside/proc/sysrq-trigger",
 			})
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "proc-cmdline",
-				MountPath: "/proc-cmdline",
+				MountPath: "/hostside/proc/cmdline",
 			})
 			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 				Name: "proc-sysrq-trigger",
