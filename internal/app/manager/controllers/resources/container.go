@@ -16,6 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
+const ConfigureHugepagesOnDiscovery = true
+
 type WekaLocalPs struct {
 	Name            string `json:"name"`
 	RunStatus       string `json:"runStatus"`
@@ -398,7 +400,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	// DiscoveryContainer on GKE only will force boot to set up hugepages
 	// TODO: move this to another place OR cancel since might cause reboot storm, done for DEV purposes only
-	if f.container.IsDiscoveryContainer() && f.container.IsCos() {
+	if f.container.IsDiscoveryContainer() && f.container.IsCos() && ConfigureHugepagesOnDiscovery {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "proc-sysrq-trigger",
 			MountPath: "/proc-sysrq-trigger",
