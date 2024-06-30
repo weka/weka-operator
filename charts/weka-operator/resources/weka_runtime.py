@@ -838,6 +838,8 @@ async def main():
     if MODE == "drivers-loader":
         # self signal to exit
         max_retries = 10
+        if is_google_cos():
+            await cos_disable_driver_signing()
         for i in range(max_retries):
             try:
                 await load_drivers()
