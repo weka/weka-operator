@@ -413,7 +413,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.IsDriversBuilder() {
+	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() {
 		if f.container.IsCos() {
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-boot-scripts",
@@ -446,7 +446,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			})
-			if f.container.Spec.GcloudCredentialsSecret != "" {
+			if f.container.IsDriversBuilder() && f.container.Spec.GcloudCredentialsSecret != "" {
 				pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 					Name: "gcloud-credentials",
 					VolumeSource: corev1.VolumeSource{
