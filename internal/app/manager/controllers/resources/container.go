@@ -587,21 +587,21 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		managementMemory := 1965
 		perFrontendMemory := 2050
 		buffer := 1150
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
 		perDriveMemory := 2100
 		buffer := 1800
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
 		managementMemory := 2200
 		perComputeMemory := 3600
 		buffer := 1600
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
@@ -609,7 +609,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 		managementMemory := 1965 + s3Memory // 8000 per S3
 		perFrontendMemory := 2050
 		buffer := 450
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores)
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	// since this is HT, we are doubling num of cores on allocation

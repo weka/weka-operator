@@ -104,6 +104,17 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 	if topology.NodeConfigMapPattern != "" {
 		nodeConfigMap = fmt.Sprintf(topology.NodeConfigMapPattern, ownedResources.Node)
 	}
+
+	additionalMemory := 0
+	switch role {
+	case "compute":
+		additionalMemory = cluster.Spec.AdditionalMemory.Compute
+	case "drive":
+		additionalMemory = cluster.Spec.AdditionalMemory.Drive
+	case "s3":
+		additionalMemory = cluster.Spec.AdditionalMemory.S3
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -139,6 +150,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 			Tolerations:         resources.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
 			NodeInfoConfigMap:   nodeConfigMap,
 			Ipv6:                cluster.Spec.Ipv6,
+			AdditionalMemory:    additionalMemory,
 		},
 	}
 

@@ -37,6 +37,12 @@ type NetworkSelector struct {
 	UdpMode   bool     `json:"udpMode,omitempty"`
 }
 
+type AdditionalMemory struct {
+	Compute int `json:"compute,omitempty"`
+	Drive   int `json:"drive,omitempty"`
+	S3      int `json:"s3,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -60,6 +66,7 @@ type WekaClusterSpec struct {
 	RawTolerations            []v1.Toleration      `json:"rawTolerations,omitempty"`
 	WekaHomeEndpoint          string               `json:"wekaHomeEndpoint,omitempty"`
 	Ipv6                      bool                 `json:"ipv6,omitempty"`
+	AdditionalMemory          AdditionalMemory     `json:"additionalMemory,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster

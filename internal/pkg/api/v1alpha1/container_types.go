@@ -68,6 +68,7 @@ type WekaContainerSpec struct {
 	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
 	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
 	Ipv6                bool                 `json:"ipv6,omitempty"`
+	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 }
 
 type Network struct {

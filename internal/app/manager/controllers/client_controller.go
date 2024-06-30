@@ -295,6 +295,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
+			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 		},
 	}
 	return container, nil
