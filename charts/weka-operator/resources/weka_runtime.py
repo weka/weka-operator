@@ -327,6 +327,13 @@ def read_siblings_list(cpu_index):
         return expand_ranges(file.read().strip())
 
 
+async def get_openshift_release():
+    stdout, stderr, ec = run_command("rpm -qa | grep openshift-hyperkube")
+    if ec != 0:
+        raise Exception(f"Failed to get openshift release: {stderr}")
+    return stdout.decode('utf-8').split('-')[1]
+
+
 async def get_host_info():
     ret = dict()
 
