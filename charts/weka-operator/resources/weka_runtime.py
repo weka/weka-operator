@@ -888,13 +888,15 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     exiting = True # multiple entry points of shutdown, exiting is global check for various conditions
 
-    if MODE not in ["drivers-loader", "discovery", "client"]:
+    if MODE not in ["drivers-loader", "discovery"]:
         force_stop = False
         if exists("/tmp/.allow-force-stop"):
             force_stop = True
         if is_wrong_generation():
             force_stop = True
         if "4.2.7.64" in IMAGE_NAME:
+            force_stop = True
+        if MODE == 'client':
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
