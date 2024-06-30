@@ -896,7 +896,7 @@ async def shutdown():
             force_stop = True
         if "4.2.7.64" in IMAGE_NAME:
             force_stop = True
-        if MODE == 'client':
+        if MODE in ['client', 'dist']:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
