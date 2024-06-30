@@ -86,11 +86,12 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha
 }
 
 type OwnerWekaObject struct {
-	Image           string `json:"image"`
-	ImagePullSecret string `json:"imagePullSecrets"`
+	Image           string              `json:"image"`
+	ImagePullSecret string              `json:"imagePullSecrets"`
+	Tolerations     []corev1.Toleration `json:"tolerations"`
 }
 
-func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, tolerations []corev1.Toleration, exec ExecService) error {
+func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
 	node := &corev1.Node{}
 	err := c.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
@@ -118,7 +119,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 			NodeAffinity:    nodeName,
 			Image:           ownerDetails.Image,
 			ImagePullSecret: ownerDetails.ImagePullSecret,
-			Tolerations:     tolerations,
+			Tolerations:     ownerDetails.Tolerations,
 		},
 	}
 	// Fill in the necessary fields here
