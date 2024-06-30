@@ -316,9 +316,8 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	// for discovery container, we need to mount the node root to correctly fetch OS info regardless of the OS
+	// for discovery container, we need to mount the /etc/os-release to correctly fetch OS info regardless of the OS
 	if f.container.IsDiscoveryContainer() {
-		// for CoreOS we need /lib/os-release, for COS we need /etc/os-release, for the rest whatever, just mount a root of the node.
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "osrelease",
 			VolumeSource: corev1.VolumeSource{
