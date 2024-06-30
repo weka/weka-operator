@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -212,6 +213,12 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	containers, err = r.CrdManager.EnsureWekaContainers(ctx, wekaCluster)
 	if err != nil {
 		logger.Error(err, "ensureWekaContainers", "cluster", wekaCluster.Name)
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
+
+	err = r.HandleSpecUpdates(ctx, wekaCluster, containers)
+	if err != nil {
+		logger.Info("err updating spec", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
@@ -427,6 +434,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		logger.Info("upgrade in process", "lastErr", err)
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -1166,4 +1174,56 @@ wekaauthcli debug override remove --key host_skip_unremovable_check
 		return errors.Wrapf(err, "Failed to finalize upgrade: STDERR: %s \n STDOUT:%s ", stderr.String(), stdout.String())
 	}
 	return nil
+}
+
+func (r *WekaClusterReconciler) HandleSpecUpdates(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleSpecUpdates")
+	defer end()
+
+	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
+	specHash, err := util.HashStruct(cluster.Spec)
+	if err != nil {
+		return err
+	}
+	if specHash != cluster.Status.LastAppliedSpec {
+		for _, container := range containers {
+			changed := false
+			additionalMemory := cluster.Spec.GetAdditionalMemory(container.Spec.Mode)
+			if container.Spec.AdditionalMemory != additionalMemory {
+				container.Spec.AdditionalMemory = additionalMemory
+				changed = true
+			}
+
+			tolerations := resources.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
+				container.Spec.Tolerations = tolerations
+				changed = true
+			}
+
+			if container.Spec.DriversDistService != cluster.Spec.DriversDistService {
+				container.Spec.DriversDistService = cluster.Spec.DriversDistService
+				changed = true
+			}
+
+			if container.Spec.ImagePullSecret != cluster.Spec.ImagePullSecret {
+				container.Spec.ImagePullSecret = cluster.Spec.ImagePullSecret
+				changed = true
+			}
+
+			if changed {
+				if err := r.Update(ctx, container); err != nil {
+					return err
+				}
+			}
+		}
+
+		logger.Info("Updating last applied spec", "lastAppliedSpec", cluster.Status.LastAppliedSpec, "newSpec", specHash)
+		cluster.Status.LastAppliedSpec = specHash
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return err
+		}
+
+	}
+	return nil
+
 }

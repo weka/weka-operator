@@ -471,7 +471,6 @@ func (a *Allocator) Allocate(ctx context.Context,
 			logger.Info("Not enough resources to allocate request", "role", role, "numContainers", numContainers, "size", size, "template", template, "ownerCluster", ownerCluster, "changed", changed, "containerName", containerName, "owner", owner, "lastAllocFailureReason", lastAllocFailureReason)
 			return fmt.Errorf("Not enough resources to allocate request")
 		}
-		logger.Info("Exit")
 		return nil
 	}
 

@@ -69,6 +69,19 @@ type WekaClusterSpec struct {
 	AdditionalMemory          AdditionalMemory     `json:"additionalMemory,omitempty"`
 }
 
+func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
+	additionalMemory := 0
+	switch mode {
+	case WekaContainerModeDrive:
+		additionalMemory = c.AdditionalMemory.Drive
+	case WekaContainerModeCompute:
+		additionalMemory = c.AdditionalMemory.Compute
+	case WekaContainerModeS3:
+		additionalMemory = c.AdditionalMemory.S3
+	}
+	return additionalMemory
+}
+
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
 	Status           string             `json:"status"`
@@ -78,6 +91,7 @@ type WekaClusterStatus struct {
 	TraceId          string             `json:"traceId,omitempty"`
 	SpanID           string             `json:"spanId,omitempty"`
 	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec  string             `json:"lastAppliedSpec,omitempty"`
 }
 
 // +kubebuilder:object:root=true

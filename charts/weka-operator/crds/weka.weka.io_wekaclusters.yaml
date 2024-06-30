@@ -34,6 +34,15 @@ spec:
           spec:
             description: WekaClusterSpec defines the desired state of WekaCluster
             properties:
+              additionalMemory:
+                properties:
+                  compute:
+                    type: integer
+                  drive:
+                    type: integer
+                  s3:
+                    type: integer
+                type: object
               computeAppendSetupCommand:
                 type: string
               cpuPolicy:
@@ -203,6 +212,8 @@ spec:
                   type: object
                 type: array
               lastAppliedImage:
+                type: string
+              lastAppliedSpec:
                 type: string
               spanId:
                 type: string

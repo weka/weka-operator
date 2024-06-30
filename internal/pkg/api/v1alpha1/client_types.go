@@ -73,7 +73,8 @@ type WekaClientStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions      []metav1.Condition `json:"conditions,omitempty"`
+	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
 }
 
 func (s *WekaClientStatus) SetCondition(condition metav1.Condition) {
