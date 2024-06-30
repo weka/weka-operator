@@ -365,7 +365,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil {
+	if f.container.Spec.WekaSecretRef.SecretKeyRef != nil && f.container.Spec.WekaSecretRef.SecretKeyRef.Key != "" {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-credentials",
 			VolumeSource: corev1.VolumeSource{
