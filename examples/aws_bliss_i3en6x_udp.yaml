@@ -22,9 +22,9 @@ spec:
       value: "weka-backend"
       effect: "NoExecute"
   additionalMemory:
-    drive: 1111
-    compute: 222
-    s3: 333
+    drive: 1
+    compute: 2
+    s3: 3
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaClient
@@ -56,7 +56,7 @@ spec:
       operator: "Equal"
       value: "weka-backend"
       effect: "NoExecute"
-  additionalMemory: 127
+  additionalMemory: 7
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
