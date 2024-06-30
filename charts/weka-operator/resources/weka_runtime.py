@@ -1006,6 +1006,8 @@ async def main():
         # self signal to exit
         await override_dependencies_flag()
         max_retries = 10
+        if is_google_cos():
+            await cos_disable_driver_signing()
         for i in range(max_retries):
             try:
                 await load_drivers()
