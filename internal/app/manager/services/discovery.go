@@ -96,7 +96,8 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha
 type OwnerWekaObject struct {
 	Image           string              `json:"image"`
 	ImagePullSecret string              `json:"imagePullSecrets"`
-	Tolerations     []corev1.Toleration `json:"tolerations"`
+	NodeSelector    map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations     []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
@@ -127,6 +128,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 			NodeAffinity:    nodeName,
 			Image:           ownerDetails.Image,
 			ImagePullSecret: ownerDetails.ImagePullSecret,
+			NodeSelector:    ownerDetails.NodeSelector,
 			Tolerations:     ownerDetails.Tolerations,
 		},
 	}
