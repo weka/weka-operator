@@ -163,15 +163,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/usr/local/bin/wekaauthcli",
 							SubPath:   "run-weka-cli.sh",
 						},
-						{
-							Name:      "weka-container-persistence-dir",
-							MountPath: containerPathPersistence,
-						},
-						{
-							Name:      "weka-container-persistence-dir",
-							MountPath: "/var/log",
-							SubPath:   "var/log",
-						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -282,17 +273,29 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 					},
 				},
-				{
-					Name: "weka-container-persistence-dir",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: hostsidePersistence,
-							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
-						},
-					},
-				},
 			},
 		},
+	}
+
+	if !f.container.IsDiscoveryContainer() {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-container-persistence-dir",
+			MountPath: containerPathPersistence,
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-container-persistence-dir",
+			MountPath: "/var/log",
+			SubPath:   "var/log",
+		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "weka-container-persistence-dir",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsidePersistence,
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+				},
+			},
+		})
 	}
 
 	// for discovery container, we need to mount the node root to correctly fetch OS info regardless of the OS
@@ -303,7 +306,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: "/",
-					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectory}[0],
 				},
 			},
 		})
