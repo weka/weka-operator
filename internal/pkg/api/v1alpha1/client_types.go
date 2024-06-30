@@ -64,6 +64,8 @@ type WekaClientSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
+	OsDistro            string               `json:"osDistro,omitempty"`
+	OsBuildId           string               `json:"osBuildId,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
