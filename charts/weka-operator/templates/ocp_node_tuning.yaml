@@ -1,5 +1,5 @@
 {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1/SecurityContextConstraints" }}
-{{- if .Values.ocpCompatibility.hugepageConfiguration.setHugePages }}
+{{- if .Values.ocpCompatibility.hugepageConfiguration.enabled }}
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:

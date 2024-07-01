@@ -140,7 +140,7 @@ func main() {
 	ctrls := []WekaReconciler{
 		controllers.NewClientReconciler(mgr),
 		controllers.NewContainerController(mgr, compatibilityConfig),
-		controllers.NewWekaClusterController(mgr),
+		controllers.NewWekaClusterController(mgr, compatibilityConfig),
 		controllers.NewTombstoneController(mgr, tombstoneConfig),
 	}
 

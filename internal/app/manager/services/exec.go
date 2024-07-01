@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
@@ -32,7 +33,8 @@ type PodExecService struct {
 }
 
 func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (util.Exec, error) {
-	pod, err := resources.NewContainerFactory(container).Create(ctx)
+	compatibilityConfig := domain.CompatibilityConfig{}
+	pod, err := resources.NewContainerFactory(container).Create(ctx, compatibilityConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not find executor pod")
 	}
