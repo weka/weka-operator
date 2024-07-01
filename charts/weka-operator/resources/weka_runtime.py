@@ -222,7 +222,8 @@ async def load_drivers():
         {"" if is_google_cos() else "lsmod | grep uio || modprobe uio"}
         {"" if is_google_cos() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
         lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
-        {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}echo "drivers_loaded"  > /tmp/weka-drivers-loader
+        {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+        echo "drivers_loaded"  > /tmp/weka-drivers-loader
         """)
     else:
         # list directory /opt/weka/dist/version
