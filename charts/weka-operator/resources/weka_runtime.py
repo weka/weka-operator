@@ -22,7 +22,12 @@ JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 OS_DISTRO = os.environ.get("OS_DISTRO")
 OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
-GOOGLE_COS_HUGEPAGES = 8000  # upon node discovery, we will set this to the actual value and force-boot the node
+
+COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
+COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("COS_ALLOW_DISABLE_DRIVER_SIGNING", "false") == "true" else False
+COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
+COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("COS_GLOBAL_HUGEPAGE_COUNT", 4000))
+
 KUBERNETES_FLAVOR_OPENSHIFT = "openshift"
 KUBERNETES_FLAVOR_GKE = "gke"
 OS_NAME_GOOGLE_COS = "cos"
@@ -884,6 +889,11 @@ async def cos_disable_driver_signing_verification():
                 sed_cmds.append(('cros_efi', 'cros_efi loadpin.enforce=0'))
     if sed_cmds:
         logging.warning("Must modify kernel parameters")
+        if COS_ALLOW_DISABLE_DRIVER_SIGNING:
+            logging.warning("Node driver signing configuration has changed, NODE WILL REBOOT NOW!")
+        else:
+            raise Exception("Node driver signing configuration must be changed, but COS_ALLOW_DISABLE_DRIVER_SIGNING is not set to True. Exiting.")
+
         await run_command(f"mkdir -p {mount_path}")
         await run_command(f"mount {esp_partition} {mount_path}")
         current_path = os.curdir
@@ -921,14 +931,21 @@ async def cos_configure_hugepages():
         for line in file.readlines():
             logging.info(f"cmdline: {line}")
             if "hugepagesz=" in line:
-                if "hugepagesz=1g" in line.lower():
+                if "hugepagesz=1g" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "2m":
                     sed_cmds.append(('hugepagesz=1g', 'hugepagesz=2m'))
+                elif "hugepagesz=2m" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "1g":
+                    sed_cmds.append(('hugepagesz=2m', 'hugepagesz=1g'))
             if "hugepages=" not in line:
-                sed_cmds.append(('cros_efi', f'cros_efi hugepages={GOOGLE_COS_HUGEPAGES}'))
-            elif f"hugepages={GOOGLE_COS_HUGEPAGES}" not in line:
-                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={GOOGLE_COS_HUGEPAGES}'))
+                sed_cmds.append(('cros_efi', f'cros_efi hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line:
+                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
     if sed_cmds:
         logging.warning("Must modify kernel HUGEPAGES parameters")
+        if COS_ALLOW_HUGEPAGE_CONFIG:
+            logging.warning("Node hugepage configuration has changed, NODE WILL REBOOT NOW!")
+        else:
+            raise Exception("Node hugepage configuration must be changed, but COS_ALLOW_HUGEPAGE_CONFIG is not set to True. Exiting.")
+
         await run_command(f"mkdir -p {mount_path}")
         await run_command(f"mount {esp_partition} {mount_path}")
         try:
@@ -946,7 +963,7 @@ async def cos_configure_hugepages():
             if reboot_required:
                 cos_reboot_machine()
     else:
-        logging.info(f"Hugepages are already configured to {GOOGLE_COS_HUGEPAGES}x2m pages")
+        logging.info(f"Hugepages are already configured to {COS_GLOBAL_HUGEPAGE_COUNT}x2m pages")
 
 
 async def cos_disable_driver_signing():

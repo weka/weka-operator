@@ -41,5 +41,16 @@ ocpCompatibility:
     # -- hugepage count
     hugepagesCount: 4000
 
+gkeCompatibility:
+  # -- automatically configure hugepages for the GKE nodes
+  hugepageConfiguration:
+    # -- if enabled, the operator will configure hugepages for the GKE nodes (WARNING: will reboot nodes forcefully!)
+    enabled: false
+    # -- hugepage size
+    hugepageSize: "2M"
+    # -- hugepage count
+    hugepageCount: 4000
+  # -- if enabled, the operator will disable driver signing enforcement on the GKE nodes (WARNING: will reboot nodes forcefully!)
+  disableDriverSigning: false
 
 debugSleep: 3

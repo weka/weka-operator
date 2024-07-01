@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"os"
 	"strconv"
 	"strings"
@@ -36,23 +37,25 @@ import (
 
 const bootScriptConfigName = "weka-boot-scripts"
 
-func NewContainerController(mgr ctrl.Manager) *ContainerController {
+func NewContainerController(mgr ctrl.Manager, c domain.CompatibilityConfig) *ContainerController {
 	config := mgr.GetConfig()
 	return &ContainerController{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
-		KubeService: services.NewKubeService(mgr.GetClient()),
-		ExecService: services.NewExecService(config),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		Logger:              mgr.GetLogger().WithName("controllers").WithName("Container"),
+		KubeService:         services.NewKubeService(mgr.GetClient()),
+		ExecService:         services.NewExecService(config),
+		CompatibilityConfig: c,
 	}
 }
 
 type ContainerController struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Logger      logr.Logger
-	KubeService services.KubeService
-	ExecService services.ExecService
+	Scheme              *runtime.Scheme
+	Logger              logr.Logger
+	KubeService         services.KubeService
+	ExecService         services.ExecService
+	CompatibilityConfig domain.CompatibilityConfig
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -128,7 +131,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
+	desiredPod, err := resources.NewContainerFactory(container).Create(ctx, r.CompatibilityConfig)
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")

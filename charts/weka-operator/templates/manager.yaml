@@ -76,6 +76,14 @@ spec:
             - --enable-tombstone-gc={{ .Values.persistence.containerTombstone.gc.enabled }}
             - --tombstone-gc-interval={{ .Values.persistence.containerTombstone.gc.interval }}
             - --tombstone-expiration={{ .Values.persistence.containerTombstone.gc.retention }}
+          {{- if .Values.gkeCompatibility.hugepageConfiguration.enabled}}
+            - --enable-cos-hugepages-config
+            - --cos-hugepage-size={{ .Values.gkeCompatibility.hugepageConfiguration.hugepageSize }}
+            - --cos-hugepage-count={{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}
+          {{- end}}
+          {{- if .Values.gkeCompatibility.disableDriverSigning }}
+            - --disable-cos-driver-signing-enforcement
+          {{- end}}
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"

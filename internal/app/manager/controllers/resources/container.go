@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
@@ -52,7 +53,7 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactor
 	}
 }
 
-func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
+func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domain.CompatibilityConfig) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
@@ -106,6 +107,20 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		serviceAccountName = "default"
 	}
 	containerPathPersistence := "/opt/weka-persistence"
+
+	allowCosHugepageConfig := "false"
+	if compatibilityConfig.CosEnableHugepagesConfig {
+		allowCosHugepageConfig = "true"
+	}
+
+	allowCosDisableDriverSigning := "false"
+	if compatibilityConfig.CosDisableDriverSigningEnforcement {
+		allowCosDisableDriverSigning = "true"
+	}
+
+	globalCosHugepageSize := compatibilityConfig.CosHugepageSize
+	globalCosHugepageCount := strconv.Itoa(compatibilityConfig.CosHugepagesCount)
+
 	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -457,6 +472,23 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_ALLOW_HUGEPAGE_CONFIG",
+				Value: allowCosHugepageConfig,
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_ALLOW_DISABLE_DRIVER_SIGNING",
+				Value: allowCosDisableDriverSigning,
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_GLOBAL_HUGEPAGE_SIZE",
+				Value: globalCosHugepageSize,
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_GLOBAL_HUGEPAGE_COUNT",
+				Value: globalCosHugepageCount,
+			})
+
 			if f.container.IsDriversBuilder() && f.container.Spec.GcloudCredentialsSecret != "" {
 				pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 					Name: "gcloud-credentials",
