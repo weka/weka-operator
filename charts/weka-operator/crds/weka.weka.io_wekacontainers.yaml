@@ -124,6 +124,7 @@ spec:
                 enum:
                 - cos
                 - rhcos
+                - ubuntu
                 - ""
                 type: string
               port:
