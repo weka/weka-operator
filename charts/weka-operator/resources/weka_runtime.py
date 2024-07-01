@@ -860,8 +860,8 @@ async def is_secure_boot_enabled():
     return "Secure boot enabled" in stdout.decode('utf-8')
 
 
-async def cos_configure_kernel():
-    logging.info("Checking if third party kernel modules can be installed")
+async def cos_disable_driver_signing_verification():
+    logging.info("Checking if driver signing is disabled")
     esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
     mount_path = "/tmp/esp"
     grub_cfg = "efi/boot/grub.cfg"
@@ -958,7 +958,7 @@ async def cos_disable_driver_signing():
     if not is_google_cos():
         return
     logging.info("Ensuring driver signing is disabled")
-    await cos_configure_kernel()
+    await cos_disable_driver_signing_verification()
 
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
 GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
