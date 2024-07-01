@@ -21,7 +21,6 @@ MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 OS_DISTRO = os.environ.get("OS_DISTRO")
-OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
 GOOGLE_COS_HUGEPAGES = 8000  # upon node discovery, we will set this to the actual value and force-boot the node
 KUBERNETES_FLAVOR_OPENSHIFT = "openshift"
 KUBERNETES_FLAVOR_GKE = "gke"
@@ -213,17 +212,17 @@ async def load_drivers():
         weka_driver_version = version_params.get('wekafs')
         cmd = dedent(f"""
             mkdir -p /opt/weka/dist/drivers
-            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
-            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
-            curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-            curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-            {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
-        lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
-        lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
+            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
+            curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
+            curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+            curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+            {"" if version_params.get('uio_pci_generic') == False else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+        lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
+        lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
         {"" if is_google_cos() else "lsmod | grep uio || modprobe uio"}
-        {"" if is_google_cos() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
-        lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-        {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}echo "drivers_loaded"  > /tmp/weka-drivers-loader
+        {"" if is_google_cos() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+        lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+        {"" if version_params.get('uio_pci_generic') == False else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}echo "drivers_loaded"  > /tmp/weka-drivers-loader
         """)
     else:
         # list directory /opt/weka/dist/version
@@ -237,7 +236,7 @@ async def load_drivers():
         echo drivers downloaded
         weka driver install --without-agent --version {version}
         echo drivers installed
-        {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
+        {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
             """)
 
@@ -256,12 +255,12 @@ async def copy_drivers():
 
     stdout, stderr, ec = await run_command(dedent(f"""
       mkdir -p /opt/weka/dist/drivers
-      cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-`uname -r`.`uname -m`.ko
+      cp /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r)/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
+      cp /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r)/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
 
-      cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-`uname -r`.`uname -m`.ko
-      {"" if version_params.get('uio_pci_generic') == False else f"cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-`uname -r`.`uname -m`.ko"}
+      cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/$(uname -r)/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+      cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/$(uname -r)/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+      {"" if version_params.get('uio_pci_generic') == False else f"cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/$(uname -r)/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
     """))
     if ec != 0:
         logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
@@ -270,33 +269,38 @@ async def copy_drivers():
 
 
 async def cos_build_drivers():
-    driver_versions = VERSION_TO_DRIVERS_MAP_WEKAFS.get(os.environ.get("IMAGE_NAME", '4.2.7.64-k8so-beta.10').split(":")[-1])
-    weka_driver_version = driver_versions["wekafs"]
+    host_info = await get_host_info()
+    weka_driver_version = version_params["wekafs"]
     weka_driver_file_version = weka_driver_version.rsplit("-", 1)[0]
-    mpin_driver_version = driver_versions["mpin_user"]
-    igb_uio_driver_version = driver_versions["igb_uio"]
-    uio_pci_generic_driver_version = driver_versions.get("uio_pci_generic", "1.0.0-929f279ce026ddd2e31e281b93b38f52")
+    mpin_driver_version = version_params["mpin_user"]
+    igb_uio_driver_version = version_params["igb_uio"]
+    uio_pci_generic_driver_version = version_params.get("uio_pci_generic", "1.0.0-929f279ce026ddd2e31e281b93b38f52")
     weka_driver_squashfs = f'/opt/weka/dist/image/weka-driver-{weka_driver_file_version}.squashfs'
     mpin_driver_squashfs = f'/opt/weka/dist/image/driver-mpin-user-{mpin_driver_version}.squashfs'
     igb_uio_driver_squashfs = f'/opt/weka/dist/image/driver-igb-uio-{igb_uio_driver_version}.squashfs'
     uio_pci_driver_squashfs = f'/opt/weka/dist/image/driver-uio-pci-generic-{uio_pci_generic_driver_version}.squashfs'
-
-    logging.info("Starting to build drivers")
-    for cmd in [
-        f"apt-get install -y squashfs-tools",
-        f"mkdir -p /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r`",
-        f"mkdir -p /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r`",
-        f"mkdir -p /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r`",
-        f"mkdir -p /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r`",
-        f"unsquashfs -i -f -d /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` {weka_driver_squashfs}",
-        f"unsquashfs -i -f -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` {mpin_driver_squashfs}",
-        f"unsquashfs -i -f -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` {igb_uio_driver_squashfs}",
-        f"unsquashfs -i -f -d /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` {uio_pci_driver_squashfs}",
-        f"cd /opt/weka/data/weka_driver/{weka_driver_version}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m ",
-        f"cd /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m",
-        f"cd /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m",
-        f"cd /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/`uname -r` && /devenv.sh -R {OS_BUILD_ID} -m"
+    OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
+    if not OS_BUILD_ID:
+        OS_BUILD_ID = host_info.get("os_build_id", None)
+    if not OS_BUILD_ID:
+        raise Exception("OS_BUILD_ID is not set")
+    logging.info(f"Building drivers for Google Container-Optimized OS release {OS_BUILD_ID}")
+    for cmd, desc in [
+        (f"apt-get install -y squashfs-tools", "installing squashfs-tools"),
+        (f"mkdir -p /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r)", "downloading weka driver"),
+        (f"mkdir -p /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/$(uname -r)", "downloading mpin driver"),
+        (f"mkdir -p /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/$(uname -r)", "downloading igb_uio driver"),
+        (f"mkdir -p /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/$(uname -r)", "downloading uio_pci_generic driver"),
+        (f"unsquashfs -i -f -d /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r) {weka_driver_squashfs}", "extracting weka driver"),
+        (f"unsquashfs -i -f -d /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/$(uname -r) {mpin_driver_squashfs}", "extracting mpin driver"),
+        (f"unsquashfs -i -f -d /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/$(uname -r) {igb_uio_driver_squashfs}", "extracting igb_uio driver"),
+        (f"unsquashfs -i -f -d /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/$(uname -r) {uio_pci_driver_squashfs}", "extracting uio_pci_generic driver"),
+        (f"cd /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r) && /devenv.sh -R {OS_BUILD_ID} -m ", "building weka driver"),
+        (f"cd /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/$(uname -r) && /devenv.sh -R {OS_BUILD_ID} -m", "building mpin driver"),
+        (f"cd /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/$(uname -r) && /devenv.sh -R {OS_BUILD_ID} -m", "building igb_uio driver"),
+        (f"cd /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/$(uname -r) && /devenv.sh -R {OS_BUILD_ID} -m", "building uio_pci_generic driver"),
     ]:
+        logging.info(f"COS driver building step: {desc}")
         stdout, stderr, ec = await run_command(cmd)
         if ec != 0:
             logging.error(f"Failed to build drivers {stderr}: exc={ec}, last command: {cmd}")
@@ -441,7 +445,6 @@ class Daemon:
             return False
         running = self.process.returncode is None
         return running
-
 
 
 async def start_process(command, alias=""):
@@ -901,6 +904,8 @@ async def cos_configure_kernel():
             await run_command(f"umount {mount_path}")
             if reboot_required:
                 cos_reboot_machine()
+    else:
+        logging.info("Driver signing is already disabled")
 
 
 async def cos_configure_hugepages():
@@ -945,6 +950,8 @@ async def cos_configure_hugepages():
             await run_command(f"umount {mount_path}")
             if reboot_required:
                 cos_reboot_machine()
+    else:
+        logging.info(f"Hugepages are already configured to {GOOGLE_COS_HUGEPAGES}x2m pages")
 
 
 async def cos_disable_driver_signing():
@@ -1026,7 +1033,6 @@ async def main():
     await override_dependencies_flag()
 
     if MODE not in ["dist", "drivers-loader", "build"]:
-    # NOTE: at this point the container should reset the host. This is a workaround for COS only
         await ensure_drivers()
 
     if MODE in ["drivers-loader"]:
