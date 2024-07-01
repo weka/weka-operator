@@ -23,6 +23,10 @@ DIST_SERVICE = os.environ.get("DIST_SERVICE")
 OS_DISTRO = os.environ.get("OS_DISTRO")
 OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
 GOOGLE_COS_HUGEPAGES = 8000  # upon node discovery, we will set this to the actual value and force-boot the node
+KUBERNETES_FLAVOR_OPENSHIFT = "openshift"
+KUBERNETES_FLAVOR_GKE = "gke"
+OS_NAME_GOOGLE_COS = "cos"
+OS_NAME_REDHAT_COREOS = "rhcos"
 
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
@@ -50,11 +54,11 @@ logging.basicConfig(
 
 
 def is_google_cos():
-    return OS_DISTRO == "cos"
+    return OS_DISTRO == OS_NAME_GOOGLE_COS
 
 
 def is_rhcos():
-    return OS_DISTRO == "rhcos"
+    return OS_DISTRO == OS_NAME_REDHAT_COREOS
 
 
 def should_build_externally():
@@ -333,11 +337,11 @@ async def get_host_info():
     with open("/hostside/etc/os-release") as file:
         for line in file:
             if line.startswith("OPENSHIFT_VERSION="):
-                ret['kubernetes_flavor'] = "openshift"
+                ret['kubernetes_flavor'] = KUBERNETES_FLAVOR_OPENSHIFT
             elif line.startswith("ID="):
                 ret['os'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("BUILD_ID="):
-                ret['kubernetes_flavor'] = "gke"
+                ret['kubernetes_flavor'] = KUBERNETES_FLAVOR_GKE
                 ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
     return ret
 
