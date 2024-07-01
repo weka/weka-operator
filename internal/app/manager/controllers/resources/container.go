@@ -317,7 +317,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	// for discovery container, we need to mount the /etc/os-release to correctly fetch OS info regardless of the OS
-	if f.container.IsDiscoveryContainer() {
+	if f.container.IsDiscoveryContainer() || f.container.IsDriversBuilder() {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "osrelease",
 			VolumeSource: corev1.VolumeSource{
