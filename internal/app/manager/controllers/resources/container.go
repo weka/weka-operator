@@ -172,6 +172,10 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/usr/local/bin/wekaauthcli",
 							SubPath:   "run-weka-cli.sh",
 						},
+						{
+							Name:      "osrelease",
+							MountPath: "/hostside/etc/os-release",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -260,6 +264,15 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 				{
+					Name: "osrelease",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/os-release",
+							Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+						},
+					},
+				},
+				{
 					Name: "dev",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
@@ -313,23 +326,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 				},
 			},
-		})
-	}
-
-	// for discovery container, we need to mount the /etc/os-release to correctly fetch OS info regardless of the OS
-	if f.container.IsDiscoveryContainer() || f.container.IsDriversBuilder() {
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "osrelease",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/os-release",
-					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
-				},
-			},
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "osrelease",
-			MountPath: "/hostside/etc/os-release",
 		})
 	}
 
