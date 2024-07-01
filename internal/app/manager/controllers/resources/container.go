@@ -399,7 +399,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	// DiscoveryContainer on GKE only will force boot to set up hugepages
 	// TODO: move this to another place OR cancel since might cause reboot storm, done for DEV purposes only
-	if f.container.IsDiscoveryContainer() && f.container.IsCos() && ConfigureHugepagesOnDiscovery {
+	if f.container.IsDiscoveryContainer() && (f.container.IsCos() || f.container.IsUnspecifiedOs()) && ConfigureHugepagesOnDiscovery {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "proc-sysrq-trigger",
 			MountPath: "/hostside/proc/sysrq-trigger",

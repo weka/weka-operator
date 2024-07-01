@@ -194,6 +194,10 @@ func (w *WekaContainer) IsCos() bool {
 	return w.Spec.OsDistro == OsNameCos
 }
 
+func (w *WekaContainer) IsUnspecifiedOs() bool {
+	return w.Spec.OsDistro == ""
+}
+
 func (w *WekaContainer) GetPersistentLocation() string {
 	if w.Spec.OsDistro == OsNameOpenshift {
 		return PersistentContainersLocationRhCos //TODO: check persistence for openshift
