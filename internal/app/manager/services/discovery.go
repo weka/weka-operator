@@ -21,11 +21,6 @@ type DiscoveryNodeInfo struct {
 	IsHt             bool   `json:"is_ht"`
 	KubernetesFlavor string `json:"kubernetes_flavor,omitempty"`
 	Os               string `json:"os,omitempty"`
-	OsVersion        string `json:"os_version,omitempty"`
-	OsVersionId      string `json:"os_version_id,omitempty"`
-	KernelVersion    string `json:"kernel_version,omitempty"`
-	OpenShiftRelease string `json:"openshift_release,omitempty"`
-	OsName           string `json:"os_name,omitempty"`
 	OsBuildId        string `json:"os_build_id,omitempty"`
 	BootID           string `json:"boot_id,omitempty"`
 }

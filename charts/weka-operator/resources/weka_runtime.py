@@ -334,22 +334,11 @@ async def get_host_info():
         for line in file:
             if line.startswith("OPENSHIFT_VERSION="):
                 ret['kubernetes_flavor'] = "openshift"
-            elif line.startswith("NAME="):
-                ret['os_name'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("ID="):
                 ret['os'] = line.split("=")[1].strip().replace('"', '')
-            elif line.startswith("VERSION_ID="):
-                ret['os_version_id'] = line.split("=")[1].strip().replace('"', '')
-            elif line.startswith("VERSION="):
-                ret['os_version'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("BUILD_ID="):
                 ret['kubernetes_flavor'] = "gke"
                 ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
-
-    stdout, stderr, ec = await run_command("uname -r")
-    if ec != 0:
-        raise Exception(f"Failed to get kernel version: {stderr}")
-    ret['kernel_version'] = stdout.decode('utf-8').strip()
     return ret
 
 
