@@ -51,7 +51,7 @@ type WekaContainerSpec struct {
 	ImagePullSecret         string            `json:"imagePullSecret,omitempty"`
 	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
 	BuildkitImage           string            `json:"buildkitImage,omitempty"`
-	// +kubebuilder:validation:Enum="cos";rhcos;""
+	// +kubebuilder:validation:Enum="cos";rhcos;"ubuntu;""
 	OsDistro          string `json:"osDistro,omitempty"`
 	OsBuildId         string `json:"osBuildId,omitempty"` // temporary solution for hardcoded version of COS, need to resolve better.
 	WekaContainerName string `json:"name"`
