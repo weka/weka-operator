@@ -271,7 +271,6 @@ async def copy_drivers():
 
 
 async def cos_build_drivers():
-    host_info = await get_host_info()
     weka_driver_version = version_params["wekafs"]
     weka_driver_file_version = weka_driver_version.rsplit("-", 1)[0]
     mpin_driver_version = version_params["mpin_user"]
@@ -281,11 +280,6 @@ async def cos_build_drivers():
     mpin_driver_squashfs = f'/opt/weka/dist/image/driver-mpin-user-{mpin_driver_version}.squashfs'
     igb_uio_driver_squashfs = f'/opt/weka/dist/image/driver-igb-uio-{igb_uio_driver_version}.squashfs'
     uio_pci_driver_squashfs = f'/opt/weka/dist/image/driver-uio-pci-generic-{uio_pci_generic_driver_version}.squashfs'
-    OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
-    if not OS_BUILD_ID:
-        OS_BUILD_ID = host_info.get("os_build_id", None)
-    if not OS_BUILD_ID:
-        raise Exception("OS_BUILD_ID is not set")
     logging.info(f"Building drivers for Google Container-Optimized OS release {OS_BUILD_ID}")
     for cmd, desc in [
         (f"apt-get install -y squashfs-tools", "installing squashfs-tools"),
@@ -337,7 +331,7 @@ def read_siblings_list(cpu_index):
         return expand_ranges(file.read().strip())
 
 
-async def get_host_info():
+def get_host_info():
     ret = dict()
 
     with open("/hostside/etc/os-release") as file:
@@ -809,7 +803,7 @@ async def discovery():
             is_ht=len(read_siblings_list(0)) > 1,
             kubernetes_flavor="k8s",
         )
-        data.update(await get_host_info())
+        data.update(get_host_info())
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
     logging.info("discovery done")
@@ -911,8 +905,7 @@ async def cos_disable_driver_signing_verification():
 
 
 async def cos_configure_hugepages():
-    host_info = await get_host_info()
-    if host_info.get('os', "") != 'cos':
+    if not is_google_cos():
         logging.info("Skipping hugepages configuration")
         return
 
@@ -993,6 +986,18 @@ _server = None
 
 
 async def main():
+    host_info = get_host_info()
+    global OS_DISTRO, OS_BUILD_ID
+    if not OS_DISTRO:
+        OS_DISTRO = host_info.get("os", "unknown")
+    logging.info(f'OS_DISTRO={OS_DISTRO}')
+
+    if not OS_BUILD_ID:
+        OS_BUILD_ID = host_info.get("os_build_id", None)
+    if not OS_BUILD_ID:
+        raise Exception("OS_BUILD_ID is not set")
+    logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
+
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
