@@ -100,6 +100,12 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		}
 	}
 
+	if role == "envoy" {
+		s3Params = &wekav1alpha1.S3Params{
+			EnvoyPort: ownedResources.EnvoyPort,
+		}
+	}
+
 	nodeConfigMap := ""
 	if topology.NodeConfigMapPattern != "" {
 		nodeConfigMap = fmt.Sprintf(topology.NodeConfigMapPattern, ownedResources.Node)
