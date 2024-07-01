@@ -340,6 +340,20 @@ func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domai
 				},
 			},
 		})
+	} else {
+		// for discovery containers, set COS params for hugepages
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "COS_ALLOW_HUGEPAGE_CONFIG",
+			Value: allowCosHugepageConfig,
+		})
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "COS_GLOBAL_HUGEPAGE_SIZE",
+			Value: globalCosHugepageSize,
+		})
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "COS_GLOBAL_HUGEPAGE_COUNT",
+			Value: globalCosHugepageCount,
+		})
 	}
 
 	err := f.setResources(ctx, pod)
@@ -470,20 +484,8 @@ func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domai
 				},
 			})
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_ALLOW_HUGEPAGE_CONFIG",
-				Value: allowCosHugepageConfig,
-			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 				Name:  "COS_ALLOW_DISABLE_DRIVER_SIGNING",
 				Value: allowCosDisableDriverSigning,
-			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_GLOBAL_HUGEPAGE_SIZE",
-				Value: globalCosHugepageSize,
-			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_GLOBAL_HUGEPAGE_COUNT",
-				Value: globalCosHugepageCount,
 			})
 
 			if f.container.IsDriversBuilder() && f.container.Spec.GcloudCredentialsSecret != "" {
