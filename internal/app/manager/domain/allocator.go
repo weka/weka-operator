@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"slices"
 	"strings"
 
@@ -256,6 +257,16 @@ func (n *NodeAllocations) NumS3ContainersOwnedByCluster(owner Owner) int {
 	return count
 }
 
+func (n *NodeAllocations) NumEnvoyContainersOwnedByCluster(owner Owner) int {
+	count := 0
+	for resourceOwner := range n.Cpu {
+		if resourceOwner.IsSameOwner(owner) && resourceOwner.Role == v1alpha1.WekaContainerModeEnvoy {
+			count++
+		}
+	}
+	return count
+}
+
 func contains(alloc []string, searchstring string) bool {
 	for _, d := range alloc {
 		if d == searchstring {
@@ -394,7 +405,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 			for _, node := range nodes {
 				nodeAlloc := allocationsMap[NodeName(node)]
 				var availableDrives []string
-				if role == "drive" {
+				if role == v1alpha1.WekaContainerModeDrive {
 					availableDrives = nodeAlloc.GetFreeDrives(a.Topology.Drives)
 					if len(availableDrives) < template.NumDrives {
 						logger.Info("Not enough drives to allocate request", "role", role, "availableDrives", availableDrives, "template.NumDrives", template.NumDrives, "topology drives", a.Topology.Drives)
@@ -409,7 +420,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 					if len(a.Topology.Network.EthSlots) > 0 {
 						requiredNics = template.DriveCores
 					}
-				} else if role == "compute" {
+				} else if role == v1alpha1.WekaContainerModeCompute {
 					if nodeAlloc.NumComputeContainerOwnedByCluster(owner) >= template.MaxFdsPerNode {
 						logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner, "template.MaxFdsPerNode", template.MaxFdsPerNode)
 						continue
@@ -418,7 +429,7 @@ func (a *Allocator) Allocate(ctx context.Context,
 						continue
 					}
 					requiredCpus = template.ComputeCores
-				} else if role == "s3" {
+				} else if role == v1alpha1.WekaContainerModeS3 {
 					if nodeAlloc.NumDriveContainerOwnedByCluster(owner) < 1 { // not allocating on nodes that do not host same-tenant drive
 						lastAllocFailureReason = "No drive container on host"
 						continue
@@ -432,6 +443,15 @@ func (a *Allocator) Allocate(ctx context.Context,
 						continue // no more then one s3 container on host
 					}
 					requiredCpus = template.S3Cores + template.S3ExtraCores
+				} else if role == v1alpha1.WekaContainerModeEnvoy {
+					if nodeAlloc.NumS3ContainersOwnedByCluster(owner) < 1 {
+						lastAllocFailureReason = "No s3 container on host"
+						continue
+					}
+					if nodeAlloc.NumEnvoyContainersOwnedByCluster(owner) > 0 {
+						continue
+					}
+					requiredCpus = 1
 				}
 				freeCpus := nodeAlloc.GetFreeCpus(a.Topology.GetAvailableCpus())
 				if len(freeCpus) < requiredCpus {
@@ -459,8 +479,12 @@ func (a *Allocator) Allocate(ctx context.Context,
 				}
 				nodeAlloc.Cpu[owner] = append(allocationsMap[NodeName(node)].Cpu[owner], freeCpus[0:requiredCpus]...)
 				// TODO: Unite agent, envoy, envoy admin and s3 into unified range/allocmap distringuished by OwnerRole. Current Gap - all three s3 ports represent single role
+
+				if role != "envoy" {
+					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseWekaContainerPort, wekaContainerPortStep, allocations.Global.WekaContainerPorts)
+				}
 				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseAgentPort, singlePortStep, allocations.Global.AgentPorts)
-				nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseWekaContainerPort, wekaContainerPortStep, allocations.Global.WekaContainerPorts)
+
 				if role == "s3" {
 					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseEnvoyPort, singlePortStep, allocations.Global.EnvoyPorts)
 					nodeAlloc.AllocateClusterWideRolePort(owner.ToOwnerRole(), baseEnvoyAdminPort, singlePortStep, allocations.Global.EnvoyAdminPorts)
@@ -474,17 +498,22 @@ func (a *Allocator) Allocate(ctx context.Context,
 		return nil
 	}
 
-	if err := allocateResources("drive", template.DriveContainers*size); err != nil {
+	if err := allocateResources(v1alpha1.WekaContainerModeDrive, template.DriveContainers*size); err != nil {
 		logger.Error(err, "Failed to allocate drive containers")
 		return allocations, err, changed
 	}
 
-	if err := allocateResources("compute", template.ComputeContainers*size); err != nil {
+	if err := allocateResources(v1alpha1.WekaContainerModeCompute, template.ComputeContainers*size); err != nil {
 		logger.Error(err, "Failed to allocate compute containers")
 		return allocations, err, changed
 	}
 
-	if err := allocateResources("s3", template.S3Containers*size); err != nil {
+	if err := allocateResources(v1alpha1.WekaContainerModeS3, template.S3Containers*size); err != nil {
+		logger.Error(err, "Failed to allocate S3 containers")
+		return allocations, err, changed
+	}
+
+	if err := allocateResources(v1alpha1.WekaContainerModeEnvoy, template.S3Containers*size); err != nil {
 		logger.Error(err, "Failed to allocate S3 containers")
 		return allocations, err, changed
 	}

@@ -57,6 +57,9 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	var hostnamesList []string
 
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue
+		}
 		if container.Spec.Ipv6 {
 			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", container.Status.ManagementIP, container.Spec.Port))
 		} else {

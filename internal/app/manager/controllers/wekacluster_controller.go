@@ -224,7 +224,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsCreated) {
 		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
+		err = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+		}
 	}
 	logger.SetPhase("PODS_ALREADY_EXIST")
 
@@ -265,6 +268,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue
+		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 			logger.Info("Container has not joined the cluster yet", "container", container.Name)
 			logger.SetPhase("CONTAINERS_NOT_JOINED_CLUSTER")
@@ -662,6 +668,9 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 	}
 
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue
+		}
 		if container.Status.ClusterContainerID == nil {
 			if containersMap == nil {
 				err := fetchContainers()
@@ -723,6 +732,9 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	defer end()
 
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue // ignoring envoy as not part of cluster and we can figure out at later stage
+		}
 		if container.GetDeletionTimestamp() != nil {
 			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
 			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
@@ -733,7 +745,7 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 		}
 
 		if container.Status.Status != "Running" {
-			logger.Debug("Container is not running yet", "container_name", container.Name)
+			logger.Info("Container is not running yet", "container_name", container.Name)
 			return false, nil
 		}
 	}
