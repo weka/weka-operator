@@ -10,6 +10,8 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
   imagePullSecret: "quay-io-robot-secret"
   buildkitImagePullSecret: "ocp-buildkit-secret"
+  # this is the buildkit image that will be used to build the weka driver. The image may be obtained by running the following command:
+  # oc adm release info 4.13.41 --image-for=driver-toolkit. The URL may be replaced with a local mirror for a darik sites
   buildkitImage: "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:2421e498039bc6118e902cef9531af6c90a3cacbe51ecb4efd37476c25caadad"
   mode: "dist"
   name: dist

@@ -327,13 +327,6 @@ def read_siblings_list(cpu_index):
         return expand_ranges(file.read().strip())
 
 
-async def get_openshift_release():
-    stdout, stderr, ec = run_command("rpm -qa | grep openshift-hyperkube")
-    if ec != 0:
-        raise Exception(f"Failed to get openshift release: {stderr}")
-    return stdout.decode('utf-8').split('-')[1]
-
-
 async def get_host_info():
     ret = dict()
 
@@ -341,7 +334,6 @@ async def get_host_info():
         for line in file:
             if line.startswith("OPENSHIFT_VERSION="):
                 ret['kubernetes_flavor'] = "openshift"
-                ret['openshift_release'] = await get_openshift_release()
             elif line.startswith("NAME="):
                 ret['os_name'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("ID="):
