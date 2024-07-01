@@ -528,8 +528,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		cmd := initContainerCmds[wekav1alpha1.OsNameOpenshift]
 		mountProp := corev1.MountPropagationBidirectional
 		buildkitContainer := corev1.Container{
-			Name: "buildkit",
-			// TODO: update container image to automatic buildkit image
+			Name:          "buildkit",
 			Image:         f.container.Spec.BuildkitImage,
 			Command:       cmd,
 			Env:           pod.Spec.Containers[0].Env,

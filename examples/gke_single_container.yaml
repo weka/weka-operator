@@ -9,7 +9,6 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
   imagePullSecret: "quay-io-robot-secret"
   osDistro: "cos"
-  osBuildId: "17800.218.20"
   mode: "compute"
   name: singlecontainer0
   numCores: 1
@@ -22,5 +21,3 @@ spec:
     - key: "nvidia.com/gpu"
       effect: NoSchedule
       operator: Exists
-  nodeSelector:
-    cloud.google.com/gke-gpu: "true"

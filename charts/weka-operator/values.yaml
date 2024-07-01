@@ -40,10 +40,6 @@ ocpCompatibility:
     hugepageSize: "2M"
     # -- hugepage count
     hugepagesCount: 4000
-  # -- set the buildkit parameters for building the drivers
-  buildKit:
-    buildkitUrlBase: ""
-    buildKitImagePullSecret: ""
 
 
 debugSleep: 3

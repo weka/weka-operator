@@ -18,8 +18,6 @@ spec:
     - key: "nvidia.com/gpu"
       effect: NoSchedule
       operator: Exists
-  nodeSelector:
-    cloud.google.com/gke-gpu: "true"
   gcloudCredentialsSecret: weka-builder
 ---
 apiVersion: v1
