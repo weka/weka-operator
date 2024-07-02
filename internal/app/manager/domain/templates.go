@@ -118,7 +118,6 @@ var Topologies = map[string]topologyGetter{
 	"aws_i3en6x_bless":      getAwsI3en6xBless,
 	"aws_i3en3x_bless":      getAwsI3en3xBless,
 	"hp_2drives":            getHpTwoDrives,
-	"aws_i3en3x_bless":      getAwsI3en3xBless,
 	"oci_bless_multitenant": OciBlessMultitenant,
 }
 
