@@ -64,6 +64,8 @@ spec:
                 type: string
               extraCores:
                 type: integer
+              forceAllowDriveSign:
+                type: boolean
               gcloudCredentialsSecret:
                 type: string
               hugepages:
