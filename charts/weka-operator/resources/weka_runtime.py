@@ -252,7 +252,7 @@ async def load_drivers():
         echo drivers downloaded
         weka driver install --without-agent --version {version}
         echo drivers installed
-        {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+        {"" if should_skip_uio_pci_generic() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
         echo "drivers_loaded"  > /tmp/weka-drivers-loader
             """)
 
