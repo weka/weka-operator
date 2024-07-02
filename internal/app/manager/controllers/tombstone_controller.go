@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -146,6 +147,7 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
+	serviceAccountName := os.Getenv("WEKA_OPERATOR_SA_NAME")
 
 	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
 	logger.Info("fetching job", "jobName", jobName)
@@ -217,6 +219,9 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 				},
 			},
 		},
+	}
+	if serviceAccountName != "" {
+		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 	}
 	//err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
 	return job, nil
