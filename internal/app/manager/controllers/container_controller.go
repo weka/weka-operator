@@ -681,6 +681,9 @@ DRIVES:
 			if found && forceSignDrivesEnv == "1" {
 				forceSignDrives = true
 			}
+			if container.Spec.ForceAllowDriveSign {
+				forceSignDrives = true
+			}
 
 			l.Info("Verifying drive signature")
 			cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", driveSignTarget)
@@ -991,6 +994,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			NodeAffinity:        container.Spec.NodeAffinity,
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
+			Tolerations:         container.Spec.Tolerations,
 		},
 	}
 

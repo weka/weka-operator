@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -118,6 +119,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// So container container will be responsible for translating and actually updating spec or status
 	wg := sync.WaitGroup{}
 	errs := make(chan error, len(applicableNodes))
+	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	for _, node := range applicableNodes {
 		wg.Add(1)
 		go func(node string) {
@@ -125,6 +127,7 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
 					Image:           wekaClient.Spec.Image,
 					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
+					Tolerations:     tolerations,
 				}, node, r.ExecService)
 			}(node)
 			if err != nil {
@@ -149,8 +152,13 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return result, nil
 	}
 
-	_ = containers
-	return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 3}, nil
+	err = r.HandleSpecUpdates(ctx, wekaClient, containers)
+	if err != nil {
+		logger.Error(err, "Failed to handle spec updates")
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+
+	return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, nil
 }
 
 func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message string) error {
@@ -295,6 +303,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
+			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 		},
 	}
 	return container, nil
@@ -323,6 +332,64 @@ func (r *ClientReconciler) resolveJoinIps(ctx context.Context, wekaClient *wekav
 	wekaClient.Spec.JoinIps = joinIps
 	// not commiting on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
 	// and new reconcilation loops will refresh it each time
+	return nil
+}
+
+func (r *ClientReconciler) HandleSpecUpdates(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleClientSpecUpdates")
+	defer end()
+
+	specHash, err := util.HashStruct(wekaClient.Spec)
+	if err != nil {
+		return err
+	}
+
+	if specHash != wekaClient.Status.LastAppliedSpec {
+		logger.Info("Spec has changed, updating status")
+		for _, container := range containers {
+			changed := false
+			if container.Spec.DriversDistService != wekaClient.Spec.DriversDistService {
+				container.Spec.DriversDistService = wekaClient.Spec.DriversDistService
+				changed = true
+			}
+
+			if container.Spec.Image != wekaClient.Spec.Image {
+				container.Spec.Image = wekaClient.Spec.Image
+				changed = true
+			}
+
+			if container.Spec.ImagePullSecret != wekaClient.Spec.ImagePullSecret {
+				container.Spec.ImagePullSecret = wekaClient.Spec.ImagePullSecret
+				changed = true
+			}
+
+			if container.Spec.AdditionalMemory != wekaClient.Spec.AdditionalMemory {
+				container.Spec.AdditionalMemory = wekaClient.Spec.AdditionalMemory
+				changed = true
+			}
+
+			tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
+				container.Spec.Tolerations = tolerations
+				changed = true
+			}
+
+			if changed {
+				err = r.Update(ctx, container)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		logger.Info("Updating last applied spec", "currentSpecHash", specHash, "lastAppliedSpecHash", wekaClient.Status.LastAppliedSpec)
+		wekaClient.Status.LastAppliedSpec = specHash
+		err = r.Status().Update(ctx, wekaClient)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

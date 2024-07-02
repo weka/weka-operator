@@ -35,6 +35,8 @@ spec:
           spec:
             description: WekaClientSpec defines the desired state of WekaClient
             properties:
+              additionalMemory:
+                type: integer
               agentPort:
                 type: integer
               coreIds:
@@ -220,6 +222,8 @@ spec:
                   - type
                   type: object
                 type: array
+              lastAppliedSpec:
+                type: string
             type: object
         type: object
     served: true

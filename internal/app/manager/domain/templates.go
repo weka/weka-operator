@@ -116,6 +116,7 @@ var Topologies = map[string]topologyGetter{
 	"discover_aws_i3en6x":   getAwsI3en6x,
 	"aws_i3en6x_udp_bless":  blessUdpi3en6x,
 	"aws_i3en6x_bless":      getAwsI3en6xBless,
+	"aws_i3en3x_bless":      getAwsI3en3xBless,
 	"hp_2drives":            getHpTwoDrives,
 	"aws_i3en3x_bless":      getAwsI3en3xBless,
 	"oci_bless_multitenant": OciBlessMultitenant,
@@ -189,6 +190,7 @@ func getHpTwoDrives(ctx context.Context, reader client.Reader, nodeSelector map[
 		MaxCore:         47,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers: 4,
+		ForceSignDrives: true,
 	}, nil
 }
 

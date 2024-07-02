@@ -33,6 +33,8 @@ spec:
             type: object
           spec:
             properties:
+              additionalMemory:
+                type: integer
               agentPort:
                 type: integer
               appendSetupCommand:

@@ -171,11 +171,6 @@ if "4.2.7.64-s3multitenancy." in IMAGE_NAME:
         wekafs="1.0.0-995f26b334137fd78d57c264d5b19852-GW_aedf44a11ca66c7bb599f302ae1dff86",
     )
 assert version_params
-if ":4.2" in IMAGE_NAME:
-    # 4.2 does not support graceful exit, so rotating images ungracefully
-    # note: this might prevent s3 from going down if trying to upgrade 4.2 version with s3 running
-    with open("/tmp/.allow-force-stop", 'w') as file:
-        file.write('')
 
 # Implement the rest of your logic here
 import asyncio
@@ -641,7 +636,7 @@ async def configure_agent(agent_handle_drivers=False):
     sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
 
     sed -i "s@external_mounts=.*@external_mounts=/opt/weka/external-mounts@g" /etc/wekaio/service.conf || true
-    sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=/etc/hosts,/etc/resolv.conf@g" /etc/wekaio/service.conf || true
+    sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=etc-hosts,etc-resolv@g" /etc/wekaio/service.conf || true
     """
 
     cmd = dedent(f"""
@@ -915,6 +910,10 @@ async def shutdown():
         if exists("/tmp/.allow-force-stop"):
             force_stop = True
         if is_wrong_generation():
+            force_stop = True
+        if "4.2.7.64" in IMAGE_NAME:
+            force_stop = True
+        if MODE in ['client', 'dist']:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)

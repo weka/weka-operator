@@ -8,8 +8,23 @@ spec:
   template: small
   imagePullSecret: "quay-io-robot-secret"
   topology: aws_i3en6x_udp_bless # to be removed in the future towards true discovery
-  image: quay.io/weka.io/weka-in-container:4.3.2.4420-ad79aadde9bbf44c23e3cc405c4af684-dev3
-  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  image: quay.io/weka.io/weka-in-container:4.3.3-preview.0
+  driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  tolerations:
+    - simple-toleration
+  rawTolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "weka-backend"
+      effect: "NoSchedule"
+    - key: "dedicated"
+      operator: "Equal"
+      value: "weka-backend"
+      effect: "NoExecute"
+  additionalMemory:
+    drive: 1
+    compute: 2
+    s3: 3
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaClient
@@ -17,9 +32,9 @@ metadata:
   name: cluster-dev-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.3.2.4420-ad79aadde9bbf44c23e3cc405c4af684-dev3
+  image: quay.io/weka.io/weka-in-container:4.3.3-preview.0
   imagePullSecret: "quay-io-robot-secret"
-  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   port: 45001
   agentPort: 45000
   wekaSecretRef: weka-cluster-cluster-dev
@@ -29,6 +44,19 @@ spec:
     name: cluster-dev
     namespace: default
   coresNum: 1
+  tolerations:
+    - simple
+    - another-simple
+  rawTolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "weka-backend"
+      effect: "NoSchedule"
+    - key: "dedicated"
+      operator: "Equal"
+      value: "weka-backend"
+      effect: "NoExecute"
+  additionalMemory: 7
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
@@ -39,13 +67,12 @@ metadata:
     app: weka-driver-builder
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.3.2.4420-ad79aadde9bbf44c23e3cc405c4af684-dev3
+  image: quay.io/weka.io/weka-in-container:4.3.3-preview.0
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist
   numCores: 1
   port: 60002
-
 ---
 apiVersion: v1
 kind: Service

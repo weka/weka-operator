@@ -37,6 +37,12 @@ type NetworkSelector struct {
 	UdpMode   bool     `json:"udpMode,omitempty"`
 }
 
+type AdditionalMemory struct {
+	Compute int `json:"compute,omitempty"`
+	Drive   int `json:"drive,omitempty"`
+	S3      int `json:"s3,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -60,6 +66,20 @@ type WekaClusterSpec struct {
 	RawTolerations            []v1.Toleration      `json:"rawTolerations,omitempty"`
 	WekaHomeEndpoint          string               `json:"wekaHomeEndpoint,omitempty"`
 	Ipv6                      bool                 `json:"ipv6,omitempty"`
+	AdditionalMemory          AdditionalMemory     `json:"additionalMemory,omitempty"`
+}
+
+func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
+	additionalMemory := 0
+	switch mode {
+	case WekaContainerModeDrive:
+		additionalMemory = c.AdditionalMemory.Drive
+	case WekaContainerModeCompute:
+		additionalMemory = c.AdditionalMemory.Compute
+	case WekaContainerModeS3:
+		additionalMemory = c.AdditionalMemory.S3
+	}
+	return additionalMemory
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
@@ -71,6 +91,7 @@ type WekaClusterStatus struct {
 	TraceId          string             `json:"traceId,omitempty"`
 	SpanID           string             `json:"spanId,omitempty"`
 	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec  string             `json:"lastAppliedSpec,omitempty"`
 }
 
 // +kubebuilder:object:root=true
