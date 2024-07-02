@@ -945,9 +945,13 @@ async def cos_configure_hugepages():
                 elif "hugepagesz=2m" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "1g":
                     sed_cmds.append(('hugepagesz=2m', 'hugepagesz=1g'))
             if "hugepages=" not in line:
+                # hugepages= is not set at all
                 sed_cmds.append(('cros_efi', f'cros_efi hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
-            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line:
+            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and COS_ALLOW_HUGEPAGE_CONFIG:
+                # hugepages= is set but not to the desired value, and we are allowed to change it
                 sed_cmds.append(('hugepages=[0-9]+', f'hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and not COS_ALLOW_HUGEPAGE_CONFIG:
+                logging.info(f"Node hugepages configuration is managed externally, skipping")
     if sed_cmds:
         logging.warning("Must modify kernel HUGEPAGES parameters")
         if COS_ALLOW_HUGEPAGE_CONFIG:
