@@ -1252,7 +1252,9 @@ func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1
 		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
 		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
 		if err != nil {
-			if !strings.Contains(err.Error(), "container not found") {
+			if strings.Contains(err.Error(), "error dialing backend") {
+				logger.Error(err, "Communication failure or node not running, skipping force stop")
+			} else if !strings.Contains(err.Error(), "container not found") {
 				return err
 			}
 		}
