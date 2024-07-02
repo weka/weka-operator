@@ -151,6 +151,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 			NodeInfoConfigMap:   nodeConfigMap,
 			Ipv6:                cluster.Spec.Ipv6,
 			AdditionalMemory:    additionalMemory,
+			ForceAllowDriveSign: topology.ForceSignDrives,
 		},
 	}
 

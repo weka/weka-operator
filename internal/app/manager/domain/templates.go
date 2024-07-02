@@ -189,6 +189,7 @@ func getHpTwoDrives(ctx context.Context, reader client.Reader, nodeSelector map[
 		MaxCore:         47,
 		ForcedCpuPolicy: v1alpha1.CpuPolicyDedicatedHT,
 		MaxS3Containers: 4,
+		ForceSignDrives: true,
 	}, nil
 }
 
