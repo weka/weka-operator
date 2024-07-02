@@ -63,9 +63,9 @@ func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 		Spec: wekav1alpha1.WekaClusterSpec{
 			Size:               1,
 			Template:           "small",
-			Topology:           "discover_oci",
+			Topology:           "aws_i3en6x_bless",
 			Image:              c.Image,
-			ImagePullSecret:    "quay-cred",
+			ImagePullSecret:    "quay-io-robot-secret",
 			DriversDistService: driversDistService,
 			NodeSelector: map[string]string{
 				"weka.io/role": "backend",
