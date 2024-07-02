@@ -640,7 +640,7 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 		if err != nil {
 			return errors.Wrap(err, "Could not create executor")
 		}
-		cmd := "weka cluster container -J"
+		cmd := "weka cluster container --filter mode=backend -J"
 		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsApplied) {
 			cmd = "wekaauthcli cluster container -J"
 		}
