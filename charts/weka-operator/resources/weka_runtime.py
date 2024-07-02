@@ -490,8 +490,21 @@ async def create_container():
 
 
 async def configure_traces():
+    # {
+    #   "enabled": true,
+    #   "ensure_free_space_bytes": 3221225472,
+    #   "freeze_period": {
+    #     "end_time": "0001-01-01T00:00:00+00:00",
+    #     "retention": 0,
+    #     "start_time": "0001-01-01T00:00:00+00:00"
+    #   },
+    #   "retention_type": "DEFAULT",
+    #   "version": 1
+    # }
     data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
-                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1)
+                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1,
+                freeze_period=dict(start_time="0001-01-01T00:00:00+00:00", end_time="0001-01-01T00:00:00+00:00",
+                                   retention=0))
     if MODE == 'dist':
         data['enabled'] = False
         data['retention_bytes'] = 128 * 1024 * 1024 * 1024
