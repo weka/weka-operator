@@ -213,6 +213,15 @@ loop = asyncio.get_event_loop()
 
 
 async def load_drivers():
+    def should_skip_uio_pci_generic():
+        return version_params.get('uio_pci_generic') is not False or should_skip_uio()
+
+    def should_skip_uio():
+        return is_google_cos()
+
+    def should_skip_igb_uio():
+        return should_skip_uio() or is_google_cos()
+
     if not version_params.get("weka_drivers_handling"):
         # LEGACY MODE
         weka_driver_version = version_params.get('wekafs')
@@ -220,16 +229,16 @@ async def load_drivers():
             mkdir -p /opt/weka/dist/drivers
             curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
             curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
-            curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+            {"" if should_skip_igb_uio() else "curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
             curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
-            {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
-        lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
-        lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
-        {"" if is_google_cos() else "lsmod | grep uio || modprobe uio"}
-        {"" if is_google_cos() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
-        lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
-        {"" if version_params.get('uio_pci_generic') == False or is_google_cos() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
-        echo "drivers_loaded"  > /tmp/weka-drivers-loader
+            {"" if should_skip_uio_pci_generic() else f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+            lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
+            lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
+            {"" if should_skip_uio() else "lsmod | grep uio || modprobe uio"}
+            {"" if should_skip_igb_uio() else "lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+            lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
+            {"" if should_skip_uio_pci_generic() else f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
+            echo "drivers_loaded"  > /tmp/weka-drivers-loader
         """)
     else:
         # list directory /opt/weka/dist/version
@@ -658,7 +667,7 @@ async def start_weka_container():
     if ec != 0:
         raise Exception(f"Failed to start container: {stderr}")
     logging.info("finished applying new config")
-    logging.info(f"Container reconfigured successfully: {stdout}")
+    logging.info(f"Container reconfigured successfully: {stdout.decode('utf-8')}")
 
 
 async def configure_persistency():
@@ -1100,6 +1109,7 @@ async def main():
     await ensure_weka_container()
     await configure_traces()
     await start_weka_container()
+    logging.info("Container is UP and running")
 
 
 async def stop_daemon(process):
