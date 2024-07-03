@@ -153,7 +153,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	defer end()
 	serviceAccountName := os.Getenv("WEKA_OPERATOR_SA_NAME")
 
-	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
+	jobName := util.TruncateString("weka-tombstone-delete-"+string(tombstone.UID), 63)
 	logger.Info("fetching job", "jobName", jobName)
 	if tombstone.Spec.CrId == "" {
 		return nil, fmt.Errorf("tombstone CR ID is empty, refusing removal")
@@ -167,8 +167,11 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 
 	persistencePath := tombstone.Spec.PersistencePath
 	if persistencePath == "" {
+		// we assume that new version of tombstone will always have the persistencePath.
+		// if not, we will use the default path for pre-existing tombstones, being the "plain kubernetes" one
 		persistencePath = "/opt/k8s-weka/containers"
 	}
+
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
