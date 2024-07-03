@@ -165,6 +165,10 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	}
 	//NOTE: Maybe could use WekaContainer, that will use alternative image, and container controller will close the loop in a smarter way
 
+	persistencePath := tombstone.Spec.PersistencePath
+	if persistencePath == "" {
+		persistencePath = "/opt/k8s-weka/containers"
+	}
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -198,12 +202,12 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Command: []string{
 								"sh",
 								"-c",
-								"rm -rf " + fmt.Sprintf("%s/%s", tombstone.Spec.PersistencePath, tombstone.Spec.CrId),
+								"rm -rf " + fmt.Sprintf("%s/%s", persistencePath, tombstone.Spec.CrId),
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "weka-containers-persistency",
-									MountPath: tombstone.Spec.PersistencePath,
+									MountPath: persistencePath,
 								},
 							},
 						},
@@ -214,7 +218,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Name: "weka-containers-persistency",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: tombstone.Spec.PersistencePath,
+									Path: persistencePath,
 									Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 								},
 							},
