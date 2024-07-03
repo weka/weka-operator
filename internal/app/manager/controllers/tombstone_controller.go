@@ -181,23 +181,6 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					Affinity: &corev1.Affinity{
-						NodeAffinity: &corev1.NodeAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-								NodeSelectorTerms: []corev1.NodeSelectorTerm{
-									{
-										MatchExpressions: []corev1.NodeSelectorRequirement{
-											{
-												Key:      "kubernetes.io/hostname",
-												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{tombstone.Spec.NodeAffinity},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
@@ -237,6 +220,26 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	if r.config.MaintenanceImagePullSecret != "" {
 		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
 			{Name: r.config.MaintenanceImagePullSecret},
+		}
+	}
+
+	if tombstone.Spec.NodeAffinity != "" {
+		job.Spec.Template.Spec.Affinity = &corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "kubernetes.io/hostname",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{tombstone.Spec.NodeAffinity},
+								},
+							},
+						},
+					},
+				},
+			},
 		}
 	}
 	//err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
