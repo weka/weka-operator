@@ -82,23 +82,23 @@ func TestHappyPath(t *testing.T) {
 	ctx := context.Background()
 	j := services.NewJobless(ctx)
 	clusters := funk.Map(names, func(name string) *fixtures.Cluster {
-		return &fixtures.Cluster{
-			Name:              name,
-			WekaClusterName:   wekaClusterName,
-			OperatorNamespace: operatorNamespace,
-			OperatorTemplate:  operatorTemplate,
-			ProvisionTemplate: provisionTemplate,
+		return fixtures.NewCluster(
+			name,
+			wekaClusterName,
+			operatorNamespace,
+			operatorTemplate,
+			provisionTemplate,
 
-			Jobless: j,
+			j,
 
-			ProvisionParams: &types.ProvisionParams{
+			&types.ProvisionParams{
 				ClusterName: name,
 				Template:    provisionTemplate,
 				// AwsParams:   *BlessIPv6VPC(),
 				AwsParams: *antonVPC(),
 			},
 
-			InstallParams: &types.InstallParams{
+			&types.InstallParams{
 				ClusterName:     name,
 				NoCsi:           true,
 				QuayUsername:    os.Getenv("QUAY_USERNAME"),
@@ -106,7 +106,7 @@ func TestHappyPath(t *testing.T) {
 				WekaImage:       wekaImage,
 				OperatorVersion: operatorVersion,
 			},
-		}
+		)
 	}).([]*fixtures.Cluster)
 
 	clusterTests := funk.Map(clusters, func(cluster *fixtures.Cluster) *ClusterTest {
@@ -126,13 +126,12 @@ func TestHappyPath(t *testing.T) {
 	t.Run("Test Environment", fixture.ValidateTestEnvironment)
 	t.Run("Provision", fixture.Provision)
 	t.Run("Install", fixture.Install)
+	t.Run("Validate Containers", fixture.ValidateContainers)
 	t.Run("Validate Startup Completed", fixture.ValidateStartupCompleted)
-	t.Run("Cleanup", fixture.Cleanup)
+	// t.Run("Cleanup", fixture.Cleanup)
 }
 
 func (f *E2ETest) ValidateTestEnvironment(t *testing.T) {
-	// os.Setenv("AWS_PROFILE", "devkube")
-
 	requiredEnvVars := []string{"QUAY_USERNAME", "QUAY_PASSWORD"}
 	for _, envVar := range requiredEnvVars {
 		name := fmt.Sprintf("Environment Variable: %s", envVar)
@@ -223,6 +222,48 @@ func (f *E2ETest) Cleanup(t *testing.T) {
 				t.Fatalf("Expected Cleanup to succeed, got %v", err)
 			}
 		})
+	}
+}
+
+func (f *E2ETest) ValidateContainers(t *testing.T) {
+	ctx := f.Ctx
+
+	for _, test := range f.Clusters {
+		cluster := test.Cluster
+		if err := cluster.SetupK8s(ctx); err != nil {
+			t.Fatalf("Expected SetupK8s to succeed, got %v", err)
+		}
+		defer cluster.TeardownK8s(ctx)
+
+		client, err := cluster.Kubernetes.GetClient(ctx)
+		if err != nil {
+			t.Fatalf("Failed to GetClient: %v", err)
+		}
+		if client == nil {
+			t.Fatalf("Expected client to be set, got nil")
+		}
+
+		containerList := wekav1alpha1.WekaContainerList{}
+		if err := client.List(ctx, &containerList); err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		expectedCount := 15
+		if len(containerList.Items) < 15 {
+			t.Fatalf("Expected at least %d containers, got %d", expectedCount, len(containerList.Items))
+		}
+
+		for _, container := range containerList.Items {
+			t.Run(container.Name, func(t *testing.T) {
+				for _, condition := range container.Status.Conditions {
+					t.Run(condition.Type, func(t *testing.T) {
+						if condition.Status != metav1.ConditionTrue {
+							t.Errorf("Expected condition %s to be true, got %s", condition.Type, condition.Status)
+						}
+					})
+				}
+			})
+		}
 	}
 }
 

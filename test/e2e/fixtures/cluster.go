@@ -26,6 +26,22 @@ type Cluster struct {
 	Kubernetes services.Kubernetes
 }
 
+func NewCluster(name, wekaClusterName, operatorNamespace, operatorTemplate, provisionTemplate string, jobless services.Jobless, provisionParams *types.ProvisionParams, installParams *types.InstallParams) *Cluster {
+	return &Cluster{
+		Name:              name,
+		WekaClusterName:   wekaClusterName,
+		OperatorNamespace: operatorNamespace,
+		OperatorTemplate:  operatorTemplate,
+		ProvisionTemplate: provisionTemplate,
+
+		Jobless: jobless,
+
+		ProvisionParams: provisionParams,
+
+		InstallParams: installParams,
+	}
+}
+
 type ClusterError struct {
 	Message string
 	Err     error
