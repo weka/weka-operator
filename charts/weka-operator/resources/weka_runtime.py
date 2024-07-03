@@ -352,6 +352,7 @@ def get_host_info():
         for line in file:
             if line.startswith("OPENSHIFT_VERSION="):
                 ret['kubernetes_flavor'] = KUBERNETES_FLAVOR_OPENSHIFT
+                ret['os_build_id'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("ID="):
                 ret['os'] = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("BUILD_ID="):
