@@ -78,6 +78,8 @@ func main() {
 	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
 	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
+	flag.StringVar(&tombstoneConfig.MaintenanceImage, "maintenance-image", "busybox", "Maintenance image")
+	flag.StringVar(&tombstoneConfig.MaintenanceImagePullSecret, "maintenance-image-pull-secret", "", "Maintenance image pull secret")
 	flag.BoolVar(&compatibilityConfig.CosEnableHugepagesConfig, "enable-cos-hugepages-config", false, "Enable COS Hugepages Config")
 	flag.StringVar(&compatibilityConfig.CosHugepageSize, "cos-hugepage-size", "2m", "COS Hugepages size (default 2m)")
 	flag.IntVar(&compatibilityConfig.CosHugepagesCount, "cos-hugepage-count", 4000, "COS Hugepages count (default 4000)")

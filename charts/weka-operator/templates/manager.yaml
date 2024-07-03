@@ -84,6 +84,12 @@ spec:
           {{- if .Values.gkeCompatibility.disableDriverSigning }}
             - --disable-cos-driver-signing-enforcement
           {{- end}}
+          {{- if .Values.maintenanceImage }}
+            - --maintenance-image={{ .Values.maintenanceImage }}
+          {{- end}}
+          {{- if .Values.maintenanceImagePullSecret }}
+            - --maintenance-image-pull-secret={{ .Values.maintenanceImagePullSecret }}
+          {{- end}}
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"
