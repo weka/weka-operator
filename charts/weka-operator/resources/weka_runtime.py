@@ -85,7 +85,7 @@ def wait_for_agent():
 async def ensure_drivers():
     logging.info("waiting for drivers")
     drivers = "wekafsio wekafsgw mpin_user".split()
-    if not is_google_cos():
+    if not is_google_cos() and not is_rhcos():
         drivers.append("igb_uio")
         if version_params.get('uio_pci_generic') is not False:
             drivers.append("uio_pci_generic")
@@ -217,10 +217,10 @@ async def load_drivers():
         return version_params.get('uio_pci_generic') is not False or should_skip_uio()
 
     def should_skip_uio():
-        return is_google_cos()
+        return is_google_cos() or is_rhcos()
 
     def should_skip_igb_uio():
-        return should_skip_uio() or is_google_cos()
+        return should_skip_uio()
 
     if not version_params.get("weka_drivers_handling"):
         # LEGACY MODE
