@@ -18,7 +18,10 @@ enableClusterApi: false
 # -- custom endpoint to send OTLP traces to (insecure, GRPC).
 # If left empty, traces are sent to stdout in json format.
 otelExporterOtlpEndpoint: ""
+# -- can be overridden with any other basic linux image
 maintenanceImage: busybox
+# -- if required, you can specify a pull secret for that image
+# maintenanceImagePullSecret: ""
 # -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
 wekahome:
   endpoint: https://api.home.weka.io
