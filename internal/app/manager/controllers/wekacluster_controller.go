@@ -735,6 +735,12 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		return err
 	}
 
+	logger.WithValues("user_name", "admin").Info("Ensuring CSI plugin user")
+	if err := ensureUser(cluster.GetClusterCsiUsername()); err != nil {
+		logger.Error(err, "Failed to apply CSI plugin user credentials")
+		return err
+	}
+
 	err := wekaService.EnsureNoUser(ctx, "admin")
 	if err != nil {
 		return err
