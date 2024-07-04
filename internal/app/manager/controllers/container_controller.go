@@ -344,10 +344,25 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	err = r.handleImageUpdate(ctx, container)
+	if err != nil {
+		logger.Info("Image update in progress", "name", container.Name, "lastErr", err)
+		return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+	}
+
+	logger.SetPhase("CONTAINER_IS_READY")
+	return ctrl.Result{}, nil
+}
+
+func (r *ContainerController) handleImageUpdate(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	if container.Spec.Mode == "client" {
+		// leaving client operation to user
+		return nil
+	}
 	if container.Spec.Image != container.Status.LastAppliedImage {
 		pod, err := r.refreshPod(ctx, container)
 		if err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "refreshPod")
+			return err
 		}
 		var wekaPodContainer v1.Container
 		found := false
@@ -358,35 +373,33 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		}
 		if !found {
-			return ctrl.Result{}, errors.New("weka-container not found in pod")
+			return err
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
 			// delete pod
 			err := r.Delete(ctx, pod)
 			if err != nil {
-				return ctrl.Result{}, errors.Wrap(err, "Delete pod")
+				return err
 			}
-			return ctrl.Result{Requeue: true}, nil
+			return nil
 		}
 
 		if pod.GetDeletionTimestamp() != nil {
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second}, nil
+			return errors.New("Podis being deleted, waiting")
 		}
 
 		if pod.Status.Phase != v1.PodRunning {
-			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
+			return errors.New("Pod is not running yet")
 		}
 
 		container.Status.LastAppliedImage = container.Spec.Image
 		err = r.Status().Update(ctx, container)
 		if err != nil {
-			return ctrl.Result{}, errors.Wrap(err, "Update container status")
+			return err
 		}
 	}
-
-	logger.SetPhase("CONTAINER_IS_READY")
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *ContainerController) reconcileManagementIP(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (ctrl.Result, error) {
