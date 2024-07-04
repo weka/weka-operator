@@ -1083,9 +1083,6 @@ async def main():
     if MODE not in ["dist", "drivers-loader", "build"]:
         await ensure_drivers()
 
-    if MODE in ["drivers-loader"]:
-        await cos_disable_driver_signing()
-
     if MODE == "dist":
         logging.info("dist-service flow")
         if not should_build_externally():
@@ -1164,11 +1161,13 @@ def is_wrong_generation():
         return True
     return False
 
+
 async def takeover_shutdown():
     while not is_wrong_generation():
         await asyncio.sleep(1)
 
     await run_command("weka local stop --force", capture_stdout=False)
+
 
 async def shutdown():
     global exiting
