@@ -601,6 +601,49 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		}
 	}
 
+	// for Dist container, if running on OCP / COS / other containerized OS
+	if f.container.IsDriversBuilder() && f.container.IsOpenshift() {
+		if f.container.Spec.CoreOSBuildSpec == nil {
+			return nil, errors.New("CoreOSBuildSpec is not defined")
+		}
+		if f.container.Spec.CoreOSBuildSpec.DriverToolkitImagePullSecret != "" {
+			// we need to add the buildkit image pull secret
+			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
+				Name: f.container.Spec.CoreOSBuildSpec.DriverToolkitImagePullSecret,
+			})
+		}
+		// add ephemeral volume to share the buildkit container
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "shared-buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+
+		ContainerMountProp := corev1.MountPropagationHostToContainer
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "shared-buildkit", MountPath: "/buildkit", ReadOnly: false, MountPropagation: &ContainerMountProp})
+
+		initContainerCmds := make(map[string][]string)
+		initContainerCmds[wekav1alpha1.OsNameOpenshift] = []string{"/bin/sh", "-c",
+			"mkdir -p /shared-buildkit/lib; " +
+				"mkdir -p /shared-buildkit/usr; " +
+				"cp -RLrf /usr/src /shared-buildkit/usr; " +
+				"cp -RLrf /lib/modules /shared-buildkit/lib"}
+
+		cmd := initContainerCmds[wekav1alpha1.OsNameOpenshift]
+		mountProp := corev1.MountPropagationBidirectional
+		buildkitContainer := corev1.Container{
+			Name:          "buildkit",
+			Image:         f.container.Spec.CoreOSBuildSpec.DriverToolkitImage,
+			Command:       cmd,
+			Env:           pod.Spec.Containers[0].Env,
+			Resources:     corev1.ResourceRequirements{},
+			ResizePolicy:  nil,
+			RestartPolicy: nil,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &mountProp},
+			},
+			ImagePullPolicy: corev1.PullAlways,
+			SecurityContext: pod.Spec.Containers[0].SecurityContext,
+		}
+		pod.Spec.InitContainers = append(pod.Spec.InitContainers, buildkitContainer)
+	}
+
 	return pod, nil
 }
 
