@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
@@ -40,8 +41,6 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-const PersistentContainersLocation = "/opt/k8s-weka/containers"
-
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -52,7 +51,7 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactor
 	}
 }
 
-func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
+func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domain.CompatibilityConfig) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
@@ -102,7 +101,13 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
+	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
+
+	serviceAccountName := f.container.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = "default"
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -128,6 +133,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			},
+			ServiceAccountName:            serviceAccountName,
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
@@ -246,6 +252,14 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
+						},
+						{
+							Name:  "OS_DISTRO",
+							Value: f.container.Spec.OsDistro,
+						},
+						{
+							Name:  "OS_BUILD_ID",
+							Value: f.container.Spec.OsBuildId,
 						},
 					},
 				},

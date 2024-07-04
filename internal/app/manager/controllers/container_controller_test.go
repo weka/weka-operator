@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -107,8 +108,8 @@ func TestNewContainerController(t *testing.T) {
 		t.Errorf("failed to create manager")
 		return
 	}
-
-	subject := NewContainerController(testEnv.Manager)
+	config := domain.CompatibilityConfig{}
+	subject := NewContainerController(testEnv.Manager, config)
 	if subject == nil {
 		t.Errorf("NewContainerController() returned nil")
 		return

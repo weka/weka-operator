@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"os"
 	"strconv"
 	"strings"
@@ -36,23 +37,25 @@ import (
 
 const bootScriptConfigName = "weka-boot-scripts"
 
-func NewContainerController(mgr ctrl.Manager) *ContainerController {
+func NewContainerController(mgr ctrl.Manager, c domain.CompatibilityConfig) *ContainerController {
 	config := mgr.GetConfig()
 	return &ContainerController{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
-		KubeService: services.NewKubeService(mgr.GetClient()),
-		ExecService: services.NewExecService(config),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		Logger:              mgr.GetLogger().WithName("controllers").WithName("Container"),
+		KubeService:         services.NewKubeService(mgr.GetClient()),
+		ExecService:         services.NewExecService(config),
+		CompatibilityConfig: c,
 	}
 }
 
 type ContainerController struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Logger      logr.Logger
-	KubeService services.KubeService
-	ExecService services.ExecService
+	Scheme              *runtime.Scheme
+	Logger              logr.Logger
+	KubeService         services.KubeService
+	ExecService         services.ExecService
+	CompatibilityConfig domain.CompatibilityConfig
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -128,7 +131,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
+	desiredPod, err := resources.NewContainerFactory(container).Create(ctx, r.CompatibilityConfig)
 	if err != nil {
 		logger.Error(err, "Error creating pod spec")
 		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
@@ -996,7 +999,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
+			Name:      util.TruncateString("weka-drivers-loader-"+pod.Spec.NodeName, 63),
 			Namespace: namespace,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
@@ -1007,7 +1010,11 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			NodeAffinity:        container.Spec.NodeAffinity,
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
+			NodeSelector:        container.Spec.NodeSelector,
+			OsDistro:            container.Spec.OsDistro,
+			OsBuildId:           container.Spec.OsBuildId,
 			Tolerations:         container.Spec.Tolerations,
+			ServiceAccountName:  container.Spec.ServiceAccountName,
 		},
 	}
 
@@ -1133,9 +1140,10 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			Namespace: container.Namespace,
 		},
 		Spec: wekav1alpha1.TombstoneSpec{
-			CrType:       "WekaContainer",
-			CrId:         string(container.UID),
-			NodeAffinity: nodeAffinity,
+			CrType:          "WekaContainer",
+			CrId:            string(container.UID),
+			NodeAffinity:    nodeAffinity,
+			PersistencePath: container.GetPersistentLocation(),
 		},
 	}
 

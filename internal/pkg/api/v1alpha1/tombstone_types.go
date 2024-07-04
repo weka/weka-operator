@@ -3,9 +3,10 @@ package v1alpha1
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 type TombstoneSpec struct {
-	CrType       string `json:"cr_type"`
-	CrId         string `json:"cr_id"`
-	NodeAffinity string `json:"node_affinity"`
+	CrType          string `json:"cr_type"`
+	CrId            string `json:"cr_id"`
+	NodeAffinity    string `json:"node_affinity"`
+	PersistencePath string `json:"persistence_path,omitempty"`
 }
 
 type TombstoneStatus struct {

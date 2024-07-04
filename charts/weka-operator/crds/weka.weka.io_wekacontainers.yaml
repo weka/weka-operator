@@ -66,6 +66,8 @@ spec:
                 type: integer
               forceAllowDriveSign:
                 type: boolean
+              gcloudCredentialsSecret:
+                type: string
               hugepages:
                 type: integer
               hugepagesSize:
@@ -118,6 +120,15 @@ spec:
                 type: integer
               numDrives:
                 type: integer
+              osBuildId:
+                type: string
+              osDistro:
+                enum:
+                - cos
+                - rhcos
+                - ubuntu
+                - ""
+                type: string
               port:
                 type: integer
               s3Params:
@@ -129,6 +140,8 @@ spec:
                   s3Port:
                     type: integer
                 type: object
+              serviceAccountName:
+                type: string
               tolerations:
                 items:
                   description: The pod this Toleration is attached to tolerates any

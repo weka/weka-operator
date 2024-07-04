@@ -3,11 +3,11 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 	"k8s.io/apimachinery/pkg/fields"
 	"slices"
 	"time"
 
-	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -31,6 +31,7 @@ type TombstoneReconciller struct {
 	Recorder    record.EventRecorder
 	ExecService services.ExecService
 	KubeService services.KubeService
+	config      TombstoneConfig
 }
 
 func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
@@ -40,9 +41,11 @@ func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reco
 }
 
 type TombstoneConfig struct {
-	EnableTombstoneGc   bool
-	TombstoneGcInterval time.Duration
-	TombstoneExpiration time.Duration
+	EnableTombstoneGc          bool
+	TombstoneGcInterval        time.Duration
+	TombstoneExpiration        time.Duration
+	MaintenanceImage           string
+	MaintenanceImagePullSecret string
 }
 
 func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *TombstoneReconciller {
@@ -54,6 +57,7 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
 		ExecService: services.NewExecService(restConfig),
 		KubeService: services.NewKubeService(mgr.GetClient()),
+		config:      config,
 	}
 
 	if config.EnableTombstoneGc {
@@ -167,6 +171,7 @@ func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace stri
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
+	serviceAccountName := os.Getenv("WEKA_OPERATOR_SA_NAME")
 
 	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
 	logger.Info("fetching job", "jobName", jobName)
@@ -190,6 +195,13 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 		}
 	}
 
+	persistencePath := tombstone.Spec.PersistencePath
+	if persistencePath == "" {
+		// we assume that new version of tombstone will always have the persistencePath.
+		// if not, we will use the default path for pre-existing tombstones, being the "plain kubernetes" one
+		persistencePath = "/opt/k8s-weka/containers"
+	}
+
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -199,36 +211,19 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					Affinity: &corev1.Affinity{
-						NodeAffinity: &corev1.NodeAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-								NodeSelectorTerms: []corev1.NodeSelectorTerm{
-									{
-										MatchExpressions: []corev1.NodeSelectorRequirement{
-											{
-												Key:      "kubernetes.io/hostname",
-												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{tombstone.Spec.NodeAffinity},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
-							Image: "busybox",
+							Image: r.config.MaintenanceImage,
 							Command: []string{
 								"sh",
 								"-c",
-								"rm -rf " + fmt.Sprintf("%s/%s", resources.PersistentContainersLocation, tombstone.Spec.CrId),
+								"rm -rf " + fmt.Sprintf("%s/%s", persistencePath, tombstone.Spec.CrId),
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "weka-containers-persistency",
-									MountPath: resources.PersistentContainersLocation,
+									MountPath: persistencePath,
 								},
 							},
 						},
@@ -239,7 +234,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Name: "weka-containers-persistency",
 							VolumeSource: corev1.VolumeSource{
 								HostPath: &corev1.HostPathVolumeSource{
-									Path: resources.PersistentContainersLocation,
+									Path: persistencePath,
 									Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 								},
 							},
@@ -248,6 +243,34 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 				},
 			},
 		},
+	}
+	if serviceAccountName != "" {
+		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
+	}
+	if r.config.MaintenanceImagePullSecret != "" {
+		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+			{Name: r.config.MaintenanceImagePullSecret},
+		}
+	}
+
+	if tombstone.Spec.NodeAffinity != "" {
+		job.Spec.Template.Spec.Affinity = &corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "kubernetes.io/hostname",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{tombstone.Spec.NodeAffinity},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
 	}
 	//err = controllerutil.SetOwnerReference(tombstone, job, r.Scheme)
 	return job, nil

@@ -220,3 +220,23 @@ func ResolveCpuPolicy(ctx context.Context, c client.Client, node string, cpuPoli
 	}
 	return cpuPolicy, nil
 }
+
+func GetClientOs(ctx context.Context, c client.Client, node string) (OsDistro, OsBuildId string, err error) {
+	nodeInfo, err := GetNodeDiscovery(ctx, c, node)
+	if err != nil {
+		return "", "", err
+	}
+
+	if nodeInfo == nil { // asserting just in case
+		return "", "", errors.New("nil-node info, while no error on node discovery")
+	}
+
+	if nodeInfo.Os != "" {
+		OsDistro = nodeInfo.Os
+	}
+	if nodeInfo.OsBuildId != "" {
+		OsBuildId = nodeInfo.OsBuildId
+	}
+
+	return OsDistro, OsBuildId, nil
+}

@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -25,7 +26,8 @@ func TestCreate(t *testing.T) {
 	factory := NewContainerFactory(container)
 
 	ctx := context.Background()
-	pod, err := factory.Create(ctx)
+	config := domain.CompatibilityConfig{}
+	pod, err := factory.Create(ctx, config)
 	if err != nil {
 		t.Errorf("FormCluster() returned error: %v", err)
 		return
