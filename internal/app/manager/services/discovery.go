@@ -133,12 +133,20 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 			Tolerations:     ownerDetails.Tolerations,
 		},
 	}
-	// Fill in the necessary fields here
-	err = c.Create(ctx, discoveryContainer)
+
+	err = c.Get(ctx, types.NamespacedName{Name: discoveryContainer.Name, Namespace: discoveryContainer.Namespace}, discoveryContainer)
 	if err != nil {
-		// if already exits error check the status of existing container
-		if !errors2.IsAlreadyExists(err) {
+		if !errors2.IsNotFound(err) {
 			return err
+		} else {
+			// Fill in the necessary fields here
+			err = c.Create(ctx, discoveryContainer)
+			if err != nil {
+				// if already exits error check the status of existing container
+				if !errors2.IsAlreadyExists(err) {
+					return err
+				}
+			}
 		}
 	}
 
