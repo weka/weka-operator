@@ -168,7 +168,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_WEKA_HOME_ENDPOINT=https://api.home.rnd.weka.io OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	WEKA_OPERATOR_SA_NAME=weka-operator-controller-manager WEKA_OPERATOR_WEKA_HOME_ENDPOINT=https://api.home.rnd.weka.io OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION) --disable-cos-driver-signing-enforcement --enable-cos-hugepages-config
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
