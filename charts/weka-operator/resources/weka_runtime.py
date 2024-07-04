@@ -259,8 +259,8 @@ async def load_drivers():
             (f"weka driver install --without-agent --version {version}", "loading drivers"),
         ]
     if not should_skip_uio_pci_generic():
-        load_cmds.append((f"lsmod | grep uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading uio_pci_generic driver"))
-    load_cmds.append(("echo 'drivers_loaded' > /tmp/weka-drivers.log", "all drivers loaded"))
+        load_cmds.append((f"lsmod | grep -w uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading uio_pci_generic driver"))
+    load_cmds.append(("echo 'drivers_loaded' > /tmp/weka-drivers-loader", "all drivers loaded"))
 
     for cmd, desc in download_cmds + load_cmds:
         logging.info(f"Driver loading step: {desc}")
@@ -268,7 +268,7 @@ async def load_drivers():
         if ec != 0:
             logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
             raise Exception(f"Failed to load drivers: {stderr.decode('utf-8')}")
-
+    logging.info("All drivers loaded successfully")
 
 
 async def copy_drivers():
