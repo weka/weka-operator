@@ -216,6 +216,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					ServiceAccountName: serviceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
@@ -248,9 +249,6 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 				},
 			},
 		},
-	}
-	if serviceAccountName != "" {
-		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 	}
 
 	if maintenanceImagePullSecret != "" {
