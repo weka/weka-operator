@@ -60,6 +60,8 @@ spec:
                 type: string
               extraCores:
                 type: integer
+              forceAllowDriveSign:
+                type: boolean
               hugepages:
                 type: integer
               hugepagesSize:
