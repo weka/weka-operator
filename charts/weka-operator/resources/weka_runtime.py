@@ -217,7 +217,7 @@ async def load_drivers():
         return version_params.get('uio_pci_generic') is not False or should_skip_uio()
 
     def should_skip_uio():
-        return is_google_cos() or is_rhcos()
+        return is_google_cos()
 
     def should_skip_igb_uio():
         return should_skip_uio()
@@ -237,14 +237,14 @@ async def load_drivers():
             download_cmds.append((f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading uio_pci_generic driver"))
 
         load_cmds = [
-            (f"lsmod | grep wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko", "loading wekafsgw driver"),
-            (f"lsmod | grep wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko", "loading wekafsio driver"),
-            (f"lsmod | grep mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading mpin_user driver")
+            (f"lsmod | grep -w wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko", "loading wekafsgw driver"),
+            (f"lsmod | grep -w wekafsio || insmod /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko", "loading wekafsio driver"),
+            (f"lsmod | grep -w mpin_user || insmod /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading mpin_user driver")
         ]
         if not should_skip_uio():
-            load_cmds.append((f"lsmod | grep uio || modprobe uio", "loading uio driver"))
+            load_cmds.append((f"lsmod | grep -w uio || modprobe uio", "loading uio driver"))
         if not should_skip_igb_uio():
-            load_cmds.append((f"lsmod | grep igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading igb_uio driver"))
+            load_cmds.append((f"lsmod | grep -w igb_uio || insmod /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "loading igb_uio driver"))
 
     else:
         # list directory /opt/weka/dist/version
