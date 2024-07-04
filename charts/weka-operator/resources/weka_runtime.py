@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from functools import lru_cache, partial
+from dataclasses import dataclass, asdict
 from os.path import exists
 import socket
 from textwrap import dedent
@@ -20,6 +21,13 @@ AGENT_PORT = os.environ.get("AGENT_PORT", "")
 MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
+OS_DISTRO = os.environ.get("OS_DISTRO")
+OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
+
+KUBERNETES_DISTRO_OPENSHIFT = "openshift"
+KUBERNETES_DISTRO_GKE = "gke"
+OS_NAME_GOOGLE_COS = "cos"
+OS_NAME_REDHAT_COREOS = "rhcos"
 
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
@@ -44,6 +52,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
     handlers=[stdout_handler, stderr_handler]
 )
+
+
+def is_google_cos():
+    return OS_DISTRO == OS_NAME_GOOGLE_COS
+
+
+def is_rhcos():
+    return OS_DISTRO == OS_NAME_REDHAT_COREOS
 
 
 def wait_for_syslog():
@@ -265,6 +281,29 @@ def read_siblings_list(cpu_index):
     path = f"/sys/devices/system/cpu/cpu{cpu_index}/topology/thread_siblings_list"
     with open(path) as file:
         return expand_ranges(file.read().strip())
+
+
+@dataclass
+class HostInfo:
+    kubernetes_distro = 'k8s'
+    os = 'unknown'
+    os_build_id = ''
+
+
+def get_host_info():
+    ret = HostInfo()
+
+    with open("/hostside/etc/os-release") as file:
+        for line in file:
+            if line.startswith("OPENSHIFT_VERSION="):
+                ret.kubernetes_distro = KUBERNETES_DISTRO_OPENSHIFT
+                ret.os_build_id = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("ID="):
+                ret.os = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith("BUILD_ID="):
+                ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
+                ret.os_build_id = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
+    return ret
 
 
 @lru_cache
@@ -714,8 +753,12 @@ async def discovery():
     # TODO: We should move here everything else we need to discover per node
     # This might be a good place to discover drives as well, as long we have some selector to discover by
     with open("/tmp/weka-discovery.json.tmp", "w") as f:
+        host_info = get_host_info()
         data = dict(
-            is_ht=len(read_siblings_list(0)) > 1
+            is_ht=len(read_siblings_list(0)) > 1,
+            kubernetes_distro=host_info.kubernetes_distro,
+            os=host_info.os,
+            os_build_id=host_info.os_build_id,
         )
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")
@@ -778,7 +821,21 @@ async def obtain_lock():
     return server
 
 _server = None
+
+
 async def main():
+    host_info = get_host_info()
+    global OS_DISTRO, OS_BUILD_ID
+    if not OS_DISTRO:
+        OS_DISTRO = host_info.os
+    logging.info(f'OS_DISTRO={OS_DISTRO}')
+
+    if not OS_BUILD_ID:
+        OS_BUILD_ID = host_info.os_build_id
+    if not OS_BUILD_ID and is_google_cos():
+        raise Exception("OS_BUILD_ID is not set")
+    logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
+
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
