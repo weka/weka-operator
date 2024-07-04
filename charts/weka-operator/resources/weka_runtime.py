@@ -84,9 +84,11 @@ def wait_for_agent():
 
 async def ensure_drivers():
     logging.info("waiting for drivers")
-    drivers = "wekafsio wekafsgw igb_uio mpin_user".split()
-    if version_params.get('uio_pci_generic') is not False:
-        drivers.append("uio_pci_generic")
+    drivers = "wekafsio wekafsgw mpin_user".split()
+    if not is_google_cos():
+        drivers.append("igb_uio")
+        if version_params.get('uio_pci_generic') is not False:
+            drivers.append("uio_pci_generic")
     for driver in drivers:
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
