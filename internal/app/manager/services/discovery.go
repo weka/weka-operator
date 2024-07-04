@@ -111,7 +111,7 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha
 type OwnerWekaObject struct {
 	Image           string              `json:"image"`
 	ImagePullSecret string              `json:"imagePullSecrets"`
-	Tolerations     []corev1.Toleration `json:"tolerations"`
+	Tolerations     []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
@@ -122,8 +122,13 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 	}
 
 	// Check if node already has the discovery.json annotation
-	if _, ok := node.Annotations[discoveryAnnotation]; ok {
-		return nil
+	if annotation, ok := node.Annotations[discoveryAnnotation]; ok {
+		// Validate the annotation is up to date
+		discoveryNodeInfo := &DiscoveryNodeInfo{}
+		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
+		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID {
+			return nil
+		}
 	}
 
 	// FormCluster a WekaContainer with mode "discovery"
@@ -145,12 +150,20 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 			Tolerations:     ownerDetails.Tolerations,
 		},
 	}
-	// Fill in the necessary fields here
-	err = c.Create(ctx, discoveryContainer)
+
+	err = c.Get(ctx, types.NamespacedName{Name: discoveryContainer.Name, Namespace: discoveryContainer.Namespace}, discoveryContainer)
 	if err != nil {
-		// if already exits error check the status of existing container
-		if !errors2.IsAlreadyExists(err) {
+		if !errors2.IsNotFound(err) {
 			return err
+		} else {
+			// Fill in the necessary fields here
+			err = c.Create(ctx, discoveryContainer)
+			if err != nil {
+				// if already exits error check the status of existing container
+				if !errors2.IsAlreadyExists(err) {
+					return err
+				}
+			}
 		}
 	}
 
@@ -174,13 +187,19 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 	if err != nil {
 		return errors.Wrap(err, "Failed to unmarshal discovery.json")
 	}
-	// unmarshalling just for json validation
+
+	discoveryNodeInfo.BootID = node.Status.NodeInfo.BootID
+	discoveryString, err := json.Marshal(discoveryNodeInfo)
+	if err != nil {
+		return errors.Wrap(err, "Failed to marshal discovery.json")
+
+	}
 
 	// Update the node with data in annotation
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
-	node.Annotations[discoveryAnnotation] = string(stdout.Bytes())
+	node.Annotations[discoveryAnnotation] = string(discoveryString)
 	err = c.Update(ctx, node)
 	if err != nil {
 		return err
@@ -218,7 +237,10 @@ func GetNodeDiscovery(ctx context.Context, c client.Client, node string) (*Disco
 		logger.SetError(err, "Failed to unmarshal discovery.json")
 		return nil, err
 	}
-
+	if nodeInfo.BootID != nodeObj.Status.NodeInfo.BootID {
+		logger.SetError(errors.New("BootID mismatch"), "BootID mismatch")
+		return nil, errors.New("BootID mismatch")
+	}
 	return &nodeInfo, nil
 }
 
