@@ -168,7 +168,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
 
-	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
+	jobName := util.TruncateString("weka-tombstone-delete-"+string(tombstone.UID), 63)
 	logger.Info("fetching job", "jobName", jobName)
 	if tombstone.Spec.CrId == "" {
 		return nil, fmt.Errorf("tombstone CR ID is empty, refusing removal")
