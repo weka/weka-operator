@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import fcntl
+import struct
 import sys
 import threading
 import time
@@ -33,6 +35,12 @@ MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
 
 WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
+
+COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
+COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("COS_ALLOW_DISABLE_DRIVER_SIGNING", "false") == "true" else False
+COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
+COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("COS_GLOBAL_HUGEPAGE_COUNT", 4000))
+
 
 # Define global variables
 exiting = 0
@@ -792,6 +800,133 @@ daemons = {
 # k8s lifecycle/local leadership election
 
 
+def cos_reboot_machine():
+    logging.warning("Rebooting the host")
+    os.sync()
+    time.sleep(3)  # give some time to log the message and sync
+    os.system("echo b > /hostside/proc/sysrq-trigger")
+
+
+async def is_secure_boot_enabled():
+    stdout, stderr, ec = await run_command("dmesg")
+    return "Secure boot enabled" in stdout.decode('utf-8')
+
+
+async def cos_disable_driver_signing_verification():
+    logging.info("Checking if driver signing is disabled")
+    esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
+    mount_path = "/tmp/esp"
+    grub_cfg = "efi/boot/grub.cfg"
+    sed_cmds = []
+    reboot_required = False
+
+    with open("/hostside/proc/cmdline", 'r') as file:
+        for line in file.readlines():
+            logging.info(f"cmdline: {line}")
+            if "module.sig_enforce" in line:
+                if "module.sig_enforce=1" in line:
+                    sed_cmds.append(('module.sig_enforce=1', 'module.sig_enforce=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi module.sig_enforce=0'))
+            if "loadpin.enabled" in line:
+                if "loadpin.enabled=1" in line:
+                    sed_cmds.append(('loadpin.enabled=1', 'loadpin.enabled=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi loadpin.enabled=0'))
+            if "loadpin.enforce" in line:
+                if "loadpin.enforce=1" in line:
+                    sed_cmds.append(('loadpin.enforce=1', 'loadpin.enforce=0'))
+            else:
+                sed_cmds.append(('cros_efi', 'cros_efi loadpin.enforce=0'))
+    if sed_cmds:
+        logging.warning("Must modify kernel parameters")
+        if COS_ALLOW_DISABLE_DRIVER_SIGNING:
+            logging.warning("Node driver signing configuration has changed, NODE WILL REBOOT NOW!")
+        else:
+            raise Exception("Node driver signing configuration must be changed, but COS_ALLOW_DISABLE_DRIVER_SIGNING is not set to True. Exiting.")
+
+        await run_command(f"mkdir -p {mount_path}")
+        await run_command(f"mount {esp_partition} {mount_path}")
+        current_path = os.curdir
+        try:
+            os.chdir(mount_path)
+            for sed_cmd in sed_cmds:
+                await run_command(f"sed -i 's/{sed_cmd[0]}/{sed_cmd[1]}/g' {grub_cfg}")
+            reboot_required = True
+        except Exception as e:
+            logging.error(f"Failed to modify kernel cmdline: {e}")
+            raise
+        finally:
+            os.chdir(current_path)
+            await run_command(f"umount {mount_path}")
+            if reboot_required:
+                cos_reboot_machine()
+    else:
+        logging.info("Driver signing is already disabled")
+
+
+async def cos_configure_hugepages():
+    if not is_google_cos():
+        logging.info("Skipping hugepages configuration")
+        return
+
+    logging.info("Checking if hugepages are set")
+    esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
+    mount_path = "/tmp/esp"
+    grub_cfg = "efi/boot/grub.cfg"
+    sed_cmds = []
+    reboot_required = False
+
+    current_path = os.curdir
+    with open("/hostside/proc/cmdline", 'r') as file:
+        for line in file.readlines():
+            logging.info(f"cmdline: {line}")
+            if "hugepagesz=" in line:
+                if "hugepagesz=1g" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "2m":
+                    sed_cmds.append(('hugepagesz=1g', 'hugepagesz=2m'))
+                elif "hugepagesz=2m" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "1g":
+                    sed_cmds.append(('hugepagesz=2m', 'hugepagesz=1g'))
+            if "hugepages=" not in line:
+                # hugepages= is not set at all
+                sed_cmds.append(('cros_efi', f'cros_efi hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and COS_ALLOW_HUGEPAGE_CONFIG:
+                # hugepages= is set but not to the desired value, and we are allowed to change it
+                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and not COS_ALLOW_HUGEPAGE_CONFIG:
+                logging.info(f"Node hugepages configuration is managed externally, skipping")
+    if sed_cmds:
+        logging.warning("Must modify kernel HUGEPAGES parameters")
+        if COS_ALLOW_HUGEPAGE_CONFIG:
+            logging.warning("Node hugepage configuration has changed, NODE WILL REBOOT NOW!")
+        else:
+            raise Exception("Node hugepage configuration must be changed, but COS_ALLOW_HUGEPAGE_CONFIG is not set to True. Exiting.")
+
+        await run_command(f"mkdir -p {mount_path}")
+        await run_command(f"mount {esp_partition} {mount_path}")
+        try:
+            os.chdir(mount_path)
+            for sed_cmd in sed_cmds:
+                await run_command(f"sed -i 's/{sed_cmd[0]}/{sed_cmd[1]}/g' {grub_cfg}")
+            reboot_required = True
+        except Exception as e:
+            logging.error(f"Failed to modify kernel cmdline: {e}")
+            raise
+        finally:
+            os.chdir(current_path)
+            os.sync()
+            await run_command(f"umount {mount_path}")
+            if reboot_required:
+                cos_reboot_machine()
+    else:
+        logging.info(f"Hugepages are already configured to {COS_GLOBAL_HUGEPAGE_COUNT}x2m pages")
+
+
+async def cos_disable_driver_signing():
+    if not is_google_cos():
+        return
+    logging.info("Ensuring driver signing is disabled")
+    await cos_disable_driver_signing_verification()
+
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
 GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
 GENERATION_PATH = f'{GENERATION_PATH_DIR}/runtime-generation'
@@ -839,6 +974,8 @@ async def main():
         # self signal to exit
         await override_dependencies_flag()
         max_retries = 10
+        if is_google_cos():
+            await cos_disable_driver_signing()
         for i in range(max_retries):
             try:
                 await load_drivers()
@@ -853,6 +990,7 @@ async def main():
 
     if MODE == "discovery":
         # self signal to exit
+        await cos_configure_hugepages()
         await discovery()
         return
 
