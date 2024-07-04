@@ -76,6 +76,8 @@ func main() {
 	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
 	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
+	flag.StringVar(&tombstoneConfig.MaintenanceImage, "maintenance-image", "busybox", "Maintenance image")
+	flag.StringVar(&tombstoneConfig.MaintenanceImagePullSecret, "maintenance-image-pull-secret", "", "Maintenance image pull secret")
 
 	ctx := ctrl.SetupSignalHandler()
 
