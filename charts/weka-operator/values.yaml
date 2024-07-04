@@ -37,7 +37,7 @@ ocpCompatibility:
     # -- if enabled, the operator will configure hugepages for the OCP nodes
     enabled: true
     # -- on which nodes to configure hugepages
-    machineConfigNodeLabel: "master"
+    machineConfigNodeLabel: "worker"
     # -- hugepage size
     hugepageSize: "2M"
     # -- hugepage count
