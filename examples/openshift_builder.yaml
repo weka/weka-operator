@@ -8,7 +8,7 @@ metadata:
 spec:
   agentPort: 60001
   image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
-  imagePullSecret: "quay-io-robot-secret"
+  imagePullSecret: "quay-cred"
   # for RHCOS, the osDistro should be set to "rhcos"
   osDistro: "rhcos"
   # this is the buildkit image that will be used to build the weka driver. The image may be obtained by running the following command:
