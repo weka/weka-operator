@@ -222,6 +222,10 @@ async def load_drivers():
     def should_skip_igb_uio():
         return should_skip_uio()
 
+    if is_rhcos():
+        if os.path.isdir("/hostpath/lib/modules"):
+            os.system("cp -r /hostpath/lib/modules/* /lib/modules/")
+
     if not version_params.get("weka_drivers_handling"):
         # LEGACY MODE
         weka_driver_version = version_params.get('wekafs')

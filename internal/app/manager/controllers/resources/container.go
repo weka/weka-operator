@@ -506,7 +506,14 @@ func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domai
 					Value: "/var/secrets/google/service-account.json",
 				})
 			}
-		} else if !f.container.IsOpenshift() {
+		} else {
+			libModulesPath := "/lib/modules"
+			usrSrcPath := "/usr/src"
+			if f.container.IsOpenshift() {
+				libModulesPath = "/hostpath/lib/modules"
+				usrSrcPath = "/hostpath/usr/src"
+			}
+
 			// adding mount of headers only for case of drivers-related container
 			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 				Name: "libmodules",
@@ -526,11 +533,11 @@ func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domai
 			})
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "libmodules",
-				MountPath: "/lib/modules",
+				MountPath: libModulesPath,
 			})
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "usrsrc",
-				MountPath: "/usr/src",
+				MountPath: usrSrcPath,
 			})
 		}
 	}
