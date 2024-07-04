@@ -1,0 +1,42 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+  labels:
+    app: weka-driver-builder
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
+  imagePullSecret: quay-cred
+  # for RHCOS, the osDistro must be set to "rhcos"
+  osDistro: "rhcos"
+  coreOSBuildSpec:
+    # this is the driver toolkit image that will be used to build the weka driver.
+    # The image may be obtained by running the following commands:
+    # OS_RELEASE=$(oc adm release info -o json | jq .metadata.version -r)
+    # oc adm release info $OS_RELEASE --image-for=driver-toolkit.
+    # The URL may be replaced with a local mirror for dark sites
+    driverToolkitImage: quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:2421e498039bc6118e902cef9531af6c90a3cacbe51ecb4efd37476c25caadad
+    # if the driver toolkit image is hosted in a private registry, the secret must be created and referenced here.
+    # The secret must be located in the same namespace as the weka-driver-builder container
+    driverToolkitImagePullSecret: ocp-buildkit-secret
+  mode: "dist"
+  name: dist
+  numCores: 1
+  port: 60002
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+spec:
+  type: ClusterIP
+  ports:
+  - name: weka-driver-builder
+    port: 60002
+    targetPort: 60002
+  selector:
+    app: weka-driver-builder
