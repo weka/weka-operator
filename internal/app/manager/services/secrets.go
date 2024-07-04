@@ -68,6 +68,7 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	// generate random password
 	operatorLogin := cluster.NewOperatorLoginSecret()
 	userLogin := cluster.NewUserLoginSecret()
+	csiLogin := cluster.NewCsiLoginSecret()
 
 	if cluster.Spec.OperatorSecretRef != "" {
 		return nil
@@ -81,6 +82,13 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	}
 
 	if err := kubeService.EnsureSecret(ctx, userLogin, &K8sOwnerRef{
+		Scheme: r.Scheme,
+		Obj:    cluster,
+	}); err != nil {
+		return err
+	}
+
+	if err := kubeService.EnsureSecret(ctx, csiLogin, &K8sOwnerRef{
 		Scheme: r.Scheme,
 		Obj:    cluster,
 	}); err != nil {
