@@ -12,3 +12,5 @@ spec:
   wekaSecretRef: weka-cluster-cluster-dev
   coresNum: 1
   joinIpPorts: ["10.222.96.0:14000"]
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
