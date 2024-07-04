@@ -101,6 +101,19 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		debugSleep = "3"
 	}
 
+	allowCosHugepageConfig := "false"
+	if compatibilityConfig.CosEnableHugepagesConfig {
+		allowCosHugepageConfig = "true"
+	}
+
+	allowCosDisableDriverSigning := "false"
+	if compatibilityConfig.CosDisableDriverSigningEnforcement {
+		allowCosDisableDriverSigning = "true"
+	}
+
+	globalCosHugepageSize := compatibilityConfig.CosHugepageSize
+	globalCosHugepageCount := strconv.Itoa(compatibilityConfig.CosHugepagesCount)
+
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
 	pod := &corev1.Pod{
@@ -414,32 +427,126 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.IsDriversContainer() {
-		// adding mount of headers only for case of drivers-related container
+	// DiscoveryContainer on GKE only will force boot to set up hugepages. This is managed via Helm configuration
+	if f.container.IsDiscoveryContainer() && (f.container.IsCos() || f.container.IsUnspecifiedOs()) {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "proc-sysrq-trigger",
+			MountPath: "/hostside/proc/sysrq-trigger",
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "proc-cmdline",
+			MountPath: "/hostside/proc/cmdline",
+		})
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "libmodules",
+			Name: "proc-sysrq-trigger",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/lib/modules",
+					Path: "/proc/sysrq-trigger",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
 				},
 			},
 		})
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "usrsrc",
+			Name: "proc-cmdline",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/usr/src",
+					Path: "/proc/cmdline",
+					Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
 				},
 			},
 		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "libmodules",
-			MountPath: "/lib/modules",
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "usrsrc",
-			MountPath: "/usr/src",
-		})
+	}
+
+	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() {
+		if f.container.IsCos() {
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "weka-boot-scripts",
+				MountPath: "/devenv.sh",
+				SubPath:   "devenv.sh",
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "proc-sysrq-trigger",
+				MountPath: "/hostside/proc/sysrq-trigger",
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "proc-cmdline",
+				MountPath: "/hostside/proc/cmdline",
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "proc-sysrq-trigger",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/sysrq-trigger",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
+				},
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "proc-cmdline",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/proc/cmdline",
+						Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+					},
+				},
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_ALLOW_DISABLE_DRIVER_SIGNING",
+				Value: allowCosDisableDriverSigning,
+			})
+
+			if f.container.IsDriversBuilder() && f.container.Spec.GcloudCredentialsSecret != "" {
+				pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+					Name: "gcloud-credentials",
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName: f.container.Spec.GcloudCredentialsSecret,
+						},
+					},
+				})
+				pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+					Name:      "gcloud-credentials",
+					MountPath: "/var/secrets/google",
+				})
+				pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+					Name:  "GOOGLE_APPLICATION_CREDENTIALS",
+					Value: "/var/secrets/google/service-account.json",
+				})
+			}
+		} else {
+			libModulesPath := "/lib/modules"
+			usrSrcPath := "/usr/src"
+			if f.container.IsOpenshift() {
+				libModulesPath = "/hostpath/lib/modules"
+				usrSrcPath = "/hostpath/usr/src"
+			}
+
+			// adding mount of headers only for case of drivers-related container
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "libmodules",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/lib/modules",
+					},
+				},
+			})
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "usrsrc",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/usr/src",
+					},
+				},
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "libmodules",
+				MountPath: libModulesPath,
+			})
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "usrsrc",
+				MountPath: usrSrcPath,
+			})
+		}
 	}
 
 	return pod, nil
