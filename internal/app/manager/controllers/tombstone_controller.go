@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/fields"
 	"slices"
 	"time"
 
@@ -144,6 +145,25 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 	return reconcile.Result{}, nil
 }
 
+func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace string, uuid string) (*wekav1alpha1.WekaContainer, error) {
+	wekaContainerList := &wekav1alpha1.WekaContainerList{}
+	listOptions := &client.ListOptions{
+		Namespace:     namespace,
+		FieldSelector: fields.OneTermEqualSelector("metadata.uid", uuid),
+	}
+	err := r.List(ctx, wekaContainerList, listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(wekaContainerList.Items) == 0 {
+		return nil, nil
+	}
+
+	// Assuming UUIDs are unique, return the first match
+	return &wekaContainerList.Items[0], nil
+}
+
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
@@ -159,6 +179,16 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 		return nil, err
 	}
 	//NOTE: Maybe could use WekaContainer, that will use alternative image, and container controller will close the loop in a smarter way
+
+	if tombstone.Spec.CrType == "WekaContainer" {
+		wekaContainer, err := getWekaContainerByUUID(context.Background(), r.Client, namespace, tombstone.Spec.CrId)
+		if err != nil {
+			return nil, err
+		}
+		if wekaContainer != nil {
+			return nil, fmt.Errorf("weka container still exists, refusing removal")
+		}
+	}
 
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
