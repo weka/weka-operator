@@ -6,6 +6,7 @@ on:
     branches:
       - release/v0
       - release/v1-beta
+      - release/v1-envoy
 
 permissions:
   contents: write
