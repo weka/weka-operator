@@ -18,7 +18,11 @@ import (
 )
 
 type DiscoveryNodeInfo struct {
-	IsHt bool `json:"is_ht"`
+	IsHt             bool   `json:"is_ht"`
+	KubernetesDistro string `json:"kubernetes_distro,omitempty"`
+	Os               string `json:"os,omitempty"`
+	OsBuildId        string `json:"os_build_id,omitempty"`
+	BootID           string `json:"boot_id,omitempty"`
 }
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
