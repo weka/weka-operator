@@ -58,7 +58,7 @@ type WekaClusterSpec struct {
 	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
 	DriversDistService      string            `json:"driversDistService,omitempty"`
 	NodeSelector            map[string]string `json:"nodeSelector,omitempty"`
-	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual:default=auto
+	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy                 CpuPolicy            `json:"cpuPolicy,omitempty"`
 	DriveAppendSetupCommand   string               `json:"driveAppendSetupCommand,omitempty"`
