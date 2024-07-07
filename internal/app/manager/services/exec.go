@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"

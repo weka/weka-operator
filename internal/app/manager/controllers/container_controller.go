@@ -1041,7 +1041,11 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			NodeAffinity:        container.Spec.NodeAffinity,
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
+			NodeSelector:        container.Spec.NodeSelector,
+			OsDistro:            container.Spec.OsDistro,
+			OsBuildId:           container.Spec.OsBuildId,
 			Tolerations:         container.Spec.Tolerations,
+			ServiceAccountName:  container.Spec.ServiceAccountName,
 		},
 	}
 
@@ -1168,9 +1172,10 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			Namespace: container.Namespace,
 		},
 		Spec: wekav1alpha1.TombstoneSpec{
-			CrType:       "WekaContainer",
-			CrId:         string(container.UID),
-			NodeAffinity: nodeAffinity,
+			CrType:          "WekaContainer",
+			CrId:            string(container.UID),
+			NodeAffinity:    nodeAffinity,
+			PersistencePath: container.GetPersistentLocation(),
 		},
 	}
 

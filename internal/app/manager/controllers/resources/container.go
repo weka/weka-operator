@@ -119,6 +119,12 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		hostsideClusterPersistence = fmt.Sprintf("%s/%s", PersistentHostClusterLocation, clusterId)
 	}
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
+
+	serviceAccountName := f.container.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = "default"
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -144,6 +150,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			},
+			ServiceAccountName:            serviceAccountName,
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
@@ -263,6 +270,14 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
+						},
+						{
+							Name:  "OS_DISTRO",
+							Value: f.container.Spec.OsDistro,
+						},
+						{
+							Name:  "OS_BUILD_ID",
+							Value: f.container.Spec.OsBuildId,
 						},
 					},
 				},
