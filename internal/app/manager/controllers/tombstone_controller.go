@@ -38,11 +38,9 @@ func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reco
 }
 
 type TombstoneConfig struct {
-	EnableTombstoneGc          bool
-	TombstoneGcInterval        time.Duration
-	TombstoneExpiration        time.Duration
-	MaintenanceImage           string
-	MaintenanceImagePullSecret string
+	EnableTombstoneGc   bool
+	TombstoneGcInterval time.Duration
+	TombstoneExpiration time.Duration
 }
 
 func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *TombstoneReconciller {
