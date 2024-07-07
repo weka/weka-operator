@@ -1028,6 +1028,11 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 		logger.Error(err, "GetPodNamespace")
 		return err
 	}
+	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
+	if serviceAccountName == "" {
+		return fmt.Errorf("cannot create driver loader container, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
+	}
+
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
@@ -1045,7 +1050,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			COSBuildSpec:        container.Spec.COSBuildSpec,
 			CoreOSBuildSpec:     container.Spec.CoreOSBuildSpec,
 			Tolerations:         container.Spec.Tolerations,
-			ServiceAccountName:  container.Spec.ServiceAccountName,
+			ServiceAccountName:  serviceAccountName,
 		},
 	}
 
