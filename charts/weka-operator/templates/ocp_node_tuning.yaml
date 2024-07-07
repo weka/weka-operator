@@ -20,5 +20,9 @@ spec:
   machineConfigSelector:
     matchExpressions:
       - {key: machineconfiguration.openshift.io/role, operator: In, values: [{{ .Values.ocpCompatibility.hugepageConfiguration.machineConfigNodeLabel }}]}
+  {{- if .Values.ocpCompatibility.hugepageConfiguration.nodeSelector }}
+  nodeSelector:
+    {{- .Values.ocpCompatibility.hugepageConfiguration.nodeSelector | toYaml | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- end }}
