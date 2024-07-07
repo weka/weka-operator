@@ -62,6 +62,10 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              buildkitImage:
+                type: string
+              buildkitImagePullSecret:
+                type: string
               ipv6:
                 type: boolean
               nodeSelector:

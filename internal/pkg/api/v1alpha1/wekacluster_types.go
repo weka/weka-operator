@@ -49,14 +49,16 @@ type WekaClusterSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of WekaCluster. Edit dummycluster_types.go to remove/update
-	Size               int               `json:"size"`
-	Template           string            `json:"template"`
-	Topology           string            `json:"topology"`
-	Image              string            `json:"image"`
-	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
-	DriversDistService string            `json:"driversDistService,omitempty"`
-	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
-	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
+	Size                    int               `json:"size"`
+	Template                string            `json:"template"`
+	Topology                string            `json:"topology"`
+	Image                   string            `json:"image"`
+	ImagePullSecret         string            `json:"imagePullSecret,omitempty"`
+	BuildkitImage           string            `json:"buildkitImage,omitempty"`
+	BuildkitImagePullSecret string            `json:"buildkitImagePullSecret,omitempty"`
+	DriversDistService      string            `json:"driversDistService,omitempty"`
+	NodeSelector            map[string]string `json:"nodeSelector,omitempty"`
+	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual:default=auto
 	//+kubebuilder:default=auto
 	CpuPolicy                 CpuPolicy            `json:"cpuPolicy,omitempty"`
 	DriveAppendSetupCommand   string               `json:"driveAppendSetupCommand,omitempty"`
