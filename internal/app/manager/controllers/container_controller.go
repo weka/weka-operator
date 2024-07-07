@@ -1258,7 +1258,7 @@ func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1
 			return err
 
 		}
-		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
+		// setting for forceful termination ,as we are in container delete flow
 		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
 		if err != nil {
 			if !strings.Contains(err.Error(), "container not found") {
