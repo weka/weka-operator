@@ -37,8 +37,6 @@ spec:
                 type: integer
               agentPort:
                 type: integer
-              appendSetupCommand:
-                type: string
               coreIds:
                 items:
                   type: integer
@@ -62,6 +60,8 @@ spec:
                 type: integer
               forceAllowDriveSign:
                 type: boolean
+              group:
+                type: string
               hugepages:
                 type: integer
               hugepagesSize:
@@ -117,15 +117,6 @@ spec:
                 type: integer
               port:
                 type: integer
-              s3Params:
-                properties:
-                  envoyAdminPort:
-                    type: integer
-                  envoyPort:
-                    type: integer
-                  s3Port:
-                    type: integer
-                type: object
               tolerations:
                 items:
                   description: The pod this Toleration is attached to tolerates any

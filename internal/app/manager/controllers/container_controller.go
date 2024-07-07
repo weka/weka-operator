@@ -642,7 +642,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 		return true, errors.New("slots not found")
 	}
 
-	if !container.IsBackend() {
+	if !container.IsWekaContainer() {
 		return false, nil // TODO: clients do not update clusterId, need better way to validate if client indeed joined and can serve IOs
 	}
 
@@ -1198,7 +1198,7 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// TODO: Make configurable, for now we delete after 5 minutes since downtime
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
-	if container.IsBackend() {
+	if container.IsWekaContainer() {
 		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {

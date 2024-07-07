@@ -3,41 +3,33 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"github.com/weka/weka-operator/util"
 	"go.opentelemetry.io/otel/codes"
-	"gopkg.in/yaml.v2"
-
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 )
 
 type CrdManager interface {
 	GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
-	GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error)
-	UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error
 }
 
 func NewCrdManager(mgr ctrl.Manager) *crdManager {
-	scheme := mgr.GetScheme()
 	return &crdManager{
-		Manager:              mgr,
-		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
+		Manager: mgr,
 	}
 }
 
 type crdManager struct {
-	Manager              ctrl.Manager
-	WekaContainerFactory factory.WekaContainerFactory
+	Manager ctrl.Manager
 }
 
 func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
@@ -62,14 +54,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureWekaContainers")
 	defer end()
 
-	allocations, allocConfigMap, err := r.GetOrInitAllocMap(ctx)
-	if err != nil {
-		logger.Error(err, "could not init allocmap")
-		return nil, err
-	}
-
-	foundContainers := []*wekav1alpha1.WekaContainer{}
-	template, ok := domain.WekaClusterTemplates[cluster.Spec.Template]
+	template, ok := domain.GetTemplateByName(cluster.Spec.Template, *cluster)
 	if !ok {
 		keys := make([]string, 0, len(domain.WekaClusterTemplates))
 		for k := range domain.WekaClusterTemplates {
@@ -79,7 +64,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
 		return nil, err
 	}
-	topology_fn, ok := domain.Topologies[cluster.Spec.Topology]
+	topologyFn, ok := domain.Topologies[cluster.Spec.Topology]
 	if !ok {
 		keys := make([]string, 0, len(domain.Topologies))
 		for k := range domain.Topologies {
@@ -89,185 +74,89 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 		logger.Error(err, "Topology not found", "topology", cluster.Spec.Topology, "keys", keys)
 		return nil, err
 	}
-	topology, err := topology_fn(ctx, r.getClient(), cluster.Spec.NodeSelector)
-	allocator := domain.NewAllocator(topology)
+	topology, err := topologyFn(ctx, r.getClient(), cluster.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "Failed to get topology", "topology", cluster.Spec.Topology)
 		return nil, err
 	}
-	allocations, err, changed := allocator.Allocate(
-		ctx,
-		domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
-		template,
-		allocations,
-		cluster.Spec.Size)
+	topologyAllocator, err := allocator.NewTopologyAllocator(ctx, r.getClient(), topology)
 	if err != nil {
-		logger.Error(err, "Failed to allocate resources")
+		logger.Error(err, "Failed to create topology allocator")
 		return nil, err
 	}
-	if changed {
-		if err := r.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
-			logger.Error(err, "Failed to update alloc map")
+
+	currentContainers := GetClusterContainers(ctx, r.getClient(), cluster, "")
+	missingContainers, err := factory.BuildMissingContainers(cluster, template, topology, currentContainers)
+	if err != nil {
+		logger.Error(err, "Failed to create missing containers")
+		return nil, err
+	}
+	for _, container := range missingContainers {
+		if err := ctrl.SetControllerReference(cluster, container, r.Manager.GetScheme()); err != nil {
 			return nil, err
 		}
 	}
 
-	size := cluster.Spec.Size
-	if size == 0 {
-		size = 1
+	if len(missingContainers) == 0 {
+		return currentContainers, nil
 	}
+
+	k8sClient := r.Manager.GetClient()
+	if len(currentContainers) == 0 {
+		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
+		//TODO: should've be just own step function
+		err = topologyAllocator.AllocateClusterRange(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to allocate cluster range")
+			return nil, err
+		}
+		err := k8sClient.Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return nil, err
+		}
+		// update weka cluster status
+	}
+
+	err = topologyAllocator.AllocateContainers(ctx, *cluster, missingContainers)
+	if err != nil {
+		logger.Error(err, "Failed to allocate containers")
+		return nil, err
+	}
+
 	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
 
 	var joinIps []string
-
-	created := false
-	ensureContainers := func(role string, containersNum int) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainers", "role", role, "containersNum", containersNum)
-		defer end()
-		for i := 0; i < containersNum; i++ {
-			ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainer", "index", i)
-			// Check if the WekaContainer object exists
-			owner := domain.Owner{
-				OwnerCluster: domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace},
-				Container:    fmt.Sprintf("%s%d", role, i),
-				Role:         role,
-			} // apparently need helper function with a role.
-
-			ownedResources, _ := domain.GetOwnedResources(owner, allocations)
-
-			var s3OwnedResorces domain.OwnedResources
-			if role == wekav1alpha1.WekaContainerModeEnvoy {
-				s3Owner := owner
-				s3Owner.Container = fmt.Sprintf("%s%d", "s3", i)
-				s3Owner.Role = "s3"
-
-				s3OwnedResorces, _ = domain.GetOwnedResources(s3Owner, allocations)
-				ownedResources.EnvoyPort = s3OwnedResorces.EnvoyPort
-			}
-
-			wekaContainer, err := r.WekaContainerFactory.NewWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
+	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
+		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
+		joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
+		if err != nil && strings.Contains(err.Error(), "No join IP port pairs found") && len(cluster.Spec.ExpandEndpoints) != 0 { //TO
+			joinIps = cluster.Spec.ExpandEndpoints
+		} else {
 			if err != nil {
-				logger.Error(err, "newWekaContainerForWekaCluster")
-				end()
-				return err
+				logger.Error(err, "Failed to get join ips")
+				return nil, err
 			}
-			l := logger.WithValues("container_name", wekaContainer.Name)
-
-			found := &wekav1alpha1.WekaContainer{}
-			err = r.getClient().Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: wekaContainer.Name}, found)
-			if err != nil && apierrors.IsNotFound(err) {
-				// if we post cluster form should join existing cluster
-				if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
-					if joinIps == nil {
-						joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
-						if err != nil {
-							logger.Error(err, "Failed to get join ips")
-							end()
-							return err
-						}
-					}
-					wekaContainer.Spec.JoinIps = joinIps
-				}
-				l.Info("Creating container")
-				err = r.getClient().Create(ctx, wekaContainer)
-				if err != nil {
-					logger.Error(err, "Failed to create WekaContainer")
-					end()
-					return err
-				}
-				created = true
-				foundContainers = append(foundContainers, wekaContainer)
-				l.Info("Container created")
-			} else {
-				foundContainers = append(foundContainers, found)
-			}
-			end()
 		}
-		return nil
-	}
-	if err := ensureContainers("drive", template.DriveContainers); err != nil {
-		logger.Error(err, "Failed to ensure drive containers")
-		return nil, err
-	}
-	if err := ensureContainers("compute", template.ComputeContainers); err != nil {
-		logger.Error(err, "Failed to ensure compute containers")
-		return nil, err
 	}
 
-	if err := ensureContainers("s3", template.S3Containers); err != nil {
-		logger.Error(err, "Failed to ensure S3 containers")
-		return nil, err
-	}
+	errs := []error{}
 
-	if err := ensureContainers("envoy", template.S3Containers); err != nil {
-		logger.Error(err, "Failed to ensure envoy containers")
-		return nil, err
-	}
+	allContainers := []*wekav1alpha1.WekaContainer{}
 
-	if created {
-		logger.InfoWithStatus(codes.Ok, "All cluster containers are created", "containers", len(foundContainers))
-	} else {
-		logger.SetStatus(codes.Ok, "All cluster containers already exist")
-	}
-	return foundContainers, nil
-}
-
-func (r *crdManager) GetOrInitAllocMap(ctx context.Context) (*domain.Allocations, *v1.ConfigMap, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOrInitAllocMap")
-	defer end()
-	// fetch alloc map from configmap
-	allocations := &domain.Allocations{
-		NodeMap: domain.AllocationsMap{},
-	}
-	allocMap := allocations.NodeMap
-	yamlData, err := yaml.Marshal(&allocMap)
-	if err != nil {
-		logger.Error(err, "Failed to marshal alloc map")
-		return nil, nil, err
-	}
-
-	allocMapConfigMap := &v1.ConfigMap{}
-	podNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		logger.Error(err, "Failed to get pod namespace")
-		return nil, nil, err
-	}
-	key := client.ObjectKey{Namespace: podNamespace, Name: "weka-operator-allocmap"}
-	err = r.getClient().Get(ctx, key, allocMapConfigMap)
-	if err != nil && apierrors.IsNotFound(err) {
-		// Define a new ConfigMap
-		allocMapConfigMap = &v1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "weka-operator-allocmap",
-				Namespace: podNamespace,
-			},
-			Data: map[string]string{
-				"allocmap.yaml": string(yamlData),
-			},
+	for _, container := range missingContainers {
+		if len(joinIps) != 0 {
+			container.Spec.JoinIps = joinIps
 		}
-		err = r.getClient().Create(ctx, allocMapConfigMap)
+		err = r.getClient().Create(ctx, container)
 		if err != nil {
-			return nil, nil, err
+			errs = append(errs, err)
+			continue
 		}
-	} else {
-		if err != nil {
-			return nil, nil, err
-		}
-		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocations)
-		if err != nil {
-			return nil, nil, err
-		}
+		allContainers = append(allContainers, container)
 	}
-	return allocations, allocMapConfigMap, nil
-}
-
-func (r *crdManager) UpdateAllocationsConfigmap(ctx context.Context, allocations *domain.Allocations, configMap *v1.ConfigMap) error {
-	yamlData, err := yaml.Marshal(&allocations)
-	if err != nil {
-		return err
-	}
-	configMap.Data["allocmap.yaml"] = string(yamlData)
-	return r.getClient().Update(ctx, configMap)
+	allContainers = append(currentContainers, allContainers...)
+	return allContainers, nil
 }
 
 func (r *crdManager) getClient() client.Client {

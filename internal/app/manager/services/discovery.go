@@ -43,10 +43,16 @@ func GetJoinIps(ctx context.Context, c client.Client, cluster *v1alpha1.WekaClus
 
 	joinIpPortPairs := []string{}
 	for _, container := range containers {
+		if container.Status.ClusterContainerID == nil {
+			continue
+		}
 		if container.Status.ManagementIP == "" {
-			return nil, errors.New("Container missing management IP")
+			continue
 		}
 		joinIpPortPairs = append(joinIpPortPairs, WrapIpv6Brackets(container.Status.ManagementIP)+":"+strconv.Itoa(container.Spec.Port))
+	}
+	if len(joinIpPortPairs) == 0 {
+		return nil, errors.New("No join IP port pairs found")
 	}
 	return joinIpPortPairs, nil
 }
@@ -56,6 +62,19 @@ func WrapIpv6Brackets(ip string) string {
 		return "[" + ip + "]"
 	}
 	return ip
+}
+
+func GetAllContainers(ctx context.Context, c client.Client) []v1alpha1.WekaContainer {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAllContainers")
+	defer end()
+
+	containersList := v1alpha1.WekaContainerList{}
+	err := c.List(ctx, &containersList)
+	if err != nil {
+		logger.SetError(err, "Failed to list containers")
+		return nil
+	}
+	return containersList.Items
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha1.WekaCluster, mode string) []*v1alpha1.WekaContainer {

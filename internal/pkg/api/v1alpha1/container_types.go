@@ -63,14 +63,13 @@ type WekaContainerSpec struct {
 	DriversDistService  string               `json:"driversDistService,omitempty"`
 	WekaSecretRef       v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
 	JoinIps             []string             `json:"joinIpPorts,omitempty"`
-	AppendSetupCommand  string               `json:"appendSetupCommand,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
-	S3Params            *S3Params            `json:"s3Params,omitempty"`
 	Tolerations         []v1.Toleration      `json:"tolerations,omitempty"`
 	NodeInfoConfigMap   string               `json:"nodeInfoConfigMap,omitempty"`
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	ForceAllowDriveSign bool                 `json:"forceAllowDriveSign,omitempty"`
+	Group               string               `json:"group,omitempty"`
 }
 
 type Network struct {
@@ -163,6 +162,14 @@ func (w *WekaContainer) IsDriversContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeBuild}, w.Spec.Mode)
 }
 
-func (w *WekaContainer) IsBackend() bool {
+func (w *WekaContainer) IsWekaContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) HasAgent() bool {
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeEnvoy, WekaContainerModeDist}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsHostWideSingleton() bool {
+	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3}, w.Spec.Mode)
 }

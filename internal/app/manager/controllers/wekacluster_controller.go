@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"os"
 	"reflect"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
-	"github.com/weka/weka-operator/internal/app/manager/factory"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -50,7 +50,7 @@ type WekaClusterReconciler struct {
 	SecretsService services.SecretsService
 	ExecService    services.ExecService
 
-	WekaContainerFactory factory.WekaContainerFactory
+	DetectedZombies map[allocator.NamespacedObject]time.Time
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
@@ -58,17 +58,20 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	config := mgr.GetConfig()
 	scheme := mgr.GetScheme()
 	execService := services.NewExecService(config)
-	return &WekaClusterReconciler{
+
+	ret := &WekaClusterReconciler{
 		Client:   client,
 		Scheme:   scheme,
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:           services.NewCrdManager(mgr),
-		SecretsService:       services.NewSecretsService(client, scheme, execService),
-		ExecService:          execService,
-		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
+		CrdManager:     services.NewCrdManager(mgr),
+		SecretsService: services.NewSecretsService(client, scheme, execService),
+		ExecService:    execService,
 	}
+
+	go ret.GCLoop()
+	return ret
 }
 
 func (r *WekaClusterReconciler) SetConditionWithRetries(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
@@ -268,7 +271,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
 	for _, container := range containers {
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		if !container.IsWekaContainer() {
 			continue
 		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
@@ -599,20 +602,16 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 	if err != nil {
 		return err
 	}
-	allocator := domain.NewAllocator(topology)
-	allocations, allocConfigMap, err := r.CrdManager.GetOrInitAllocMap(ctx)
+	topologyAllocator, err := allocator.NewTopologyAllocator(ctx, r.Client, topology)
 	if err != nil {
-		logger.Error(err, "Failed to get alloc map")
 		return err
 	}
 
-	changed := allocator.DeallocateCluster(domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
-	if changed {
-		if err := r.CrdManager.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
-			logger.Error(err, "Failed to update alloc map")
-			return err
-		}
+	err = topologyAllocator.DeallocateCluster(ctx, *cluster)
+	if err != nil {
+		return err
 	}
+
 	r.Recorder.Event(cluster, "Warning", "Deleting",
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			cluster.Name,
@@ -877,12 +876,10 @@ func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *we
 	}
 
 	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:          container.Spec.S3Params.EnvoyPort,
-		EnvoyAdminPort:     container.Spec.S3Params.EnvoyAdminPort,
-		S3Port:             container.Spec.S3Params.S3Port,
-		ContainerIds:       containerIds,
-		EnvoyContainerName: fmt.Sprintf("%senvoy", cluster.GetLastGuidPart()),
-		MinioContainerName: fmt.Sprintf("%ss3be", cluster.GetLastGuidPart()),
+		EnvoyPort:      cluster.Status.Ports.LbPort,
+		EnvoyAdminPort: cluster.Status.Ports.LbAdminPort,
+		S3Port:         cluster.Status.Ports.S3Port,
+		ContainerIds:   containerIds,
 	})
 	if err != nil {
 		if !errors.As(err, &services.S3ClusterExists{}) {
@@ -1238,4 +1235,19 @@ func (r *WekaClusterReconciler) HandleSpecUpdates(ctx context.Context, cluster *
 	}
 	return nil
 
+}
+
+func (r *WekaClusterReconciler) GCLoop() {
+	ctx := context.Background()
+	for {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
+		//getlogspan
+		defer end()
+
+		err := r.GC(ctx)
+		if err != nil {
+			logger.Error(err, "gc failed")
+		}
+		time.Sleep(10 * time.Second)
+	}
 }
