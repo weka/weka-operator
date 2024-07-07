@@ -1217,17 +1217,21 @@ func (r *ContainerController) finalizeContainer(ctx context.Context, container *
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
 
-	// ensure no pod exists
-	err := r.ensureNoPod(ctx, container)
-	if r != nil {
-		return err
-	}
-
-	err = r.ensureTombstone(ctx, container)
+	err := r.ensureTombstone(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error ensuring tombstone")
 		return err
 	}
+
+	//tombstone first, delete pod next
+	//tombstone will have to ensure that no pod exists by itself
+
+	// ensure no pod exists
+	err = r.ensureNoPod(ctx, container)
+	if r != nil {
+		return err
+	}
+
 	return nil
 }
 
