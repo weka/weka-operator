@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"k8s.io/apimachinery/pkg/fields"
 	"slices"
 	"time"
 
@@ -196,6 +198,12 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 		persistencePath = "/opt/k8s-weka/containers"
 	}
 
+	maintenanceImage := os.Getenv("WEKA_MAINTENANCE_IMAGE")
+	maintenanceImagePullSecret := os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
+	if maintenanceImage == "" {
+		maintenanceImage = "busybox"
+	}
+
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -205,10 +213,13 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					ImagePullSecrets:  []corev1.LocalObjectReference{
+						{Name: maintenanceImagePullSecret},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
-							Image: "busybox",
+							Image: maintenanceImage,
 							Command: []string{
 								"sh",
 								"-c",
