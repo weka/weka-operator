@@ -261,7 +261,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 		return nil, err
 	}
 
-	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector, nil)
+	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
 	if err != nil {
 		return nil, err
 	}

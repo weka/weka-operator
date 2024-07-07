@@ -43,8 +43,8 @@ spec:
                   s3:
                     type: integer
                 type: object
-              computeAppendSetupCommand:
-                type: string
+              basePort:
+                type: integer
               cpuPolicy:
                 default: auto
                 enum:
@@ -54,20 +54,55 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
-              driveAppendSetupCommand:
-                type: string
               driversDistService:
                 type: string
+              dynamicTemplate:
+                properties:
+                  computeContainers:
+                    type: integer
+                  computeCores:
+                    type: integer
+                  computeHugepages:
+                    type: integer
+                  driveContainers:
+                    type: integer
+                  driveCores:
+                    type: integer
+                  driveHugepages:
+                    type: integer
+                  envoyCores:
+                    type: integer
+                  maxFdsPerNode:
+                    type: integer
+                  numDrives:
+                    type: integer
+                  s3Containers:
+                    type: integer
+                  s3Cores:
+                    type: integer
+                  s3ExtraCores:
+                    type: integer
+                  s3FrontendHugepages:
+                    type: integer
+                type: object
+              expandEndpoints:
+                items:
+                  type: string
+                type: array
               image:
                 type: string
               imagePullSecret:
                 type: string
               ipv6:
                 type: boolean
+              maxFdsPerNode:
+                type: integer
               nodeSelector:
                 additionalProperties:
                   type: string
                 type: object
+              portRange:
+                type: integer
               rawTolerations:
                 items:
                   description: The pod this Toleration is attached to tolerates any
@@ -215,6 +250,23 @@ spec:
                 type: string
               lastAppliedSpec:
                 type: string
+              ports:
+                properties:
+                  basePort:
+                    description: We should not be updating Spec, as it's a user interface
+                      and we should not break ability to update spec file Therefore,
+                      when BasePort is 0, and Range as 0, we have application level
+                      defaults that will be written in here
+                    type: integer
+                  envoyAdminPort:
+                    type: integer
+                  envoyPort:
+                    type: integer
+                  portRange:
+                    type: integer
+                  s3Port:
+                    type: integer
+                type: object
               spanId:
                 type: string
               status:
