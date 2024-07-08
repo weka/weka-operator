@@ -140,6 +140,18 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build manager binary.
 	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
+.PHONY: build-release
+build-release: manifests generate fmt vet ## Build manager binary.
+	go generate ./...
+	go mod tidy
+	
+	GOOS=darwin GOARCH=arm64 go build -o dist/weka-operator_darwin_arm64/manager cmd/manager/main.go
+	GOOS=linux GOARCH=amd64 go build -o dist/weka-operator_linux_amd64/manager cmd/manager/main.go
+
+.PHONY: release
+release: ## Build and release manager binary.
+	$(MAKE) build-release
+
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
