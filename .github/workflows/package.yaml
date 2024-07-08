@@ -44,19 +44,23 @@ jobs:
         run: |
           echo 'v${{ steps.semrel.outputs.version }}'
           make chart VERSION=v${{ steps.semrel.outputs.version }}
+
       - name: Configure git
         if: steps.semrel.outputs.version != ''
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
       - name: Set up Helm
         if: steps.semrel.outputs.version != ''
         uses: azure/setup-helm@v3
         with:
           version: v3.12.1
+
       - name: Login to Registry
         if: steps.semrel.outputs.version != ''
         run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
+
       - name: Push chart to registry
         if: steps.semrel.outputs.version != ''
         run: helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm

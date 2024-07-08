@@ -1,0 +1,11 @@
+---
+name: Release
+run-name: Release - ${{ github.event.head_commit.message }}
+on:
+  push:
+    branches:
+      - "pre-release/**"
+
+jobs:
+  call-setup:
+    uses: ./.github/workflows/setup.yaml
