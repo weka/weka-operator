@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
@@ -51,7 +50,7 @@ func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactor
 	}
 }
 
-func (f *ContainerFactory) Create(ctx context.Context, compatibilityConfig domain.CompatibilityConfig) (*corev1.Pod, error) {
+func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image

@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -121,16 +120,14 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 		fmt.Printf("failed to create manager: %v", err)
 		return nil, err
 	}
-	config := domain.CompatibilityConfig{}
-
 	os.Setenv("OPERATOR_DEV_MODE", "true")
-	clusterController := NewWekaClusterController(testEnv.Manager, config)
+	clusterController := NewWekaClusterController(testEnv.Manager)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
 	if err != nil {
 		fmt.Printf("failed to setup WekaCluster controller: %v", err)
 		return nil, err
 	}
-	containerController := NewContainerController(testEnv.Manager, config)
+	containerController := NewContainerController(testEnv.Manager)
 	err = containerController.SetupWithManager(testEnv.Manager, containerController)
 	if err != nil {
 		fmt.Printf("failed to setup Container controller: %v", err)

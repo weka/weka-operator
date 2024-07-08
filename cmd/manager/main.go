@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.uber.org/zap/zapcore"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,7 +66,6 @@ func main() {
 	var probeAddr string
 	var enableClusterApi bool
 	tombstoneConfig := controllers.TombstoneConfig{}
-	compatibilityConfig := domain.CompatibilityConfig{}
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -75,10 +73,6 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
-	flag.BoolVar(&compatibilityConfig.CosEnableHugepagesConfig, "enable-cos-hugepages-config", false, "Enable COS Hugepages Config")
-	flag.StringVar(&compatibilityConfig.CosHugepageSize, "cos-hugepage-size", "2m", "COS Hugepages size (default 2m)")
-	flag.IntVar(&compatibilityConfig.CosHugepagesCount, "cos-hugepage-count", 4000, "COS Hugepages count (default 4000)")
-	flag.BoolVar(&compatibilityConfig.CosDisableDriverSigningEnforcement, "disable-cos-driver-signing-enforcement", false, "Disable COS Driver Signing Enforcement")
 	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
 	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
@@ -139,8 +133,8 @@ func main() {
 
 	ctrls := []WekaReconciler{
 		controllers.NewClientReconciler(mgr),
-		controllers.NewContainerController(mgr, compatibilityConfig),
-		controllers.NewWekaClusterController(mgr, compatibilityConfig),
+		controllers.NewContainerController(mgr),
+		controllers.NewWekaClusterController(mgr),
 		controllers.NewTombstoneController(mgr, tombstoneConfig),
 	}
 

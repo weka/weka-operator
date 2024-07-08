@@ -51,10 +51,9 @@ type WekaClusterReconciler struct {
 	ExecService    services.ExecService
 
 	WekaContainerFactory factory.WekaContainerFactory
-	CompatibilityConfig  domain.CompatibilityConfig
 }
 
-func NewWekaClusterController(mgr ctrl.Manager, c domain.CompatibilityConfig) *WekaClusterReconciler {
+func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	client := mgr.GetClient()
 	config := mgr.GetConfig()
 	scheme := mgr.GetScheme()
@@ -69,7 +68,6 @@ func NewWekaClusterController(mgr ctrl.Manager, c domain.CompatibilityConfig) *W
 		SecretsService:       services.NewSecretsService(client, scheme, execService),
 		ExecService:          execService,
 		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
-		CompatibilityConfig:  c,
 	}
 }
 
@@ -627,7 +625,7 @@ func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, c
 	defer end()
 
 	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(container).Create(ctx, r.CompatibilityConfig)
+		pod, err := resources.NewContainerFactory(container).Create(ctx)
 		if err != nil {
 			logger.Error(err, "Could not find executor pod")
 			return err
