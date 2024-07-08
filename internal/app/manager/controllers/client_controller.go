@@ -263,17 +263,13 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 	}
 
 	clientOsDistro := ""
-	clientOsBuildId := ""
 
 	if wekaClient.Spec.OsDistro != "" {
 		clientOsDistro = wekaClient.Spec.OsDistro
 	}
-	if wekaClient.Spec.OsBuildId != "" {
-		clientOsBuildId = wekaClient.Spec.OsBuildId
-	}
 
-	if wekaClient.Spec.OsDistro == "" || wekaClient.Spec.OsBuildId == "" {
-		clientOsDistro, clientOsBuildId, err = services.GetClientOs(ctx, r.Client, node)
+	if wekaClient.Spec.OsDistro == "" {
+		clientOsDistro, _, err = services.GetClientOs(ctx, r.Client, node)
 		if err != nil {
 			logger.Error(err, "Failed to automatically discover client OS")
 		}
@@ -338,7 +334,6 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
 			OsDistro:            clientOsDistro,
-			OsBuildId:           clientOsBuildId,
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 			AdditionalSecrets:   additionalSecrets,
 		},

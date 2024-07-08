@@ -104,8 +104,6 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
-              osBuildId:
-                type: string
               osDistro:
                 type: string
               port:
