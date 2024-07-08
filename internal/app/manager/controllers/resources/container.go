@@ -561,7 +561,11 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	case wekav1alpha1.CpuPolicyDedicatedHT:
 		totalCores := totalNumCores*2 + 1
 		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
-			totalCores = totalNumCores * 2 // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+		}
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+			totalCores = totalNumCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
+			// i.e both for envoy and 3, extraCores(envoy is hard coded to 1 now), means "ht if possible", otherwise full core
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
