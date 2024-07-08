@@ -57,6 +57,7 @@ type CoreOSBuildSpec struct {
 }
 
 type COSBuildSpec struct {
+	OsBuildId               string `json:"osBuildId,omitempty"`
 	GcloudCredentialsSecret string `json:"gcloudCredentialsSecret,omitempty"`
 }
 
@@ -72,7 +73,6 @@ type WekaContainerSpec struct {
 	COSBuildSpec    *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
 	// +kubebuilder:validation:Enum="cos";rhcos;"ubuntu";""
 	OsDistro          string `json:"osDistro,omitempty"`
-	OsBuildId         string `json:"osBuildId,omitempty"` // temporary solution for hardcoded version of COS, need to resolve better.
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores

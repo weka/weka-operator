@@ -276,8 +276,13 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							Value: f.container.Spec.OsDistro,
 						},
 						{
-							Name:  "OS_BUILD_ID",
-							Value: f.container.Spec.OsBuildId,
+							Name: "OS_BUILD_ID",
+							Value: func() string {
+								if f.container.Spec.COSBuildSpec != nil {
+									return f.container.Spec.COSBuildSpec.OsBuildId
+								}
+								return ""
+							}(),
 						},
 					},
 				},
