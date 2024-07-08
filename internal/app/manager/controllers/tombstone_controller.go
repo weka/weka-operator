@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -29,7 +30,6 @@ type TombstoneReconciller struct {
 	Recorder    record.EventRecorder
 	ExecService services.ExecService
 	KubeService services.KubeService
-	config      TombstoneConfig
 }
 
 func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
@@ -55,7 +55,6 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
 		ExecService: services.NewExecService(restConfig),
 		KubeService: services.NewKubeService(mgr.GetClient()),
-		config:      config,
 	}
 
 	if config.EnableTombstoneGc {
@@ -170,7 +169,6 @@ func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace stri
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
-	serviceAccountName := os.Getenv("WEKA_OPERATOR_SA_NAME")
 
 	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
 	logger.Info("fetching job", "jobName", jobName)
@@ -213,7 +211,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
-							Image: r.config.MaintenanceImage,
+							Image: "busybox",
 							Command: []string{
 								"sh",
 								"-c",
@@ -242,14 +240,6 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 				},
 			},
 		},
-	}
-	if serviceAccountName != "" {
-		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
-	}
-	if r.config.MaintenanceImagePullSecret != "" {
-		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
-			{Name: r.config.MaintenanceImagePullSecret},
-		}
 	}
 
 	if tombstone.Spec.NodeAffinity != "" {
