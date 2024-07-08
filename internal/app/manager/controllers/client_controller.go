@@ -125,15 +125,11 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		wg.Add(1)
 		go func(node string) {
 			err := func(node string) error {
-				_, err2 := services.GetNodeDiscovery(ctx, r.Client, node) // just to check whether it exists and is up–to-date
-				if err2 != nil {
-					return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
-						Image:           wekaClient.Spec.Image,
-						ImagePullSecret: wekaClient.Spec.ImagePullSecret,
-						Tolerations:     tolerations,
-					}, node, r.ExecService)
-				}
-				return nil
+				return services.EnsureNodeDiscovered(ctx, r.Client, services.OwnerWekaObject{
+					Image:           wekaClient.Spec.Image,
+					ImagePullSecret: wekaClient.Spec.ImagePullSecret,
+					Tolerations:     tolerations,
+				}, node, r.ExecService)
 			}(node)
 			if err != nil {
 				errs <- err
