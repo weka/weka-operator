@@ -4,9 +4,7 @@ run-name: ${{ github.actor }} is building the Helm package
 on:
   push:
     branches:
-      - release/v0
-      - release/v1-beta
-      - release/v1-envoy
+      - "release/**"
 
 permissions:
   contents: write
