@@ -996,7 +996,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      util.TruncateString("weka-drivers-loader-"+pod.Spec.NodeName, 63),
+			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
 			Namespace: namespace,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
