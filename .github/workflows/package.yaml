@@ -1,10 +1,10 @@
 ---
 name: Package Operator (HELM)
 run-name: ${{ github.actor }} is building the Helm package
-on:
-  push:
-    branches:
-      - "release/**"
+#on:
+#push:
+#branches:
+#- "release/**"
 
 permissions:
   contents: write
