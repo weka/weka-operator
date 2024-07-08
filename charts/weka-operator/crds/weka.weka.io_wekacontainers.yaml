@@ -91,6 +91,8 @@ spec:
                 properties:
                   gcloudCredentialsSecret:
                     type: string
+                  osBuildId:
+                    type: string
                 type: object
               cpuPolicy:
                 default: auto
@@ -164,8 +166,6 @@ spec:
                 type: integer
               numDrives:
                 type: integer
-              osBuildId:
-                type: string
               osDistro:
                 enum:
                 - cos

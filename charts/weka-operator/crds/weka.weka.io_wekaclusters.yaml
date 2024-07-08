@@ -105,6 +105,8 @@ spec:
                 properties:
                   gcloudCredentialsSecret:
                     type: string
+                  osBuildId:
+                    type: string
                 type: object
               cpuPolicy:
                 default: auto
@@ -178,6 +180,8 @@ spec:
                   s3Port:
                     type: integer
                 type: object
+              osDistro:
+                type: string
               rawTolerations:
                 items:
                   description: |-
