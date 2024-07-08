@@ -39,14 +39,22 @@ spec:
                 type: integer
               appendSetupCommand:
                 type: string
-              buildkitImage:
-                type: string
-              buildkitImagePullSecret:
-                type: string
               coreIds:
                 items:
                   type: integer
                 type: array
+              coreOSBuildSpec:
+                properties:
+                  driverToolkitImage:
+                    type: string
+                  driverToolkitImagePullSecret:
+                    type: string
+                type: object
+              cosBuildSpec:
+                properties:
+                  gcloudCredentialsSecret:
+                    type: string
+                type: object
               cpuPolicy:
                 default: auto
                 enum:
@@ -66,8 +74,6 @@ spec:
                 type: integer
               forceAllowDriveSign:
                 type: boolean
-              gcloudCredentialsSecret:
-                type: string
               hugepages:
                 type: integer
               hugepagesSize:

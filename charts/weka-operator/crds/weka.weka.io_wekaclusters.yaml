@@ -45,6 +45,18 @@ spec:
                 type: object
               computeAppendSetupCommand:
                 type: string
+              coreOSBuildSpec:
+                properties:
+                  driverToolkitImage:
+                    type: string
+                  driverToolkitImagePullSecret:
+                    type: string
+                type: object
+              cosBuildSpec:
+                properties:
+                  gcloudCredentialsSecret:
+                    type: string
+                type: object
               cpuPolicy:
                 default: auto
                 enum:
@@ -61,10 +73,6 @@ spec:
               image:
                 type: string
               imagePullSecret:
-                type: string
-              buildkitImage:
-                type: string
-              buildkitImagePullSecret:
                 type: string
               ipv6:
                 type: boolean
