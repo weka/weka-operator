@@ -140,6 +140,18 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build manager binary.
 	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
+.PHONY: build-release
+build-release: manifests generate fmt vet ## Build manager binary.
+	go generate ./...
+	go mod tidy
+	
+	GOOS=darwin GOARCH=arm64 go build -o dist/weka-operator_darwin_arm64/manager cmd/manager/main.go
+	GOOS=linux GOARCH=amd64 go build -o dist/weka-operator_linux_amd64/manager cmd/manager/main.go
+
+.PHONY: release
+release: ## Build and release manager binary.
+	$(MAKE) build-release
+
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
@@ -248,12 +260,12 @@ CONTROLLER_TOOLS_VERSION ?= v0.11.1
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
 $(CONTROLLER_GEN): $(LOCALBIN)
 	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
-	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+	go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	test -s $(LOCALBIN)/setup-envtest || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
 .PHONY: operator-sdk
 OPERATOR_SDK ?= $(LOCALBIN)/operator-sdk
