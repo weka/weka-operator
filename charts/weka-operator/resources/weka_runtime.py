@@ -364,7 +364,6 @@ class Daemon:
         return running
 
 
-
 async def start_process(command, alias=""):
     """Start a daemon process."""
     # TODO: Check if already exists, not really needed unless actually adding recovery flow
@@ -575,7 +574,7 @@ async def start_weka_container():
     if ec != 0:
         raise Exception(f"Failed to start container: {stderr}")
     logging.info("finished applying new config")
-    logging.info(f"Container reconfigured successfully: {stdout}")
+    logging.info(f"Container reconfigured successfully: {stdout.decode('utf-8')}")
 
 
 async def configure_persistency():
@@ -786,6 +785,8 @@ async def main():
         for i in range(max_retries):
             try:
                 await load_drivers()
+                logging.info("Drivers loaded successfully")
+                return
             except:
                 if i == max_retries - 1:
                     raise
@@ -851,6 +852,7 @@ async def main():
     await ensure_weka_container()
     await configure_traces()
     await start_weka_container()
+    logging.info("Container is UP and running")
 
 
 async def stop_process(process):
@@ -890,11 +892,13 @@ def is_wrong_generation():
         return True
     return False
 
+
 async def takeover_shutdown():
     while not is_wrong_generation():
         await asyncio.sleep(1)
 
     await run_command("weka local stop --force", capture_stdout=False)
+
 
 async def shutdown():
     global exiting
