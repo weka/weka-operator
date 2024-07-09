@@ -84,7 +84,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	//}
 
 	hostNetwork := true
-	if f.container.IsServiceContainer() {
+	if f.container.IsHostNetwork() {
 		hostNetwork = false
 	}
 

@@ -155,6 +155,10 @@ func (w *WekaContainer) IsServiceContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeBuild, WekaContainerModeEnvoy}, w.Spec.Mode)
 }
 
+func (w *WekaContainer) IsHostNetwork() bool {
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeBuild}, w.Spec.Mode)
+}
+
 func (w *WekaContainer) IsDriversContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeBuild}, w.Spec.Mode)
 }
