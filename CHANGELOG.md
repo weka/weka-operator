@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## v1.0.0-dev.1+pre-release/dev (2024-07-09)
+
 ## v1.0.0-dev.1 (2024-07-09)
 
 ### Ci
