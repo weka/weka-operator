@@ -639,7 +639,7 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
-		s3Memory := 4000
+		s3Memory := 16000
 		managementMemory := 1965 + s3Memory // 8000 per S3
 		perFrontendMemory := 2050
 		buffer := 450
