@@ -11,6 +11,7 @@ import (
 type ClusterTemplate struct {
 	DriveCores          int
 	ComputeCores        int
+	EnvoyCores          int
 	S3Cores             int
 	S3ExtraCores        int
 	ComputeContainers   int
@@ -81,6 +82,7 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		ComputeHugepages:    3000,
 		S3FrontendHugepages: 1400,
 		HugePageSize:        "2Mi",
+		EnvoyCores:          1,
 	},
 	"small": {
 		DriveCores:        1,
@@ -92,6 +94,7 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		DriveHugepages:    1500,
 		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",
+		EnvoyCores:        1,
 	},
 	"large": {
 		DriveCores:        1,
@@ -103,6 +106,10 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		DriveHugepages:    1500,
 		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",
+		EnvoyCores:        2,
+		S3Containers:      5,
+		S3Cores:           1,
+		S3ExtraCores:      2,
 	},
 }
 
