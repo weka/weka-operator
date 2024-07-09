@@ -59,7 +59,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		hugePagesNum = template.S3FrontendHugepages
 		numCores = template.S3Cores
 	} else if role == "envoy" {
-		numCores = 1
+		numCores = template.EnvoyCores
 	}
 
 	network, err := resources.GetContainerNetwork(topology.Network, &ownedResources)
