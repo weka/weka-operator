@@ -98,10 +98,6 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.NumDrives = 1
 	}
 
-	if config.MaxFdsPerNode == 0 {
-		config.MaxFdsPerNode = 1
-	}
-
 	if config.DriveHugepages == 0 {
 		config.DriveHugepages = 1500 * config.DriveCores
 	}
@@ -127,7 +123,6 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		S3Cores:             config.S3Cores,
 		S3ExtraCores:        config.S3ExtraCores,
 		NumDrives:           config.NumDrives,
-		MaxFdsPerNode:       config.MaxFdsPerNode,
 		DriveHugepages:      config.DriveHugepages,
 		ComputeHugepages:    config.ComputeHugepages,
 		S3FrontendHugepages: config.S3FrontendHugepages,
@@ -150,13 +145,12 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 	"small_s3": {
 		DriveCores:          1,
 		ComputeCores:        1,
-		ComputeContainers:   5,
-		DriveContainers:     5,
-		S3Containers:        5,
+		ComputeContainers:   6,
+		DriveContainers:     6,
+		S3Containers:        6,
 		S3Cores:             1,
 		S3ExtraCores:        1,
 		NumDrives:           1,
-		MaxFdsPerNode:       1,
 		DriveHugepages:      1500,
 		ComputeHugepages:    3000,
 		S3FrontendHugepages: 1400,
@@ -166,10 +160,9 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 	"small": {
 		DriveCores:        1,
 		ComputeCores:      1,
-		ComputeContainers: 5,
-		DriveContainers:   5,
+		ComputeContainers: 6,
+		DriveContainers:   6,
 		NumDrives:         1,
-		MaxFdsPerNode:     1,
 		DriveHugepages:    1500,
 		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",
@@ -181,7 +174,6 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		ComputeContainers: 20,
 		DriveContainers:   20,
 		NumDrives:         1,
-		MaxFdsPerNode:     1,
 		DriveHugepages:    1500,
 		ComputeHugepages:  3000,
 		HugePageSize:      "2Mi",

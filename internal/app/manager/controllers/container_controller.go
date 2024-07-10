@@ -776,8 +776,10 @@ DRIVES:
 			cmd = fmt.Sprintf("%s cluster drive add %d %s", wekaCmd, *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
-				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
-				return true, errors.Wrap(err, stderr.String())
+				if !strings.Contains(stderr.String(), "Device is already in use") {
+					l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
+					return true, errors.Wrap(err, stderr.String())
+				}
 			} else {
 				l.Info("Drive added into system")
 				logger.Info("Drive added into system", "drive", drive)
