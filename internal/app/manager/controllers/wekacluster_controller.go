@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -621,79 +620,16 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	var containersMap resources.ClusterContainersMap
-	container := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if container == nil {
-		container = containers[0] // a fallback if we have none active, this is most surely initial clusterform
-	}
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container_name", container.Name)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds")
 	defer end()
-
-	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(container).Create(ctx)
-		if err != nil {
-			logger.Error(err, "Could not find executor pod")
-			return err
-		}
-		clusterizePod := &v1.Pod{}
-		err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: pod.Name}, clusterizePod)
-		if err != nil {
-			logger.Error(err, "Could not find clusterize pod")
-			return err
-		}
-		executor, err := util.NewExecInPod(clusterizePod)
-		if err != nil {
-			return errors.Wrap(err, "Could not create executor")
-		}
-		cmd := "weka cluster container --filter mode=backend -J"
-		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsApplied) {
-			cmd = "wekaauthcli cluster container -J"
-		}
-		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
-		if err != nil {
-			logger.Error(err, "Failed to fetch containers list from cluster", "stderr, ", stderr.String(), "container", container.Name)
-			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
-		}
-		response := resources.ClusterContainersResponse{}
-		err = json.Unmarshal(stdout.Bytes(), &response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
-		}
-		containersMap, err = resources.MapByContainerName(response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to map containers")
-		}
-		return nil
-	}
 
 	for _, container := range containers {
 		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			continue
 		}
 		if container.Status.ClusterContainerID == nil {
-			if containersMap == nil {
-				err := fetchContainers()
-				if err != nil {
-					logger.Error(err, "Failed to fetch containers list from cluster")
-					return err
-				}
-			}
-
-			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
-				err := errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
-				logger.Error(err, "Container not found in cluster", "container_name", container.Name)
-				return err
-			} else {
-				containerId, err := clusterContainer.ContainerId()
-				if err != nil {
-					return errors.Wrap(err, "Failed to parse container id")
-				}
-				container.Status.ClusterContainerID = &containerId
-				if err := r.Status().Update(ctx, container); err != nil {
-					return errors.Wrap(err, "Failed to update container status")
-				}
-			}
+			err := fmt.Errorf("container %s does not have a cluster container id", container.Name)
+			return err
 		}
 	}
 	logger.InfoWithStatus(codes.Ok, "Cluster container ids are set")
