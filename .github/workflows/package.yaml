@@ -6,7 +6,6 @@ on:
     branches:
       - release/v0
       - release/v1-beta
-      - release/v1
 
 permissions:
   contents: write
@@ -30,12 +29,16 @@ jobs:
         run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
 
       - name: Building Release
-        uses: go-semantic-release/action@v1
         id: semrel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          hooks: goreleaser
-          update-file: charts/weka-operator/Chart.yaml
+        run: |
+          npm install -g go-semantic-release
+          go-semantic-release --version
+          go-semantic-release --token ${{ secrets.GITHUB_TOKEN }} \
+            --provider-opt slug=weka/weka-operator \
+            --hooks goreleaser \
+            --version-file \
+            --match "$(jq -r '.match' < .semrelrc )"
+          echo "version=$(cat .version)" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
