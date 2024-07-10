@@ -35,6 +35,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           hooks: goreleaser
           update-file: charts/weka-operator/Chart.yaml
+          match: "v1.*-beta.*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
