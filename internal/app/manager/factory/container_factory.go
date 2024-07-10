@@ -123,7 +123,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		Spec: wekav1alpha1.WekaContainerSpec{
 			Image:               cluster.Spec.Image,
 			ImagePullSecret:     cluster.Spec.ImagePullSecret,
-			WekaContainerName:   strings.Replace(name, "-", "_", -1),
+			WekaContainerName:   strings.Replace(name, "-", "x", -1),
 			Mode:                role,
 			NumCores:            numCores,
 			ExtraCores:          extraCores,
