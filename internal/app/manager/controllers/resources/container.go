@@ -638,7 +638,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &mountProp},
 			},
-			ImagePullPolicy: corev1.PullAlways,
 			SecurityContext: pod.Spec.Containers[0].SecurityContext,
 		}
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, buildkitContainer)
