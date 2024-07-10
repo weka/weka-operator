@@ -234,6 +234,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.SetPhase("PODS_ALREADY_EXIST")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
+		// TODO: Validate that all containers are actually up
 		logger.Debug("Checking if all containers are ready")
 		if ready, err := r.isContainersReady(ctx, containers); !ready {
 			logger.SetPhase("CONTAINERS_NOT_READY")
