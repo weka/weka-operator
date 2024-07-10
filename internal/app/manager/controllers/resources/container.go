@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +29,14 @@ type WekaLocalStatusSlot struct {
 
 type WekaLocalStatusContainer struct {
 	Slots []WekaLocalStatusSlot `json:"slots"`
+}
+
+type WekaLocalContainerGetIdentityValue struct {
+	ClusterId   string `json:"cluster_guid"`
+	ContainerId int    `json:"host_id"`
+}
+type WekaLocalContainerGetIdentityResponse struct {
+	Value *WekaLocalContainerGetIdentityValue `json:"value"`
 }
 
 type WekaLocalStatusResponse map[string]WekaLocalStatusContainer

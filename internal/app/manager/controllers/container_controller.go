@@ -615,45 +615,47 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 	}
 	logger.Debug("Querying weka local status")
 
-	cmd := "weka local status -J"
+	containerName := container.Spec.WekaContainerName
+
+	cmd := fmt.Sprintf("weka local run wapi -H localhost:$AGENT_PORT/jrpc -W container-get-identity --container-name %s --json", containerName)
 	if container.Spec.JoinIps != nil {
-		cmd = fmt.Sprintf("wekaauthcli local status -J")
+		cmd = fmt.Sprintf("wekaauthcli local run wapi -H localhost:$AGENT_PORT/jrpc -W container-get-identity --container-name %s --json", containerName)
 	}
 
-	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalStatus", []string{"bash", "-ce", cmd})
+	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalContainerGetIdentity", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Error querying weka local status")
 		return true, err
 	}
-	logger.Debug("Parsing weka local status")
-	response := resources.WekaLocalStatusResponse{}
+	logger.Debug("Parsing weka local container-get-identity")
+	response := resources.WekaLocalContainerGetIdentityResponse{}
 	err = json.Unmarshal(stdout.Bytes(), &response)
 	if err != nil {
 		logger.Error(err, "Error parsing weka local status")
 		return true, err
 	}
 
-	if _, ok := response[container.Spec.WekaContainerName]; !ok {
-		logger.InfoWithStatus(codes.Unset, "Container not found")
-		return true, errors.New("container not found")
-	}
-	if len(response[container.Spec.WekaContainerName].Slots) == 0 {
-		logger.InfoWithStatus(codes.Unset, "Slots not found")
-		return true, errors.New("slots not found")
-	}
-
 	if !container.IsWekaContainer() {
 		return false, nil // TODO: clients do not update clusterId, need better way to validate if client indeed joined and can serve IOs
 	}
 
-	clusterId := response[container.Spec.WekaContainerName].Slots[0].ClusterID
-	if clusterId == "" || clusterId == "00000000-0000-0000-0000-000000000000" {
+	if response.Value == nil {
+		logger.InfoWithStatus(codes.Unset, "No response from weka local container-get-identity")
+		return true, errors.New("no value in response from weka local container-get-identity")
+	}
+	if response.Value.ClusterId == "" || response.Value.ClusterId == "00000000-0000-0000-0000-000000000000" {
 		logger.InfoWithStatus(codes.Unset, "Cluster not ready")
 		return true, nil
 	}
 
-	container.Status.ClusterID = clusterId
-	logger.InfoWithStatus(codes.Ok, "Cluster created and its GUID updated in WekaContainer status")
+	container.Status.ClusterContainerID = &response.Value.ContainerId
+	container.Status.ClusterID = response.Value.ClusterId
+	logger.InfoWithStatus(
+		codes.Ok,
+		"Cluster created and its GUID and container ID are updated in WekaContainer status",
+		"cluster_guid", response.Value.ClusterId,
+		"container_id", response.Value.ContainerId,
+	)
 	if err := r.Status().Update(ctx, container); err != nil {
 		return true, err
 	}
