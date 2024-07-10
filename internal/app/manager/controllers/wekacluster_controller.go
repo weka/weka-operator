@@ -1036,8 +1036,6 @@ func (r *WekaClusterReconciler) prepareForUpgradeDrives(ctx context.Context, con
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade
-wekaauthcli debug override add --key host_drain_by_chunks
-wekaauthcli debug override add --key host_skip_unremovable_check
 wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
 `
 
@@ -1112,8 +1110,6 @@ func (r *WekaClusterReconciler) finalizeUpgrade(ctx context.Context, containers 
 	cmd := `
 wekaauthcli debug jrpc upgrade_phase_finish
 wekaauthcli debug jrpc unprepare_leader_for_upgrade
-wekaauthcli debug override remove --key host_drain_by_chunks
-wekaauthcli debug override remove --key host_skip_unremovable_check
 `
 	stdout, stderr, err := executor.ExecNamed(ctx, "FinalizeUpgrade", []string{"bash", "-ce", cmd})
 	if err != nil {

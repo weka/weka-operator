@@ -52,7 +52,6 @@ type WekaConfig struct {
 	S3Cores             int `json:"s3Cores,omitempty"`
 	NumDrives           int `json:"numDrives,omitempty"`
 	S3ExtraCores        int `json:"s3ExtraCores,omitempty"`
-	MaxFdsPerNode       int `json:"maxFdsPerNode,omitempty"`
 	DriveHugepages      int `json:"driveHugepages,omitempty"`
 	ComputeHugepages    int `json:"computeHugepages,omitempty"`
 	S3FrontendHugepages int `json:"s3FrontendHugepages,omitempty"`
