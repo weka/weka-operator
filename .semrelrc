@@ -1,3 +1,4 @@
 {
-  "maintainedVersion": "1-beta"
+  "maintainedVersion": "1-beta",
+  "match": "v1.*-beta.*"
 }
