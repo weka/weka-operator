@@ -3,8 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"os"
 	"k8s.io/apimachinery/pkg/fields"
+	"os"
 	"slices"
 	"time"
 
@@ -213,9 +213,6 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					ImagePullSecrets:  []corev1.LocalObjectReference{
-						{Name: maintenanceImagePullSecret},
-					},
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
@@ -249,7 +246,13 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			},
 		},
 	}
-
+	if maintenanceImagePullSecret != "" {
+		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+			{
+				Name: maintenanceImagePullSecret,
+			},
+		}
+	}
 	if tombstone.Spec.NodeAffinity != "" {
 		job.Spec.Template.Spec.Affinity = &corev1.Affinity{
 			NodeAffinity: &corev1.NodeAffinity{
