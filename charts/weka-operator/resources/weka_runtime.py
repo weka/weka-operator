@@ -960,11 +960,12 @@ async def cos_configure_hugepages():
         logging.info(f"Hugepages are already configured to {COS_GLOBAL_HUGEPAGE_COUNT}x2m pages")
 
 
-async def cos_disable_driver_signing():
+async def disable_driver_signing():
     if not is_google_cos():
         return
     logging.info("Ensuring driver signing is disabled")
     await cos_disable_driver_signing_verification()
+
 
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
 GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
@@ -1024,8 +1025,7 @@ async def main():
         # self signal to exit
         await override_dependencies_flag()
         max_retries = 10
-        if is_google_cos():
-            await cos_disable_driver_signing()
+        await disable_driver_signing()
         for i in range(max_retries):
             try:
                 await load_drivers()
