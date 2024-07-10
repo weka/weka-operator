@@ -7,6 +7,7 @@ on:
       - release/v0
       - release/v1-beta
       - release/v1
+      - mbp/release-config
 
 permissions:
   contents: write
