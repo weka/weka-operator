@@ -3,13 +3,13 @@ package factory
 import (
 	"errors"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
 	"slices"
 
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,6 +58,8 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 	} else if role == "s3" {
 		hugePagesNum = template.S3FrontendHugepages
 		numCores = template.S3Cores
+	} else if role == "envoy" {
+		numCores = template.EnvoyCores
 	}
 
 	network, err := resources.GetContainerNetwork(topology.Network, &ownedResources)
@@ -100,12 +102,19 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		}
 	}
 
+	if role == "envoy" {
+		s3Params = &wekav1alpha1.S3Params{
+			EnvoyPort: ownedResources.EnvoyPort,
+		}
+	}
+
 	nodeConfigMap := ""
 	if topology.NodeConfigMapPattern != "" {
 		nodeConfigMap = fmt.Sprintf(topology.NodeConfigMapPattern, ownedResources.Node)
 	}
 
 	additionalMemory := 0
+	extraCores := 0
 	switch role {
 	case "compute":
 		additionalMemory = cluster.Spec.AdditionalMemory.Compute
@@ -113,6 +122,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
+		extraCores = template.S3ExtraCores
 	}
 
 	container := &wekav1alpha1.WekaContainer{
@@ -134,6 +144,7 @@ func (r *wekaContainerFactory) NewWekaContainerForWekaCluster(cluster *wekav1alp
 			WekaContainerName:   fmt.Sprintf("%s%ss%d", containerPrefix, role, i),
 			Mode:                role,
 			NumCores:            numCores,
+			ExtraCores:          extraCores,
 			CoreIds:             coreIds,
 			Network:             network,
 			Hugepages:           hugePagesNum,

@@ -134,6 +134,17 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 			} // apparently need helper function with a role.
 
 			ownedResources, _ := domain.GetOwnedResources(owner, allocations)
+
+			var s3OwnedResorces domain.OwnedResources
+			if role == wekav1alpha1.WekaContainerModeEnvoy {
+				s3Owner := owner
+				s3Owner.Container = fmt.Sprintf("%s%d", "s3", i)
+				s3Owner.Role = "s3"
+
+				s3OwnedResorces, _ = domain.GetOwnedResources(s3Owner, allocations)
+				ownedResources.EnvoyPort = s3OwnedResorces.EnvoyPort
+			}
+
 			wekaContainer, err := r.WekaContainerFactory.NewWekaContainerForWekaCluster(cluster, ownedResources, template, topology, role, i)
 			if err != nil {
 				logger.Error(err, "newWekaContainerForWekaCluster")
@@ -185,6 +196,11 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 
 	if err := ensureContainers("s3", template.S3Containers); err != nil {
 		logger.Error(err, "Failed to ensure S3 containers")
+		return nil, err
+	}
+
+	if err := ensureContainers("envoy", template.S3Containers); err != nil {
+		logger.Error(err, "Failed to ensure envoy containers")
 		return nil, err
 	}
 

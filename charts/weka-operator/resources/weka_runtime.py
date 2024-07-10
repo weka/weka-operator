@@ -377,7 +377,7 @@ async def start_process(command, alias=""):
     return process
 
 
-async def run_command(command, capture_stdout=True, log_execution=True):
+async def run_command(command, capture_stdout=True, log_execution=True, env:dict=None):
     # TODO: Wrap stdout of commands via INFO via logging
     if log_execution:
         logging.info("Running command: " + command)
@@ -387,7 +387,7 @@ async def run_command(command, capture_stdout=True, log_execution=True):
         pipe = None
     process = await asyncio.create_subprocess_shell("set -e\n" + command,
                                                     stdout=pipe,
-                                                    stderr=pipe)
+                                                    stderr=pipe, env=env)
     stdout, stderr = await process.communicate()
     if log_execution:
         logging.info(f"Command {command} finished with code {process.returncode}")
@@ -594,6 +594,15 @@ async def configure_persistency():
             mkdir -p /opt/weka/external-mounts/cleanup
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
+        
+        if [ -d /opt/k8s-weka/node-cluster ]; then
+            ENVOY_DIR=/opt/weka/envoy
+            EXT_ENVOY_DIR=/opt/k8s-weka/node-cluster/envoy
+            mkdir -p $ENVOY_DIR
+            mkdir -p $EXT_ENVOY_DIR
+            mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
+        fi
+        
     """)
 
     stdout, stderr, ec = await run_command(command)
@@ -615,6 +624,21 @@ async def configure_agent(agent_handle_drivers=False):
     logging.info(f"reconfiguring agent with handle_drivers={agent_handle_drivers}")
     ignore_driver_flag = "false" if agent_handle_drivers else "true"
 
+    env_vars = dict()
+
+    skip_envoy_setup=""
+    if MODE == "s3":
+        skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
+
+    if MODE == "envoy":
+        env_vars['RESTART_EPOCH_WANTED'] = str(int(os.environ.get("envoy_restart_epoch", time.time())))
+        env_vars['BASE_ID'] = PORT
+
+
+    expand_condition_mounts=""
+    if MODE in ['envoy', 's3']:
+        expand_condition_mounts=",envoy-data"
+
     drivers_handling_cmd = f"""
     # Check if the last line contains the pattern
     CONFFILE="/etc/wekaio/service.conf"
@@ -635,7 +659,8 @@ async def configure_agent(agent_handle_drivers=False):
     sed -i "s/ignore_driver_spec=.*/ignore_driver_spec={ignore_driver_flag}/g" /etc/wekaio/service.conf || true
 
     sed -i "s@external_mounts=.*@external_mounts=/opt/weka/external-mounts@g" /etc/wekaio/service.conf || true
-    sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=etc-hosts,etc-resolv@g" /etc/wekaio/service.conf || true
+    sed -i "s@conditional_mounts_ids=.*@conditional_mounts_ids=etc-hosts,etc-resolv{expand_condition_mounts}@g" /etc/wekaio/service.conf || true
+    {skip_envoy_setup}
     """
 
     cmd = dedent(f"""
@@ -644,7 +669,7 @@ async def configure_agent(agent_handle_drivers=False):
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
     """)
-    stdout, stderr, ec = await run_command(cmd)
+    stdout, stderr, ec = await run_command(cmd, env=env_vars)
     if ec != 0:
         raise Exception(f"Failed to configure agent: {stderr}")
     logging.info("Agent configured successfully")
@@ -777,6 +802,18 @@ async def obtain_lock():
     return server
 
 _server = None
+
+
+async def ensure_envoy_container():
+    logging.info("ensuring envoy container")
+    cmd = dedent(f"""
+        weka local ps | grep envoy || weka local setup envoy
+    """)
+    _, _, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to ensure envoy container")
+    pass
+
 async def main():
     if MODE == "drivers-loader":
         # self signal to exit
@@ -849,6 +886,10 @@ async def main():
         await asyncio.sleep(600)  # giving 10 minutes for manual hacks until this actually works
         return
 
+    if MODE == "envoy":
+        await ensure_envoy_container()
+        return
+
     await ensure_weka_container()
     await configure_traces()
     await start_weka_container()
@@ -917,7 +958,7 @@ async def shutdown():
             force_stop = True
         if "4.2.7.64" in IMAGE_NAME:
             force_stop = True
-        if MODE in ['client', 'dist']:
+        if MODE in ['client', 'dist', "envoy"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)

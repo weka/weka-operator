@@ -41,6 +41,7 @@ type WekaDriveResponse struct {
 }
 
 const PersistentContainersLocation = "/opt/k8s-weka/containers"
+const PersistentHostClusterLocation = "/opt/k8s-weka/clusters"
 
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
@@ -83,7 +84,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	//}
 
 	hostNetwork := true
-	if f.container.IsServiceContainer() {
+	if f.container.IsHostNetwork() {
 		hostNetwork = false
 	}
 
@@ -103,6 +104,15 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
+	hostsideClusterPersistence := fmt.Sprintf("%s/%s", PersistentHostClusterLocation, "cluster-less")
+	if len(f.container.GetOwnerReferences()) > 0 {
+		clusterId := f.container.GetOwnerReferences()[0].UID
+		hostsideClusterPersistence = fmt.Sprintf("%s/%s", PersistentHostClusterLocation, clusterId)
+	}
+	wekaPort := strconv.Itoa(f.container.Spec.Port)
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		wekaPort = strconv.Itoa(f.container.Spec.S3Params.EnvoyPort)
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -181,6 +191,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/opt/k8s-weka/boot-level",
 							SubPath:   "tmpfss/boot-level",
 						},
+						{
+							Name:      "weka-cluster-persistence-dir",
+							MountPath: "/opt/k8s-weka/node-cluster",
+							SubPath:   "shared-configs",
+						},
 					},
 					Env: []corev1.EnvVar{
 						{
@@ -197,7 +212,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 						{
 							Name:  "PORT",
-							Value: strconv.Itoa(f.container.Spec.Port),
+							Value: wekaPort,
 						},
 						{
 							Name:  "MEMORY",
@@ -213,7 +228,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 						{
 							Name:  "WEKA_PORT",
-							Value: strconv.Itoa(f.container.Spec.Port),
+							Value: wekaPort,
 						},
 						{
 							Name:  "WEKA_CLI_DEBUG",
@@ -292,6 +307,15 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: hostsidePersistence,
+							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+						},
+					},
+				},
+				{
+					Name: "weka-cluster-persistence-dir",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: hostsideClusterPersistence,
 							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 						},
 					},
@@ -535,10 +559,22 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 
 	switch cpuPolicy {
 	case wekav1alpha1.CpuPolicyDedicatedHT:
-		cpuRequestStr = fmt.Sprintf("%d", totalNumCores*2+1)
+		totalCores := totalNumCores*2 + 1
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+		}
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
+			// i.e: both for envoy and 3, extraCores(envoy is hard coded to 1 now), means "ht if possible", otherwise full core
+		}
+		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyDedicated:
-		cpuRequestStr = fmt.Sprintf("%d", totalNumCores+1)
+		totalCores := totalNumCores + 1
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+		}
+		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
 		cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
@@ -550,8 +586,6 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 			Name:  "CORE_IDS",
 			Value: "auto",
 		})
-
-		cpuRequestStr = fmt.Sprintf("%d", totalNumCores*2+1)
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicated {
@@ -605,11 +639,16 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
-		s3Memory := 8000
+		s3Memory := 16000
 		managementMemory := 1965 + s3Memory // 8000 per S3
 		perFrontendMemory := 2050
 		buffer := 450
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		total := 1024
+		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
 	// since this is HT, we are doubling num of cores on allocation

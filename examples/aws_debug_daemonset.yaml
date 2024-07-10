@@ -13,13 +13,10 @@ spec:
       labels:
         name: debug-pod
     spec:
+      hostNetwork: true
       containers:
         - name: debug-container
           image: ubuntu:22.04
-          resources:
-            limits:
-              cpu: "0.1"
-              memory: "100Mi"
           command: ["sleep", "99999999"]
           securityContext:
             privileged: true
