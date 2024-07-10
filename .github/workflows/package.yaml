@@ -37,9 +37,9 @@ jobs:
           go-semantic-release --version
           go-semantic-release --token ${{ secrets.GITHUB_TOKEN }} \
             --provider-opt slug=weka/weka-operator \
+            --provider-opt token=${{ secrets.GITHUB_TOKEN }} \
             --hooks goreleaser \
-            --version-file \
-            --match "$(jq -r '.match' < .semrelrc )"
+            --version-file
           echo "version=$(cat .version)" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

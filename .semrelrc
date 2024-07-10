@@ -1,0 +1,10 @@
+{
+ "plugins": {
+   "provider": {
+     "name": "git",
+     "options": {
+       "default_branch": "mbp/release-config"
+     }
+   }
+ }
+}
