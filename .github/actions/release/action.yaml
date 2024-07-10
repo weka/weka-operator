@@ -1,0 +1,20 @@
+---
+name: Release
+description: "Release the weka-operator"
+inputs:
+  github-token:
+    description: "GitHub token"
+    required: true
+  branch:
+    description: "Branch to release"
+    required: true
+outputs:
+  version:
+    description: "Version of the release"
+
+runs:
+  using: "docker"
+  image: Dockerfile
+  args:
+    - ${{ inputs.github-token }}
+    - ${{ inputs.branch }}
