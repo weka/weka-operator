@@ -75,6 +75,17 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 		}
 		return reconcile.Result{}, err
 	}
+	nodename := tombstone.Spec.NodeAffinity
+	node := corev1.Node{}
+	err = r.Client.Get(context.Background(), client.ObjectKey{Name: nodename}, &node)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("node not found, removing tombstone", "node", nodename)
+			return reconcile.Result{}, nil
+		}
+		logger.Error(err, "Failed to locate tombstone node", "nodename", nodename)
+		return reconcile.Result{}, err
+	}
 
 	err = r.ensureFinalizer(ctx, tombstone)
 	if err != nil {
