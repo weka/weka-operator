@@ -251,7 +251,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
-		if wekaCluster.Spec.ExpandEndpoints != nil {
+		if wekaCluster.Spec.ExpandEndpoints == nil {
 			err = wekaClusterService.FormCluster(ctx, containers)
 			if err != nil {
 				logger.Error(err, "Failed to create cluster")
@@ -329,28 +329,32 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondIoStarted) {
-		logger.Info("Ensuring IO is started")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
-		logger.Info("Starting IO")
-		err = r.StartIo(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
+		if wekaCluster.Spec.ExpandEndpoints == nil {
+			logger.Info("Ensuring IO is started")
+			_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionUnknown, "Init", "Starting IO")
+			logger.Info("Starting IO")
+			err = r.StartIo(ctx, wekaCluster, containers)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())
 		}
-		logger.Info("IO Started, time since create:" + time.Since(wekaCluster.CreationTimestamp.Time).String())
 		_ = r.SetCondition(ctx, wekaCluster, condition.CondIoStarted, metav1.ConditionTrue, "Init", "IO is started")
 		logger.SetPhase("IO_IS_STARTED")
 	}
 
 	logger.SetPhase("CONFIGURING_CLUSTER_CREDENTIALS")
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterSecretsApplied) {
-		err = r.applyClusterCredentials(ctx, wekaCluster, containers)
-		if err != nil {
-			return ctrl.Result{}, err
+		if wekaCluster.Spec.ExpandEndpoints == nil {
+			err = r.applyClusterCredentials(ctx, wekaCluster, containers)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsApplied, metav1.ConditionTrue, "Init", "Applied cluster secrets")
+			wekaCluster.Status.Status = "Ready"
+			wekaCluster.Status.TraceId = ""
+			wekaCluster.Status.SpanID = ""
 		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterSecretsApplied, metav1.ConditionTrue, "Init", "Applied cluster secrets")
-		wekaCluster.Status.Status = "Ready"
-		wekaCluster.Status.TraceId = ""
-		wekaCluster.Status.SpanID = ""
 		err = r.Status().Update(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -359,12 +363,14 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.SetPhase("CLUSTER_READY")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		err := r.ensureDefaultFs(ctx, containers[0])
-		if err != nil {
-			return ctrl.Result{}, err
+		if wekaCluster.Spec.ExpandEndpoints == nil {
+			logger.SetPhase("CONFIGURING_DEFAULT_FS")
+			err := r.ensureDefaultFs(ctx, containers[0])
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
 		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondDefaultFsCreated, metav1.ConditionTrue, "Init", "Created default filesystem")
 		err = r.Status().Update(ctx, wekaCluster)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -372,16 +378,18 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondS3ClusterCreated) {
-		logger.SetPhase("CONFIGURING_DEFAULT_FS")
-		containers := r.SelectS3Containers(containers)
-		if len(containers) > 0 {
-			err := r.ensureS3Cluster(ctx, wekaCluster, containers)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
-			if err != nil {
-				return ctrl.Result{}, err
+		if wekaCluster.Spec.ExpandEndpoints == nil {
+			logger.SetPhase("CONFIGURING_DEFAULT_FS")
+			containers := r.SelectS3Containers(containers)
+			if len(containers) > 0 {
+				err := r.ensureS3Cluster(ctx, wekaCluster, containers)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				err = r.SetCondition(ctx, wekaCluster, condition.CondS3ClusterCreated, metav1.ConditionTrue, "Init", "Created S3 cluster")
+				if err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 		}
 	}

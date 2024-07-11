@@ -47,8 +47,6 @@ spec:
                   s3:
                     type: integer
                 type: object
-              basePort:
-                type: integer
               cpuPolicy:
                 default: auto
                 enum:
@@ -105,8 +103,22 @@ spec:
                 type: object
               operatorSecretRef:
                 type: string
-              portRange:
-                type: integer
+              ports:
+                properties:
+                  basePort:
+                    description: |-
+                      We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
+                      Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+                    type: integer
+                  lbAdminPort:
+                    type: integer
+                  lbPort:
+                    type: integer
+                  portRange:
+                    type: integer
+                  s3Port:
+                    type: integer
+                type: object
               rawTolerations:
                 items:
                   description: |-
@@ -172,7 +184,6 @@ spec:
                 type: string
             required:
             - image
-            - size
             - template
             - topology
             type: object
@@ -261,9 +272,9 @@ spec:
                       We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
                       Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
                     type: integer
-                  envoyAdminPort:
+                  lbAdminPort:
                     type: integer
-                  envoyPort:
+                  lbPort:
                     type: integer
                   portRange:
                     type: integer

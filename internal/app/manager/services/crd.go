@@ -130,7 +130,11 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
-		if err != nil && strings.Contains(err.Error(), "No join IP port pairs found") && len(cluster.Spec.ExpandEndpoints) != 0 { //TO
+		allowExpansion := false
+		if err != nil {
+			allowExpansion = strings.Contains(err.Error(), "No join IP port pairs found") || strings.Contains(err.Error(), "No compute containers found")
+		}
+		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { //TO
 			joinIps = cluster.Spec.ExpandEndpoints
 		} else {
 			if err != nil {

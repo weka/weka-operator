@@ -43,14 +43,14 @@ func (t *TopologyAllocator) AllocateClusterRange(ctx context.Context, cluster *v
 	}
 
 	if currentAllocation, ok := allocations.Global.ClusterRanges[owner]; ok {
-		if cluster.Spec.BasePort != 0 {
-			if currentAllocation.Base != cluster.Spec.BasePort {
+		if cluster.Spec.Ports.BasePort != 0 {
+			if currentAllocation.Base != cluster.Spec.Ports.BasePort {
 				return fmt.Errorf("updating port range is not supported yet")
 			}
 		}
 
-		if cluster.Spec.PortRange != 0 {
-			if currentAllocation.Size != cluster.Spec.PortRange {
+		if cluster.Spec.Ports.BasePort != 0 {
+			if currentAllocation.Size != cluster.Spec.Ports.BasePort {
 				return fmt.Errorf("updating port range is not supported yet")
 			}
 		}
@@ -64,8 +64,8 @@ func (t *TopologyAllocator) AllocateClusterRange(ctx context.Context, cluster *v
 		return nil
 	}
 
-	targetPort := cluster.Spec.BasePort
-	targetSize := cluster.Spec.PortRange
+	targetPort := cluster.Spec.Ports.BasePort
+	targetSize := cluster.Spec.Ports.BasePort
 
 	if targetSize == 0 {
 		targetSize = 500
@@ -81,18 +81,32 @@ func (t *TopologyAllocator) AllocateClusterRange(ctx context.Context, cluster *v
 		Size: targetSize,
 	}
 
+	var envoyPort, envoyAdminPort, s3Port Range
+
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
-	envoyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset)
+	if cluster.Spec.Ports.LbPort != 0 {
+		envoyPort, err = allocations.EnsureSpecificGlobalRange(owner, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1})
+	} else {
+		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset)
+	}
 	if err != nil {
 		return err
 	}
 
-	envoyAdminPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset)
+	if cluster.Spec.Ports.LbAdminPort != 0 {
+		envoyAdminPort, err = allocations.EnsureSpecificGlobalRange(owner, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1})
+	} else {
+		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset)
+	}
 	if err != nil {
 		return err
 	}
 
-	s3Port, err := allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset)
+	if cluster.Spec.Ports.S3Port != 0 {
+		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1})
+	} else {
+		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset)
+	}
 	if err != nil {
 		return err
 	}
