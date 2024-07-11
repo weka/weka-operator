@@ -235,7 +235,9 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Command: []string{
 								"sh",
 								"-c",
-								"rm -rf " + fmt.Sprintf("%s/%s", persistencePath, tombstone.Spec.CrId),
+								fmt.Sprintf("echo 'Deleting tombstone %s/%s' && rm -rf ", persistencePath, tombstone.Spec.CrId) +
+									fmt.Sprintf("%s/%s 2>&1", persistencePath, tombstone.Spec.CrId) +
+									" && echo 'Tombstone deleted' || echo 'Tombstone not found' && sleep 5 && exit 0",
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
