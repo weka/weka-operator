@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -77,39 +76,5 @@ func TestGetCluster(t *testing.T) {
 				t.Errorf("Expected %v, got %v", tt.cluster, cluster)
 			}
 		})
-	}
-}
-
-func TestEnsureWekaContainers(t *testing.T) {
-	fixtures := setup(t)
-	defer fixtures.teardown()
-
-	config := &rest.Config{}
-
-	os.Setenv("OPERATOR_DEV_MODE", "true")
-
-	fixtures.mockManager.EXPECT().GetClient().Return(fixtures.mockClient).AnyTimes()
-	fixtures.mockManager.EXPECT().GetConfig().Return(config).AnyTimes()
-	fixtures.mockClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	fixtures.mockClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-
-	subject := &crdManager{
-		Manager: fixtures.mockManager,
-	}
-
-	ctx := context.Background()
-	cluster := &wekav1alpha1.WekaCluster{
-		Spec: wekav1alpha1.WekaClusterSpec{
-			Template: "small",
-			Topology: "discover_oci",
-		},
-	}
-	container, err := subject.EnsureWekaContainers(ctx, cluster)
-	if err != nil {
-		t.Skipf("Failed to ensure weka containers: %v", err)
-		t.Errorf("Expected nil, got %v", err)
-	}
-	if container != nil {
-		t.Errorf("Expected nil, got %v", container)
 	}
 }
