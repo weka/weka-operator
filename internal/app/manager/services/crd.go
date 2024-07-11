@@ -127,7 +127,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	logger.InfoWithStatus(codes.Unset, "Ensuring containers")
 
 	var joinIps []string
-	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) {
+	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || len(cluster.Spec.ExpandEndpoints) != 0 {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
 		allowExpansion := false

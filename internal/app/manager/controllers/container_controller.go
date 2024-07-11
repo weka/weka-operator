@@ -301,7 +301,8 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	container, err = r.refreshContainer(ctx, req)
 	if err != nil {
-		return ctrl.Result{}, errors.Wrap(err, "refreshContainer")
+		logger.Info("Error refreshing container", "err", err)
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	if container.Spec.Mode == "drive" &&
 		!meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) &&
@@ -309,7 +310,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		retry, err := r.ensureDrives(ctx, container, actualPod)
 		if retry || err != nil {
-			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, err
+			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
 		}
 		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
 			Type:   condition.CondDrivesAdded,
@@ -318,7 +319,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		err = r.Status().Update(ctx, container)
 		if err != nil {
 			r.Logger.Error(err, "Error updating status")
-			return ctrl.Result{}, err
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 		}
 		logger.SetPhase("DRIVES_ADDED")
 	} else {
@@ -674,6 +675,20 @@ func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return true, err
+	}
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+
+	driveListoptions := services.DriveListOptions{
+		ContainerId: container.Status.ClusterContainerID,
+	}
+	addedDrives, err := wekaService.ListDrives(ctx, driveListoptions)
+	if err != nil {
+		return true, err
+	}
+	if len(addedDrives) == container.Spec.NumDrives {
+		logger.Info("All drives are already added")
+		return false, nil
 	}
 
 	numAdded := 0
