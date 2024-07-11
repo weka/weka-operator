@@ -1,6 +1,6 @@
 package allocator
 
-const StartingPort = 14500
+const StartingPort = 15000
 const MaxPort = 65535
 
 type (
