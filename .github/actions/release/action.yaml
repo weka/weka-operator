@@ -8,6 +8,9 @@ inputs:
   branch:
     description: "Branch to release"
     required: true
+  event:
+    description: "Event triggering the release"
+    required: true
 outputs:
   version:
     description: "Version of the release"
@@ -18,3 +21,4 @@ runs:
   args:
     - ${{ inputs.github-token }}
     - ${{ inputs.branch }}
+    - ${{ inputs.event }}

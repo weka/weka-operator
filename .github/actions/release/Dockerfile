@@ -14,6 +14,13 @@ run curl -o /usr/local/bin/semver \
   -sSL https://raw.githubusercontent.com/fsaintjacques/semver-tool/master/src/semver && \
   chmod +x /usr/local/bin/semver
 
+# Install `gh`
+ARG GH_VERSION="2.52.0"
+RUN curl -sL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" -o "gh_${GH_VERSION}_linux_amd64.tar.gz" && \
+  tar -xvf "gh_${GH_VERSION}_linux_amd64.tar.gz" && \
+  mv "gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh && \
+  rm -rf "gh_${GH_VERSION}_linux_amd64.tar.gz" "gh_${GH_VERSION}_linux_amd64"
+
 RUN adduser --disabled-password --gecos "" --uid 1001 git-user
 USER git-user
 
