@@ -95,6 +95,31 @@ func GetFreeRange(boundaries Range, ranges []Range, size int) (int, error) {
 	return GetFreeRangeWithOffset(boundaries, ranges, size, 0)
 }
 
+func IsRangeAvailable(boundaries Range, ranges []Range, targetRange Range) bool {
+	// check if the range is available
+	runningEnd := boundaries.Base
+	for _, v := range ranges {
+		prevEnd := runningEnd
+		runningEnd = v.Base + v.Size
+
+		if runningEnd < targetRange.Base {
+			continue
+		}
+
+		// we are past range of interest, we might have gap here
+		if targetRange.Base+targetRange.Size < v.Base && prevEnd <= targetRange.Base {
+			return true // we have a gap to allocate
+		}
+		if prevEnd > targetRange.Base {
+			return false
+		}
+	}
+	if runningEnd > targetRange.Base {
+		return false
+	}
+	return true
+}
+
 func (a *Allocations) FindNodeRangeWithOffset(owner Owner, node NodeName, size int, offset int) (Range, error) {
 	// combine Global.Range and node-specific ranges
 	allowedRange := a.Global.ClusterRanges[owner.OwnerCluster]
@@ -124,6 +149,43 @@ func (a *Allocations) FindNodeRangeWithOffset(owner Owner, node NodeName, size i
 
 func (a *Allocations) FindNodeRange(owner Owner, node NodeName, size int) (Range, error) {
 	return a.FindNodeRangeWithOffset(owner, node, size, 0)
+}
+
+func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string, target Range) (Range, error) {
+	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
+		if existing.Base != target.Base {
+			return Range{}, fmt.Errorf("range %s is already allocated with different base %d", name, existing.Base)
+		}
+		if existing.Size != target.Size {
+			return Range{}, fmt.Errorf("range %s is already allocated with different size %d", name, existing.Size)
+		}
+		return existing, nil
+	}
+
+	boundaries := a.Global.ClusterRanges[Owner]
+	allocatedRanges := []Range{}
+	for _, v := range a.Global.AllocatedRanges[Owner] {
+		allocatedRanges = append(allocatedRanges, v)
+	}
+
+	for _, v := range a.NodeMap {
+		for owner, ranges := range v.AllocatedRanges {
+			if owner.OwnerCluster == Owner {
+				allocatedRanges = append(allocatedRanges, ranges...)
+			}
+		}
+	}
+
+	SortRanges(allocatedRanges)
+	if !IsRangeAvailable(boundaries, allocatedRanges, target) {
+		return Range{}, fmt.Errorf("range %s is not available", name)
+	} else {
+		if _, ok := a.Global.AllocatedRanges[Owner]; !ok {
+			a.Global.AllocatedRanges[Owner] = map[string]Range{}
+		}
+		a.Global.AllocatedRanges[Owner][name] = target
+		return target, nil
+	}
 }
 
 func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name string, size int, offset int) (Range, error) {

@@ -1,20 +1,29 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: cluster-dev
+  name: cluster-migrate
   namespace: weka-operator-system # temporary hack to save on copying node info configmap. Should either remove configmap concept, or copy it for mounting
 spec:
-  size: 1
-  template: small
+  template: dynamic
+  dynamicTemplate:
+    computeContainers: 6
+    driveContainers: 6
+    s3Containers: 2
   topology: aws_i3en6x_bless
-  image: quay.io/weka.io/weka-in-container:4.3.3-operatortest.2
+  image: quay.io/weka.io/weka-in-container:4.3.3-preview.1
   nodeSelector:
     weka.io/supports-backends: "true"
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
-  ExpandEndpoints:
+  expandEndpoints:
     - "10.0.19.215:15104" # anton38 cluster
   operatorSecretRef: cluster-anton38-expansion
+  ports:
+    basePort: 15000
+    portRange: 1000
+    lbPort: 15000
+    lbAdminPort: 15001
+    s3Port: 15002
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer

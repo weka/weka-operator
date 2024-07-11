@@ -678,6 +678,7 @@ func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav
 
 	numAdded := 0
 	driveCursor := 0
+	// TODO: It seems we lack validation of what already in the system, we could add multiple on failures
 DRIVES:
 	for i := 0; i < container.Spec.NumDrives; i++ {
 		for driveCursor < len(container.Spec.PotentialDrives) {
@@ -779,10 +780,12 @@ DRIVES:
 				if !strings.Contains(stderr.String(), "Device is already in use") {
 					l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
 					return true, errors.Wrap(err, stderr.String())
+				} else {
+					l.Info("Drive already added into system")
 				}
 			} else {
 				l.Info("Drive added into system")
-				logger.Info("Drive added into system", "drive", drive)
+				l.Info("Drive added into system", "drive", drive)
 			}
 			numAdded++
 			driveCursor++

@@ -44,18 +44,18 @@ type AdditionalMemory struct {
 }
 
 type WekaConfig struct {
-	ComputeContainers   int `json:"computeContainers,omitempty"`
-	DriveContainers     int `json:"driveContainers,omitempty"`
-	S3Containers        int `json:"s3Containers,omitempty"`
-	ComputeCores        int `json:"computeCores,omitempty"`
-	DriveCores          int `json:"driveCores,omitempty"`
-	S3Cores             int `json:"s3Cores,omitempty"`
-	NumDrives           int `json:"numDrives,omitempty"`
-	S3ExtraCores        int `json:"s3ExtraCores,omitempty"`
-	DriveHugepages      int `json:"driveHugepages,omitempty"`
-	ComputeHugepages    int `json:"computeHugepages,omitempty"`
-	S3FrontendHugepages int `json:"s3FrontendHugepages,omitempty"`
-	EnvoyCores          int `json:"envoyCores,omitempty"`
+	ComputeContainers   *int `json:"computeContainers,omitempty"`
+	DriveContainers     *int `json:"driveContainers,omitempty"`
+	S3Containers        int  `json:"s3Containers,omitempty"`
+	ComputeCores        int  `json:"computeCores,omitempty"`
+	DriveCores          int  `json:"driveCores,omitempty"`
+	S3Cores             int  `json:"s3Cores,omitempty"`
+	NumDrives           int  `json:"numDrives,omitempty"`
+	S3ExtraCores        int  `json:"s3ExtraCores,omitempty"`
+	DriveHugepages      int  `json:"driveHugepages,omitempty"`
+	ComputeHugepages    int  `json:"computeHugepages,omitempty"`
+	S3FrontendHugepages int  `json:"s3FrontendHugepages,omitempty"`
+	EnvoyCores          int  `json:"envoyCores,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
@@ -64,7 +64,7 @@ type WekaClusterSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of WekaCluster. Edit dummycluster_types.go to remove/update
-	Size               int               `json:"size"`
+	Size               int               `json:"size,omitempty"`
 	Template           string            `json:"template"`
 	Topology           string            `json:"topology"`
 	Image              string            `json:"image"`
@@ -80,8 +80,7 @@ type WekaClusterSpec struct {
 	WekaHomeEndpoint    string               `json:"wekaHomeEndpoint,omitempty"`
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
-	BasePort            int                  `json:"basePort,omitempty"`
-	PortRange           int                  `json:"portRange,omitempty"`
+	Ports               ClusterPorts         `json:"ports,omitempty"`
 	MaxFdsPerNode       int                  `json:"maxFdsPerNode,omitempty"`
 	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
@@ -106,8 +105,8 @@ type ClusterPorts struct {
 	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
 	BasePort    int `json:"basePort,omitempty"`
 	PortRange   int `json:"portRange,omitempty"`
-	LbPort      int `json:"envoyPort,omitempty"`
-	LbAdminPort int `json:"envoyAdminPort,omitempty"`
+	LbPort      int `json:"lbPort,omitempty"`
+	LbAdminPort int `json:"lbAdminPort,omitempty"`
 	S3Port      int `json:"s3Port,omitempty"`
 }
 

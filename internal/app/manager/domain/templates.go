@@ -2,8 +2,8 @@ package domain
 
 import (
 	"context"
-
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/util"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -78,12 +78,12 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.ComputeCores = 1
 	}
 
-	if config.ComputeContainers == 0 {
-		config.ComputeContainers = 6
+	if config.ComputeContainers == nil {
+		config.ComputeContainers = util.IntRef(6)
 	}
 
-	if config.DriveContainers == 0 {
-		config.DriveContainers = 6
+	if config.DriveContainers == nil {
+		config.DriveContainers = util.IntRef(6)
 	}
 
 	if config.S3Cores == 0 {
@@ -117,8 +117,8 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	return ClusterTemplate{
 		DriveCores:          config.DriveCores,
 		ComputeCores:        config.ComputeCores,
-		ComputeContainers:   config.ComputeContainers,
-		DriveContainers:     config.DriveContainers,
+		ComputeContainers:   *config.ComputeContainers,
+		DriveContainers:     *config.DriveContainers,
 		S3Containers:        config.S3Containers,
 		S3Cores:             config.S3Cores,
 		S3ExtraCores:        config.S3ExtraCores,

@@ -132,3 +132,55 @@ func TestAllocationsRanges(t *testing.T) {
 		return
 	}
 }
+
+func TestEnsureRangeIsAvailable(t *testing.T) {
+	boundaries := Range{
+		Base: 0,
+		Size: 100,
+	}
+
+	tests := []struct {
+		allocatedRanges []Range
+		newRange        Range
+		expected        bool
+	}{
+		{
+			allocatedRanges: []Range{
+				{Base: 10, Size: 20},
+				{Base: 45, Size: 5},
+			},
+			newRange: Range{
+				Base: 30,
+				Size: 10,
+			},
+			expected: true,
+		},
+		{
+			allocatedRanges: []Range{},
+			newRange: Range{
+				Base: 30,
+				Size: 10,
+			},
+			expected: true,
+		},
+		{
+			allocatedRanges: []Range{
+				{Base: 10, Size: 25},
+				{Base: 45, Size: 5},
+			},
+			newRange: Range{
+				Base: 30,
+				Size: 10,
+			},
+			expected: false,
+		},
+	}
+
+	for _, test := range tests {
+		result := IsRangeAvailable(boundaries, test.allocatedRanges, test.newRange)
+		if result != test.expected {
+			t.Errorf("Expected %v, got %v, on dataset %v and range %v", test.expected, result, test.allocatedRanges, test.newRange)
+		}
+	}
+
+}
