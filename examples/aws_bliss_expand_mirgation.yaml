@@ -1,0 +1,48 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: cluster-dev
+  namespace: weka-operator-system # temporary hack to save on copying node info configmap. Should either remove configmap concept, or copy it for mounting
+spec:
+  size: 1
+  template: small
+  topology: aws_i3en6x_bless
+  image: quay.io/weka.io/weka-in-container:4.3.3-operatortest.2
+  nodeSelector:
+    weka.io/supports-backends: "true"
+  driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  imagePullSecret: "quay-io-robot-secret"
+  ExpandEndpoints:
+    - "10.0.19.215:15104" # anton38 cluster
+  operatorSecretRef: cluster-anton38-expansion
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+  labels:
+    app: weka-driver-builder
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.3.3-preview.1
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "dist"
+  name: dist
+  numCores: 1
+  port: 60002
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weka-driver-builder
+  namespace: weka-operator-system
+spec:
+  type: ClusterIP
+  ports:
+    - name: weka-driver-builder
+      port: 60002
+      targetPort: 60002
+  selector:
+    app: weka-driver-builder

@@ -76,8 +76,6 @@ spec:
                     type: integer
                   envoyCores:
                     type: integer
-                  maxFdsPerNode:
-                    type: integer
                   numDrives:
                     type: integer
                   s3Containers:
@@ -105,6 +103,8 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              operatorSecretRef:
+                type: string
               portRange:
                 type: integer
               rawTolerations:

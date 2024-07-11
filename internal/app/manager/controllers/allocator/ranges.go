@@ -47,36 +47,55 @@ func SortRanges(ranges []Range) {
 	})
 }
 
-func GetFreeRange(boundaries Range, ranges []Range, size int) (int, error) {
-	if size > boundaries.Size {
+func GetFreeRangeWithOffset(boundaries Range, ranges []Range, size int, offset int) (int, error) {
+	if size > boundaries.Size-offset {
 		return 0, fmt.Errorf("requested size %d is bigger than the boundaries size %d", size, boundaries.Size)
 	}
 
 	totalRanges := len(ranges)
 	for i, v := range ranges {
-
 		if i == totalRanges-1 {
 			// reached the end of the list
 			if v.Base+v.Size+size >= boundaries.Base+boundaries.Size {
 				return 0, fmt.Errorf("no free range available for size %d, with boundaries %v and ranges %v, %d ranges", size, boundaries, ranges, len(ranges))
 			}
+			if v.Base+v.Size < boundaries.Base+offset {
+				break
+			}
 			return v.Base + v.Size, nil
 		} else {
 			// we are not at the end of the list yet, looking for big enough gaps to fit
 			next := ranges[i+1]
-			if v.Base+v.Size+size <= next.Base {
+			target := v.Base + v.Size + size
+			if target <= next.Base && target >= boundaries.Base+offset {
 				return v.Base + v.Size, nil
 			}
 		}
 	}
 	if totalRanges == 0 {
-		return boundaries.Base, nil
+		return boundaries.Base + offset, nil
+	} else {
+		lastRange := ranges[totalRanges-1]
+		target := lastRange.Base + lastRange.Size + size
+		if target <= boundaries.Base+boundaries.Size {
+			if target >= boundaries.Base+offset {
+				return lastRange.Base + lastRange.Size, nil
+			}
+		}
+
+		if boundaries.Base+offset > target {
+			return boundaries.Base + offset, nil
+		}
 	}
 
 	return 0, fmt.Errorf("no free range available for size %d", size)
 }
 
-func (a *Allocations) FindNodeRange(owner Owner, node NodeName, size int) (Range, error) {
+func GetFreeRange(boundaries Range, ranges []Range, size int) (int, error) {
+	return GetFreeRangeWithOffset(boundaries, ranges, size, 0)
+}
+
+func (a *Allocations) FindNodeRangeWithOffset(owner Owner, node NodeName, size int, offset int) (Range, error) {
 	// combine Global.Range and node-specific ranges
 	allowedRange := a.Global.ClusterRanges[owner.OwnerCluster]
 	globalRanges := []Range{}
@@ -96,14 +115,18 @@ func (a *Allocations) FindNodeRange(owner Owner, node NodeName, size int) (Range
 	allocatedRanges = append(allocatedRanges, clusterOwnedRanges...)
 	// sort ranges by base
 	SortRanges(allocatedRanges)
-	rangeBase, err := GetFreeRange(allowedRange, allocatedRanges, size)
+	rangeBase, err := GetFreeRangeWithOffset(allowedRange, allocatedRanges, size, offset)
 	if err != nil {
 		return Range{}, err
 	}
 	return Range{Base: rangeBase, Size: size}, nil
 }
 
-func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size int) (Range, error) {
+func (a *Allocations) FindNodeRange(owner Owner, node NodeName, size int) (Range, error) {
+	return a.FindNodeRangeWithOffset(owner, node, size, 0)
+}
+
+func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name string, size int, offset int) (Range, error) {
 	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
 		return existing, nil
 	}
@@ -127,7 +150,7 @@ func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size in
 	allRanges = append(allRanges, globalRanges...)
 	allRanges = append(allRanges, allNodesRanges...)
 	SortRanges(allRanges)
-	rangeBase, err := GetFreeRange(allowedRange, allRanges, size)
+	rangeBase, err := GetFreeRangeWithOffset(allowedRange, allRanges, size, offset)
 	if err != nil {
 		return Range{}, err
 	}
@@ -137,4 +160,8 @@ func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size in
 	}
 	a.Global.AllocatedRanges[Owner][name] = newRange
 	return newRange, nil
+}
+
+func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size int) (Range, error) {
+	return a.EnsureGlobalRangeWithOffset(Owner, name, size, 0)
 }

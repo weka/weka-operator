@@ -13,13 +13,7 @@ import (
 )
 
 const (
-	baseAgentPort         = 14101
-	baseEnvoyPort         = 13101
-	baseEnvoyAdminPort    = 12101
-	baseS3Port            = 11101
-	baseWekaContainerPort = 16001
-	singlePortStep        = 1
-	wekaContainerPortStep = 100
+	SinglePortsOffset = 300
 )
 
 type Allocator interface {
@@ -88,17 +82,17 @@ func (t *TopologyAllocator) AllocateClusterRange(ctx context.Context, cluster *v
 	}
 
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
-	envoyPort, err := allocations.EnsureGlobalRange(owner, "lb", 1)
+	envoyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset)
 	if err != nil {
 		return err
 	}
 
-	envoyAdminPort, err := allocations.EnsureGlobalRange(owner, "lbAdmin", 1)
+	envoyAdminPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset)
 	if err != nil {
 		return err
 	}
 
-	s3Port, err := allocations.EnsureGlobalRange(owner, "s3", 1)
+	s3Port, err := allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset)
 	if err != nil {
 		return err
 	}
@@ -253,7 +247,7 @@ CONTAINERS:
 
 			}
 			if container.HasAgent() {
-				agentPort, err := allocations.FindNodeRange(owner, node, 1)
+				agentPort, err := allocations.FindNodeRangeWithOffset(owner, node, 1, SinglePortsOffset)
 				if err != nil {
 					nodeAlloc.DeallocateNodeRange(owner, container.Spec.Port)
 					logger.Info("failed to allocate agent port", "error", err, "ranges", allocations.Global.ClusterRanges, "node_ranges", nodeAlloc.AllocatedRanges)
