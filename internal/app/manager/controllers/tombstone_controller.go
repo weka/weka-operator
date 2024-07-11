@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/fields"
 	"slices"
 	"time"
 
@@ -86,7 +85,8 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 		// create a new Job spec and schedule to delete the tombstone on disk
 		job, err := r.GetDeletionJob(tombstone)
 		if err != nil {
-			return reconcile.Result{}, err
+			logger.Info("error getting deletion job", "error", err)
+			return reconcile.Result{RequeueAfter: time.Minute}, nil
 		}
 		err = r.Client.Create(ctx, job)
 		if err != nil {
@@ -147,11 +147,11 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 
 func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace string, uuid string) (*wekav1alpha1.WekaContainer, error) {
 	wekaContainerList := &wekav1alpha1.WekaContainerList{}
-	listOptions := &client.ListOptions{
-		Namespace:     namespace,
-		FieldSelector: fields.OneTermEqualSelector("metadata.uid", uuid),
+	listOpts := []client.ListOption{
+		client.InNamespace(namespace),
+		client.MatchingFields{"metadata.uid": uuid},
 	}
-	err := r.List(ctx, wekaContainerList, listOptions)
+	err := r.List(ctx, wekaContainerList, listOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	//NOTE: Maybe could use WekaContainer, that will use alternative image, and container controller will close the loop in a smarter way
 
 	if tombstone.Spec.CrType == "WekaContainer" {
-		wekaContainer, err := getWekaContainerByUUID(context.Background(), r.Client, namespace, tombstone.Spec.CrId)
+		wekaContainer, err := getWekaContainerByUUID(context.Background(), r.Client, tombstone.Namespace, tombstone.Spec.CrId)
 		if err != nil {
 			return nil, err
 		}

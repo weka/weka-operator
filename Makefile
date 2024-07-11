@@ -115,7 +115,10 @@ test: ## Run tests.
 
 .PHONY: test-functional
 test-functional: ## Run functional tests.
-	go test -v ./test/functional/... -coverprofile cover.out -failfast
+ifndef RUN
+	$(error RUN is not set.  Please set RUN to the name of the test to run.  For example, make test-functional RUN=TestWekaCluster)
+endif
+	go test -v ./test/functional/... -coverprofile cover.out -failfast -run "^$(RUN)$$"
 
 .PHONY: test-e2e
 test-e2e: ## Run e2e tests.
@@ -140,7 +143,7 @@ build: ## Build manager binary.
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
-	find . -+ame 'prog.bin' -delete
+	find . -name 'prog.bin' -delete
 	rm -rf dist
 	rm -rf cover.out cover.html
 

@@ -32,12 +32,10 @@ type FSParams struct {
 }
 
 type S3Params struct {
-	EnvoyPort          int
-	EnvoyAdminPort     int
-	S3Port             int
-	ContainerIds       []int
-	MinioContainerName string
-	EnvoyContainerName string
+	EnvoyPort      int
+	EnvoyAdminPort int
+	S3Port         int
+	ContainerIds   []int
 }
 
 type WekaUserResponse struct {

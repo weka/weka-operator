@@ -44,3 +44,4 @@ cover.html
 *.pyc
 mock_*.go
 prog.bin
+.envrc.private

@@ -635,7 +635,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 		return true, err
 	}
 
-	if !container.IsBackend() {
+	if !container.IsWekaContainer() {
 		return false, nil // TODO: clients do not update clusterId, need better way to validate if client indeed joined and can serve IOs
 	}
 
@@ -776,8 +776,10 @@ DRIVES:
 			cmd = fmt.Sprintf("%s cluster drive add %d %s", wekaCmd, *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
-				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
-				return true, errors.Wrap(err, stderr.String())
+				if !strings.Contains(stderr.String(), "Device is already in use") {
+					l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
+					return true, errors.Wrap(err, stderr.String())
+				}
 			} else {
 				l.Info("Drive added into system")
 				logger.Info("Drive added into system", "drive", drive)
@@ -1200,7 +1202,7 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// TODO: Make configurable, for now we delete after 5 minutes since downtime
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
-	if container.IsBackend() {
+	if container.IsWekaContainer() {
 		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {

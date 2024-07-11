@@ -119,9 +119,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		hostsideClusterPersistence = fmt.Sprintf("%s/%s", PersistentHostClusterLocation, clusterId)
 	}
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
-		wekaPort = strconv.Itoa(f.container.Spec.S3Params.EnvoyPort)
-	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -250,10 +247,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "WEKA_PERSISTENCE_DIR",
 							Value: containerPathPersistence,
-						},
-						{
-							Name:  "APPEND_SETUP_COMMAND",
-							Value: f.container.Spec.AppendSetupCommand,
 						},
 						{
 							Name:  "MAX_TRACE_CAPACITY_GB",

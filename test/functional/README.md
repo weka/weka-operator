@@ -15,17 +15,55 @@ If this is undesirable, you can remove individual resources as needed.
 
 ## Usage
 
-1. Stand-up your development cluster.
-2. Set the `KUBECONFIG` environment variable to point to your development cluster.
+### Stand-up your development cluster.
 
-- Verify with `kubectl get nodes`
+Bliss is now the preferred way to build a development cluster in AWS.
+The provided script `./script/bliss` is a wrapper around this tool.
 
-3. (Optional) Ensure that your cluster is in a clean state.
+Create a cluster:
+
+```bash
+./script/bliss create
+```
+
+Destroy a cluster:
+
+```bash
+./script/bliss destroy
+```
+
+### Set KUBECONFIG
+
+Set the `KUBECONFIG` environment variable to point to your development cluster.
+If the cluster was created with bliss, the command's output will provide the correct `KUBECONFIG` value.
+
+Example:
+
+```bash
+export KUBECONFIG=/Users/$USER/<cluster>-34.245.232.162.yaml
+```
+
+Verify with `kubectl get nodes`.
+This should return a list of 6 nodes in your cluster (1 builder and 5 backends).
+
+### Clean cluster
+
+(Optional) Ensure that your cluster is in a clean state.
 
 - See `./script/clean-testing.sh` script.
 - This script will attempt to clean up all resources and namespaces that will be touched by the test suite.
 
-4. Run the test suite: `make test-functional`
+_WARNING_: If you provide the `--remove-namespaces` flag, it will delete all namespaces in the cluster.
+This includes the generated configmaps describing the node.
+This will break the operator.
+
+### Run the test suite
+
+Run the test suite: `make test-functional RUN=TestWekaCluster`
+
+- The `RUN` variable is required.
+- The `test-name` is the name of the test case you want to run from `test/functional/e2e_test.go`.
+- Example: `make test-functional RUN=TestWekaCluster`
 
 ## Caveats
 
