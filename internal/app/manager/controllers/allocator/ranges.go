@@ -48,47 +48,43 @@ func SortRanges(ranges []Range) {
 }
 
 func GetFreeRangeWithOffset(boundaries Range, ranges []Range, size int, offset int) (int, error) {
-	if size > boundaries.Size-offset {
-		return 0, fmt.Errorf("requested size %d is bigger than the boundaries size %d", size, boundaries.Size)
+	// Adjust boundaries base by offset
+	startBoundary := boundaries.Base + offset
+
+	// Sort the ranges based on the base point
+	sort.Slice(ranges, func(i, j int) bool {
+		return ranges[i].Base < ranges[j].Base
+	})
+
+	// Check for a free range before the first existing range
+	if len(ranges) > 0 && ranges[0].Base-startBoundary >= size {
+		return startBoundary, nil
 	}
 
-	totalRanges := len(ranges)
-	for i, v := range ranges {
-		if i == totalRanges-1 {
-			// reached the end of the list
-			if v.Base+v.Size+size >= boundaries.Base+boundaries.Size {
-				return 0, fmt.Errorf("no free range available for size %d, with boundaries %v and ranges %v, %d ranges", size, boundaries, ranges, len(ranges))
-			}
-			if v.Base+v.Size < boundaries.Base+offset {
-				break
-			}
-			return v.Base + v.Size, nil
-		} else {
-			// we are not at the end of the list yet, looking for big enough gaps to fit
-			next := ranges[i+1]
-			target := v.Base + v.Size + size
-			if target <= next.Base && target >= boundaries.Base+offset {
-				return v.Base + v.Size, nil
-			}
-		}
-	}
-	if totalRanges == 0 {
-		return boundaries.Base + offset, nil
-	} else {
-		lastRange := ranges[totalRanges-1]
-		target := lastRange.Base + lastRange.Size + size
-		if target <= boundaries.Base+boundaries.Size {
-			if target >= boundaries.Base+offset {
-				return lastRange.Base + lastRange.Size, nil
-			}
-		}
+	// Check for free ranges between existing ranges
+	for i := 0; i < len(ranges)-1; i++ {
+		start := max(startBoundary, ranges[i].Base+ranges[i].Size)
+		end := ranges[i+1].Base
 
-		if boundaries.Base+offset > target {
-			return boundaries.Base + offset, nil
+		if end-start >= size {
+			return start, nil
 		}
 	}
 
-	return 0, fmt.Errorf("no free range available for size %d", size)
+	// Check for a free range after the last existing range
+	if len(ranges) > 0 {
+		start := max(startBoundary, ranges[len(ranges)-1].Base+ranges[len(ranges)-1].Size)
+		if boundaries.Base+boundaries.Size-start >= size {
+			return start, nil
+		}
+	}
+
+	// If no ranges exist, just check within the adjusted boundaries
+	if len(ranges) == 0 && boundaries.Size >= size {
+		return startBoundary, nil
+	}
+
+	return -1, fmt.Errorf("no free range found with size %d and offset %d", size, offset)
 }
 
 func GetFreeRange(boundaries Range, ranges []Range, size int) (int, error) {
