@@ -96,9 +96,6 @@ func ValidateConditions(container *wekav1alpha1.WekaContainer) func(t *testing.T
 }
 
 func TestNewContainerController(t *testing.T) {
-	if true {
-		return
-	}
 	testEnv, err := setupTestEnv(context.Background())
 	if err != nil {
 		t.Fatalf("failed to setup test environment: %v", err)
