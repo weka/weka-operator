@@ -38,8 +38,8 @@ func TestGetFreeRange(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
 	r1, _ := clusterRanges.GetFreeRange(500)
-	if r1 != 14000 {
-		t.Errorf("Expected 14001, got %d", r1)
+	if r1 != StartingPort {
+		t.Errorf("Expected %d, got %d", StartingPort, r1)
 		return
 	}
 
@@ -53,8 +53,8 @@ func TestGetFreeRange(t *testing.T) {
 		t.Errorf("Expected nil, got %v", err)
 		return
 	}
-	if r2 != 14000 {
-		t.Errorf("Expected 14000, got %d", r2)
+	if r2 != StartingPort {
+		t.Errorf("Expected %d, got %d", StartingPort, r2)
 		return
 	}
 
@@ -65,13 +65,13 @@ func TestGetFreeRange(t *testing.T) {
 		t.Errorf("Expected nil, got %v", err)
 		return
 	}
-	if r3 != 14001 {
+	if r3 != StartingPort+1 {
 		t.Errorf("Expected 14001, got %d", r3)
 		return
 	}
 
 	cr2, _ := clusterRanges.GetFreeRange(500)
-	if cr2 != 14500 {
+	if cr2 != StartingPort+500 {
 		t.Errorf("Expected 14500, got %d", r1)
 		return
 	}
@@ -87,7 +87,7 @@ func TestAllocationsRanges(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
 	r1, _ := clusterRanges.GetFreeRange(500)
-	if r1 != 14000 {
+	if r1 != StartingPort {
 		t.Errorf("Expected 14001, got %d", r1)
 		return
 	}
@@ -114,8 +114,8 @@ func TestAllocationsRanges(t *testing.T) {
 		return
 	}
 
-	if rN1.Base != 14000 {
-		t.Errorf("Expected 14000, got %d", rN1.Base)
+	if rN1.Base != StartingPort {
+		t.Errorf("Expected %d, got %d", StartingPort, rN1.Base)
 		return
 	}
 	allocations.NodeMap["wekabox14.lan"].AllocatedRanges[owner] = append(allocations.NodeMap["wekabox14.lan"].AllocatedRanges[owner], rN1)
@@ -127,8 +127,8 @@ func TestAllocationsRanges(t *testing.T) {
 		return
 	}
 
-	if rN2.Base != 14000 {
-		t.Errorf("Expected 14001, got %d", rN2.Base)
+	if rN2.Base != StartingPort+1 {
+		t.Errorf("Expected %d, got %d", StartingPort+1, rN2.Base)
 		return
 	}
 }
