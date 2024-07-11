@@ -49,6 +49,15 @@ type WekaUserResponse struct {
 	Username string `json:"username"`
 }
 
+type Drive struct {
+	Uuid      string `json:"uuid"`
+	AddedTime string `json:"added_time"`
+}
+
+type DriveListOptions struct {
+	ContainerId *int `json:"container_id"`
+}
+
 type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
@@ -60,6 +69,7 @@ type WekaService interface {
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, endpoint string) error
+	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -85,6 +95,29 @@ type S3ClusterExists struct {
 type CliWekaService struct {
 	ExecService ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error) {
+	var drives []Drive
+	filters := []string{}
+	wekacli := "weka"
+	if c.Container.Spec.JoinIps != nil {
+		wekacli = "wekaauthcli"
+	}
+	cmdParts := []string{wekacli, "cluster", "drive", "--json"}
+	if listOptions.ContainerId != nil {
+		filters = append(filters, fmt.Sprintf("host=%d", *listOptions.ContainerId))
+	}
+	if len(filters) != 0 {
+		cmdParts = append(cmdParts, "--filter")
+		cmdParts = append(cmdParts, strings.Join(filters, ","))
+	}
+
+	err := c.RunJsonCmd(ctx, cmdParts, "ListDrives", &drives)
+	if err != nil {
+		return nil, err
+	}
+	return drives, nil
 }
 
 func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error {
