@@ -95,6 +95,15 @@ spec:
               value: "{{ .Values.maintenanceImage | default "busybox" }}"
             - name: WEKA_MAINTENANCE_IMAGE_PULL_SECRET
               value: "{{ .Values.maintenanceImagePullSecret | default "" }}"
+            - name: COS_ALLOW_DISABLE_DRIVER_SIGNING
+              value: "{{ .Values.gkeCompatibility.disableDriverSigning }}"
+            - name: COS_ALLOW_HUGEPAGE_CONFIG
+              value: "{{ .Values.gkeCompatibility.hugepageConfiguration.enabled}}"
+            - name: COS_GLOBAL_HUGEPAGE_SIZE
+              value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageSize }}"
+            - name: COS_GLOBAL_HUGEPAGE_COUNT
+              value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}"
+
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
           imagePullPolicy: Always
           volumeMounts:
