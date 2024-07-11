@@ -194,7 +194,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	if persistencePath == "" {
 		// we assume that new version of tombstone will always have the persistencePath.
 		// if not, we will use the default path for pre-existing tombstones, being the "plain kubernetes" one
-		persistencePath = "/opt/k8s-weka/containers"
+		persistencePath = wekav1alpha1.PersistencePathBase + "/containers"
 	}
 
 	maintenanceImage := os.Getenv("WEKA_MAINTENANCE_IMAGE")
