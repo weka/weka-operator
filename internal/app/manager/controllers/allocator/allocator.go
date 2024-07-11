@@ -194,7 +194,6 @@ CONTAINERS:
 				availableDrives = nodeAlloc.GetFreeDrives(t.Topology.Drives)
 				if len(availableDrives) < numDrives {
 					logger.Info("Not enough drives to allocate request", "role", role, "availableDrives", availableDrives)
-					logger.Info("NodeAlloc", "nodeAlloc", nodeAlloc)
 					continue
 				}
 
