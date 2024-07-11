@@ -69,6 +69,10 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	operatorLogin := cluster.NewOperatorLoginSecret()
 	userLogin := cluster.NewUserLoginSecret()
 
+	if cluster.Spec.OperatorSecretRef != "" {
+		return nil
+	}
+
 	if err := kubeService.EnsureSecret(ctx, operatorLogin, &K8sOwnerRef{
 		Scheme: r.Scheme,
 		Obj:    cluster,

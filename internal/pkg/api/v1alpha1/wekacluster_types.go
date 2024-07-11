@@ -83,6 +83,7 @@ type WekaClusterSpec struct {
 	BasePort            int                  `json:"basePort,omitempty"`
 	PortRange           int                  `json:"portRange,omitempty"`
 	MaxFdsPerNode       int                  `json:"maxFdsPerNode,omitempty"`
+	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
 }
@@ -143,6 +144,9 @@ type WekaClusterList struct {
 const DefaultOrg = "Root"
 
 func (c *WekaCluster) GetOperatorSecretName() string {
+	if c.Spec.OperatorSecretRef != "" {
+		return c.Spec.OperatorSecretRef
+	}
 	return string("weka-operator-" + c.GetUID())
 }
 

@@ -251,17 +251,23 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondClusterCreated) {
 		logger.SetPhase("CLUSTERIZING")
-		err = wekaClusterService.FormCluster(ctx, containers)
-		if err != nil {
-			logger.Error(err, "Failed to create cluster")
-			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-				Type:   condition.CondClusterCreated,
-				Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
-			})
-			_ = r.Status().Update(ctx, wekaCluster)
-			return ctrl.Result{}, err
+		if wekaCluster.Spec.ExpandEndpoints != nil {
+			err = wekaClusterService.FormCluster(ctx, containers)
+			if err != nil {
+				logger.Error(err, "Failed to create cluster")
+				meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
+					Type:   condition.CondClusterCreated,
+					Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
+				})
+				_ = r.Status().Update(ctx, wekaCluster)
+				return ctrl.Result{}, err
+			}
 		}
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondClusterCreated, metav1.ConditionTrue, "Init", "Cluster is formed")
+		err = r.SetCondition(ctx, wekaCluster, condition.CondClusterCreated, metav1.ConditionTrue, "Init", "Cluster is formed")
+		if err != nil {
+			logger.Info("Failed to set condition", "err", err)
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		logger.SetPhase("CLUSTER_FORMED")
 	} else {
 		logger.SetPhase("CLUSTER_ALREADY_FORMED")
