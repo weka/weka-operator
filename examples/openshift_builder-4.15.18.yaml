@@ -21,10 +21,6 @@ spec:
     # if the driver toolkit image is hosted in a private registry, the secret must be created and referenced here.
     # The secret must be located in the same namespace as the weka-driver-builder container
     driverToolkitImagePullSecret: "ocp-buildkit-secret"
-  buildkitImage:
-  # if the buildkit image is hosted in a private registry, the secret must be created and referenced here.
-  # The secret must be located in the same namespace as the weka-driver-builder
-  buildkitImagePullSecret: ocp-buildkit-secret
   mode: "dist"
   name: dist
   numCores: 1
