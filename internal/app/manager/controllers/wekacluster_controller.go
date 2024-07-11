@@ -2,8 +2,8 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"os"
 	"reflect"
 	"strconv"
@@ -12,7 +12,6 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
-	"github.com/weka/weka-operator/internal/app/manager/factory"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -50,7 +49,7 @@ type WekaClusterReconciler struct {
 	SecretsService services.SecretsService
 	ExecService    services.ExecService
 
-	WekaContainerFactory factory.WekaContainerFactory
+	DetectedZombies map[allocator.NamespacedObject]time.Time
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
@@ -58,17 +57,20 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 	config := mgr.GetConfig()
 	scheme := mgr.GetScheme()
 	execService := services.NewExecService(config)
-	return &WekaClusterReconciler{
+
+	ret := &WekaClusterReconciler{
 		Client:   client,
 		Scheme:   scheme,
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:           services.NewCrdManager(mgr),
-		SecretsService:       services.NewSecretsService(client, scheme, execService),
-		ExecService:          execService,
-		WekaContainerFactory: factory.NewWekaContainerFactory(scheme),
+		CrdManager:     services.NewCrdManager(mgr),
+		SecretsService: services.NewSecretsService(client, scheme, execService),
+		ExecService:    execService,
 	}
+
+	go ret.GCLoop()
+	return ret
 }
 
 func (r *WekaClusterReconciler) SetConditionWithRetries(ctx context.Context, cluster *wekav1alpha1.WekaCluster,
@@ -224,11 +226,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsCreated) {
 		logger.SetPhase("ENSURING_CLUSTER_CONTAINERS")
-		_ = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
+		err = r.SetCondition(ctx, wekaCluster, condition.CondPodsCreated, metav1.ConditionTrue, "Init", "All pods are created")
+		if err != nil {
+			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+		}
 	}
 	logger.SetPhase("PODS_ALREADY_EXIST")
 
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondPodsReady) {
+		// TODO: Validate that all containers are actually up
 		logger.Debug("Checking if all containers are ready")
 		if ready, err := r.isContainersReady(ctx, containers); !ready {
 			logger.SetPhase("CONTAINERS_NOT_READY")
@@ -265,6 +271,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
 	for _, container := range containers {
+		if !container.IsWekaContainer() {
+			continue
+		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
 			logger.Info("Container has not joined the cluster yet", "container", container.Name)
 			logger.SetPhase("CONTAINERS_NOT_JOINED_CLUSTER")
@@ -593,20 +602,16 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 	if err != nil {
 		return err
 	}
-	allocator := domain.NewAllocator(topology)
-	allocations, allocConfigMap, err := r.CrdManager.GetOrInitAllocMap(ctx)
+	topologyAllocator, err := allocator.NewTopologyAllocator(ctx, r.Client, topology)
 	if err != nil {
-		logger.Error(err, "Failed to get alloc map")
 		return err
 	}
 
-	changed := allocator.DeallocateCluster(domain.OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}, allocations)
-	if changed {
-		if err := r.CrdManager.UpdateAllocationsConfigmap(ctx, allocations, allocConfigMap); err != nil {
-			logger.Error(err, "Failed to update alloc map")
-			return err
-		}
+	err = topologyAllocator.DeallocateCluster(ctx, *cluster)
+	if err != nil {
+		return err
 	}
+
 	r.Recorder.Event(cluster, "Warning", "Deleting",
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			cluster.Name,
@@ -615,76 +620,16 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 }
 
 func (r *WekaClusterReconciler) EnsureClusterContainerIds(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
-	var containersMap resources.ClusterContainersMap
-	container := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if container == nil {
-		container = containers[0] // a fallback if we have none active, this is most surely initial clusterform
-	}
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds", "container_name", container.Name)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureClusterContainerIds")
 	defer end()
 
-	fetchContainers := func() error {
-		pod, err := resources.NewContainerFactory(container).Create(ctx)
-		if err != nil {
-			logger.Error(err, "Could not find executor pod")
-			return err
-		}
-		clusterizePod := &v1.Pod{}
-		err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: pod.Name}, clusterizePod)
-		if err != nil {
-			logger.Error(err, "Could not find clusterize pod")
-			return err
-		}
-		executor, err := util.NewExecInPod(clusterizePod)
-		if err != nil {
-			return errors.Wrap(err, "Could not create executor")
-		}
-		cmd := "weka cluster container --filter mode=backend -J"
-		if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterSecretsApplied) {
-			cmd = "wekaauthcli cluster container -J"
-		}
-		stdout, stderr, err := executor.ExecNamed(ctx, "WekaClusterContainer", []string{"bash", "-ce", cmd})
-		if err != nil {
-			logger.Error(err, "Failed to fetch containers list from cluster", "stderr, ", stderr.String(), "container", container.Name)
-			return errors.Wrapf(err, "Failed to fetch containers list from cluster")
-		}
-		response := resources.ClusterContainersResponse{}
-		err = json.Unmarshal(stdout.Bytes(), &response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to create cluster: %s", stderr.String())
-		}
-		containersMap, err = resources.MapByContainerName(response)
-		if err != nil {
-			return errors.Wrapf(err, "Failed to map containers")
-		}
-		return nil
-	}
-
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue
+		}
 		if container.Status.ClusterContainerID == nil {
-			if containersMap == nil {
-				err := fetchContainers()
-				if err != nil {
-					logger.Error(err, "Failed to fetch containers list from cluster")
-					return err
-				}
-			}
-
-			if clusterContainer, ok := containersMap[container.Spec.WekaContainerName]; !ok {
-				err := errors.New("Container " + container.Spec.WekaContainerName + " not found in cluster")
-				logger.Error(err, "Container not found in cluster", "container_name", container.Name)
-				return err
-			} else {
-				containerId, err := clusterContainer.ContainerId()
-				if err != nil {
-					return errors.Wrap(err, "Failed to parse container id")
-				}
-				container.Status.ClusterContainerID = &containerId
-				if err := r.Status().Update(ctx, container); err != nil {
-					return errors.Wrap(err, "Failed to update container status")
-				}
-			}
+			err := fmt.Errorf("container %s does not have a cluster container id", container.Name)
+			return err
 		}
 	}
 	logger.InfoWithStatus(codes.Ok, "Cluster container ids are set")
@@ -723,6 +668,9 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 	defer end()
 
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue // ignoring envoy as not part of cluster and we can figure out at later stage
+		}
 		if container.GetDeletionTimestamp() != nil {
 			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
 			return false, errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
@@ -733,7 +681,7 @@ func (r *WekaClusterReconciler) isContainersReady(ctx context.Context, container
 		}
 
 		if container.Status.Status != "Running" {
-			logger.Debug("Container is not running yet", "container_name", container.Name)
+			logger.Info("Container is not running yet", "container_name", container.Name)
 			return false, nil
 		}
 	}
@@ -865,12 +813,10 @@ func (r *WekaClusterReconciler) ensureS3Cluster(ctx context.Context, cluster *we
 	}
 
 	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:          container.Spec.S3Params.EnvoyPort,
-		EnvoyAdminPort:     container.Spec.S3Params.EnvoyAdminPort,
-		S3Port:             container.Spec.S3Params.S3Port,
-		ContainerIds:       containerIds,
-		EnvoyContainerName: fmt.Sprintf("%senvoy", cluster.GetLastGuidPart()),
-		MinioContainerName: fmt.Sprintf("%ss3be", cluster.GetLastGuidPart()),
+		EnvoyPort:      cluster.Status.Ports.LbPort,
+		EnvoyAdminPort: cluster.Status.Ports.LbAdminPort,
+		S3Port:         cluster.Status.Ports.S3Port,
+		ContainerIds:   containerIds,
 	})
 	if err != nil {
 		if !errors.As(err, &services.S3ClusterExists{}) {
@@ -1090,8 +1036,6 @@ func (r *WekaClusterReconciler) prepareForUpgradeDrives(ctx context.Context, con
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade
-wekaauthcli debug override add --key host_drain_by_chunks
-wekaauthcli debug override add --key host_skip_unremovable_check
 wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
 `
 
@@ -1166,8 +1110,6 @@ func (r *WekaClusterReconciler) finalizeUpgrade(ctx context.Context, containers 
 	cmd := `
 wekaauthcli debug jrpc upgrade_phase_finish
 wekaauthcli debug jrpc unprepare_leader_for_upgrade
-wekaauthcli debug override remove --key host_drain_by_chunks
-wekaauthcli debug override remove --key host_skip_unremovable_check
 `
 	stdout, stderr, err := executor.ExecNamed(ctx, "FinalizeUpgrade", []string{"bash", "-ce", cmd})
 	if err != nil {
@@ -1226,4 +1168,19 @@ func (r *WekaClusterReconciler) HandleSpecUpdates(ctx context.Context, cluster *
 	}
 	return nil
 
+}
+
+func (r *WekaClusterReconciler) GCLoop() {
+	ctx := context.Background()
+	for {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
+		//getlogspan
+		defer end()
+
+		err := r.GC(ctx)
+		if err != nil {
+			logger.Error(err, "gc failed")
+		}
+		time.Sleep(10 * time.Second)
+	}
 }

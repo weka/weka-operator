@@ -615,45 +615,47 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 	}
 	logger.Debug("Querying weka local status")
 
-	cmd := "weka local status -J"
+	containerName := container.Spec.WekaContainerName
+
+	cmd := fmt.Sprintf("weka local run wapi -H localhost:$AGENT_PORT/jrpc -W container-get-identity --container-name %s --json", containerName)
 	if container.Spec.JoinIps != nil {
-		cmd = fmt.Sprintf("wekaauthcli local status -J")
+		cmd = fmt.Sprintf("wekaauthcli local run wapi -H localhost:$AGENT_PORT/jrpc -W container-get-identity --container-name %s --json", containerName)
 	}
 
-	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalStatus", []string{"bash", "-ce", cmd})
+	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalContainerGetIdentity", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.Error(err, "Error querying weka local status")
 		return true, err
 	}
-	logger.Debug("Parsing weka local status")
-	response := resources.WekaLocalStatusResponse{}
+	logger.Debug("Parsing weka local container-get-identity")
+	response := resources.WekaLocalContainerGetIdentityResponse{}
 	err = json.Unmarshal(stdout.Bytes(), &response)
 	if err != nil {
 		logger.Error(err, "Error parsing weka local status")
 		return true, err
 	}
 
-	if _, ok := response[container.Spec.WekaContainerName]; !ok {
-		logger.InfoWithStatus(codes.Unset, "Container not found")
-		return true, errors.New("container not found")
-	}
-	if len(response[container.Spec.WekaContainerName].Slots) == 0 {
-		logger.InfoWithStatus(codes.Unset, "Slots not found")
-		return true, errors.New("slots not found")
-	}
-
-	if !container.IsBackend() {
+	if !container.IsWekaContainer() {
 		return false, nil // TODO: clients do not update clusterId, need better way to validate if client indeed joined and can serve IOs
 	}
 
-	clusterId := response[container.Spec.WekaContainerName].Slots[0].ClusterID
-	if clusterId == "" || clusterId == "00000000-0000-0000-0000-000000000000" {
+	if response.Value == nil {
+		logger.InfoWithStatus(codes.Unset, "No response from weka local container-get-identity")
+		return true, errors.New("no value in response from weka local container-get-identity")
+	}
+	if response.Value.ClusterId == "" || response.Value.ClusterId == "00000000-0000-0000-0000-000000000000" {
 		logger.InfoWithStatus(codes.Unset, "Cluster not ready")
 		return true, nil
 	}
 
-	container.Status.ClusterID = clusterId
-	logger.InfoWithStatus(codes.Ok, "Cluster created and its GUID updated in WekaContainer status")
+	container.Status.ClusterContainerID = &response.Value.ContainerId
+	container.Status.ClusterID = response.Value.ClusterId
+	logger.InfoWithStatus(
+		codes.Ok,
+		"Cluster created and its GUID and container ID are updated in WekaContainer status",
+		"cluster_guid", response.Value.ClusterId,
+		"container_id", response.Value.ContainerId,
+	)
 	if err := r.Status().Update(ctx, container); err != nil {
 		return true, err
 	}
@@ -774,8 +776,10 @@ DRIVES:
 			cmd = fmt.Sprintf("%s cluster drive add %d %s", wekaCmd, *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
-				l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
-				return true, errors.Wrap(err, stderr.String())
+				if !strings.Contains(stderr.String(), "Device is already in use") {
+					l.WithValues("stderr", stderr.String()).Error(err, "Error adding drive into system")
+					return true, errors.Wrap(err, stderr.String())
+				}
 			} else {
 				l.Info("Drive added into system")
 				logger.Info("Drive added into system", "drive", drive)
@@ -1198,7 +1202,7 @@ func (r *ContainerController) CleanupIfNeeded(ctx context.Context, container *we
 	// TODO: Make configurable, for now we delete after 5 minutes since downtime
 	// relying onlastTransitionTime of Unschedulable condition
 	rescheduleAfter := 5 * time.Minute
-	if container.IsBackend() {
+	if container.IsWekaContainer() {
 		rescheduleAfter = 3 * time.Hour // TODO: Change, this is dev mode
 	}
 	if time.Since(unschedulableSince) > rescheduleAfter {
@@ -1258,7 +1262,7 @@ func (r *ContainerController) ensureNoPod(ctx context.Context, container *wekav1
 			return err
 
 		}
-		// graceful shutdown (weka local stop -g) becoming a default, so should instruct explicitly when to do non graceful
+		// setting for forceful termination ,as we are in container delete flow
 		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
 		if err != nil {
 			if !strings.Contains(err.Error(), "container not found") {

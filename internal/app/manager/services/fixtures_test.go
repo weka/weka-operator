@@ -1,4 +1,3 @@
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_factories.go -package=mocks github.com/weka/weka-operator/internal/app/manager/factory WekaContainerFactory
 package services
 
 import (
@@ -14,12 +13,11 @@ import (
 type fixtures struct {
 	ctrl *gomock.Controller
 
-	mockClient               *mocks.MockClient
-	mockExec                 *mocks.MockExec
-	mockExecService          *mocks.MockExecService
-	mockManager              *mocks.MockManager
-	mockStatus               *mocks.MockStatusWriter
-	mockWekaContainerFactory *mocks.MockWekaContainerFactory
+	mockClient      *mocks.MockClient
+	mockExec        *mocks.MockExec
+	mockExecService *mocks.MockExecService
+	mockManager     *mocks.MockManager
+	mockStatus      *mocks.MockStatusWriter
 
 	scheme *runtime.Scheme
 }
@@ -32,7 +30,6 @@ func setup(t *testing.T) *fixtures {
 	mockExecService := mocks.NewMockExecService(ctrl)
 	mockManager := mocks.NewMockManager(ctrl)
 	mockStatus := mocks.NewMockStatusWriter(ctrl)
-	mockWekaContainerFactory := mocks.NewMockWekaContainerFactory(ctrl)
 
 	scheme := runtime.NewScheme()
 	if err := wekav1alpha1.AddToScheme(scheme); err != nil {
@@ -42,14 +39,12 @@ func setup(t *testing.T) *fixtures {
 	return &fixtures{
 		ctrl: ctrl,
 
-		mockClient:               mockClient,
-		mockExec:                 mockExec,
-		mockExecService:          mockExecService,
-		mockManager:              mockManager,
-		mockStatus:               mockStatus,
-		mockWekaContainerFactory: mockWekaContainerFactory,
-
-		scheme: scheme,
+		mockClient:      mockClient,
+		mockExec:        mockExec,
+		mockExecService: mockExecService,
+		mockManager:     mockManager,
+		mockStatus:      mockStatus,
+		scheme:          scheme,
 	}
 }
 

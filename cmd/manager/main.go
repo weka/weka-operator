@@ -188,18 +188,30 @@ func main() {
 }
 
 func setupContainerIndexes(mgr manager.Manager) error {
-	for _, index := range []string{"metadata.ownerReferences.uid", "metadata.uid"} {
-		if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, index, func(rawObj client.Object) []string {
-			// Grab the job object, extract the owner...
-			wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
-			owner := metav1.GetControllerOf(wekaContainer)
-			if owner == nil {
-				return nil
-			}
-			return []string{string(owner.UID)}
-		}); err != nil {
-			return err
+
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
+		// Grab the job object, extract the owner...
+		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		owner := metav1.GetControllerOf(wekaContainer)
+		if owner == nil {
+			return nil
 		}
+		return []string{string(wekaContainer.UID)}
+	}); err != nil {
+		return err
 	}
+
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
+		// Grab the job object, extract the owner...
+		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		owner := metav1.GetControllerOf(wekaContainer)
+		if owner == nil {
+			return nil
+		}
+		return []string{string(owner.UID)}
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }

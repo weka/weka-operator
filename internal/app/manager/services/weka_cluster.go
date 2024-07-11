@@ -57,6 +57,9 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	var hostnamesList []string
 
 	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+			continue
+		}
 		if container.Spec.Ipv6 {
 			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", container.Status.ManagementIP, container.Spec.Port))
 		} else {
@@ -90,12 +93,12 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to update cluster name: %s", stderr.String())
 	}
 
-	cmd = fmt.Sprintf("weka cluster hot-spare 0")
-	logger.Debug("Disabling hot spare")
-	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
-	if err != nil {
-		return errors.Wrapf(err, "Failed to disable hot spare: %s", stderr.String())
-	}
+	//cmd = fmt.Sprintf("weka cluster hot-spare 0")
+	//logger.Debug("Disabling hot spare")
+	//_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetHotSpare", []string{"bash", "-ce", cmd})
+	//if err != nil {
+	//	return errors.Wrapf(err, "Failed to disable hot spare: %s", stderr.String())
+	//}
 
 	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {
 		return errors.Wrap(err, "Failed to update wekaCluster status")

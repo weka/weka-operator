@@ -43,6 +43,21 @@ type AdditionalMemory struct {
 	S3      int `json:"s3,omitempty"`
 }
 
+type WekaConfig struct {
+	ComputeContainers   int `json:"computeContainers,omitempty"`
+	DriveContainers     int `json:"driveContainers,omitempty"`
+	S3Containers        int `json:"s3Containers,omitempty"`
+	ComputeCores        int `json:"computeCores,omitempty"`
+	DriveCores          int `json:"driveCores,omitempty"`
+	S3Cores             int `json:"s3Cores,omitempty"`
+	NumDrives           int `json:"numDrives,omitempty"`
+	S3ExtraCores        int `json:"s3ExtraCores,omitempty"`
+	DriveHugepages      int `json:"driveHugepages,omitempty"`
+	ComputeHugepages    int `json:"computeHugepages,omitempty"`
+	S3FrontendHugepages int `json:"s3FrontendHugepages,omitempty"`
+	EnvoyCores          int `json:"envoyCores,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -58,15 +73,18 @@ type WekaClusterSpec struct {
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy                 CpuPolicy            `json:"cpuPolicy,omitempty"`
-	DriveAppendSetupCommand   string               `json:"driveAppendSetupCommand,omitempty"`
-	ComputeAppendSetupCommand string               `json:"computeAppendSetupCommand,omitempty"`
-	TracesConfiguration       *TracesConfiguration `json:"tracesConfiguration,omitempty"`
-	Tolerations               []string             `json:"tolerations,omitempty"`
-	RawTolerations            []v1.Toleration      `json:"rawTolerations,omitempty"`
-	WekaHomeEndpoint          string               `json:"wekaHomeEndpoint,omitempty"`
-	Ipv6                      bool                 `json:"ipv6,omitempty"`
-	AdditionalMemory          AdditionalMemory     `json:"additionalMemory,omitempty"`
+	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
+	Tolerations         []string             `json:"tolerations,omitempty"`
+	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
+	WekaHomeEndpoint    string               `json:"wekaHomeEndpoint,omitempty"`
+	Ipv6                bool                 `json:"ipv6,omitempty"`
+	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
+	BasePort            int                  `json:"basePort,omitempty"`
+	PortRange           int                  `json:"portRange,omitempty"`
+	MaxFdsPerNode       int                  `json:"maxFdsPerNode,omitempty"`
+	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
+	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
@@ -82,6 +100,16 @@ func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
 	return additionalMemory
 }
 
+type ClusterPorts struct {
+	// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
+	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+	BasePort    int `json:"basePort,omitempty"`
+	PortRange   int `json:"portRange,omitempty"`
+	LbPort      int `json:"envoyPort,omitempty"`
+	LbAdminPort int `json:"envoyAdminPort,omitempty"`
+	S3Port      int `json:"s3Port,omitempty"`
+}
+
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
 	Status           string             `json:"status"`
@@ -92,6 +120,7 @@ type WekaClusterStatus struct {
 	SpanID           string             `json:"spanId,omitempty"`
 	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 	LastAppliedSpec  string             `json:"lastAppliedSpec,omitempty"`
+	Ports            ClusterPorts       `json:"ports,omitempty"`
 }
 
 // +kubebuilder:object:root=true
