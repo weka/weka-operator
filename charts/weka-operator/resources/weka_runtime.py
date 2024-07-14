@@ -549,6 +549,7 @@ async def ensure_weka_container():
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
+    resources['auto_discovery_enabled'] = False
 
     full_cores = find_full_cores(NUM_CORES)
     cores_cursor = 0
