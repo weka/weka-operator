@@ -100,7 +100,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
-	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret`", strings.Join(hostnamesList, " "), hostIpsStr)
+	cmd := fmt.Sprintf("wekaauthcli status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password`", strings.Join(hostnamesList, " "), hostIpsStr)
 	logger.Info("Creating cluster", "cmd", cmd)
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
@@ -117,7 +117,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 
 	// update cluster name
 	clusterName := r.Cluster.ObjectMeta.Name
-	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
+	cmd = fmt.Sprintf("wekaauthcli cluster update --cluster-name %s", clusterName)
 	logger.Debug("Updating cluster name")
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
 	if err != nil {

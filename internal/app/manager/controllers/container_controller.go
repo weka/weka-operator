@@ -788,11 +788,7 @@ DRIVES:
 			}
 			l.Info("Adding drive into system")
 			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-			wekaCmd := "weka"
-			if container.Spec.JoinIps != nil {
-				wekaCmd = "wekaauthcli"
-			}
-			cmd = fmt.Sprintf("%s cluster drive add %d %s", wekaCmd, *container.Status.ClusterContainerID, drive)
+			cmd = fmt.Sprintf("wekaauthcli cluster drive add %d %s", *container.Status.ClusterContainerID, drive)
 			_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 			if err != nil {
 				if !strings.Contains(stderr.String(), "Device is already in use") {

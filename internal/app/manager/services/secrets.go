@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -16,6 +17,7 @@ type SecretsService interface {
 	EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error
 	EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error
+	UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 }
 
 func NewSecretsService(client client.Client, scheme *runtime.Scheme, service ExecService) SecretsService {
@@ -30,6 +32,34 @@ type secretsService struct {
 	Client      client.Client
 	Scheme      *runtime.Scheme
 	ExecService ExecService
+}
+
+func (r *secretsService) UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "updateOperatorLoginSecret")
+	defer end()
+
+	secret := v1.Secret{}
+	err := r.Client.Get(ctx, client.ObjectKey{
+		Name:      cluster.GetOperatorSecretName(),
+		Namespace: cluster.Namespace,
+	}, &secret)
+	if err != nil {
+		return err
+	}
+
+	currentUsername := string(secret.Data["username"])
+
+	if currentUsername == cluster.GetOperatorClusterUsername() {
+		return nil
+	}
+
+	secret.Data["username"] = []byte(cluster.GetOperatorClusterUsername())
+	// update
+	if err := r.Client.Update(ctx, &secret); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error {
@@ -67,6 +97,9 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 
 	// generate random password
 	operatorLogin := cluster.NewOperatorLoginSecret()
+	// Hacking it into initial (admin) username, and we will update later once new user is created
+	// Both admin and user have the same password
+	operatorLogin.StringData["username"] = cluster.GetInitialOperatorUsername()
 	userLogin := cluster.NewUserLoginSecret()
 
 	if cluster.Spec.OperatorSecretRef != "" {
