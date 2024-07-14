@@ -560,14 +560,14 @@ async def ensure_weka_container():
     with open("/tmp/weka-resources.json", "w") as f:
         json.dump(resources, f)
     # reconfigure containers
-    stdout, stderr, ec = await run_command("weka local resources import --force /tmp/weka-resources.json")
+    stdout, stderr, ec = await run_command(f"""
+        mv /tmp/weka-resources.json /opt/weka/data/{NAME}/container/resources-operator.json
+        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json
+        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.stable
+        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.staging
+    """)
     if ec != 0:
-        raise Exception(f"Failed to import resources: {stderr}")
-
-    stdout, stderr, ec = await run_command("weka local resources apply --force")
-    if ec != 0:
-        raise Exception(f"Failed to apply resources {stderr}")
-
+        raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
 async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
