@@ -603,7 +603,12 @@ func (r *WekaClusterReconciler) finalizeWekaCluster(ctx context.Context, cluster
 
 	cluster := clusterService.GetCluster()
 
-	err := clusterService.EnsureNoS3Containers(ctx)
+	err := clusterService.EnsureNoContainers(ctx, "s3")
+	if err != nil {
+		return err
+	}
+
+	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
 		return err
 	}
