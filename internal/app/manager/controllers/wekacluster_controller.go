@@ -362,6 +362,25 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	}
 	logger.SetPhase("CLUSTER_READY")
 
+	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondAdminUserDeleted) {
+		for _, c := range wekaCluster.Status.Conditions {
+			if c.Type == condition.CondClusterSecretsApplied {
+				if time.Since(c.LastTransitionTime.Time) > time.Minute*5 {
+					err := r.EraseAdminUser(ctx, containers)
+					if err != nil {
+						logger.Error(err, "Failed to delete admin user")
+						return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+					}
+
+					err = r.SetCondition(ctx, wekaCluster, condition.CondAdminUserDeleted, metav1.ConditionTrue, "Init", "Deleted admin user")
+					if err != nil {
+						return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+					}
+				}
+			}
+		}
+	}
+
 	if !meta.IsStatusConditionTrue(wekaCluster.Status.Conditions, condition.CondDefaultFsCreated) {
 		if wekaCluster.Spec.ExpandEndpoints == nil {
 			logger.SetPhase("CONFIGURING_DEFAULT_FS")
@@ -718,6 +737,10 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 	ensureUser := func(secretName string) error {
 		// fetch secret from k8s
 		username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, secretName)
+		if username == "admin" {
+			// force switch back to operator user
+			username = cluster.GetOperatorClusterUsername()
+		}
 		if err != nil {
 			return err
 		}
@@ -1206,4 +1229,10 @@ func (r *WekaClusterReconciler) GCLoop() {
 		}
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func (r *WekaClusterReconciler) EraseAdminUser(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
+	container := r.SelectActiveContainer(containers)
+	wekaService := services.NewWekaService(r.ExecService, container)
+	return wekaService.EnsureNoUser(ctx, "admin")
 }
