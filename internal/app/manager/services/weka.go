@@ -100,10 +100,7 @@ type CliWekaService struct {
 func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error) {
 	var drives []Drive
 	filters := []string{}
-	wekacli := "weka"
-	if c.Container.Spec.JoinIps != nil {
-		wekacli = "wekaauthcli"
-	}
+	wekacli := "wekaauthcli"
 	cmdParts := []string{wekacli, "cluster", "drive", "--json"}
 	if listOptions.ContainerId != nil {
 		filters = append(filters, fmt.Sprintf("host=%d", *listOptions.ContainerId))
@@ -173,7 +170,7 @@ func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) erro
 
 func (c *CliWekaService) GetUsers(ctx context.Context) ([]WekaUserResponse, error) {
 	existingUsers := []WekaUserResponse{}
-	cmd := "weka user -J || wekaauthcli user -J"
+	cmd := "wekaauthcli user -J"
 	executor, err := c.GetExecutor(ctx)
 	if err != nil {
 		return nil, err
@@ -211,21 +208,12 @@ func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, rol
 		return err
 	}
 
-	// A hack to handle both default user and newly created user
-	// This should move to a separate function with proper valudation if we have login
-	// since there are just few cases this is needed - ignoring for now
-	for _, cli := range []string{"weka", "wekaauthcli"} {
-		cmd := fmt.Sprintf("%s user add %s %s %s", cli, username, role, password)
-		_, stderr, err := executor.ExecSensitive(ctx, "AddClusterUser", []string{"bash", "-ce", cmd})
-		if err != nil {
-			if strings.Contains(stderr.String(), "weka user login") {
-				continue
-			}
-			return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
-		}
-		return nil
+	cmd := fmt.Sprintf("wekaauthcli user add %s %s %s", username, role, password)
+	_, stderr, err := executor.ExecSensitive(ctx, "AddClusterUser", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to add user: %s", stderr.String())
 	}
-	return errors.New("Failed to add user")
+	return nil
 }
 
 func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error) {

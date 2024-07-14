@@ -165,6 +165,10 @@ func (c *WekaCluster) GetOperatorClusterUsername() string {
 	return "weka-operator-" + c.GetLastGuidPart()
 }
 
+func (c *WekaCluster) GetInitialOperatorUsername() string {
+	return "admin"
+}
+
 func (c *WekaCluster) GetUserSecretName() string {
 	name := c.Name
 	return "weka-cluster-" + name
