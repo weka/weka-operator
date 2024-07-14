@@ -477,7 +477,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 }
 
 func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.WekaCluster, ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
