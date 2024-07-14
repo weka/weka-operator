@@ -774,12 +774,18 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 	// This defaults are not meant to be configurable, as instead weka should not require them.
 	// Until then, user configuratino post cluster create
 
-	thinProvisionedLimits := status.Capacity.TotalBytes / 2 // half a total capacity allocated for thin provisioning
+	var thinProvisionedLimitsConfigFS int64 = 100 * 1024 * 1024 * 1024 // half a total capacity allocated for thin provisioning
+	thinProvisionedLimitsDefault := status.Capacity.TotalBytes / 10    // half a total capacity allocated for thin provisioning
 	fsReservedCapacity := status.Capacity.TotalBytes / 100
-	var configFsSize int64 = 3 * 1024 * 1024 * 1024
+	var configFsSize int64 = 10 * 1024 * 1024 * 1024
+	var defaultFsSize int64 = 1 * 1024 * 1024 * 1024
+
+	if defaultFsSize > thinProvisionedLimitsDefault {
+		thinProvisionedLimitsDefault = defaultFsSize
+	}
 
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
 		ThinProvisioningEnabled:   true,
 	})
@@ -789,19 +795,8 @@ func (r *WekaClusterReconciler) ensureDefaultFs(ctx context.Context, container *
 		}
 	}
 
-	err = wekaService.CreateFilesystem(ctx, "default-s3", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
-		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
-		ThinProvisioningEnabled:   true,
-	})
-	if err != nil {
-		if !errors.As(err, &services.FilesystemExists{}) {
-			return err
-		}
-	}
-
 	err = wekaService.CreateFilesystem(ctx, "default", "default", services.FSParams{
-		TotalCapacity:             strconv.FormatInt(thinProvisionedLimits, 10),
+		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsDefault, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
 	})
