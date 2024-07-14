@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "name": "weka-eks",
+      "builder_type": "amazon-ebs",
+      "build_time": 1720938546,
+      "files": null,
+      "artifact_id": "eu-west-1:ami-0ecbfdeea2627f43b",
+      "packer_run_uuid": "02511b56-f897-b86c-96a5-43051c0c558d",
+      "custom_data": null
+    }
+  ],
+  "last_run_uuid": "02511b56-f897-b86c-96a5-43051c0c558d"
+}
