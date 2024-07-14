@@ -479,7 +479,7 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func DeallocateNamespacedObject(ctx context.Context, c client.Client, namespacedObject NamespacedObject, store AllocationsStore) error {
+func DeallocateNamespacedObject(ctx context.Context, namespacedObject NamespacedObject, store AllocationsStore) error {
 	allocations, err := store.GetAllocations(ctx)
 	if err != nil {
 		return err
@@ -510,6 +510,7 @@ func DeallocateNamespacedObject(ctx context.Context, c client.Client, namespaced
 				ownersToDelete = append(ownersToDelete, owner)
 			}
 		}
+
 	}
 
 	for _, owner := range ownersToDelete {
@@ -527,5 +528,18 @@ func DeallocateNamespacedObject(ctx context.Context, c client.Client, namespaced
 	}
 
 	return nil
+}
 
+func DeallocateContainer(ctx context.Context, container v1alpha1.WekaContainer, client2 client.Client) error {
+	allocationsStore, err := NewConfigMapStore(ctx, client2)
+	if err != nil {
+		return err
+	}
+
+	namespacedObject := NamespacedObject{
+		Namespace: container.Namespace,
+		Name:      container.Name,
+	}
+
+	return DeallocateNamespacedObject(ctx, namespacedObject, allocationsStore)
 }

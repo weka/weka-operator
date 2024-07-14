@@ -72,7 +72,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	for owner, _ := range misses {
 		if firstDetected, ok := r.DetectedZombies[owner]; ok {
 			if time.Since(firstDetected) > detectZombiesTime {
-				err := allocator.DeallocateNamespacedObject(ctx, r.Client, owner, configStore)
+				err := allocator.DeallocateNamespacedObject(ctx, owner, configStore)
 				if err != nil {
 					logger.Error(err, "Failed to deallocate container", "owner", owner)
 				}
