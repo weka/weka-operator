@@ -271,7 +271,7 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 	}
 
 	cmd := []string{
-		"wekaauthcli", "s3", "cluster", "create", "default-s3", ".config_fs",
+		"wekaauthcli", "s3", "cluster", "create", "default", ".config_fs",
 		"--port", strconv.Itoa(s3Params.EnvoyPort),
 		"--envoy-admin-port", strconv.Itoa(s3Params.EnvoyAdminPort),
 		"--internal-port", strconv.Itoa(s3Params.S3Port),
