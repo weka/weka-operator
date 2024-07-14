@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	allocator2 "github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"os"
 	"strconv"
 	"strings"
@@ -1250,9 +1251,18 @@ func (r *ContainerController) finalizeContainer(ctx context.Context, container *
 
 	// ensure no pod exists
 	err = r.ensureNoPod(ctx, container)
-	if r != nil {
+	if err != nil {
 		return err
 	}
+
+	err = allocator2.DeallocateContainer(ctx, *container, r.Client)
+	if err != nil {
+		logger.Error(err, "Error deallocating container")
+		return err
+	} else {
+		logger.Info("Container deallocated")
+	}
+	// deallocate from allocmap
 
 	return nil
 }
