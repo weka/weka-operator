@@ -77,14 +77,13 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
-//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
 	defer end()
-	logger.Info("Reconciling container", "name", req.Name)
 
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
