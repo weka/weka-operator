@@ -18,7 +18,7 @@ import (
 type WekaClusterService interface {
 	GetCluster() *wekav1alpha1.WekaCluster
 	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
-	EnsureNoS3Containers(ctx context.Context) error
+	EnsureNoContainers(ctx context.Context, mode string) error
 	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
 }
 
@@ -37,6 +37,37 @@ type wekaClusterService struct {
 	ExecService ExecService
 
 	Cluster *wekav1alpha1.WekaCluster
+}
+
+func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoContainers", "cluster", r.Cluster.Name, "mode", mode)
+	defer end()
+
+	containers, err := r.GetOwnedContainers(ctx, mode)
+	if err != nil {
+		logger.Error(err, "Failed to get owned containers")
+		return err
+	}
+
+	for _, container := range containers {
+		// delete object
+		// check if not already being deleted
+		if container.GetDeletionTimestamp() != nil {
+			continue
+		}
+		err := r.Client.Delete(ctx, container)
+		if err != nil {
+			logger.Error(err, "Failed to delete container", "container", container.Name)
+			return err
+		}
+
+	}
+
+	if len(containers) != 0 {
+		logger.Info("Deleted containers", "count", len(containers))
+		return errors.New("containers being deleted")
+	}
+	return nil
 }
 
 func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
@@ -135,31 +166,5 @@ func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string
 }
 
 func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoS3Containers", "cluster", r.Cluster.Name)
-	defer end()
-
-	containers, err := r.GetOwnedContainers(ctx, "s3")
-	if err != nil {
-		logger.Error(err, "Failed to get owned containers")
-		return err
-	}
-
-	for _, container := range containers {
-		// delete object
-		// check if not already being deleted
-		if container.GetDeletionTimestamp() != nil {
-			continue
-		}
-		err := r.Client.Delete(ctx, container)
-		if err != nil {
-			logger.Error(err, "Failed to delete container", "container", container.Name)
-			return err
-		}
-	}
-	if len(containers) == 0 {
-		logger.SetStatus(codes.Ok, "No S3 containers found")
-		return nil
-	} else {
-		return errors.New("Waiting for all containers to stop")
-	}
+	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 }
