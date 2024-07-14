@@ -33,10 +33,6 @@ dockers:
   # TODO: Add plugin and labeller images
   - image_templates:
       - "quay.io/weka.io/weka-operator:{{ .Tag }}"
-      - "quay.io/weka.io/weka-operator:{{ .Major }}"
-      - "quay.io/weka.io/weka-operator:{{ .Major }}.{{ .Minor }}"
-      - "quay.io/weka.io/weka-operator:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
-      - "quay.io/weka.io/weka-operator:latest"
     dockerfile: "Dockerfile.release"
     build_flag_templates:
       - "--target=manager"
