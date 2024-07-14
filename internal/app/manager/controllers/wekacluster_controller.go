@@ -671,7 +671,7 @@ func (r *WekaClusterReconciler) StartIo(ctx context.Context, cluster *wekav1alph
 	}
 
 	logger.SetPhase("STARTING_IO")
-	cmd := "weka cluster start-io"
+	cmd := "wekaauthcli cluster start-io"
 	_, stderr, err := executor.ExecNamed(ctx, "StartIO", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.WithValues("stderr", stderr.String()).Error(err, "Failed to start-io")
@@ -740,10 +740,19 @@ func (r *WekaClusterReconciler) applyClusterCredentials(ctx context.Context, clu
 		return err
 	}
 
-	err := wekaService.EnsureNoUser(ctx, "admin")
+	// change k8s secret to use proper account
+	err := r.SecretsService.UpdateOperatorLoginSecret(ctx, cluster)
 	if err != nil {
 		return err
 	}
+
+	// Cannot delete admin at is used until we apply credential here, i.e creating new users
+	// TODO: Delete later? How can we know that all pod updated their secrets? Or just, delay by 5 minutes? Docs says it's 1 minute
+
+	//err := wekaService.EnsureNoUser(ctx, "admin")
+	//if err != nil {
+	//	return err
+	//}
 	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
 }
