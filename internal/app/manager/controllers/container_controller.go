@@ -84,6 +84,7 @@ type ContainerController struct {
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
 	defer end()
+	logger.Info("Reconciling container", "name", req.Name)
 
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
@@ -353,7 +354,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	logger.SetPhase("CONTAINER_IS_READY")
-	return ctrl.Result{}, nil
+	return ctrl.Result{ // we want to keep polling for states periodically, to update container statuses on container CR
+		RequeueAfter: time.Second * 30,
+	}, nil
 }
 
 func (r *ContainerController) handleImageUpdate(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
