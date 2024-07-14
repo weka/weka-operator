@@ -8,7 +8,7 @@ spec:
   dynamicTemplate:
     computeContainers: 6
     driveContainers: 6
-    s3Containers: 2
+    s3Containers: 3
   topology: aws_i3en6x_bless
   image: quay.io/weka.io/weka-in-container:4.3.3-preview.1
   nodeSelector:
@@ -16,14 +16,14 @@ spec:
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
   expandEndpoints:
-    - "10.0.19.215:15104" # anton38 cluster
-  operatorSecretRef: cluster-anton38-expansion
+    - "10.0.28.41:15000" # anton38 cluster
+  operatorSecretRef: weka-operator-9865a66a-98d7-4081-90da-ad7e34b57d68
   ports:
     basePort: 15000
     portRange: 1000
-    lbPort: 15000
-    lbAdminPort: 15001
-    s3Port: 15002
+    lbPort: 15300
+    lbAdminPort: 15301
+    s3Port: 15302
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
