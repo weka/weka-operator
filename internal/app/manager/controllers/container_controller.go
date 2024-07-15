@@ -1013,6 +1013,32 @@ func (r *ContainerController) reconcileDriversStatus(ctx context.Context, contai
 	return errors.New("Drivers not loaded")
 }
 
+func (r *ContainerController) getDriverLoaderName(ctx context.Context, container *wekav1alpha1.WekaContainer) (string, error) {
+	node := container.Spec.NodeAffinity
+	if node == "" {
+		return "", errors.New("node affinity not set")
+	}
+	name := fmt.Sprintf("weka-drivers-loader-%s", node)
+	if len(name) <= 63 {
+		return name, nil
+	}
+
+	nodeObj := &v1.Node{}
+	err := r.Get(ctx, client.ObjectKey{Name: node}, nodeObj)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get node")
+	}
+	if nodeObj == nil {
+		return "", errors.New("node not found")
+	}
+
+	name = fmt.Sprintf("weka-drivers-loader-%s", nodeObj.UID)
+	if len(name) > 63 {
+		return "", errors.New("driver loader pod name too long")
+	}
+	return name, nil
+}
+
 func (r *ContainerController) ensureDriversLoader(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
 	defer end()
@@ -1032,10 +1058,14 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 	if serviceAccountName == "" {
 		return fmt.Errorf("cannot create driver loader container, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
 	}
-
+	name, err := r.getDriverLoaderName(ctx, container)
+	if err != nil {
+		logger.Error(err, "error naming driver loader pod")
+		return err
+	}
 	loaderContainer := &wekav1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "weka-drivers-loader-" + pod.Spec.NodeName,
+			Name:      name,
 			Namespace: namespace,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
