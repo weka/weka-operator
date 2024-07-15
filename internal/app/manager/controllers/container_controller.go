@@ -1186,6 +1186,12 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTombstone")
 	defer end()
 
+	// skip tombstone creation for containers without persistent storage
+	if !container.HasPersistentStorage() {
+		logger.Info("Container has no persistent storage, skipping tombstone creation", "container", container.Name)
+		return nil
+	}
+
 	nodeAffinity := container.Spec.NodeAffinity
 	if nodeAffinity == "" {
 		// attempting to find persistent location of the container based on actual pod
