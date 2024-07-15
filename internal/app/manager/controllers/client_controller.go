@@ -253,6 +253,28 @@ func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, weka
 	return ctrl.Result{}, foundContainers, nil
 }
 
+func (r *ClientReconciler) getClientContainerName(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (string, error) {
+	clientName := fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, node)
+	if len(clientName) <= 63 {
+		return clientName, nil
+	}
+
+	nodeObj := &v1.Node{}
+	err := r.Get(ctx, client.ObjectKey{Name: node}, nodeObj)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get node")
+	}
+	if nodeObj == nil {
+		return "", errors.New("node not found")
+	}
+
+	clientName = fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, nodeObj.UID)
+	if len(clientName) > 63 {
+		return "", errors.New("client name too long")
+	}
+	return clientName, nil
+}
+
 func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
 	defer end()
@@ -303,6 +325,11 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 	}
 
 	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	clientName, err := r.getClientContainerName(ctx, wekaClient, node)
+	if err != nil {
+		logger.Error(err, "Failed to create client container name, too long", "clientName", clientName)
+		return nil, err
+	}
 
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -310,7 +337,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			Kind:       "WekaContainer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, node),
+			Name:      clientName,
 			Namespace: wekaClient.Namespace,
 			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
 		},
