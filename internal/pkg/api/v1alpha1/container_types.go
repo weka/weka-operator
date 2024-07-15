@@ -70,9 +70,9 @@ type WekaContainerSpec struct {
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
 	CoreOSBuildSpec   *CoreOSBuildSpec  `json:"coreOSBuildSpec,omitempty"`
-	COSBuildSpec    *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
+	COSBuildSpec      *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
 	// +kubebuilder:validation:Enum="cos";rhcos;"ubuntu";""
-	OsDistro          string `json:"osDistro,omitempty"`
+	OsDistro string `json:"osDistro,omitempty"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores

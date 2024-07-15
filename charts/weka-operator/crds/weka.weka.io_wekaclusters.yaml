@@ -92,8 +92,6 @@ spec:
                   s3:
                     type: integer
                 type: object
-              basePort:
-                type: integer
               coreOSBuildSpec:
                 properties:
                   driverToolkitImage:
@@ -164,6 +162,8 @@ spec:
                 type: object
               operatorSecretRef:
                 type: string
+              osDistro:
+                type: string
               ports:
                 properties:
                   basePort:
@@ -180,8 +180,6 @@ spec:
                   s3Port:
                     type: integer
                 type: object
-              osDistro:
-                type: string
               rawTolerations:
                 items:
                   description: |-
