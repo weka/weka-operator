@@ -50,6 +50,7 @@ type WekaDriveResponse struct {
 }
 
 const PersistentHostClusterLocation = "/opt/k8s-weka/clusters"
+
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -311,15 +312,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 					},
 				},
-				{
-					Name: "weka-container-persistence-dir",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: hostsidePersistence,
-							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
-						},
-					},
-				},
 			},
 		},
 	}
@@ -356,9 +348,9 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-cluster-persistence-dir",
 			VolumeSource: corev1.VolumeSource{
-			HostPath: &corev1.HostPathVolumeSource{
-				Path: hostsideClusterPersistence,
-				Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideClusterPersistence,
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 				},
 			},
 		})
