@@ -7,6 +7,7 @@ type TombstoneSpec struct {
 	CrId            string `json:"cr_id"`
 	NodeAffinity    string `json:"node_affinity"`
 	PersistencePath string `json:"persistence_path,omitempty"`
+	ContainerName   string `json:"container_name,omitempty"`
 }
 
 type TombstoneStatus struct {
