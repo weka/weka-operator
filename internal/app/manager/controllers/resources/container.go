@@ -121,10 +121,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
 
 	serviceAccountName := f.container.Spec.ServiceAccountName
-	if serviceAccountName == "" {
-		serviceAccountName = "default"
-	}
-
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -150,7 +146,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			},
-			ServiceAccountName:            serviceAccountName,
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
@@ -375,6 +370,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			})
 		}
 	}
+
+	if serviceAccountName != "" {
+		pod.Spec.ServiceAccountName = serviceAccountName
+	}
+
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	if f.container.Spec.NodeInfoConfigMap != "" {
