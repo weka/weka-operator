@@ -1037,6 +1037,9 @@ func (r *WekaClusterReconciler) HandleUpgrade(ctx context.Context, cluster *weka
 			}
 		}
 		err = rollingUpgrade(s3Containers)
+		if err != nil {
+			return err
+		}
 
 		err = r.finalizeUpgrade(ctx, driveContainers)
 		if err != nil {
