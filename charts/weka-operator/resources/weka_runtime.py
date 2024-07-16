@@ -298,10 +298,11 @@ def get_host_info():
             if line.startswith("OPENSHIFT_VERSION="):
                 ret.kubernetes_distro = KUBERNETES_DISTRO_OPENSHIFT
                 ret.os_build_id = line.split("=")[1].strip().replace('"', '')
+            elif line.startswith('PRETTY_NAME="Container-Optimized OS from Google"'):
+                ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
             elif line.startswith("ID="):
                 ret.os = line.split("=")[1].strip().replace('"', '')
             elif line.startswith("BUILD_ID="):
-                ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
                 ret.os_build_id = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
     return ret
 
