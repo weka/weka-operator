@@ -289,21 +289,33 @@ class HostInfo:
     os = 'unknown'
     os_build_id = ''
 
+    def is_rhcos(self):
+        return self.os == OS_NAME_REDHAT_COREOS
+
+    def is_cos(self):
+        return self.os == OS_NAME_GOOGLE_COS
+
 
 def get_host_info():
+    raw_data = {}
     ret = HostInfo()
-
     with open("/hostside/etc/os-release") as file:
         for line in file:
-            if line.startswith("OPENSHIFT_VERSION="):
-                ret.kubernetes_distro = KUBERNETES_DISTRO_OPENSHIFT
-                ret.os_build_id = line.split("=")[1].strip().replace('"', '')
-            elif line.startswith('PRETTY_NAME="Container-Optimized OS from Google"'):
-                ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
-            elif line.startswith("ID="):
-                ret.os = line.split("=")[1].strip().replace('"', '')
-            elif line.startswith("BUILD_ID="):
-                ret.os_build_id = line.split("=")[1].strip().replace('"', '')  # cos uses BUILD_ID as version
+            try:
+                k, v = line.strip().split("=")
+            except ValueError:
+                continue
+            if v:
+                raw_data[k] = v.strip().replace('"', '')
+
+    ret.os = raw_data.get("ID", "")
+
+    if ret.is_rhcos():
+        ret.kubernetes_distro = KUBERNETES_DISTRO_OPENSHIFT
+
+    elif ret.is_cos():
+        ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
+        ret.os_build_id = raw_data.get("BUILD_ID", "")
     return ret
 
 
