@@ -175,11 +175,11 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-controller-manager WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT} OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT} OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-controller-manager OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient ./cmd/manager/main.go
+	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient ./cmd/manager/main.go
 
 #.PHONY: docker-build
 #docker-build: ## Build docker image with the manager.
