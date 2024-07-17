@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
@@ -530,7 +531,11 @@ func DeallocateNamespacedObject(ctx context.Context, namespacedObject Namespaced
 	return nil
 }
 
+var lock = &sync.Mutex{}
+
 func DeallocateContainer(ctx context.Context, container v1alpha1.WekaContainer, client2 client.Client) error {
+	lock.Lock()
+	defer lock.Unlock()
 	allocationsStore, err := NewConfigMapStore(ctx, client2)
 	if err != nil {
 		return err
