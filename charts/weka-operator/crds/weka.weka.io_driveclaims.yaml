@@ -37,9 +37,15 @@ spec:
             type: object
           spec:
             properties:
+              device:
+                type: string
+              driveUuid:
+                type: string
               owner:
                 type: string
             required:
+            - device
+            - driveUuid
             - owner
             type: object
           status:

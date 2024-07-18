@@ -12,7 +12,9 @@ type DriveClaim struct {
 }
 
 type DriveClaimSpec struct {
-	Owner string `json:"owner"`
+	Owner     string `json:"owner"`
+	Device    string `json:"device"`
+	DriveUuid string `json:"driveUuid"`
 }
 
 type DriveClaimStatus struct {
