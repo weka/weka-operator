@@ -166,6 +166,10 @@ func (w *WekaContainer) IsWekaContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
 }
 
+func (w *WekaContainer) IsAllocatable() bool {
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3}, w.Spec.Mode)
+}
+
 func (w *WekaContainer) HasAgent() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeEnvoy, WekaContainerModeDist}, w.Spec.Mode)
 }

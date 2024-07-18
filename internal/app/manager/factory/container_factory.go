@@ -95,11 +95,13 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 
 	additionalMemory := 0
 	extraCores := 0
+	numDrives := 0
 	switch role {
 	case "compute":
 		additionalMemory = cluster.Spec.AdditionalMemory.Compute
 	case "drive":
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
+		numDrives = template.NumDrives
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores
@@ -131,7 +133,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			Hugepages:           hugePagesNum,
 			HugepagesSize:       template.HugePageSize,
 			HugepagesOverride:   template.HugePagesOverride,
-			NumDrives:           template.NumDrives,
+			NumDrives:           numDrives,
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService:  cluster.Spec.DriversDistService,
 			CpuPolicy:           cpuPolicy,
