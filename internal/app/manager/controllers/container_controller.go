@@ -75,8 +75,8 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create
 
