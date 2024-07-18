@@ -208,6 +208,11 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			if strings.Contains(err.Error(), "No such file or directory") {
 				logger.SetPhase("DRIVERS_NOT_READY")
+				return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
+			}
+			if strings.Contains(err.Error(), "Drivers not loaded") {
+				logger.SetPhase("DRIVERS_NOT_READY")
+				return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
 			}
 			logger.Error(err, "Error reconciling drivers status", "name", container.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, nil
@@ -667,7 +672,7 @@ func (r *ContainerController) reconcileClusterStatus(ctx context.Context, contai
 }
 
 func (r *ContainerController) ensureDrives(ctx context.Context, container *wekav1alpha1.WekaContainer, pod *v1.Pod) (bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDrives")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
 	defer end()
 
 	if container.Status.ClusterContainerID == nil {
@@ -758,18 +763,18 @@ DRIVES:
 					return true, err
 				}
 				if exists {
-					l.WithValues("cluster_guid", stdout.String()).Info("Drive belongs to a different live cluster")
+					l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to a different live cluster")
 					driveCursor++
 					continue
 				} else {
-					l.WithValues("cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster, resigning")
+					l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster, resigning")
 					err2 := r.claimDrive(ctx, container, executor, drive)
 					if err2 != nil {
 						l.Error(err2, "Error claiming drive for resigning")
 						driveCursor++
 						continue
 					}
-					err2 = r.reSignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
+					err2 = r.forceResignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
 					if err2 != nil {
 						l.Error(err2, "Error resigning drive", "drive", drive)
 						driveCursor++
@@ -822,7 +827,11 @@ func getSignatureDevice(drive string) string {
 	return driveSignTarget
 }
 
-func (r *ContainerController) reSignDrive(ctx context.Context, executor util.Exec, drive string) error {
+func (r *ContainerController) forceResignDrive(ctx context.Context, executor util.Exec, drive string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "forceResignDrive")
+	defer end()
+
+	logger.Info("Resigning drive with --force")
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
 	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
 	if err != nil {
@@ -888,7 +897,10 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 			Namespace: container.Namespace,
 			Name:      fmt.Sprintf("%s", driveUuid),
 		},
-		Spec:   wekav1alpha1.DriveClaimSpec{},
+		Spec: wekav1alpha1.DriveClaimSpec{
+			DriveUuid: driveUuid,
+			Device:    drive,
+		},
 		Status: wekav1alpha1.DriveClaimStatus{},
 	}
 
@@ -911,6 +923,7 @@ func (r *ContainerController) claimDrive(ctx context.Context, container *wekav1a
 		if existingClaim.OwnerReferences[0].UID != container.UID {
 			err = errors.New("drive already claimed by another container")
 			logger.SetError(err, "drive already claimed")
+			return err
 		}
 		return nil
 	}
@@ -1046,7 +1059,8 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 		}
 	}
 	if found != nil {
-		logger.InfoWithStatus(codes.Ok, "Drivers loader pod already exists")
+		// logger.InfoWithStatus(codes.Ok, "Drivers loader pod already exists")
+		// Could be debug? we dont have good debug right now, and this one is spamming
 		return nil // TODO: Update handling?
 	}
 	// Should we have an owner? Or should we just delete it once done? We cant have owner in different namespace
