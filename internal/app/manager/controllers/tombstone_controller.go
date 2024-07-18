@@ -33,7 +33,7 @@ type TombstoneReconciller struct {
 	config      TombstoneConfig
 }
 
-func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
+func (r *TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.Tombstone{}).
 		Complete(reconciler)
@@ -65,7 +65,7 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 	return reconciler
 }
 
-func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+func (r *TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	// check if object is being deleted, only then take action
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TombstoneReconcile")
 	defer end()
@@ -187,7 +187,7 @@ func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace stri
 	return &wekaContainerList.Items[0], nil
 }
 
-func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
+func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
 	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
@@ -306,7 +306,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	return job, nil
 }
 
-func (r TombstoneReconciller) ensureFinalizer(ctx context.Context, tombstone *wekav1alpha1.Tombstone) error {
+func (r *TombstoneReconciller) ensureFinalizer(ctx context.Context, tombstone *wekav1alpha1.Tombstone) error {
 	if !slices.Contains(tombstone.Finalizers, WekaFinalizer) {
 		tombstone.Finalizers = append(tombstone.Finalizers, WekaFinalizer)
 		err := r.Client.Update(ctx, tombstone)
@@ -317,7 +317,7 @@ func (r TombstoneReconciller) ensureFinalizer(ctx context.Context, tombstone *we
 	return nil
 }
 
-func (r TombstoneReconciller) removeFinalizer(ctx context.Context, tombtsone *wekav1alpha1.Tombstone) error {
+func (r *TombstoneReconciller) removeFinalizer(ctx context.Context, tombtsone *wekav1alpha1.Tombstone) error {
 	if slices.Contains(tombtsone.Finalizers, WekaFinalizer) {
 		var newFinalizers []string
 		for _, finalizer := range tombtsone.Finalizers {
@@ -335,7 +335,7 @@ func (r TombstoneReconciller) removeFinalizer(ctx context.Context, tombtsone *we
 	return nil
 }
 
-func (r TombstoneReconciller) GCLoop(config TombstoneConfig) {
+func (r *TombstoneReconciller) GCLoop(config TombstoneConfig) {
 	for {
 		ctx := context.Background()
 		//getlogspan
@@ -344,7 +344,7 @@ func (r TombstoneReconciller) GCLoop(config TombstoneConfig) {
 	}
 }
 
-func (r TombstoneReconciller) GC(ctx context.Context) error {
+func (r *TombstoneReconciller) GC(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TombstoneGC")
 	defer end()
 
