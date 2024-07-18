@@ -613,22 +613,22 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			})
 		}
 		// add ephemeral volume to share the buildkit container
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "shared-buildkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "driver-toolkit-shared", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 
 		ContainerMountProp := corev1.MountPropagationHostToContainer
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "shared-buildkit", MountPath: "/buildkit", ReadOnly: false, MountPropagation: &ContainerMountProp})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "driver-toolkit-shared", MountPath: "/driver-toolkit-shared", ReadOnly: false, MountPropagation: &ContainerMountProp})
 
 		initContainerCmds := make(map[string][]string)
 		initContainerCmds[wekav1alpha1.OsNameOpenshift] = []string{"/bin/sh", "-c",
-			"mkdir -p /shared-buildkit/lib; " +
-				"mkdir -p /shared-buildkit/usr; " +
-				"cp -RLrf /usr/src /shared-buildkit/usr; " +
-				"cp -RLrf /lib/modules /shared-buildkit/lib"}
+			"mkdir -p /driver-toolkit-shared/lib; " +
+				"mkdir -p /driver-toolkit-shared/usr; " +
+				"cp -RLrf /usr/src /driver-toolkit-shared/usr; " +
+				"cp -RLrf /lib/modules /driver-toolkit-shared/lib"}
 
 		cmd := initContainerCmds[wekav1alpha1.OsNameOpenshift]
 		mountProp := corev1.MountPropagationBidirectional
 		buildkitContainer := corev1.Container{
-			Name:          "buildkit",
+			Name:          "driver-toolkit-init",
 			Image:         f.container.Spec.CoreOSBuildSpec.DriverToolkitImage,
 			Command:       cmd,
 			Env:           pod.Spec.Containers[0].Env,
@@ -636,7 +636,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			ResizePolicy:  nil,
 			RestartPolicy: nil,
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: "shared-buildkit", MountPath: "/shared-buildkit", ReadOnly: false, MountPropagation: &mountProp},
+				{Name: "driver-toolkit-shared", MountPath: "/driver-toolkit-shared", ReadOnly: false, MountPropagation: &mountProp},
 			},
 			SecurityContext: pod.Spec.Containers[0].SecurityContext,
 		}
