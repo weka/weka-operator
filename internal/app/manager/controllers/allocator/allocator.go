@@ -534,6 +534,9 @@ func DeallocateNamespacedObject(ctx context.Context, namespacedObject Namespaced
 var lock = &sync.Mutex{}
 
 func DeallocateContainer(ctx context.Context, container v1alpha1.WekaContainer, client2 client.Client) error {
+	if !container.IsAllocatable() {
+		return nil
+	}
 	lock.Lock()
 	defer lock.Unlock()
 	allocationsStore, err := NewConfigMapStore(ctx, client2)
