@@ -23,8 +23,8 @@ AGENT_PORT = os.environ.get("AGENT_PORT", "")
 MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
-OS_DISTRO = os.environ.get("OS_DISTRO")
-OS_BUILD_ID = os.environ.get("OS_BUILD_ID")
+OS_DISTRO = ""
+OS_BUILD_ID = ""
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -36,10 +36,10 @@ ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
 
 WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
 
-COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
-COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("COS_ALLOW_DISABLE_DRIVER_SIGNING", "false") == "true" else False
-COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
-COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("COS_GLOBAL_HUGEPAGE_COUNT", 4000))
+WEKA_COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
+WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING", "false") == "true" else False
+WEKA_COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
+WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_COUNT", 4000))
 
 
 # Define global variables
@@ -1015,10 +1015,10 @@ async def cos_disable_driver_signing_verification():
                 sed_cmds.append(('cros_efi', 'cros_efi loadpin.enforce=0'))
     if sed_cmds:
         logging.warning("Must modify kernel parameters")
-        if COS_ALLOW_DISABLE_DRIVER_SIGNING:
+        if WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING:
             logging.warning("Node driver signing configuration has changed, NODE WILL REBOOT NOW!")
         else:
-            raise Exception("Node driver signing configuration must be changed, but COS_ALLOW_DISABLE_DRIVER_SIGNING is not set to True. Exiting.")
+            raise Exception("Node driver signing configuration must be changed, but WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING is not set to True. Exiting.")
 
         await run_command(f"mkdir -p {mount_path}")
         await run_command(f"mount {esp_partition} {mount_path}")
@@ -1057,24 +1057,24 @@ async def cos_configure_hugepages():
         for line in file.readlines():
             logging.info(f"cmdline: {line}")
             if "hugepagesz=" in line:
-                if "hugepagesz=1g" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "2m":
+                if "hugepagesz=1g" in line.lower() and WEKA_COS_GLOBAL_HUGEPAGE_SIZE == "2m":
                     sed_cmds.append(('hugepagesz=1g', 'hugepagesz=2m'))
-                elif "hugepagesz=2m" in line.lower() and COS_GLOBAL_HUGEPAGE_SIZE == "1g":
+                elif "hugepagesz=2m" in line.lower() and WEKA_COS_GLOBAL_HUGEPAGE_SIZE == "1g":
                     sed_cmds.append(('hugepagesz=2m', 'hugepagesz=1g'))
             if "hugepages=" not in line:
                 # hugepages= is not set at all
-                sed_cmds.append(('cros_efi', f'cros_efi hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
-            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and COS_ALLOW_HUGEPAGE_CONFIG:
+                sed_cmds.append(('cros_efi', f'cros_efi hugepages={WEKA_COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={WEKA_COS_GLOBAL_HUGEPAGE_COUNT}" not in line and WEKA_COS_ALLOW_HUGEPAGE_CONFIG:
                 # hugepages= is set but not to the desired value, and we are allowed to change it
-                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={COS_GLOBAL_HUGEPAGE_COUNT}'))
-            elif f"hugepages={COS_GLOBAL_HUGEPAGE_COUNT}" not in line and not COS_ALLOW_HUGEPAGE_CONFIG:
+                sed_cmds.append(('hugepages=[0-9]+', f'hugepages={WEKA_COS_GLOBAL_HUGEPAGE_COUNT}'))
+            elif f"hugepages={WEKA_COS_GLOBAL_HUGEPAGE_COUNT}" not in line and not WEKA_COS_ALLOW_HUGEPAGE_CONFIG:
                 logging.info(f"Node hugepages configuration is managed externally, skipping")
     if sed_cmds:
         logging.warning("Must modify kernel HUGEPAGES parameters")
-        if COS_ALLOW_HUGEPAGE_CONFIG:
+        if WEKA_COS_ALLOW_HUGEPAGE_CONFIG:
             logging.warning("Node hugepage configuration has changed, NODE WILL REBOOT NOW!")
         else:
-            raise Exception("Node hugepage configuration must be changed, but COS_ALLOW_HUGEPAGE_CONFIG is not set to True. Exiting.")
+            raise Exception("Node hugepage configuration must be changed, but WEKA_COS_ALLOW_HUGEPAGE_CONFIG is not set to True. Exiting.")
 
         await run_command(f"mkdir -p {mount_path}")
         await run_command(f"mount {esp_partition} {mount_path}")
@@ -1093,7 +1093,7 @@ async def cos_configure_hugepages():
             if reboot_required:
                 cos_reboot_machine()
     else:
-        logging.info(f"Hugepages are already configured to {COS_GLOBAL_HUGEPAGE_COUNT}x2m pages")
+        logging.info(f"Hugepages are already configured to {WEKA_COS_GLOBAL_HUGEPAGE_COUNT}x2m pages")
 
 
 async def disable_driver_signing():
@@ -1147,15 +1147,15 @@ async def ensure_envoy_container():
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
-    if not OS_DISTRO:
-        OS_DISTRO = host_info.os
+    OS_DISTRO = host_info.os
     logging.info(f'OS_DISTRO={OS_DISTRO}')
 
-    if not OS_BUILD_ID:
-        OS_BUILD_ID = host_info.os_build_id
+    OS_BUILD_ID = host_info.os_build_id
+
     if not OS_BUILD_ID and is_google_cos():
         raise Exception("OS_BUILD_ID is not set")
-    logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
+    if is_google_cos():
+        logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
 
     if MODE == "drivers-loader":
         # self signal to exit

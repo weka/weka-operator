@@ -17,6 +17,7 @@ type K8sOwnerRef struct {
 
 type KubeService interface {
 	GetNode(ctx context.Context, nodeName string) (*v1.Node, error)
+	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
 	EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error
 }
@@ -29,6 +30,15 @@ func NewKubeService(client client.Client) KubeService {
 
 type ApiKubeService struct {
 	Client client.Client
+}
+
+func (s *ApiKubeService) GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error) {
+	nodes := &v1.NodeList{}
+	err := s.Client.List(ctx, nodes, client.MatchingLabels(nodeSelector))
+	if err != nil {
+		return []v1.Node{}, err
+	}
+	return nodes.Items, nil
 }
 
 func (s *ApiKubeService) GetNode(ctx context.Context, nodeName string) (*v1.Node, error) {

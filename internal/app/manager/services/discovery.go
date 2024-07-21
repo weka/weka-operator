@@ -17,15 +17,67 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const DiscoveryTargetVersion = 1
+
 type DiscoveryNodeInfo struct {
 	IsHt             bool   `json:"is_ht"`
 	KubernetesDistro string `json:"kubernetes_distro,omitempty"`
 	Os               string `json:"os,omitempty"`
 	OsBuildId        string `json:"os_build_id,omitempty"`
 	BootID           string `json:"boot_id,omitempty"`
+	Version          int
 }
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
+
+func (nodeInfo *DiscoveryNodeInfo) IsOpenshift() bool {
+	return nodeInfo.KubernetesDistro == v1alpha1.OsNameOpenshift
+
+}
+
+func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
+	return nodeInfo.KubernetesDistro == v1alpha1.OsNameCos
+}
+
+func (d *DiscoveryNodeInfo) GetHostsidePersistenceBaseLocation() string {
+	if d.IsOpenshift() {
+		return v1alpha1.PersistencePathBaseRhCos
+	}
+	if d.IsCos() {
+		return v1alpha1.PersistencePathBaseCos
+	}
+	return v1alpha1.PersistencePathBase
+}
+
+func (d *DiscoveryNodeInfo) GetHostsideContainerPersistence() string {
+	return d.GetHostsidePersistenceBaseLocation() + "/containers"
+}
+
+func (d *DiscoveryNodeInfo) GetHostsideClusterPersistence() string {
+	return d.GetHostsidePersistenceBaseLocation() + "/clusters"
+}
+
+type Discoverer interface {
+	DiscoverNode(ctx context.Context, nodeName string) (*DiscoveryNodeInfo, error)
+}
+
+type ExecDiscovery struct {
+	client          client.Client
+	ExecService     ExecService
+	OwnerWekaObject *v1alpha1.OwnerWekaObject
+}
+
+func (e ExecDiscovery) DiscoverNode(ctx context.Context, nodeName string) (*DiscoveryNodeInfo, error) {
+	return EnsureNodeDiscovered(ctx, e.client, *e.OwnerWekaObject, nodeName, e.ExecService)
+}
+
+func NewDiscoverer(c client.Client, exec ExecService, object *v1alpha1.OwnerWekaObject) Discoverer {
+	return &ExecDiscovery{
+		client:          c,
+		ExecService:     exec,
+		OwnerWekaObject: object,
+	}
+}
 
 func GetCluster(ctx context.Context, c client.Client, name v1alpha1.ObjectReference) (*v1alpha1.WekaCluster, error) {
 	cluster := &v1alpha1.WekaCluster{}
@@ -108,17 +160,11 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *v1alpha
 	return containers
 }
 
-type OwnerWekaObject struct {
-	Image           string              `json:"image"`
-	ImagePullSecret string              `json:"imagePullSecrets"`
-	Tolerations     []corev1.Toleration `json:"tolerations,omitempty"`
-}
-
-func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails OwnerWekaObject, nodeName string, exec ExecService) error {
+func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1alpha1.OwnerWekaObject, nodeName string, exec ExecService) (*DiscoveryNodeInfo, error) {
 	node := &corev1.Node{}
 	err := c.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Check if node already has the discovery.json annotation
@@ -126,15 +172,15 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 		// Validate the annotation is up to date
 		discoveryNodeInfo := &DiscoveryNodeInfo{}
 		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
-		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID {
-			return nil
+		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Version >= DiscoveryTargetVersion {
+			return discoveryNodeInfo, nil
 		}
 	}
 
 	// FormCluster a WekaContainer with mode "discovery"
 	operatorNamespace, err := util.GetPodNamespace()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	discoveryContainer := &v1alpha1.WekaContainer{
@@ -154,14 +200,14 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 	err = c.Get(ctx, types.NamespacedName{Name: discoveryContainer.Name, Namespace: discoveryContainer.Namespace}, discoveryContainer)
 	if err != nil {
 		if !errors2.IsNotFound(err) {
-			return err
+			return nil, err
 		} else {
 			// Fill in the necessary fields here
 			err = c.Create(ctx, discoveryContainer)
 			if err != nil {
 				// if already exits error check the status of existing container
 				if !errors2.IsAlreadyExists(err) {
-					return err
+					return nil, err
 				}
 			}
 		}
@@ -170,40 +216,31 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 	// Wait for the data to be available on this container
 	err = c.Get(ctx, types.NamespacedName{Name: discoveryContainer.Name, Namespace: discoveryContainer.Namespace}, discoveryContainer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	executor, err := exec.GetExecutor(ctx, discoveryContainer)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stdout, _, err := executor.ExecNamed(ctx, "fetch_discovery", []string{"cat", "/tmp/weka-discovery.json"})
 	if err != nil {
-		return errors.Wrap(err, "Failed to read discovery.json")
+		return nil, errors.Wrap(err, "Failed to read discovery.json")
 	}
 
 	discoveryNodeInfo := &DiscoveryNodeInfo{}
 	err = json.Unmarshal(stdout.Bytes(), discoveryNodeInfo)
 	if err != nil {
-		return errors.Wrap(err, "Failed to unmarshal discovery.json")
+		return nil, errors.Wrap(err, "Failed to unmarshal discovery.json")
 	}
 
 	discoveryNodeInfo.BootID = node.Status.NodeInfo.BootID
 	discoveryString, err := json.Marshal(discoveryNodeInfo)
 	if err != nil {
-		return errors.Wrap(err, "Failed to marshal discovery.json")
+		return nil, errors.Wrap(err, "Failed to marshal discovery.json")
 
 	}
 
-	// to make sure that the tombstone of discoverycontainer has a proper persistence path set, update it
-	// might happen only in case where the WekaClient manifest does not provide OS distro.
-	if discoveryContainer.IsUnspecifiedOs() {
-		discoveryContainer.Spec.OsDistro = discoveryNodeInfo.Os
-		err = c.Update(ctx, discoveryContainer)
-		if err != nil {
-			return err
-		}
-	}
 	// Update the node with data in annotation
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
@@ -211,86 +248,16 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 	node.Annotations[discoveryAnnotation] = string(discoveryString)
 	err = c.Update(ctx, node)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Delete WekaContainer
+	// TODO: This needs to be done earlier, validating that node info is already correct
+	// TODO: As we are going to leave garbage here
 	err = c.Delete(ctx, discoveryContainer)
 	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func GetNodeDiscovery(ctx context.Context, c client.Client, node string) (*DiscoveryNodeInfo, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetNodeDiscovery", "node", node)
-	defer end()
-
-	nodeInfo := DiscoveryNodeInfo{}
-	nodeObj := &corev1.Node{}
-	err := c.Get(ctx, types.NamespacedName{Name: node}, nodeObj)
-	if err != nil {
-		logger.SetError(err, "node not found")
 		return nil, err
 	}
 
-	discoveryJson, ok := nodeObj.Annotations[discoveryAnnotation]
-	if !ok {
-		logger.SetError(errors.New("Discovery json not found"), "Discovery json not found")
-		return nil, errors.New("Discovery json not found")
-	}
-
-	err = json.Unmarshal([]byte(discoveryJson), &nodeInfo)
-	if err != nil {
-		logger.SetError(err, "Failed to unmarshal discovery.json")
-		return nil, err
-	}
-	if nodeInfo.BootID != nodeObj.Status.NodeInfo.BootID {
-		logger.SetError(errors.New("BootID mismatch"), "BootID mismatch")
-		return nil, errors.New("BootID mismatch")
-	}
-	return &nodeInfo, nil
-}
-
-func ResolveCpuPolicy(ctx context.Context, c client.Client, node string, cpuPolicy v1alpha1.CpuPolicy) (v1alpha1.CpuPolicy, error) {
-	if cpuPolicy != v1alpha1.CpuPolicyAuto {
-		return cpuPolicy, nil
-	}
-
-	nodeInfo, err := GetNodeDiscovery(ctx, c, node)
-	if err != nil {
-		return cpuPolicy, err
-	}
-
-	if nodeInfo == nil { // asserting just in case
-		return cpuPolicy, errors.New("nil-node info, while no error on node discovery")
-	}
-
-	if nodeInfo.IsHt {
-		cpuPolicy = v1alpha1.CpuPolicyDedicatedHT // for now just as a sane default for clients cases
-	} else {
-		cpuPolicy = v1alpha1.CpuPolicyDedicated
-	}
-	return cpuPolicy, nil
-}
-
-func GetClientOs(ctx context.Context, c client.Client, node string) (OsDistro, OsBuildId string, err error) {
-	nodeInfo, err := GetNodeDiscovery(ctx, c, node)
-	if err != nil {
-		return "", "", err
-	}
-
-	if nodeInfo == nil { // asserting just in case
-		return "", "", errors.New("nil-node info, while no error on node discovery")
-	}
-
-	if nodeInfo.Os != "" {
-		OsDistro = nodeInfo.Os
-	}
-	if nodeInfo.OsBuildId != "" {
-		OsBuildId = nodeInfo.OsBuildId
-	}
-
-	return OsDistro, OsBuildId, nil
+	return discoveryNodeInfo, nil
 }

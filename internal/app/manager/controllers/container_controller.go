@@ -39,12 +39,14 @@ const bootScriptConfigName = "weka-boot-scripts"
 
 func NewContainerController(mgr ctrl.Manager) *ContainerController {
 	config := mgr.GetConfig()
+	client := mgr.GetClient()
+	execService := services.NewExecService(config)
 	return &ContainerController{
-		Client:      mgr.GetClient(),
+		Client:      client,
 		Scheme:      mgr.GetScheme(),
 		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
 		KubeService: services.NewKubeService(mgr.GetClient()),
-		ExecService: services.NewExecService(config),
+		ExecService: execService,
 	}
 }
 
@@ -54,6 +56,7 @@ type ContainerController struct {
 	Logger      logr.Logger
 	KubeService services.KubeService
 	ExecService services.ExecService
+	Discoverer  services.Discoverer
 }
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
@@ -129,30 +132,88 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	desiredPod, err := resources.NewContainerFactory(container).Create(ctx)
-	if err != nil {
-		logger.Error(err, "Error creating pod spec")
-		return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
-	}
-
-	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
-		logger.Error(err, "Error setting controller reference")
-		return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
-	}
-
 	err = r.ensureBootConfigMapInTargetNamespace(ctx, container)
 	if err != nil {
 		return ctrl.Result{}, pretty.Errorf("Error ensuring boot config map", err)
 	}
 	logger.SetPhase("BOOT_CONFIG_MAP_EXISTS")
 
+	deduceAndUpdateNodeAffinity := func(ctx context.Context, actualPod *v1.Pod) error {
+		setAffinity := container.GetNodeAffinity()
+		if actualPod == nil && setAffinity == "" {
+			nodes, err := r.KubeService.GetNodes(ctx, container.Spec.NodeSelector)
+			if err != nil {
+				logger.Error(err, "Error getting nodes")
+				return err
+			}
+
+			if len(nodes) == 0 {
+				return errors.New("No nodes found")
+			}
+
+			// arbitrary select first node
+			// TODO: Select lowest utilziation instead
+			setAffinity = nodes[0].ObjectMeta.Name
+			container.Status.NodeAffinity = setAffinity
+			err = r.Status().Update(ctx, container)
+			if err != nil {
+				logger.Error(err, "Error updating container status")
+				return err
+			}
+		}
+
+		if actualPod == nil {
+			if setAffinity != "" {
+				return nil
+			}
+		}
+
+		setAffinity = container.GetNodeAffinity()
+
+		if actualPod.Spec.NodeName != setAffinity {
+			// Note: This makes an assumption on "never re-allocate" WekaContainer, i.e if there is a pod - pod knows better
+			container.Status.NodeAffinity = actualPod.Spec.NodeName
+			err := r.Status().Update(ctx, container)
+			if err != nil {
+				logger.Error(err, "Error updating container status")
+				return err
+			}
+		}
+
+		return nil
+	}
+	discoverer := services.NewDiscoverer(r.Client, r.ExecService, container.ToOwnerObject())
+
 	actualPod, err := r.refreshPod(ctx, container)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.SetPhase("CREATING_POD")
+			err := deduceAndUpdateNodeAffinity(ctx, nil)
+			if err != nil {
+				return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+			}
+
+			nodeInfo := &services.DiscoveryNodeInfo{}
+			if !container.IsDiscoveryContainer() {
+				nodeInfo, err = discoverer.DiscoverNode(ctx, container.GetNodeAffinity())
+				if err != nil {
+					return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+				}
+			}
+			desiredPod, err := resources.NewContainerFactory(container, nodeInfo).Create(ctx)
+			if err != nil {
+				logger.Error(err, "Error creating pod spec")
+				return ctrl.Result{}, errors.Wrap(err, "Failed to create pod spec")
+			}
+
+			if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
+				logger.Error(err, "Error setting controller reference")
+				return ctrl.Result{}, pretty.Errorf("Error setting controller reference", err, desiredPod)
+			}
+
 			if err := r.Create(ctx, desiredPod); err != nil {
 				logger.Error(err, "Error creating pod", "pod_name", container.Name)
-				return ctrl.Result{}, pretty.Errorf("Error creating pod", err, desiredPod)
+				return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 			}
 			logger.SetPhase("POD_CREATED")
 			return ctrl.Result{Requeue: true}, nil
@@ -162,6 +223,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	} else {
 		logger.SetPhase("POD_ALREADY_EXISTS")
+		err = deduceAndUpdateNodeAffinity(ctx, actualPod)
 		if actualPod.Status.Phase == v1.PodPending {
 			// Do we actually have a node that is assigned to it?
 			err := r.CleanupIfNeeded(ctx, container, actualPod)
@@ -1076,9 +1138,6 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 			NodeAffinity:        container.Spec.NodeAffinity,
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
-			OsDistro:            container.Spec.OsDistro,
-			COSBuildSpec:        container.Spec.COSBuildSpec,
-			CoreOSBuildSpec:     container.Spec.CoreOSBuildSpec,
 			Tolerations:         container.Spec.Tolerations,
 			ServiceAccountName:  serviceAccountName,
 		},
@@ -1116,7 +1175,7 @@ func (r *ContainerController) ensureDriversLoader(ctx context.Context, container
 }
 
 func (r *ContainerController) discoverDrive(ctx context.Context, executor util.Exec, drive string) string {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverDrive", "drive", drive, "node_name", executor.GetNodeName())
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverDrive", "drive", drive)
 	defer end()
 
 	if strings.HasPrefix(drive, "aws_") {
@@ -1192,7 +1251,10 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 		return nil
 	}
 
-	nodeAffinity := container.Spec.NodeAffinity
+	nodeAffinity := container.GetNodeAffinity()
+	// This code needed only for back compatibility
+	// TODO: Fix and remove by having reconcile loop that will update status from pod
+	// And changing allocation logic to update status for future iterations
 	if nodeAffinity == "" {
 		// attempting to find persistent location of the container based on actual pod
 		pod, err := r.refreshPod(ctx, container)
@@ -1206,6 +1268,13 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			nodeAffinity = pod.Spec.NodeName
 		}
 	}
+	discoverer := services.NewDiscoverer(r.Client, r.ExecService, container.ToOwnerObject())
+
+	nodeInfo, err := discoverer.DiscoverNode(ctx, nodeAffinity)
+	if err != nil {
+		logger.Error(err, "Error getting node discovery")
+		return err
+	}
 
 	tombstone := &wekav1alpha1.Tombstone{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1216,12 +1285,12 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			CrType:          "WekaContainer",
 			CrId:            string(container.UID),
 			NodeAffinity:    nodeAffinity,
-			PersistencePath: container.GetHostsideContainerPersistence(),
+			PersistencePath: nodeInfo.GetHostsideContainerPersistence(),
 			ContainerName:   container.Name,
 		},
 	}
 
-	err := r.Create(ctx, tombstone)
+	err = r.Create(ctx, tombstone)
 	if err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			logger.Error(err, "Error creating tombstone")

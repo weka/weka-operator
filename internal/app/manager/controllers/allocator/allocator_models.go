@@ -1,5 +1,9 @@
 package allocator
 
+import (
+	"github.com/weka/weka-operator/util"
+)
+
 const StartingPort = 15000
 const MaxPort = 65535
 
@@ -47,13 +51,8 @@ type NodeAllocations struct {
 	EthSlots        map[Owner][]string
 }
 
-type NamespacedObject struct {
-	Namespace string
-	Name      string
-}
-
-func (o Owner) ToNamespacedObject() NamespacedObject {
-	return NamespacedObject{
+func (o Owner) ToNamespacedObject() util.NamespacedObject {
+	return util.NamespacedObject{
 		Namespace: o.Namespace,
 		Name:      o.Container,
 	}

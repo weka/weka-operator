@@ -51,16 +51,6 @@ type S3Params struct {
 	S3Port         int `json:"s3Port,omitempty"`
 }
 
-type CoreOSBuildSpec struct {
-	DriverToolkitImagePullSecret string `json:"driverToolkitImagePullSecret,omitempty"`
-	DriverToolkitImage           string `json:"driverToolkitImage,omitempty"`
-}
-
-type COSBuildSpec struct {
-	OsBuildId               string `json:"osBuildId,omitempty"`
-	GcloudCredentialsSecret string `json:"gcloudCredentialsSecret,omitempty"`
-}
-
 type WekaContainerSpec struct {
 	NodeAffinity      string            `json:"nodeAffinity,omitempty"`
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
@@ -69,10 +59,8 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	CoreOSBuildSpec   *CoreOSBuildSpec  `json:"coreOSBuildSpec,omitempty"`
-	COSBuildSpec      *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
 	// +kubebuilder:validation:Enum="cos";rhcos;"ubuntu";""
-	OsDistro string `json:"osDistro,omitempty"`
+	RemoveOsDistro string `json:"osDistro,omitempty"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
@@ -114,6 +102,7 @@ type WekaContainerStatus struct {
 	ClusterID          string             `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	LastAppliedImage   string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	NodeAffinity       string             `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if ondeSelector was used instead of direct nodeAffinity
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
@@ -207,39 +196,6 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 	return !w.IsDiscoveryContainer()
 }
 
-func (w *WekaContainer) GetOsDistro() string {
-	return w.Spec.OsDistro
-}
-
-func (w *WekaContainer) IsOpenshift() bool {
-	return w.Spec.OsDistro == OsNameOpenshift
-}
-
-func (w *WekaContainer) IsCos() bool {
-	return w.Spec.OsDistro == OsNameCos
-}
-
-func (w *WekaContainer) IsUnspecifiedOs() bool {
-	return w.Spec.OsDistro == ""
-}
-
-func (w *WekaContainer) GetHostsidePersistenceBaseLocation() string {
-	if w.Spec.OsDistro == OsNameOpenshift {
-		return PersistencePathBaseRhCos //TODO: check persistence for openshift
-	} else if w.Spec.OsDistro == OsNameCos {
-		return PersistencePathBaseCos
-	}
-	return PersistencePathBase
-}
-
-func (w *WekaContainer) GetHostsideContainerPersistence() string {
-	return w.GetHostsidePersistenceBaseLocation() + "/containers"
-}
-
-func (w *WekaContainer) GetHostsideClusterPersistence() string {
-	return w.GetHostsidePersistenceBaseLocation() + "/clusters"
-}
-
 func (w *WekaContainer) IsWekaContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
 }
@@ -254,4 +210,28 @@ func (w *WekaContainer) HasAgent() bool {
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
 	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) GetNodeAffinity() string {
+	if w.Spec.NodeAffinity != "" {
+		return w.Spec.NodeAffinity
+	}
+	if w.Status.NodeAffinity != "" {
+		return w.Status.NodeAffinity
+	}
+	return ""
+}
+
+func (w *WekaContainer) ToOwnerObject() *OwnerWekaObject {
+	return &OwnerWekaObject{
+		Image:           w.Spec.Image,
+		ImagePullSecret: w.Spec.ImagePullSecret,
+		Tolerations:     w.Spec.Tolerations,
+	}
+}
+
+type OwnerWekaObject struct {
+	Image           string          `json:"image"`
+	ImagePullSecret string          `json:"imagePullSecrets"`
+	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
 }
