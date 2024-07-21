@@ -80,7 +80,7 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 	}
 	nodename := tombstone.Spec.NodeAffinity
 	node := corev1.Node{}
-	err = r.Client.Get(context.Background(), client.ObjectKey{Name: nodename}, &node)
+	err = r.Client.Get(ctx, client.ObjectKey{Name: nodename}, &node)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			if r.config.DeleteOnNodeMissing {
