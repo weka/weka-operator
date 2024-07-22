@@ -267,10 +267,10 @@ func (r *ClientReconciler) getClientContainerName(ctx context.Context, wekaClien
 	if nodeObj == nil {
 		return "", errors.New("node not found")
 	}
-
 	clientName = fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, nodeObj.UID)
 	if len(clientName) > 63 {
-		return "", errors.New("client name too long")
+		name := wekaClient.ObjectMeta.Name[:62-len(nodeObj.UID)]
+		clientName = fmt.Sprintf("%s-%s", name, nodeObj.UID)
 	}
 	return clientName, nil
 }
