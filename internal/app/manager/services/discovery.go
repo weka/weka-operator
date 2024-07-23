@@ -238,10 +238,13 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1a
 
 	discoveryNodeInfo.BootID = node.Status.NodeInfo.BootID
 	// if Openshift, update image
-	if discoveryNodeInfo.IsOpenshift() && discoveryNodeInfo.OsBuildId == "" {
+	if discoveryNodeInfo.IsOpenshift() && discoveryNodeInfo.InitContainerImage == "" {
+		if discoveryNodeInfo.OsBuildId == "" {
+			return nil, errors.New("Failed to get OCP version from node")
+		}
 		image, err := GetOcpToolkitImage(ctx, c, discoveryNodeInfo.OsBuildId)
-		if err != nil {
-			return nil, errors.Wrap(err, "Failed to get OCP toolkit image")
+		if err != nil || image == "" {
+			return nil, errors.Wrap(err, fmt.Sprintf("Failed to get OCP toolkit image for version %s", discoveryNodeInfo.OsBuildId))
 		}
 		discoveryNodeInfo.InitContainerImage = image
 	}
