@@ -3,7 +3,7 @@ package v1alpha1
 import "os"
 
 const EnvOCPPullSecret = "WEKA_OCP_PULL_SECRET"
-const EnvOCPToolkitImage = "WEKA_OCP_TOOLKIT_IMAGE"
+const EnvOCPToolkitImageBaseUrl = "WEKA_OCP_TOOLKIT_IMAGE_BASE_URL"
 const EnvCOSServiceAccount = "WEKA_COS_SERVICE_ACCOUNT_SECRET"
 const EnvCosAllowHugePagesConfig = "WEKA_COS_ALLOW_HUGEPAGE_CONFIG"
 const EnvCosHugePagesSize = "WEKA_COS_GLOBAL_HUGEPAGE_SIZE"

@@ -573,6 +573,9 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	// for Dist container, if running on OCP / COS / other containerized OS
 	if f.container.IsDriversBuilder() && f.nodeInfo.IsOpenshift() {
+		if f.nodeInfo.InitContainerImage == "" {
+			return nil, errors.New("cannot create build container for OCP without Toolkit image")
+		}
 		ocpPullSecret := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvOCPPullSecret, "")
 		if ocpPullSecret != "" {
 			// we need to add the buildkit image pull secret
@@ -597,7 +600,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		mountProp := corev1.MountPropagationBidirectional
 		buildkitContainer := corev1.Container{
 			Name:          "driver-toolkit-init",
-			Image:         wekav1alpha1.GetStringEnv(wekav1alpha1.EnvOCPToolkitImage, ""),
+			Image:         f.nodeInfo.InitContainerImage,
 			Command:       cmd,
 			Env:           pod.Spec.Containers[0].Env,
 			Resources:     corev1.ResourceRequirements{},
