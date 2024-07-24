@@ -486,6 +486,7 @@ func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.Weka
 	defer end()
 
 	wekaHomeEndpoint := wekaCluster.Spec.WekaHomeEndpoint
+	wekaHomeStats := wekaCluster.Spec.WekaHomeCloudStats
 	if wekaHomeEndpoint == "" {
 		//get from env var instead
 		var isSet bool
@@ -506,7 +507,7 @@ func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.Weka
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, driveContainer)
-	err := wekaService.SetWekaHome(ctx, wekaHomeEndpoint)
+	err := wekaService.SetWekaHome(ctx, wekaHomeEndpoint, wekaHomeStats)
 	if err != nil {
 		return err
 	}

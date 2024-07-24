@@ -68,7 +68,7 @@ type WekaService interface {
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
-	SetWekaHome(ctx context.Context, endpoint string) error
+	SetWekaHome(ctx context.Context, endpoint string, enableStats bool) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
@@ -117,7 +117,7 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 	return drives, nil
 }
 
-func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error {
+func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string, enableStats bool) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
 	defer end()
 
@@ -126,8 +126,12 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error
 		logger.SetError(err, "Failed to get executor")
 		return err
 	}
+	statsStr := "--cloud-stats off"
+	if enableStats {
+		statsStr = "--cloud-stats on"
+	}
 
-	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s", endpoint)
+	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s %s", endpoint, statsStr)
 	_, stderr, err := executor.ExecNamed(ctx, "SetWekaHome", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.SetError(err, "Failed to set WEKA_HOME", "stderr", stderr.String())

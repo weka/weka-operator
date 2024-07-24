@@ -78,13 +78,15 @@ type WekaClusterSpec struct {
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	WekaHomeEndpoint    string               `json:"wekaHomeEndpoint,omitempty"`
-	Ipv6                bool                 `json:"ipv6,omitempty"`
-	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
-	Ports               ClusterPorts         `json:"ports,omitempty"`
-	MaxFdsPerNode       int                  `json:"maxFdsPerNode,omitempty"`
-	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
-	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
-	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
+	//+kubebuilder:default=false
+	WekaHomeCloudStats bool             `json:"wekaHomeCloudStats,omitempty"`
+	Ipv6               bool             `json:"ipv6,omitempty"`
+	AdditionalMemory   AdditionalMemory `json:"additionalMemory,omitempty"`
+	Ports              ClusterPorts     `json:"ports,omitempty"`
+	MaxFdsPerNode      int              `json:"maxFdsPerNode,omitempty"`
+	OperatorSecretRef  string           `json:"operatorSecretRef,omitempty"`
+	ExpandEndpoints    []string         `json:"expandEndpoints,omitempty"`
+	Dynamic            *WekaConfig      `json:"dynamicTemplate,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
