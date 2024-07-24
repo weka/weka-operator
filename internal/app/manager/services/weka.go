@@ -126,6 +126,10 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, config v1alpha1.WekaHo
 		logger.SetError(err, "Failed to get executor")
 		return err
 	}
+	statsStr := "--cloud-stats off"
+	if *config.EnableStats == true {
+		statsStr = "--cloud-stats on"
+	}
 
 	const enableInsecure = `
 if ! wekaauthcli debug override list | grep insecure_weka_cloud_https_call; then
@@ -148,7 +152,7 @@ fi
 		cmds = append(cmds, customCaCertConfig)
 	}
 
-	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s", config.Endpoint)
+	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s %s", config.Endpoint, statsStr)
 	cmds = append(cmds, cmd)
 
 	fullCmd := strings.Join(cmds, "\n")

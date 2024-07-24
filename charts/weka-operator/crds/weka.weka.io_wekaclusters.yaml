@@ -180,6 +180,9 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              wekaHomeCloudStats:
+                default: false
+                type: boolean
               wekaHomeEndpoint:
                 type: string
             required:

@@ -24,6 +24,7 @@ wekahome:
   endpoint: https://api.home.weka.io
   allowInsecureTLS: false
   cacertSecret: ""
+  enableStats: true
 persistence:
   containerTombstone:
     gc:
