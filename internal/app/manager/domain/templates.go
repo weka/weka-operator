@@ -182,6 +182,16 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		S3Cores:           1,
 		S3ExtraCores:      2,
 	},
+	"full_bliss_i3en6x": {
+		DriveCores:        2,
+		ComputeCores:      5,
+		ComputeContainers: 6,
+		DriveContainers:   6,
+		NumDrives:         2,
+		DriveHugepages:    3000,
+		ComputeHugepages:  15000,
+		HugePageSize:      "2Mi",
+	},
 }
 
 type topologyGetter func(ctx context.Context, reader client.Reader, nodeSelector map[string]string) (Topology, error)
