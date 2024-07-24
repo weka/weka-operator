@@ -62,6 +62,7 @@ type WekaHomeConfig struct {
 	Endpoint      string `json:"endpoint,omitempty"`
 	AllowInsecure bool   `json:"allowInsecure,omitempty"`
 	CacertSecret  string `json:"cacertSecret,omitempty"`
+	EnableStats   *bool  `json:"enableStats"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster

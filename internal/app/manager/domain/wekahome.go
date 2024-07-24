@@ -51,6 +51,21 @@ func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, 
 		}
 	}
 
+	if config.EnableStats == nil {
+		wekahomeEnableStats, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS")
+		var val bool
+		if isSet {
+			if wekahomeEnableStats == "true" {
+				val = true
+			} else {
+				val = false
+			}
+		} else {
+			val = true
+		}
+		config.EnableStats = &val
+	}
+
 	return config, nil
 }
 
