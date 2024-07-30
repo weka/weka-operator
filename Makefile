@@ -25,7 +25,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
 REGISTRY_ENDPOINT ?= quay.io/weka.io
 GORELEASER_BUILDER ?= docker
-VERSION ?= latest
+VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
 ENABLE_CLUSTER_API ?= false
 TOMBSTONE_EXPIRATION ?= 10s
@@ -140,15 +140,17 @@ cluster-sample: ## Deploy sample cluster CRD
 build: ## Build manager binary.
 	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
 
+.PHONY: push-dev
+push-dev: ## Build manager binary.
+	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
 	find . -name 'prog.bin' -delete
 	rm -rf dist
 	rm -rf cover.out cover.html
-
-.PHONY: bundle
-
 
 .PHONY: dev
 dev:
@@ -157,7 +159,6 @@ dev:
 	- $(MAKE) undeploy
 	- $(MAKE) uninstall
 	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
-
 
 .PHONY: devupdate
 devupdate:
@@ -184,7 +185,6 @@ debugcontroller: ## Run a controller from your host.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${REGISTRY_ENDPOINT}/weka-operator:${VERSION}
-	#docker push ${REGISTRY_ENDPOINT}/weka-operator-node-labeller:${VERSION}
 
 ##@ Deployment
 

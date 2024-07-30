@@ -32,8 +32,6 @@ builds:
 
 dockers:
   - image_templates:
-      #      - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Tag }}-{{ .ShortCommit }}"
-      #            - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:latest"
       - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator:{{ .Env.VERSION }}"
 
     dockerfile: "Dockerfile.release"
@@ -41,16 +39,6 @@ dockers:
 
     build_flag_templates:
       - "--target=manager"
-
-#  - image_templates:
-#      - "quay.io/weka.io/weka-operator-node-labeller:{{ .Tag }}-{{ .ShortCommit }}"
-#      - "quay.io/weka.io/weka-operator-node-labeller:latest"
-#      - "quay.io/weka.io/weka-operator-node-labeller:latest"
-#      - "{{ .Env.REGISTRY_ENDPOINT }}/weka-operator-node-labeller:{IMG_TAG}"
-#    dockerfile: "Dockerfile.release"
-#    use: "buildx"
-#    build_flag_templates:
-#      - "--target=node-labeller"
 
 archives:
   - format: binary
