@@ -70,6 +70,10 @@ spec:
             properties:
               additionalMemory:
                 type: integer
+              additionalSecrets:
+                additionalProperties:
+                  type: string
+                type: object
               agentPort:
                 type: integer
               coreIds:

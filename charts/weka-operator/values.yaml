@@ -23,7 +23,7 @@ maintenanceImage: busybox
 wekahome:
   endpoint: https://api.home.weka.io
   allowInsecureTLS: false
-  cacertSecret: ""
+  cacertSecret: "" # assumes that every target namespace will have such secret
   enableStats: true
 persistence:
   containerTombstone:
