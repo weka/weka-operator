@@ -169,6 +169,11 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              wekaHomeConfig:
+                properties:
+                  cacertSecret:
+                    type: string
+                type: object
               wekaSecretRef:
                 type: string
             required:

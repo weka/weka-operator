@@ -286,7 +286,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 	}
 
 	if whCaCert != "" {
-		additionalSecrets["wekahomeCacert"] = whCaCert
+		additionalSecrets["wekahome-cacert"] = whCaCert
 	}
 
 	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)

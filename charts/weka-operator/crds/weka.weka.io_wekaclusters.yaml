@@ -19,11 +19,6 @@ spec:
       jsonPath: .status.status
       name: Status
       type: string
-    - description: Size of the cluster
-      jsonPath: .spec.size
-      name: Size
-      priority: 1
-      type: integer
     - description: Weka cluster ID
       jsonPath: .status.ClusterID
       name: Cluster ID
@@ -228,11 +223,19 @@ spec:
                     default: 10
                     type: integer
                 type: object
-              wekaHomeCloudStats:
-                default: false
-                type: boolean
               wekaHomeEndpoint:
-                type: string
+                properties:
+                  allowInsecure:
+                    type: boolean
+                  cacertSecret:
+                    type: string
+                  enableStats:
+                    type: boolean
+                  endpoint:
+                    type: string
+                required:
+                - enableStats
+                type: object
             required:
             - image
             - template

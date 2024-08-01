@@ -121,7 +121,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if domain.GetWekaHomeSecretRef(wekahomeConfig) != nil {
 		secret := domain.GetWekaHomeSecretRef(wekahomeConfig)
 		if secret != nil {
-			additionalSecrets["wekahomeCacert"] = *secret
+			additionalSecrets["wekahome-cacert"] = *secret
 		}
 	}
 

@@ -130,7 +130,6 @@ type WekaClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
-// +kubebuilder:printcolumn:name="Size",type="integer",JSONPath=".spec.size",description="Size of the cluster",priority=1
 // +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.ClusterID",description="Weka cluster ID",priority=2
 // +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".spec.dynamicTemplate.computeContainers",description="Number of compute containers",priority=3
 // +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".spec.dynamicTemplate.driveContainers",description="Number of drive containers",priority=4

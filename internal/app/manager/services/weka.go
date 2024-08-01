@@ -144,11 +144,12 @@ fi
 
 	customCaCertConfig := `
 if ! wekaauthcli debug override list | grep weka_cloud_ca_cert_path; then
-	wekaauthcli debug override add --key weka_cloud_ca_cert_path --value %s
+	wekaauthcli debug override add --key weka_cloud_ca_cert_path --value %s || wekaauthcli debug override add --key weka_cloud_ca_cert_path --value %s --force || true
 fi
 `
 	if config.CacertSecret != "" {
-		customCaCertConfig = fmt.Sprintf(customCaCertConfig, config.CacertSecret)
+		path := "/var/run/secrets/weka-operator/wekahome-cacert/cert.pem"
+		customCaCertConfig = fmt.Sprintf(customCaCertConfig, path, path)
 		cmds = append(cmds, customCaCertConfig)
 	}
 
