@@ -296,6 +296,6 @@ func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string,
 	if imageTag == "" {
 		return "", errors.New(fmt.Sprintf("Failed to fetch image tag %s from configmap %s", v, ocpDriverToolkitMapName))
 	}
-	imageBase := v1alpha1.GetStringEnv(v1alpha1.EnvOCPToolkitImageBaseUrl, "quay.io/weka/ocp-driver-toolkit")
+	imageBase := v1alpha1.GetStringEnv(v1alpha1.EnvOCPToolkitImageBaseUrl, "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	return fmt.Sprintf("%s@sha256:%s", imageBase, imageTag), nil
 }

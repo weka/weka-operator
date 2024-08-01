@@ -180,7 +180,7 @@ runcontroller: ## Run a controller from your host.
     WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" \
     WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" \
     WEKA_OCP_PULL_SECRET=ocp-buildkit-secret \
-    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/weka.io/ocp-toolkit \
+    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/openshift-release-dev/ocp-v4.0-art-dev \
     WEKA_COS_SERVICE_ACCOUNT_SECRET=weka-builder \
     WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
     WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
@@ -198,7 +198,7 @@ debugcontroller: ## Run a controller from your host.
 	WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" \
 	WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" \
     WEKA_OCP_PULL_SECRET=ocp-buildkit-secret \
-    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/weka.io/ocp-toolkit \
+    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/openshift-release-dev/ocp-v4.0-art-dev \
     WEKA_COS_SERVICE_ACCOUNT_SECRET=weka-builder \
     WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
     WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
