@@ -60,10 +60,6 @@ type WekaConfig struct {
 
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of WekaCluster. Edit dummycluster_types.go to remove/update
 	Size               int               `json:"size,omitempty"`
 	Template           string            `json:"template"`
 	Topology           string            `json:"topology"`
@@ -127,6 +123,18 @@ type WekaClusterStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:subresource:spec
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
+// +kubebuilder:printcolumn:name="Size",type="integer",JSONPath=".spec.size",description="Size of the cluster",priority=1
+// +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.ClusterID",description="Weka cluster ID",priority=2
+// +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".spec.dynamicTemplate.computeContainers",description="Number of compute containers",priority=3
+// +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".spec.dynamicTemplate.driveContainers",description="Number of drive containers",priority=4
+// +kubebuilder:printcolumn:name="S3 Containers",type="integer",JSONPath=".spec.dynamicTemplate.S3Containers",description="Number of S3 containers",priority=5
+// +kubebuilder:printcolumn:name="Compute Cores",type="integer",JSONPath=".spec.dynamicTemplate.computeCores",description="Number of compute cores",priority=6
+// +kubebuilder:printcolumn:name="Drive Cores",type="integer",JSONPath=".spec.dynamicTemplate.driveCores",description="Number of drive cores",priority=7
+// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".spec.dynamicTemplate.NumDrives",description="Number of drives",priority=8
+// +kubebuilder:printcolumn:name="S3 Cores",type="integer",JSONPath=".spec.dynamicTemplate.s3Cores",description="Number of S3 cores",priority=9
+
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

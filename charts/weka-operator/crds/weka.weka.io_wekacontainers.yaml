@@ -14,7 +14,38 @@ spec:
     singular: wekacontainer
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Weka container status
+      jsonPath: .status.status
+      name: Status
+      priority: 1
+      type: string
+    - description: Weka container mode
+      jsonPath: .spec.mode
+      name: Mode
+      priority: 2
+      type: string
+    - description: Hugepages count
+      jsonPath: .spec.hugepages
+      name: Hugepages Count
+      priority: 3
+      type: integer
+    - description: Hugepages size
+      jsonPath: .spec.hugepagesSize
+      name: Hugepages Size
+      priority: 4
+      type: integer
+    - description: Number of drives attached to container
+      jsonPath: .spec.numDrives
+      name: Drives Count
+      priority: 5
+      type: integer
+    - description: Weka container name
+      jsonPath: .spec.wekaContainerName
+      name: Weka Container Name
+      priority: 6
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:
