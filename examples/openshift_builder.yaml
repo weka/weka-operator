@@ -13,6 +13,8 @@ spec:
   name: dist
   numCores: 1
   port: 60002
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
 
 ---
 apiVersion: v1
