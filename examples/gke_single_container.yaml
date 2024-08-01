@@ -8,7 +8,6 @@ spec:
     - 2
   image: quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.3
   imagePullSecret: "quay-cred"
-  osDistro: "cos"
   mode: "compute"
   name: singlecontainer0
   numCores: 1
