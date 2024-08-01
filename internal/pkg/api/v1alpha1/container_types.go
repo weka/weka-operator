@@ -10,6 +10,14 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:subresource:spec
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=1
+// +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=2
+// +kubebuilder:printcolumn:name="Hugepages Count",type="integer",JSONPath=".spec.hugepages",description="Hugepages count",priority=3
+// +kubebuilder:printcolumn:name="Hugepages Size",type="integer",JSONPath=".spec.hugepagesSize",description="Hugepages size",priority=4
+// +kubebuilder:printcolumn:name="Drives Count",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=5
+// +kubebuilder:printcolumn:name="Weka Container Name",type="string",JSONPath=".spec.wekaContainerName",description="Weka container name",priority=6
+
 type WekaContainer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -58,7 +66,7 @@ type WekaContainerSpec struct {
 	Hugepages           int                  `json:"hugepages,omitempty"`
 	HugepagesSize       string               `json:"hugepagesSize,omitempty"`
 	HugepagesOverride   string               `json:"hugepagesSizeOverride,omitempty"`
-	PotentialDrives     []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistend handler for drives
+	PotentialDrives     []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistent handler for drives
 	NumDrives           int                  `json:"numDrives,omitempty"`
 	DriversDistService  string               `json:"driversDistService,omitempty"`
 	WekaSecretRef       v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
