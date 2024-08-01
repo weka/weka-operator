@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
-	"os"
 	"reflect"
 	"strconv"
 	"time"
@@ -485,19 +484,13 @@ func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.Weka
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "configureWekaHome")
 	defer end()
 
-	wekaHomeEndpoint := wekaCluster.Spec.WekaHomeEndpoint
-	if wekaHomeEndpoint == "" {
-		//get from env var instead
-		var isSet bool
-		wekaHomeEndpoint, isSet = os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENDPOINT")
-		if !isSet {
-			wekaHomeEndpoint = "https://api.home.weka.io"
-		}
+	config, err := domain.GetWekahomeConfig(wekaCluster)
+	if err != nil {
+		return err
 	}
 
-	if wekaHomeEndpoint == "" {
-		// if explicitly defined by helm chart empty value - skip setup, otherwise fail on it if WH not reachable/configurd incorrectly
-		return nil
+	if config.Endpoint == "" {
+		return nil // explicitly asked not to configure
 	}
 
 	driveContainer := wekaCluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
@@ -506,7 +499,7 @@ func (r *WekaClusterReconciler) configureWekaHome(wekaCluster *wekav1alpha1.Weka
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, driveContainer)
-	err := wekaService.SetWekaHome(ctx, wekaHomeEndpoint)
+	err = wekaService.SetWekaHome(ctx, config)
 	if err != nil {
 		return err
 	}

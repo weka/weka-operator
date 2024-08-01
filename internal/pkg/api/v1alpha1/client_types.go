@@ -40,6 +40,10 @@ type ObjectReference struct {
 	Namespace string `json:"namespace"`
 }
 
+type WekahomeClientConfig struct {
+	CacertSecret string `json:"cacertSecret,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -65,6 +69,7 @@ type WekaClientSpec struct {
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
+	WekaHomeConfig      WekahomeClientConfig `json:"wekaHomeConfig,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient

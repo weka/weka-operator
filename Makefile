@@ -212,7 +212,7 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
 		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
-		--set wekaHomeEndpoint="https://api.home.rnd.weka.io"
+		--set wekahome.endpoint="https://api.home.rnd.weka.io"
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
