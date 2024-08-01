@@ -538,7 +538,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		} else {
 			libModulesPath := "/lib/modules"
 			usrSrcPath := "/usr/src"
-			if f.nodeInfo.IsOpenshift() {
+			if f.nodeInfo.IsRhCos() {
 				libModulesPath = "/hostpath/lib/modules"
 				usrSrcPath = "/hostpath/usr/src"
 			}
@@ -572,7 +572,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	// for Dist container, if running on OCP / COS / other containerized OS
-	if f.container.IsDriversBuilder() && f.nodeInfo.IsOpenshift() {
+	if f.container.IsDriversBuilder() && f.nodeInfo.IsRhCos() {
 		if f.nodeInfo.InitContainerImage == "" {
 			return nil, errors.New("cannot create build container for OCP without Toolkit image")
 		}

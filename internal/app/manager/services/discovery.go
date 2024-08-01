@@ -33,8 +33,8 @@ type DiscoveryNodeInfo struct {
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
 
-func (nodeInfo *DiscoveryNodeInfo) IsOpenshift() bool {
-	return nodeInfo.KubernetesDistro == v1alpha1.OsNameOpenshift
+func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
+	return nodeInfo.Os == v1alpha1.OsNameOpenshift
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
@@ -42,7 +42,7 @@ func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
 }
 
 func (d *DiscoveryNodeInfo) GetHostsidePersistenceBaseLocation() string {
-	if d.IsOpenshift() {
+	if d.IsRhCos() {
 		return v1alpha1.PersistencePathBaseRhCos
 	}
 	if d.IsCos() {
@@ -238,7 +238,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1a
 
 	discoveryNodeInfo.BootID = node.Status.NodeInfo.BootID
 	// if Openshift, update image
-	if discoveryNodeInfo.IsOpenshift() && discoveryNodeInfo.InitContainerImage == "" {
+	if discoveryNodeInfo.IsRhCos() && discoveryNodeInfo.InitContainerImage == "" {
 		if discoveryNodeInfo.OsBuildId == "" {
 			return nil, errors.New("Failed to get OCP version from node")
 		}
