@@ -70,6 +70,7 @@ type WekaContainerSpec struct {
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	ForceAllowDriveSign bool                 `json:"forceAllowDriveSign,omitempty"`
 	Group               string               `json:"group,omitempty"`
+	AdditionalSecrets   map[string]string    `json:"additionalSecrets,omitempty"`
 }
 
 type Network struct {

@@ -58,6 +58,12 @@ type WekaConfig struct {
 	EnvoyCores          int  `json:"envoyCores,omitempty"`
 }
 
+type WekaHomeConfig struct {
+	Endpoint      string `json:"endpoint,omitempty"`
+	AllowInsecure bool   `json:"allowInsecure,omitempty"`
+	CacertSecret  string `json:"cacertSecret,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -77,7 +83,7 @@ type WekaClusterSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
-	WekaHomeEndpoint    string               `json:"wekaHomeEndpoint,omitempty"`
+	WekaHomeConfig      *WekaHomeConfig      `json:"wekaHomeEndpoint,omitempty"`
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
 	Ports               ClusterPorts         `json:"ports,omitempty"`
