@@ -408,6 +408,9 @@ def find_full_cores(n):
     allowed_cores = parse_cpu_allowed_list()
 
     for cpu_index in allowed_cores:
+        if is_rhcos() and cpu_index in [0]:
+            continue  # TODO: remove this once a better solution is found to avoid using CPU 0 and 1
+
         siblings = read_siblings_list(cpu_index)
         if all(sibling in allowed_cores for sibling in siblings):
             if any(sibling in selected_siblings for sibling in siblings):
