@@ -1,0 +1,417 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controllers
+
+import (
+	"context"
+	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	util2 "github.com/weka/weka-operator/pkg/util"
+	"os"
+	"reflect"
+	"time"
+
+	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+
+	"github.com/weka/weka-operator/internal/controllers/condition"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+// ClientReconciler reconciles a Client object
+type ClientReconciler struct {
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
+	Manager  ctrl.Manager
+
+	ConditionReady *condition.Ready
+
+	Logger logr.Logger
+
+	// -- State dependent components
+	// These may be nil depending on where we are int he reconciliation process
+	CurrentInstance *wekav1alpha1.WekaClient
+}
+
+func NewClientReconciler(mgr ctrl.Manager) *ClientReconciler {
+	return &ClientReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("weka-operator"),
+		Logger:   mgr.GetLogger().WithName("controllers").WithName("WekaClient"),
+		Manager:  mgr,
+	}
+}
+
+// Run is part of the main kubernetes reconciliation loop which aims to
+// move the current state of the cluster closer to the desired state.
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
+
+func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
+	defer end()
+
+	wekaClient, err := GetClient(ctx, req, r.Client)
+	if err != nil {
+		logger.Error(err, "Failed to get wekaClient")
+		return ctrl.Result{}, err
+	}
+	if wekaClient == nil {
+		logger.Info("wekaClient resource not found. Ignoring since object must be deleted")
+		return ctrl.Result{}, nil
+	}
+
+	err = r.initState(ctx, wekaClient)
+	if err != nil {
+		logger.Error(err, "Failed to initialize state")
+		return ctrl.Result{}, err
+	}
+
+	if wekaClient.GetDeletionTimestamp() != nil {
+		err = r.handleDeletion(ctx, wekaClient)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("Deleting wekaClient")
+		return ctrl.Result{}, nil
+	}
+
+	applicableNodes, err := allocator.GetNodesByLabels(ctx, r.Client, wekaClient.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "Failed to get applicable nodes by labels")
+		return ctrl.Result{}, err
+	}
+
+	result, containers, err := r.ensureClientsWekaContainers(ctx, wekaClient, applicableNodes)
+	if err != nil {
+		logger.Error(err, "Failed to ensure weka containers")
+		return result, err
+	}
+	if result.Requeue {
+		return result, nil
+	}
+
+	err = r.HandleSpecUpdates(ctx, wekaClient, containers)
+	if err != nil {
+		logger.Error(err, "Failed to handle spec updates")
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+
+	return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 10}, nil
+}
+
+func (r *ClientReconciler) RecordEvent(eventtype string, reason string, message string) error {
+	if r.CurrentInstance == nil {
+		return fmt.Errorf("current client is nil")
+	}
+	r.Recorder.Event(r.CurrentInstance, v1.EventTypeNormal, reason, message)
+	return nil
+}
+
+// TODO: Factor the below  out into reconciler methods
+// SetupWithManager sets up the controller with the Manager.
+func (r *ClientReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconiler reconcile.Reconciler) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&wekav1alpha1.WekaClient{}).
+		Owns(&wekav1alpha1.WekaContainer{}).
+		Complete(wrappedReconiler)
+}
+
+func (r *ClientReconciler) finalizeClient(ctx context.Context, client *wekav1alpha1.WekaClient) error {
+	r.Logger.Info("Successfully finalized WekaClient")
+	return nil
+}
+
+func (r *ClientReconciler) initState(ctx context.Context, wekaClient *wekav1alpha1.WekaClient) error {
+	if wekaClient.GetFinalizers() == nil {
+		wekaClient.SetFinalizers([]string{WekaFinalizer})
+		err := r.Update(ctx, wekaClient)
+		if err != nil {
+			return errors.Wrap(err, "failed to update wekaClient")
+		}
+	}
+	return nil
+}
+
+func (r *ClientReconciler) handleDeletion(ctx context.Context, wekaClient *wekav1alpha1.WekaClient) error {
+	if controllerutil.ContainsFinalizer(wekaClient, WekaFinalizer) {
+		if err := r.finalizeClient(ctx, wekaClient); err != nil {
+			return errors.Wrap(err, "failed to finalize wekaClient")
+		}
+		controllerutil.RemoveFinalizer(wekaClient, WekaFinalizer)
+		if err := r.Update(ctx, wekaClient); err != nil {
+			return errors.Wrap(err, "failed to update wekaClient")
+		}
+	}
+	return nil
+}
+
+func (r *ClientReconciler) ensureClientsWekaContainers(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, nodes []string) (ctrl.Result, []*wekav1alpha1.WekaContainer, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientsWekaContainers", "namespace", wekaClient.Namespace, "name", wekaClient.Name)
+	defer end()
+
+	foundContainers := []*wekav1alpha1.WekaContainer{}
+	size := len(nodes)
+	if size == 0 {
+		return ctrl.Result{Requeue: true}, nil, nil
+	}
+
+	for _, node := range nodes {
+		wekaContainer, err := r.buildClientWekaContainer(ctx, wekaClient, node)
+		if err != nil {
+			return ctrl.Result{}, nil, err
+		}
+		err = ctrl.SetControllerReference(wekaClient, wekaContainer, r.Scheme)
+		if err != nil {
+			return ctrl.Result{Requeue: true}, nil, err
+		}
+
+		found := &wekav1alpha1.WekaContainer{}
+		err = r.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
+		if err != nil && apierrors.IsNotFound(err) {
+			// TODO: Wasteful approach right now, each client fetches separately
+			// We should have some small time-based cache here
+			err := r.resolveJoinIps(ctx, wekaClient)
+			if err != nil {
+				return ctrl.Result{Requeue: true}, nil, err
+			}
+			// Always re-applying, either we had JoinIps set by user, or we have resolving re-populating them
+			wekaContainer.Spec.JoinIps = wekaClient.Spec.JoinIps
+
+			err = r.Create(ctx, wekaContainer)
+			if err != nil {
+				return ctrl.Result{Requeue: true}, nil, err
+			}
+
+			foundContainers = append(foundContainers, wekaContainer)
+		} else {
+			foundContainers = append(foundContainers, found)
+		}
+	}
+	return ctrl.Result{}, foundContainers, nil
+}
+
+func (r *ClientReconciler) getClientContainerName(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (string, error) {
+	clientName := fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, node)
+	if len(clientName) <= 63 {
+		return clientName, nil
+	}
+
+	nodeObj := &v1.Node{}
+	err := r.Get(ctx, client.ObjectKey{Name: node}, nodeObj)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get node")
+	}
+	if nodeObj == nil {
+		return "", errors.New("node not found")
+	}
+	clientName = fmt.Sprintf("%s-%s", wekaClient.ObjectMeta.Name, nodeObj.UID)
+	if len(clientName) > 63 {
+		name := wekaClient.ObjectMeta.Name[:62-len(nodeObj.UID)]
+		clientName = fmt.Sprintf("%s-%s", name, nodeObj.UID)
+	}
+	return clientName, nil
+}
+
+func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, node string) (*wekav1alpha1.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", node)
+	defer end()
+
+	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	var numCores int
+	numCores = wekaClient.Spec.CoresNumber
+	if wekaClient.Spec.CoresNumber == 0 {
+		numCores = 1
+	}
+
+	additionalSecrets := map[string]string{}
+
+	whCaCert := wekaClient.Spec.WekaHomeConfig.CacertSecret
+	if whCaCert == "" {
+		wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
+		if isSet {
+			if wekaHomeCacertSecret != "" {
+				whCaCert = wekaHomeCacertSecret
+			}
+		}
+	}
+
+	if whCaCert != "" {
+		additionalSecrets["wekahome-cacert"] = whCaCert
+	}
+
+	tolerations := util2.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	clientName, err := r.getClientContainerName(ctx, wekaClient, node)
+	if err != nil {
+		logger.Error(err, "Failed to create client container name, too long", "clientName", clientName)
+		return nil, err
+	}
+
+	container := &wekav1alpha1.WekaContainer{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "weka.weka.io/v1alpha1",
+			Kind:       "WekaContainer",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      clientName,
+			Namespace: wekaClient.Namespace,
+			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
+		},
+		Spec: wekav1alpha1.WekaContainerSpec{
+			NodeAffinity:        wekav1alpha1.NodeName(node),
+			Port:                wekaClient.Spec.Port,
+			AgentPort:           wekaClient.Spec.AgentPort,
+			Image:               wekaClient.Spec.Image,
+			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
+			WekaContainerName:   fmt.Sprintf("%sclient", util2.GetLastGuidPart(wekaClient.GetUID())),
+			Mode:                "client",
+			NumCores:            numCores,
+			CpuPolicy:           wekaClient.Spec.CpuPolicy,
+			CoreIds:             wekaClient.Spec.CoreIds,
+			Network:             network,
+			Hugepages:           1500 * numCores,
+			HugepagesSize:       "2Mi",
+			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
+			DriversDistService:  wekaClient.Spec.DriversDistService,
+			JoinIps:             wekaClient.Spec.JoinIps,
+			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
+			Tolerations:         tolerations,
+			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
+			AdditionalSecrets:   additionalSecrets,
+		},
+	}
+	return container, nil
+}
+
+func (r *ClientReconciler) resolveJoinIps(ctx context.Context, wekaClient *wekav1alpha1.WekaClient) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "resolveJoinIps")
+	defer end()
+
+	emptyTarget := wekav1alpha1.ObjectReference{}
+	if wekaClient.Spec.TargetCluster == emptyTarget {
+		return nil
+	}
+
+	cluster, err := discovery.GetCluster(ctx, r.Client, wekaClient.Spec.TargetCluster)
+	if err != nil {
+		return err
+	}
+
+	joinIps, err := discovery.GetJoinIps(ctx, r.Client, cluster)
+	if err != nil {
+		return err
+	}
+	logger.Info("Resolved join ips", "joinIps", joinIps)
+
+	wekaClient.Spec.JoinIps = joinIps
+	// not commiting on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
+	// and new reconcilation loops will refresh it each time
+	return nil
+}
+
+func (r *ClientReconciler) HandleSpecUpdates(ctx context.Context, wekaClient *wekav1alpha1.WekaClient, containers []*wekav1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleClientSpecUpdates")
+	defer end()
+
+	specHash, err := util2.HashStruct(wekaClient.Spec)
+	if err != nil {
+		return err
+	}
+
+	if specHash != wekaClient.Status.LastAppliedSpec {
+		logger.Info("Spec has changed, updating status")
+		for _, container := range containers {
+			changed := false
+			if container.Spec.DriversDistService != wekaClient.Spec.DriversDistService {
+				container.Spec.DriversDistService = wekaClient.Spec.DriversDistService
+				changed = true
+			}
+
+			if container.Spec.Image != wekaClient.Spec.Image {
+				container.Spec.Image = wekaClient.Spec.Image
+				changed = true
+			}
+
+			if container.Spec.ImagePullSecret != wekaClient.Spec.ImagePullSecret {
+				container.Spec.ImagePullSecret = wekaClient.Spec.ImagePullSecret
+				changed = true
+			}
+
+			if container.Spec.AdditionalMemory != wekaClient.Spec.AdditionalMemory {
+				container.Spec.AdditionalMemory = wekaClient.Spec.AdditionalMemory
+				changed = true
+			}
+
+			tolerations := util2.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
+				container.Spec.Tolerations = tolerations
+				changed = true
+			}
+
+			if changed {
+				err = r.Update(ctx, container)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		logger.Info("Updating last applied spec", "currentSpecHash", specHash, "lastAppliedSpecHash", wekaClient.Status.LastAppliedSpec)
+		wekaClient.Status.LastAppliedSpec = specHash
+		err = r.Status().Update(ctx, wekaClient)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func GetClient(ctx context.Context, req ctrl.Request, r client.Reader) (*wekav1alpha1.WekaClient, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClient", "namespace", req.Namespace, "name", req.Name)
+	defer end()
+
+	wekaClient := &wekav1alpha1.WekaClient{}
+	err := r.Get(ctx, req.NamespacedName, wekaClient)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("wekaClient resource not found. Ignoring since object must be deleted")
+			return nil, nil
+		}
+		// Error reading the object - requeue the request.
+		logger.Error(err, "Failed to get wekaClient")
+		return nil, err
+	}
+	return wekaClient, nil
+}

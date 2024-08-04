@@ -21,6 +21,7 @@ import (
 	"flag"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"log"
@@ -39,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/weka/weka-operator/internal/app/manager/controllers"
+	"github.com/weka/weka-operator/internal/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -137,6 +138,8 @@ func main() {
 		controllers.NewContainerController(mgr),
 		controllers.NewWekaClusterController(mgr),
 		controllers.NewTombstoneController(mgr, tombstoneConfig),
+		controllers.NewWekaPolicyController(mgr),
+		controllers.NewWekaManualOperationController(mgr),
 	}
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
@@ -189,21 +192,21 @@ func main() {
 }
 
 func setupContainerIndexes(mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, "spec.nodeName", func(rawObj client.Object) []string {
+		pod := rawObj.(*corev1.Pod)
+		return []string{pod.Spec.NodeName}
+	}); err != nil {
+		return err
+	}
 
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
-		// Grab the job object, extract the owner...
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
-		owner := metav1.GetControllerOf(wekaContainer)
-		if owner == nil {
-			return nil
-		}
 		return []string{string(wekaContainer.UID)}
 	}); err != nil {
 		return err
 	}
 
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
-		// Grab the job object, extract the owner...
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
 		owner := metav1.GetControllerOf(wekaContainer)
 		if owner == nil {

@@ -1,0 +1,105 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.15.0
+  name: wekapolicies.weka.weka.io
+spec:
+  group: weka.weka.io
+  names:
+    kind: WekaPolicy
+    listKind: WekaPolicyList
+    plural: wekapolicies
+    singular: wekapolicy
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: WekaPolicy is the Schema for the wekapolicies API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WekaPolicySpec defines the desired state of WekaPolicy
+            properties:
+              image:
+                type: string
+              imagePullSecret:
+                type: string
+              payload:
+                properties:
+                  discoverDrives:
+                    properties:
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  interval:
+                    type: string
+                  schedulingConfig:
+                    properties:
+                      allowNoFds:
+                        type: boolean
+                    required:
+                    - allowNoFds
+                    type: object
+                  signDrives:
+                    properties:
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      type:
+                        type: string
+                    required:
+                    - type
+                    type: object
+                required:
+                - interval
+                type: object
+              type:
+                type: string
+            required:
+            - image
+            - imagePullSecret
+            - payload
+            - type
+            type: object
+          status:
+            description: WekaPolicyStatus defines the observed state of WekaPolicy
+            properties:
+              lastRunTime:
+                format: date-time
+                type: string
+              result:
+                type: string
+              status:
+                type: string
+            required:
+            - lastRunTime
+            - result
+            - status
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

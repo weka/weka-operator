@@ -1,0 +1,300 @@
+package operations
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/pkg/errors"
+	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	discoveryAnnotation   = "weka.io/discovery.json"
+	DiscoveryTargetSchema = 2
+)
+
+type DiscoverNodeOperation struct {
+	client          client.Client
+	kubeService     kubernetes.KubeService
+	execService     exec.ExecService
+	scheme          *runtime.Scheme
+	nodeName        weka.NodeName
+	image           string
+	pullSecret      string
+	result          *discovery.DiscoveryNodeInfo
+	container       *weka.WekaContainer
+	ownerRef        client.Object
+	atus            string
+	mgr             ctrl.Manager
+	successCallback lifecycle.StepFunc
+	tolerations     []corev1.Toleration
+	node            *corev1.Node
+}
+
+func NewDiscoverNodeOperation(mgr ctrl.Manager, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.OwnerWekaObject) *DiscoverNodeOperation {
+	kclient := mgr.GetClient()
+	return &DiscoverNodeOperation{
+		mgr:         mgr,
+		client:      kclient,
+		kubeService: kubernetes.NewKubeService(kclient),
+		execService: exec.NewExecService(mgr.GetConfig()),
+		scheme:      mgr.GetScheme(),
+		nodeName:    node,
+		image:       ownerDetails.Image,
+		pullSecret:  ownerDetails.ImagePullSecret,
+		tolerations: ownerDetails.Tolerations,
+		result:      nil,
+		ownerRef:    ownerRef,
+	}
+}
+
+func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
+	return lifecycle.Step{
+		Name: "DiscoverNode",
+		Run:  AsRunFunc(o),
+	}
+}
+
+func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
+	return []lifecycle.Step{
+		{Name: "GetNode", Run: o.GetNode},
+		{Name: "GetContainers", Run: o.GetContainers},
+		{
+			Name:            "FinishOnExistingInfo",
+			Run:             o.DeleteContainers,
+			FinishOnSuccess: true,
+			Predicates: lifecycle.Predicates{
+				o.HasData,
+			},
+			ContinueOnPredicatesFalse: true,
+		},
+		{Name: "EnsureContainers", Run: o.EnsureContainers},
+		{Name: "PollResults", Run: o.PollResults},
+		{Name: "ProcessResult", Run: o.ProcessResult},
+		{Name: "UpdateNodes", Run: o.UpdateNodes},
+		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+	}
+}
+
+func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+	node, err := o.kubeService.GetNode(ctx, types.NodeName(o.nodeName))
+	if err != nil {
+		return err
+	}
+	if node == nil {
+		return fmt.Errorf("no matching nodes found for the given node selector")
+	}
+	o.node = node
+
+	// Check if node already has the discovery.json annotation
+	if annotation, ok := node.Annotations[discoveryAnnotation]; ok {
+		discoveryNodeInfo := &discovery.DiscoveryNodeInfo{}
+		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
+		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Schema >= DiscoveryTargetSchema {
+			o.result = discoveryNodeInfo
+			enrichErr := o.Enrich(ctx)
+			if enrichErr != nil {
+				return enrichErr
+			}
+			return nil
+		}
+		if err != nil {
+			logger.Error(err, "Failed to unmarshal discovery.json data")
+		}
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) GetDrivesNum() int {
+	// get from nodes annotations
+	// TODO: This should go away, as we wont need this eventually
+	if o.node.Annotations == nil {
+		return 0
+	}
+
+	if drivesStr, ok := o.node.Annotations["weka.io/weka-drives"]; ok {
+		// unmarshal first, as a list of strings
+		var drives []string
+		err := json.Unmarshal([]byte(drivesStr), &drives)
+		if err != nil {
+			return 0
+		}
+		return len(drives)
+	}
+	return 0
+}
+
+func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
+	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
+	o.result.NumDrives = o.GetDrivesNum()
+
+	if o.result.IsRhCos() {
+		if o.result.OsBuildId == "" {
+			return errors.New("Failed to get OCP version from node")
+		}
+		image, err := discovery.GetOcpToolkitImage(ctx, o.client, o.result.OsBuildId)
+		if err != nil || image == "" {
+			return errors.Wrap(err, fmt.Sprintf("Failed to get OCP toolkit image for version %s", o.result.OsBuildId))
+		}
+		o.result.InitContainerImage = image
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) GetContainers(ctx context.Context) error {
+	existing, err := discovery.GetOwnedContainers(ctx, o.client, o.ownerRef.GetUID(), o.ownerRef.GetNamespace(), weka.WekaContainerModeDiscovery)
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		o.container = existing[0]
+	} else {
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
+
+	if o.container != nil {
+		return nil
+	}
+
+	// If we already have valid discovery information, skip container creation
+	if o.result != nil {
+		return nil
+	}
+
+	containerName := fmt.Sprintf("weka-dsc-%s", o.node.Name)
+	discoveryContainer := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      containerName,
+			Namespace: o.ownerRef.GetNamespace(), // this means, that discovery can be created multiple times in different namespaces. but, this way it has proper owner. need to ensure that discovery can sustain running in parallel
+			Labels: map[string]string{
+				"weka.io/mode": weka.WekaContainerModeDiscovery,
+			},
+		},
+		Spec: weka.WekaContainerSpec{
+			Mode:            weka.WekaContainerModeDiscovery,
+			NodeAffinity:    weka.NodeName(o.node.Name),
+			Image:           o.image,
+			ImagePullSecret: o.pullSecret,
+			Tolerations:     o.tolerations,
+		},
+	}
+
+	err := ctrl.SetControllerReference(o.ownerRef, discoveryContainer, o.scheme)
+	if err != nil {
+		return err
+	}
+
+	err = o.client.Create(ctx, discoveryContainer)
+	if err != nil {
+		return err
+	}
+
+	o.container = discoveryContainer
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) PollResults(ctx context.Context) error {
+	if o.container.Status.ExecutionResult == nil {
+		return lifecycle.NewWaitError(fmt.Errorf("container execution result is not ready"))
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) ProcessResult(ctx context.Context) error {
+	discoveryNodeInfo := &discovery.DiscoveryNodeInfo{}
+	err := json.Unmarshal([]byte(*o.container.Status.ExecutionResult), discoveryNodeInfo)
+	if err != nil {
+		return errors.Wrap(err, "Failed to unmarshal discovery.json")
+	}
+
+	discoveryNodeInfo.Schema = DiscoveryTargetSchema
+	o.result = discoveryNodeInfo
+	err = o.Enrich(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) UpdateNodes(ctx context.Context) error {
+	if o.result == nil {
+		return errors.New("No discovery information available")
+	}
+
+	o.result.BootID = o.node.Status.NodeInfo.BootID
+	//TODO: Remove once moved to k8s scheduler, this allow to implement per-node in-operator scheduler
+
+	discoveryString, err := json.Marshal(o.result)
+	if err != nil {
+		return errors.Wrap(err, "Failed to marshal discovery.json")
+	}
+
+	if o.node.Annotations == nil {
+		o.node.Annotations = make(map[string]string)
+	}
+	o.node.Annotations[discoveryAnnotation] = string(discoveryString)
+	err = o.client.Update(ctx, o.node)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *DiscoverNodeOperation) DeleteContainers(ctx context.Context) error {
+	if o.container == nil {
+		return nil
+	}
+	err := o.client.Delete(ctx, o.container)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	o.container = nil
+	return nil
+}
+
+func (o *DiscoverNodeOperation) GetResult() *discovery.DiscoveryNodeInfo {
+	return o.result
+}
+
+func (o *DiscoverNodeOperation) GetJsonResult() string {
+	if o.result == nil {
+		return "{}"
+	}
+	resultJSON, _ := json.Marshal(o.result)
+	return string(resultJSON)
+}
+
+func (o *DiscoverNodeOperation) Cleanup() lifecycle.Step {
+	return lifecycle.Step{
+		Name: "DeleteContainers",
+		Run:  o.DeleteContainers,
+	}
+}
+
+func (o *DiscoverNodeOperation) HasData() bool {
+	return o.result != nil
+}

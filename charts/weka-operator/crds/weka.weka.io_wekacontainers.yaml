@@ -25,24 +25,19 @@ spec:
       name: Mode
       priority: 2
       type: string
-    - description: Hugepages count
-      jsonPath: .spec.hugepages
-      name: Hugepages Count
+    - description: Time since creation
+      jsonPath: .metadata.creationTimestamp
+      name: Age
       priority: 3
-      type: integer
-    - description: Hugepages size
-      jsonPath: .spec.hugepagesSize
-      name: Hugepages Size
-      priority: 4
-      type: integer
+      type: date
     - description: Number of drives attached to container
       jsonPath: .spec.numDrives
       name: Drives Count
       priority: 5
       type: integer
-    - description: Weka container name
-      jsonPath: .spec.wekaContainerName
-      name: Weka Container Name
+    - description: Weka container ID
+      jsonPath: .status.containerID
+      name: Weka cID
       priority: 6
       type: string
     name: v1alpha1
@@ -111,6 +106,8 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              instructions:
+                type: string
               ipv6:
                 type: boolean
               joinIpPorts:
@@ -126,6 +123,8 @@ spec:
                 - drivers-loader
                 - discovery
                 - s3
+                - adhoc-op-with-container
+                - adhoc-op
                 type: string
               name:
                 type: string
@@ -141,6 +140,27 @@ spec:
                     type: boolean
                 type: object
               nodeAffinity:
+                description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
+                  a type captures intent and helps make sure that the node name\nis
+                  not confused with similar concepts (the hostname, the cloud provider
+                  id,\nthe cloud provider name etc)\n\n\nTo clarify the various types:\n\n\n
+                  \ - Node.Name is the Name field of the Node in the API.  This should
+                  be stored in a NodeName.\n    Unfortunately, because Name is part
+                  of ObjectMeta, we can't store it as a NodeName at the API level.\n\n\n
+                  \ - Hostname is the hostname of the local machine (from uname -n).\n
+                  \   However, some components allow the user to pass in a --hostname-override
+                  flag,\n    which will override this in most places. In the absence
+                  of anything more meaningful,\n    kubelet will use Hostname as the
+                  Node.Name when it creates the Node.\n\n\n* The cloudproviders have
+                  the own names: GCE has InstanceName, AWS has InstanceId.\n\n\n\tFor
+                  GCE, InstanceName is the Name of an Instance object in the GCE API.
+                  \ On GCE, Instance.Name becomes the\n\tHostname, and thus it makes
+                  sense also to use it as the Node.Name.  But that is GCE specific,
+                  and it is up\n\tto the cloudprovider how to do this mapping.\n\n\n\tFor
+                  AWS, the InstanceID is not yet suitable for use as a Node.Name,
+                  so we actually use the\n\tPrivateDnsName for the Node.Name.  And
+                  this is _not_ always the same as the hostname: if\n\twe are using
+                  a custom DHCP domain it won't be."
                 type: string
               nodeInfoConfigMap:
                 type: string
@@ -152,13 +172,6 @@ spec:
                 type: integer
               numDrives:
                 type: integer
-              osDistro:
-                enum:
-                - cos
-                - rhcos
-                - ubuntu
-                - ""
-                type: string
               port:
                 type: integer
               serviceAccountName:
@@ -307,6 +320,23 @@ spec:
             type: object
           status:
             properties:
+              allocations:
+                properties:
+                  agentPort:
+                    type: integer
+                  drives:
+                    items:
+                      type: string
+                    type: array
+                  ethSlots:
+                    items:
+                      type: string
+                    type: array
+                  lbPort:
+                    type: integer
+                  wekaPort:
+                    type: integer
+                type: object
               clusterID:
                 type: string
               conditions:
@@ -385,6 +415,29 @@ spec:
               managementIP:
                 type: string
               nodeAffinity:
+                description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
+                  a type captures intent and helps make sure that the node name\nis
+                  not confused with similar concepts (the hostname, the cloud provider
+                  id,\nthe cloud provider name etc)\n\n\nTo clarify the various types:\n\n\n
+                  \ - Node.Name is the Name field of the Node in the API.  This should
+                  be stored in a NodeName.\n    Unfortunately, because Name is part
+                  of ObjectMeta, we can't store it as a NodeName at the API level.\n\n\n
+                  \ - Hostname is the hostname of the local machine (from uname -n).\n
+                  \   However, some components allow the user to pass in a --hostname-override
+                  flag,\n    which will override this in most places. In the absence
+                  of anything more meaningful,\n    kubelet will use Hostname as the
+                  Node.Name when it creates the Node.\n\n\n* The cloudproviders have
+                  the own names: GCE has InstanceName, AWS has InstanceId.\n\n\n\tFor
+                  GCE, InstanceName is the Name of an Instance object in the GCE API.
+                  \ On GCE, Instance.Name becomes the\n\tHostname, and thus it makes
+                  sense also to use it as the Node.Name.  But that is GCE specific,
+                  and it is up\n\tto the cloudprovider how to do this mapping.\n\n\n\tFor
+                  AWS, the InstanceID is not yet suitable for use as a Node.Name,
+                  so we actually use the\n\tPrivateDnsName for the Node.Name.  And
+                  this is _not_ always the same as the hostname: if\n\twe are using
+                  a custom DHCP domain it won't be."
+                type: string
+              result:
                 type: string
               status:
                 type: string

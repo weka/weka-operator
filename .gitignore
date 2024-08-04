@@ -45,3 +45,4 @@ cover.html
 mock_*.go
 prog.bin
 .envrc.private
+.aider*

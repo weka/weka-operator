@@ -142,6 +142,17 @@ spec:
                 type: boolean
               maxFdsPerNode:
                 type: integer
+              network:
+                properties:
+                  ethDevice:
+                    type: string
+                  ethSlots:
+                    items:
+                      type: string
+                    type: array
+                  udpMode:
+                    type: boolean
+                type: object
               nodeSelector:
                 additionalProperties:
                   type: string
@@ -210,8 +221,6 @@ spec:
                 items:
                   type: string
                 type: array
-              topology:
-                type: string
               tracesConfiguration:
                 description: TraceConfiguration defines the configuration for the
                   traces, accepts parameters in gigabytes
@@ -239,7 +248,6 @@ spec:
             required:
             - image
             - template
-            - topology
             type: object
           status:
             description: WekaClusterStatus defines the observed state of WekaCluster

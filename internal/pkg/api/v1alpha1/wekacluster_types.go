@@ -19,11 +19,9 @@ package v1alpha1
 import (
 	"context"
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"github.com/weka/weka-operator/util"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strings"
 )
@@ -69,7 +67,6 @@ type WekaHomeConfig struct {
 type WekaClusterSpec struct {
 	Size               int               `json:"size,omitempty"`
 	Template           string            `json:"template"`
-	Topology           string            `json:"topology"`
 	Image              string            `json:"image"`
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
@@ -88,6 +85,7 @@ type WekaClusterSpec struct {
 	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
+	NetworkSelector     NetworkSelector      `json:"network,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
@@ -164,7 +162,7 @@ func (c *WekaCluster) GetOperatorSecretName() string {
 }
 
 func (c *WekaCluster) GetLastGuidPart() string {
-	return util.GetLastGuidPart(c.GetUID())
+	return util2.GetLastGuidPart(c.GetUID())
 }
 
 func (c *WekaCluster) GetUserClusterUsername() string {
@@ -205,7 +203,7 @@ func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
 		},
 		StringData: map[string]string{
 			"username": c.GetUserClusterUsername(),
-			"password": util.GeneratePassword(32),
+			"password": util2.GeneratePassword(32),
 			"org":      DefaultOrg,
 		},
 	}
@@ -219,8 +217,8 @@ func (c *WekaCluster) NewOperatorLoginSecret() *v1.Secret {
 		},
 		StringData: map[string]string{
 			"username":    c.GetOperatorClusterUsername(),
-			"password":    util.GeneratePassword(32),
-			"join-secret": util.GeneratePassword(64),
+			"password":    util2.GeneratePassword(32),
+			"join-secret": util2.GeneratePassword(64),
 			"org":         DefaultOrg,
 		},
 	}
@@ -234,7 +232,7 @@ func (c *WekaCluster) NewClientSecret() *v1.Secret {
 		},
 		StringData: map[string]string{
 			"username": c.GetClusterClientUsername(),
-			"password": util.GeneratePassword(32),
+			"password": util2.GeneratePassword(32),
 			"org":      DefaultOrg,
 		},
 	}
@@ -248,7 +246,7 @@ func (c *WekaCluster) NewCsiSecret(endpoints []string) *v1.Secret {
 		},
 		StringData: map[string]string{
 			"username":     c.GetClusterCSIUsername(),
-			"password":     util.GeneratePassword(32),
+			"password":     util2.GeneratePassword(32),
 			"organization": DefaultOrg,
 			"endpoints":    strings.Join(endpoints, ","),
 			"scheme":       "https",
@@ -258,56 +256,7 @@ func (c *WekaCluster) NewCsiSecret(endpoints []string) *v1.Secret {
 
 func (status *WekaClusterStatus) InitStatus() {
 	status.Conditions = []metav1.Condition{}
-
 	status.Status = "Init"
-	// Set Predefined conditions to explicit False for visibility
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "The pods for the custom resource are not created yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondPodsReady,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "The pods for the custom resource are not ready yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondClusterSecretsCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Secrets are not created yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondClusterSecretsApplied,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Secrets are not applied yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondClusterCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Cluster is not formed yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondDrivesAdded,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Drives are not added yet",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondIoStarted,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Weka Cluster IO is not started",
-	})
-
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:   condition.CondDefaultFsCreated,
-		Status: metav1.ConditionFalse, Reason: "Init",
-		Message: "Default fsgroup and filesystem are not created yet",
-	})
 }
 
 func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*WekaContainer, role string) *WekaContainer {
@@ -329,8 +278,25 @@ func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*W
 	return nil
 }
 
+func (w *WekaCluster) ToOwnerObject() *OwnerWekaObject {
+	return &OwnerWekaObject{
+		Image:           w.Spec.Image,
+		ImagePullSecret: w.Spec.ImagePullSecret,
+		Tolerations:     util2.ExpandTolerations([]v1.Toleration{}, w.Spec.Tolerations, w.Spec.RawTolerations),
+	}
+}
+
 func (c *WekaCluster) GetClusterCSIUsername() string {
 	return "wekacsi" + c.GetLastGuidPart()
+}
+
+func (c *WekaCluster) IsMarkedForDeletion() bool {
+	return !c.GetDeletionTimestamp().IsZero()
+}
+
+func (c *WekaCluster) IsExpand() bool {
+	return len(c.Spec.ExpandEndpoints) != 0
+
 }
 
 func init() {

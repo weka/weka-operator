@@ -3,7 +3,7 @@ package v1alpha1
 import (
 	"testing"
 
-	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/controllers/condition"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"

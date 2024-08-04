@@ -17,7 +17,7 @@ COPY cmd/ cmd/
 COPY hack/ hack/
 COPY config/ config/
 COPY Makefile Makefile
-COPY util/ util/
+COPY pkg/util/ util/
 COPY internal/ internal/
 
 FROM builder as build-manager

@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"testing"
 	"time"
 
@@ -14,8 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
-	"github.com/weka/weka-operator/internal/app/manager/domain"
+	"github.com/weka/weka-operator/internal/controllers/condition"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 )
@@ -41,15 +41,9 @@ func (c *Cluster) ValidateWekaCluster(t *testing.T) {
 	}
 
 	template := cluster.Spec.Template
-	_, ok := domain.WekaClusterTemplates[template]
+	_, ok := allocator.WekaClusterTemplates[template]
 	if !ok {
 		t.Fatalf("template %q not found in WekaClusterTemplates", template)
-	}
-
-	topology := cluster.Spec.Topology
-	_, ok = domain.Topologies[topology]
-	if !ok {
-		t.Fatalf("topology %q not found", topology)
 	}
 }
 
@@ -63,7 +57,6 @@ func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 		Spec: wekav1alpha1.WekaClusterSpec{
 			Size:               1,
 			Template:           "small",
-			Topology:           "aws_i3en6x_bless",
 			Image:              c.Image,
 			ImagePullSecret:    "quay-io-robot-secret",
 			DriversDistService: driversDistService,

@@ -80,7 +80,9 @@ CRD = charts/weka-operator/crds/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = internal/pkg/api/v1alpha1/driveclaims_types.go \
 		internal/pkg/api/v1alpha1/container_types.go \
 		internal/pkg/api/v1alpha1/tombstone_types.go \
-		internal/pkg/api/v1alpha1/wekacluster_types.go
+		internal/pkg/api/v1alpha1/wekacluster_types.go \
+		internal/pkg/api/v1alpha1/wekamanualoperation_types.go \
+		internal/pkg/api/v1alpha1/wekapolicy_types.go
 
 $(CRD): controller-gen $(CRD_TYPES)
 
@@ -90,7 +92,7 @@ crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): controller-gen internal/app/manager/controllers/client_controller.go
+$(RBAC): controller-gen internal/controllers/client_controller.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.

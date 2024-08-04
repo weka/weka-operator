@@ -31,10 +31,6 @@ type ClientContainerSpec struct {
 	Debug bool `json:"debug,omitempty"`
 }
 
-type AgentContainerSpec struct {
-	Debug bool `json:"debug,omitempty"`
-}
-
 type ObjectReference struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
