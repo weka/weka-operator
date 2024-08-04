@@ -181,6 +181,12 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     "4.2.10.1671-363e1e8fcfb1290e061815445e973310-dev": dict(
         wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
+    "4.3.3": dict(
+        wekafs="cbd05f716a3975f7-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="7955984e4bce9d8b",
+        weka_drivers_handling=False,
+    ),
 }
 # WEKA_DRIVER_VERSION_OPTIONS = [
 #     "1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
