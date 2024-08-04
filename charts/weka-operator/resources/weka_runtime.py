@@ -83,10 +83,6 @@ def wait_for_agent():
         print("Waiting for weka-agent to start")
 
 
-def should_build_externally():
-    return is_google_cos()
-
-
 async def ensure_drivers():
     logging.info("waiting for drivers")
     drivers = "wekafsio wekafsgw mpin_user".split()
@@ -1212,15 +1208,15 @@ async def main():
 
     if MODE == "dist":
         logging.info("dist-service flow")
-        if not should_build_externally():
+        if is_google_cos():
+            await install_gsutil()
+            await cos_build_drivers()
+
+        else:  # default
             await agent.stop()
             await configure_agent(agent_handle_drivers=True)
-            await agent.start()
+            await agent.start()  # here the build happens
             await await_agent()
-        else:
-            if is_google_cos():
-                await install_gsutil()
-                await cos_build_drivers()
 
         await ensure_dist_container()
         await configure_traces()
