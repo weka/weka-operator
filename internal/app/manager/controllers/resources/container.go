@@ -445,7 +445,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-
 	// DiscoveryContainer on GKE only will force boot to set up hugepages. This is managed via Helm configuration
 	if f.container.IsDiscoveryContainer() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
