@@ -4,13 +4,13 @@ metadata:
   name: ocp-clients-udp
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.3.3-preview.1
+  image: quay.io/weka.io/weka-in-container:4.3.3
   imagePullSecret: quay-cred
-  driversDistService: "http://weka-driver-builder:60002"
+  driversDistService: "https://weka-driver-builder:60002"
   port: 45001
   agentPort: 45000
   coresNum: 1
-  joinIpPorts: ["10.222.96.0:14000"]
+  joinIpPorts: ["10.222.112.0:14000"]
   nodeSelector:
     node-role.kubernetes.io/worker: ""
   tracesConfiguration:
