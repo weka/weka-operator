@@ -215,7 +215,7 @@ loop = asyncio.get_event_loop()
 
 async def load_drivers():
     def should_skip_uio_pci_generic():
-        return version_params.get('uio_pci_generic') is not False or should_skip_uio()
+        return version_params.get('uio_pci_generic') is False or should_skip_uio()
 
     def should_skip_uio():
         return is_google_cos()
