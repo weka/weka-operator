@@ -167,6 +167,10 @@ func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace stri
 func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
+	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
+	if serviceAccountName == "" {
+		return nil, fmt.Errorf("cannot remove tombstone, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
+	}
 
 	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
 	logger.Info("fetching job", "jobName", jobName)
@@ -245,6 +249,10 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			},
 		},
 	}
+	if serviceAccountName != "" {
+		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
+	}
+
 	if maintenanceImagePullSecret != "" {
 		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
 			{

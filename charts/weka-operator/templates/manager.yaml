@@ -89,8 +89,8 @@ spec:
               value: "{{ .Values.wekahome.enableStats }}"
             - name: WEKA_OPERATOR_DEBUG_SLEEP
               value: "{{ .Values.debugSleep }}"
-            - name: WEKA_OPERATOR_SA_NAME
-              value: "{{ .Values.prefix }}-controller-manager"
+            - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
+              value: "{{ .Values.prefix }}-maintenance"
             - name: WEKA_MAINTENANCE_IMAGE
               value: "{{ .Values.maintenanceImage | default "busybox" }}"
             - name: WEKA_MAINTENANCE_IMAGE_PULL_SECRET
