@@ -570,6 +570,53 @@ async def resolve_aws_net(device):
     return net
 
 
+async def resolve_dhcp_net(device):
+    def subnet_mask_to_prefix_length(subnet_mask):
+        # Convert subnet mask to binary representation
+        binary_mask = ''.join([bin(int(octet)+256)[3:] for octet in subnet_mask.split('.')])
+        # Count the number of 1s in the binary representation
+        prefix_length = binary_mask.count('1')
+        return prefix_length
+
+    def get_netdev_info(device):
+        # Create a socket to communicate with the network interface
+        s = None
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            # Get the IP address
+            ip_address = socket.inet_ntoa(fcntl.ioctl(
+                s.fileno(),
+                0x8915,  # SIOCGIFADDR
+                struct.pack('256s', bytes(device[:15], 'utf-8'))
+            )[20:24])
+
+            # Get the netmask
+            netmask = socket.inet_ntoa(fcntl.ioctl(
+                s.fileno(),
+                0x891b,  # SIOCGIFNETMASK
+                struct.pack('256s', bytes(device[:15], 'utf-8'))
+            )[20:24])
+            cidr = subnet_mask_to_prefix_length(netmask)
+
+            # Get the MAC address
+            info = fcntl.ioctl(s.fileno(), 0x8927,  # SIOCGIFHWADDR
+                               struct.pack('256s', bytes(device[:15], 'utf-8')))
+            mac_address = ':'.join('%02x' % b for b in info[18:24])
+        finally:
+            if s:
+                s.close()
+
+        return mac_address, ip_address, cidr
+
+    try:
+        mac_address, ip_address, cidr = get_netdev_info(device)
+    except OSError:
+        raise Exception(f"Failed to get network info for device {device}, no IP address found")
+
+    return f"'{mac_address}/{ip_address}/{cidr}'"
+
+
 async def create_container():
     full_cores = find_full_cores(NUM_CORES)
     mode_part = ""
@@ -598,6 +645,14 @@ async def create_container():
     if "aws_" in NETWORK_DEVICE:
         devices = NETWORK_DEVICE.split(",")
         devices = [await resolve_aws_net(dev) for dev in devices]
+        net_str = " ".join([f"--net {d}" for d in devices])
+
+    elif is_rhcos():
+        # Weka does not know how to resolve the network device when address is assigned via DHCP etc.
+        # and we want to limit this behavior only to RHCOS now.
+        # TODO: either allow this for all OSes or replace this logic to be inside Weka...
+        devices = NETWORK_DEVICE.split(",")
+        devices = [await resolve_dhcp_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
 
     command = dedent(f"""
