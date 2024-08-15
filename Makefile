@@ -27,6 +27,9 @@ REGISTRY_ENDPOINT ?= quay.io/weka.io
 GORELEASER_BUILDER ?= docker
 VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
+WH_ENABLE_INSECURE ?= false
+WH_ENDPOINT ?= "https://api.home.rnd.weka.io"
+WH_CACERT_SECRET ?= ""
 ENABLE_CLUSTER_API ?= false
 TOMBSTONE_EXPIRATION ?= 10s
 
@@ -172,7 +175,7 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_WEKA_HOME_ENDPOINT=https://api.home.rnd.weka.io OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT} OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
@@ -212,7 +215,9 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
 		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
-		--set wekaHomeEndpoint="https://api.home.rnd.weka.io"
+		--set wekahome.endpoint="${WH_ENDPOINT}" \
+		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
+		--set wekahome.cacertSecret="${WH_CACERT_SECRET}"
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

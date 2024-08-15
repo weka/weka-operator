@@ -112,6 +112,19 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		containerGroup = "s3"
 	}
 
+	wekahomeConfig, err := domain.GetWekahomeConfig(cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	additionalSecrets := make(map[string]string)
+	if domain.GetWekaHomeSecretRef(wekahomeConfig) != nil {
+		secret := domain.GetWekaHomeSecretRef(wekahomeConfig)
+		if secret != nil {
+			additionalSecrets["wekahome-cacert"] = *secret
+		}
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -143,6 +156,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			AdditionalMemory:    additionalMemory,
 			ForceAllowDriveSign: topology.ForceSignDrives,
 			Group:               containerGroup,
+			AdditionalSecrets:   additionalSecrets,
 		},
 	}
 

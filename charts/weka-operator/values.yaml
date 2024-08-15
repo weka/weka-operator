@@ -20,7 +20,13 @@ enableClusterApi: false
 otelExporterOtlpEndpoint: ""
 maintenanceImage: busybox
 # -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
-wekaHomeEndpoint: https://api.home.weka.io
+wekahome:
+  endpoint: https://api.home.weka.io
+  # -- allow insecure TLS connection to the wekahome endpoint (no server certificate validation)
+  allowInsecureTLS: false
+  # -- name of the secret specifying CA certificate chain. It is assumed that every target namespace will have such secret
+  cacertSecret: ""
+  enableStats: true
 persistence:
   containerTombstone:
     gc:

@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -272,6 +273,22 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 		numCores = 1
 	}
 
+	additionalSecrets := map[string]string{}
+
+	whCaCert := wekaClient.Spec.WekaHomeConfig.CacertSecret
+	if whCaCert == "" {
+		wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
+		if isSet {
+			if wekaHomeCacertSecret != "" {
+				whCaCert = wekaHomeCacertSecret
+			}
+		}
+	}
+
+	if whCaCert != "" {
+		additionalSecrets["wekahome-cacert"] = whCaCert
+	}
+
 	tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 
 	container := &wekav1alpha1.WekaContainer{
@@ -304,6 +321,7 @@ func (r *ClientReconciler) buildClientWekaContainer(ctx context.Context, wekaCli
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
+			AdditionalSecrets:   additionalSecrets,
 		},
 	}
 	return container, nil

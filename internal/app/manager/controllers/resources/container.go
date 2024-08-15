@@ -390,6 +390,22 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
+	for name, secret := range f.container.Spec.AdditionalSecrets {
+		volumeName := fmt.Sprintf("%s-secret", name)
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secret,
+				},
+			},
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: fmt.Sprintf("/var/run/secrets/weka-operator/%s", name),
+		})
+	}
+
 	if f.container.IsDriversContainer() {
 		// adding mount of headers only for case of drivers-related container
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{

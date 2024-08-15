@@ -40,6 +40,10 @@ type ObjectReference struct {
 	Namespace string `json:"namespace"`
 }
 
+type WekahomeClientConfig struct {
+	CacertSecret string `json:"cacertSecret,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -65,6 +69,7 @@ type WekaClientSpec struct {
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
+	WekaHomeConfig      WekahomeClientConfig `json:"wekaHomeConfig,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
@@ -75,6 +80,7 @@ type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions      []metav1.Condition `json:"conditions,omitempty"`
 	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
+	Status          string             `json:"status,omitempty"` // Status is the status of the resource, may be either PROGRESSING, FAILED, or READY
 }
 
 func (s *WekaClientStatus) SetCondition(condition metav1.Condition) {
@@ -84,8 +90,13 @@ func (s *WekaClientStatus) SetCondition(condition metav1.Condition) {
 	meta.SetStatusCondition(&s.Conditions, condition)
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:subresource:spec
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Resource status",priority=0
+// +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.coresNum",description="Number of cores",priority=1
+// +kubebuilder:printcolumn:name="Target Cluster",type="string",JSONPath=".spec.targetCluster.name",description="Name of the target cluster if exists",priority=2
+// +kubebuilder:printcolumn:name="Join IPs",type="string",JSONPath=".spec.joinIpPorts",description="IPs of the target cluster",priority=3
 
 // WekaClient is the Schema for the clients API
 type WekaClient struct {

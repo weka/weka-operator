@@ -14,7 +14,27 @@ spec:
     singular: wekaclient
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Resource status
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Number of cores
+      jsonPath: .spec.coresNum
+      name: Cores
+      priority: 1
+      type: integer
+    - description: Name of the target cluster if exists
+      jsonPath: .spec.targetCluster.name
+      name: Target Cluster
+      priority: 2
+      type: string
+    - description: IPs of the target cluster
+      jsonPath: .spec.joinIpPorts
+      name: Join IPs
+      priority: 3
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: WekaClient is the Schema for the clients API
@@ -149,6 +169,11 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              wekaHomeConfig:
+                properties:
+                  cacertSecret:
+                    type: string
+                type: object
               wekaSecretRef:
                 type: string
             required:
@@ -227,6 +252,8 @@ spec:
                   type: object
                 type: array
               lastAppliedSpec:
+                type: string
+              status:
                 type: string
             type: object
         type: object

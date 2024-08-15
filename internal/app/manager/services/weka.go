@@ -68,7 +68,7 @@ type WekaService interface {
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
-	SetWekaHome(ctx context.Context, endpoint string) error
+	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
@@ -117,7 +117,7 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 	return drives, nil
 }
 
-func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error {
+func (c *CliWekaService) SetWekaHome(ctx context.Context, config v1alpha1.WekaHomeConfig) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
 	defer end()
 
@@ -126,9 +126,38 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, endpoint string) error
 		logger.SetError(err, "Failed to get executor")
 		return err
 	}
+	statsStr := "--cloud-stats off"
+	if *config.EnableStats == true {
+		statsStr = "--cloud-stats on"
+	}
 
-	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s", endpoint)
-	_, stderr, err := executor.ExecNamed(ctx, "SetWekaHome", []string{"bash", "-ce", cmd})
+	const enableInsecure = `
+if ! wekaauthcli debug override list | grep insecure_weka_cloud_https_call; then
+	wekaauthcli debug override add --key insecure_weka_cloud_https_call || wekaauthcli debug override add --key insecure_weka_cloud_https_call --force || true
+fi
+`
+
+	cmds := []string{}
+	if config.AllowInsecure {
+		cmds = append(cmds, enableInsecure)
+	}
+
+	customCaCertConfig := `
+if ! wekaauthcli debug override list | grep weka_cloud_ca_cert_path; then
+	wekaauthcli debug override add --key weka_cloud_ca_cert_path --value %s || wekaauthcli debug override add --key weka_cloud_ca_cert_path --value %s --force || true
+fi
+`
+	if config.CacertSecret != "" {
+		path := "/var/run/secrets/weka-operator/wekahome-cacert/cert.pem"
+		customCaCertConfig = fmt.Sprintf(customCaCertConfig, path, path)
+		cmds = append(cmds, customCaCertConfig)
+	}
+
+	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s %s", config.Endpoint, statsStr)
+	cmds = append(cmds, cmd)
+
+	fullCmd := strings.Join(cmds, "\n")
+	_, stderr, err := executor.ExecNamed(ctx, "SetWekaHome", []string{"bash", "-ce", fullCmd})
 	if err != nil {
 		logger.SetError(err, "Failed to set WEKA_HOME", "stderr", stderr.String())
 		return err
