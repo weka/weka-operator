@@ -42,7 +42,7 @@ ocpCompatibility:
   # -- WARNING: do not enable this feature if you are already using custom Tuned profiles for setting hugepages
   hugepageConfiguration:
     # -- if enabled, the operator will configure hugepages for the OCP nodes
-    enabled: true
+    enabled: false
     # -- on which nodes to configure hugepages
     machineConfigNodeLabel: "worker"
     # -- hugepage size
