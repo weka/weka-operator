@@ -80,20 +80,6 @@ spec:
                 items:
                   type: integer
                 type: array
-              coreOSBuildSpec:
-                properties:
-                  driverToolkitImage:
-                    type: string
-                  driverToolkitImagePullSecret:
-                    type: string
-                type: object
-              cosBuildSpec:
-                properties:
-                  gcloudCredentialsSecret:
-                    type: string
-                  osBuildId:
-                    type: string
-                type: object
               cpuPolicy:
                 default: auto
                 enum:
@@ -397,6 +383,8 @@ spec:
               lastAppliedImage:
                 type: string
               managementIP:
+                type: string
+              nodeAffinity:
                 type: string
               status:
                 type: string

@@ -44,11 +44,11 @@ type WekaClusterReconciler struct {
 	Manager  ctrl.Manager
 	Recorder record.EventRecorder
 
-	CrdManager     services.CrdManager
+	CrdManager     CrdManager
 	SecretsService services.SecretsService
 	ExecService    services.ExecService
 
-	DetectedZombies map[allocator.NamespacedObject]time.Time
+	DetectedZombies map[util.NamespacedObject]time.Time
 }
 
 func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
@@ -63,7 +63,7 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		Manager:  mgr,
 		Recorder: mgr.GetEventRecorderFor("wekaCluster-controller"),
 
-		CrdManager:     services.NewCrdManager(mgr),
+		CrdManager:     NewCrdManager(mgr),
 		SecretsService: services.NewSecretsService(client, scheme, execService),
 		ExecService:    execService,
 	}

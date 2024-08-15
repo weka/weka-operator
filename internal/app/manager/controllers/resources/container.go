@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	"os"
 	"slices"
 	"strconv"
@@ -43,6 +44,7 @@ type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type ContainerFactory struct {
 	container *wekav1alpha1.WekaContainer
+	nodeInfo  *services.DiscoveryNodeInfo
 }
 
 type WekaDriveResponse struct {
@@ -53,8 +55,9 @@ func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
 
-func NewContainerFactory(container *wekav1alpha1.WekaContainer) *ContainerFactory {
+func NewContainerFactory(container *wekav1alpha1.WekaContainer, nodeInfo *services.DiscoveryNodeInfo) *ContainerFactory {
 	return &ContainerFactory{
+		nodeInfo:  nodeInfo,
 		container: container,
 	}
 }
@@ -109,11 +112,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsideContainerPersistence := fmt.Sprintf("%s/%s", f.container.GetHostsideContainerPersistence(), f.container.GetUID())
-	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.container.GetHostsideClusterPersistence(), "cluster-less")
+	hostsideContainerPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideContainerPersistence(), f.container.GetUID())
+	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
 		clusterId := f.container.GetOwnerReferences()[0].UID
-		hostsideClusterPersistence = fmt.Sprintf("%s/%s", f.container.GetHostsideClusterPersistence(), clusterId)
+		hostsideClusterPersistence = fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), clusterId)
 	}
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
 
@@ -248,19 +251,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
 						},
-						{
-							Name:  "OS_DISTRO",
-							Value: f.container.Spec.OsDistro,
-						},
-						{
-							Name: "OS_BUILD_ID",
-							Value: func() string {
-								if f.container.Spec.COSBuildSpec != nil {
-									return f.container.Spec.COSBuildSpec.OsBuildId
-								}
-								return ""
-							}(),
-						},
 					},
 				},
 			},
@@ -326,12 +316,12 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
-			MountPath: f.container.GetHostsidePersistenceBaseLocation() + "/boot-level",
+			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/boot-level",
 			SubPath:   "tmpfss/boot-level",
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-cluster-persistence-dir",
-			MountPath: f.container.GetHostsidePersistenceBaseLocation() + "/node-cluster",
+			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/node-cluster",
 			SubPath:   "shared-configs",
 		})
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
@@ -355,35 +345,25 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	}
 
-	if f.container.IsDiscoveryContainer() && (f.container.IsCos() || f.container.IsUnspecifiedOs()) {
-		allowCosHugepageConfig := os.Getenv("COS_ALLOW_HUGEPAGE_CONFIG")
-		if allowCosHugepageConfig != "true" {
-			allowCosHugepageConfig = "false"
-		}
-		if allowCosHugepageConfig == "true" {
-			globalCosHugepageSize := os.Getenv("COS_GLOBAL_HUGEPAGE_SIZE")
-			if globalCosHugepageSize == "" {
-				globalCosHugepageSize = "2m"
-			}
-			globalCosHugepageCount := os.Getenv("COS_GLOBAL_HUGEPAGE_COUNT")
-			if globalCosHugepageCount == "" {
-				return nil, errors.New("COS_GLOBAL_HUGEPAGE_COUNT env var is not set")
-			}
+	if f.container.IsDiscoveryContainer() {
+		allowCosHugepageConfig := wekav1alpha1.GetBoolEnv(wekav1alpha1.EnvCosAllowHugePagesConfig, false)
+		if allowCosHugepageConfig {
+			globalCosHugepageSize := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCosHugePagesSize, "2m")
+			globalCosHugepageCount := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCosHugePagesCount, "4000")
 			if _, err := strconv.Atoi(globalCosHugepageCount); err != nil {
-				return nil, errors.New("COS_GLOBAL_HUGEPAGE_COUNT env var is not a number")
+				return nil, errors.New("WEKA_COS_GLOBAL_HUGEPAGE_COUNT env var is not a number")
 			}
-
 			// for discovery containers, set COS params for hugepages
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_ALLOW_HUGEPAGE_CONFIG",
-				Value: allowCosHugepageConfig,
+				Name:  "WEKA_COS_ALLOW_HUGEPAGE_CONFIG",
+				Value: "true",
 			})
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_GLOBAL_HUGEPAGE_SIZE",
+				Name:  "WEKA_COS_GLOBAL_HUGEPAGE_SIZE",
 				Value: globalCosHugepageSize,
 			})
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_GLOBAL_HUGEPAGE_COUNT",
+				Name:  "WEKA_COS_GLOBAL_HUGEPAGE_COUNT",
 				Value: globalCosHugepageCount,
 			})
 		}
@@ -408,15 +388,6 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			Operator: corev1.NodeSelectorOpIn,
 			Values:   []string{f.container.Spec.NodeAffinity},
 		})
-	}
-	if f.container.Spec.NodeSelector != nil {
-		for k, v := range f.container.Spec.NodeSelector {
-			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
-				Key:      k,
-				Operator: corev1.NodeSelectorOpIn,
-				Values:   []string{v},
-			})
-		}
 	}
 
 	if serviceAccountName != "" {
@@ -476,7 +447,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 
 	// DiscoveryContainer on GKE only will force boot to set up hugepages. This is managed via Helm configuration
-	if f.container.IsDiscoveryContainer() && (f.container.IsCos() || f.container.IsUnspecifiedOs()) {
+	if f.container.IsDiscoveryContainer() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "proc-sysrq-trigger",
 			MountPath: "/hostside/proc/sysrq-trigger",
@@ -506,11 +477,8 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() {
-		if f.container.IsCos() {
-			allowCosDisableDriverSigning := os.Getenv("COS_ALLOW_DISABLE_DRIVER_SIGNING")
-			if allowCosDisableDriverSigning != "true" {
-				allowCosDisableDriverSigning = "false"
-			}
+		if f.nodeInfo.IsCos() {
+			allowCosDisableDriverSigning := wekav1alpha1.GetBoolEnv("EnvCosAllowSigningDisable", false)
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-boot-scripts",
 				MountPath: "/devenv.sh",
@@ -542,17 +510,19 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 			})
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "COS_ALLOW_DISABLE_DRIVER_SIGNING",
-				Value: allowCosDisableDriverSigning,
-			})
+			if allowCosDisableDriverSigning {
+				pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+					Name:  "WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING",
+					Value: "true",
+				})
+			}
 
-			if f.container.IsDriversBuilder() && f.container.Spec.COSBuildSpec != nil {
+			if f.container.IsDriversBuilder() {
 				pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 					Name: "gcloud-credentials",
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
-							SecretName: f.container.Spec.COSBuildSpec.GcloudCredentialsSecret,
+							SecretName: wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCOSServiceAccount, ""),
 						},
 					},
 				})
@@ -568,7 +538,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		} else {
 			libModulesPath := "/lib/modules"
 			usrSrcPath := "/usr/src"
-			if f.container.IsOpenshift() {
+			if f.nodeInfo.IsOpenshift() {
 				libModulesPath = "/hostpath/lib/modules"
 				usrSrcPath = "/hostpath/usr/src"
 			}
@@ -602,14 +572,12 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	// for Dist container, if running on OCP / COS / other containerized OS
-	if f.container.IsDriversBuilder() && f.container.IsOpenshift() {
-		if f.container.Spec.CoreOSBuildSpec == nil {
-			return nil, errors.New("CoreOSBuildSpec is not defined")
-		}
-		if f.container.Spec.CoreOSBuildSpec.DriverToolkitImagePullSecret != "" {
+	if f.container.IsDriversBuilder() && f.nodeInfo.IsOpenshift() {
+		ocpPullSecret := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvOCPPullSecret, "")
+		if ocpPullSecret != "" {
 			// we need to add the buildkit image pull secret
 			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-				Name: f.container.Spec.CoreOSBuildSpec.DriverToolkitImagePullSecret,
+				Name: ocpPullSecret,
 			})
 		}
 		// add ephemeral volume to share the buildkit container
@@ -629,7 +597,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		mountProp := corev1.MountPropagationBidirectional
 		buildkitContainer := corev1.Container{
 			Name:          "driver-toolkit-init",
-			Image:         f.container.Spec.CoreOSBuildSpec.DriverToolkitImage,
+			Image:         wekav1alpha1.GetStringEnv(wekav1alpha1.EnvOCPToolkitImage, ""),
 			Command:       cmd,
 			Env:           pod.Spec.Containers[0].Env,
 			Resources:     corev1.ResourceRequirements{},
@@ -769,6 +737,11 @@ func (f *ContainerFactory) setResources(ctx context.Context, pod *corev1.Pod) er
 	if cpuPolicy == wekav1alpha1.CpuPolicyAuto {
 		if len(f.container.Spec.CoreIds) > 0 {
 			cpuPolicy = wekav1alpha1.CpuPolicyManual
+		}
+		if f.nodeInfo.IsHt {
+			cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT
+		} else {
+			cpuPolicy = wekav1alpha1.CpuPolicyDedicated
 		}
 	}
 

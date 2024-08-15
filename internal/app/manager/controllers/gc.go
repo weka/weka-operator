@@ -5,6 +5,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/allocator"
 	"github.com/weka/weka-operator/internal/app/manager/services"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/util"
 	"os"
 	"time"
 )
@@ -32,7 +33,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		return err
 	}
 
-	misses := make(map[allocator.NamespacedObject]bool)
+	misses := make(map[util.NamespacedObject]bool)
 	for _, nodeAlloc := range allocations.NodeMap {
 		for owner, _ := range nodeAlloc.Cpu {
 			if existingContainers[owner.Namespace] == nil || existingContainers[owner.Namespace][owner.Container] == false {
@@ -66,7 +67,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	detectZombiesTime, err := time.ParseDuration(detectZombieSecondsStr)
 
 	if r.DetectedZombies == nil {
-		r.DetectedZombies = make(map[allocator.NamespacedObject]time.Time)
+		r.DetectedZombies = make(map[util.NamespacedObject]time.Time)
 	}
 
 	for owner, _ := range misses {

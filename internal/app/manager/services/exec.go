@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/app/manager/controllers/resources"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/util"
 	"k8s.io/client-go/rest"
@@ -31,12 +30,11 @@ type PodExecService struct {
 }
 
 func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (util.Exec, error) {
-	pod, err := resources.NewContainerFactory(container).Create(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "Could not find executor pod")
-	}
 	config := s.getConfig()
-	executor, err := util.NewExecWithConfig(config, pod)
+	executor, err := util.NewExecWithConfig(config, util.NamespacedObject{
+		Namespace: container.ObjectMeta.Namespace,
+		Name:      container.ObjectMeta.Name,
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
 	}

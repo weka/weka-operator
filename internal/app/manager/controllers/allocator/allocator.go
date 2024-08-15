@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strings"
@@ -480,7 +481,7 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func DeallocateNamespacedObject(ctx context.Context, namespacedObject NamespacedObject, store AllocationsStore) error {
+func DeallocateNamespacedObject(ctx context.Context, namespacedObject util.NamespacedObject, store AllocationsStore) error {
 	allocations, err := store.GetAllocations(ctx)
 	if err != nil {
 		return err
@@ -544,7 +545,7 @@ func DeallocateContainer(ctx context.Context, container v1alpha1.WekaContainer, 
 		return err
 	}
 
-	namespacedObject := NamespacedObject{
+	namespacedObject := util.NamespacedObject{
 		Namespace: container.Namespace,
 		Name:      container.Name,
 	}

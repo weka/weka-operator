@@ -27,12 +27,11 @@ type Exec interface {
 	Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
 	ExecNamed(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
 	ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
-	GetNodeName() string
 }
 
 type PodExec struct {
 	ClientSet *kubernetes.Clientset
-	Pod       *v1.Pod
+	Pod       NamespacedObject
 	Config    *rest.Config
 }
 
@@ -45,7 +44,7 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(config *rest.Config, pod *v1.Pod) (Exec, error) {
+func NewExecWithConfig(config *rest.Config, pod NamespacedObject) (Exec, error) {
 	clientset, err := KubernetesClientSet(config)
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
@@ -64,7 +63,12 @@ func NewExecInPod(pod *v1.Pod) (Exec, error) {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
 	}
 
-	return NewExecWithConfig(config, pod)
+	namespacedObject := NamespacedObject{
+		Namespace: pod.Namespace,
+		Name:      pod.Name,
+	}
+
+	return NewExecWithConfig(config, namespacedObject)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
@@ -135,10 +139,6 @@ func (e *PodExec) ExecNamed(ctx context.Context, name string, command []string) 
 
 func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
-}
-
-func (e *PodExec) GetNodeName() string {
-	return e.Pod.Spec.NodeName
 }
 
 func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {

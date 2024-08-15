@@ -1,4 +1,4 @@
-package services
+package controllers
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
 	"github.com/weka/weka-operator/internal/app/manager/domain"
 	"github.com/weka/weka-operator/internal/app/manager/factory"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
@@ -18,7 +19,7 @@ import (
 )
 
 type CrdManager interface {
-	GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error)
+	GetClusterService(ctx context.Context, req ctrl.Request) (services.WekaClusterService, error)
 	EnsureWekaContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster) ([]*wekav1alpha1.WekaContainer, error)
 }
 
@@ -32,7 +33,7 @@ type crdManager struct {
 	Manager ctrl.Manager
 }
 
-func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (WekaClusterService, error) {
+func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (services.WekaClusterService, error) {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "FetchCluster")
 	defer end()
 
@@ -45,7 +46,7 @@ func (r *crdManager) GetClusterService(ctx context.Context, req ctrl.Request) (W
 		}
 	}
 
-	wekaClusterService := NewWekaClusterService(r.Manager, wekaCluster)
+	wekaClusterService := services.NewWekaClusterService(r.Manager, wekaCluster)
 
 	return wekaClusterService, err
 }
@@ -85,7 +86,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 		return nil, err
 	}
 
-	currentContainers := GetClusterContainers(ctx, r.getClient(), cluster, "")
+	currentContainers := services.GetClusterContainers(ctx, r.getClient(), cluster, "")
 	missingContainers, err := factory.BuildMissingContainers(cluster, template, topology, currentContainers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
@@ -129,7 +130,7 @@ func (r *crdManager) EnsureWekaContainers(ctx context.Context, cluster *wekav1al
 	var joinIps []string
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || len(cluster.Spec.ExpandEndpoints) != 0 {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
-		joinIps, err = GetJoinIps(ctx, r.getClient(), cluster)
+		joinIps, err = services.GetJoinIps(ctx, r.getClient(), cluster)
 		allowExpansion := false
 		if err != nil {
 			allowExpansion = strings.Contains(err.Error(), "No join IP port pairs found") || strings.Contains(err.Error(), "No compute containers found")

@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/app/manager/services"
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
@@ -9,12 +10,13 @@ import (
 )
 
 func TestNewContainerFactory(t *testing.T) {
+	nodeInfo := &services.DiscoveryNodeInfo{}
 	container := &wekav1alpha1.WekaContainer{
 		Spec: wekav1alpha1.WekaContainerSpec{
 			CpuPolicy: wekav1alpha1.CpuPolicyAuto,
 		},
 	}
-	factory := NewContainerFactory(container)
+	factory := NewContainerFactory(container, nodeInfo)
 	if factory == nil {
 		t.Errorf("NewContainerFactory() returned nil")
 	}
@@ -22,7 +24,8 @@ func TestNewContainerFactory(t *testing.T) {
 
 func TestCreate(t *testing.T) {
 	container := testingContainer()
-	factory := NewContainerFactory(container)
+	nodeInfo := &services.DiscoveryNodeInfo{}
+	factory := NewContainerFactory(container, nodeInfo)
 
 	ctx := context.Background()
 	pod, err := factory.Create(ctx)
