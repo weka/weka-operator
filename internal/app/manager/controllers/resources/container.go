@@ -355,7 +355,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	}
 
-	if f.container.IsDiscoveryContainer() && f.container.IsCos() {
+	if f.container.IsDiscoveryContainer() && (f.container.IsCos() || f.container.IsUnspecifiedOs()) {
 		allowCosHugepageConfig := os.Getenv("COS_ALLOW_HUGEPAGE_CONFIG")
 		if allowCosHugepageConfig != "true" {
 			allowCosHugepageConfig = "false"

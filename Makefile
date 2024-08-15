@@ -217,7 +217,10 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
 		--set wekahome.endpoint="${WH_ENDPOINT}" \
 		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
-		--set wekahome.cacertSecret="${WH_CACERT_SECRET}"
+		--set wekahome.cacertSecret="${WH_CACERT_SECRET}" \
+		--set ocpCompatibility.hugepageConfiguration.enabled=true \
+		--set gkeCompatibility.hugepageConfiguration.enabled=true \
+		--set gkeCompatibility.disableDriverSigning=true
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

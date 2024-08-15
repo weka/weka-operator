@@ -139,7 +139,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 
 	discoveryContainer := &v1alpha1.WekaContainer{
 		ObjectMeta: v1.ObjectMeta{
-			Name:      "weka-discovery-" + nodeName,
+			Name:      "weka-dsc-" + nodeName,
 			Namespace: operatorNamespace,
 		},
 		Spec: v1alpha1.WekaContainerSpec{
