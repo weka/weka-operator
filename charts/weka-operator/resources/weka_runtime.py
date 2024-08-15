@@ -771,6 +771,13 @@ async def ensure_dist_container():
     logging.info("ensuring dist container")
 
     cmd = dedent(f"""
+        if [ -d /driver-toolkit-shared ]; then
+            # Mounting kernel modules from driver-toolkit-shared to dist container
+            mkdir -p /lib/modules
+            mkdir -p /usr/src
+            mount -o bind /driver-toolkit-shared/lib/modules /lib/modules
+            mount -o bind /driver-toolkit-shared/usr/src /usr/src
+        fi
         weka local rm dist --force || true
         weka local setup container --name dist --net udp --base-port {PORT} --no-start --disable
         """)
