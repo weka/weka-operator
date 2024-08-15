@@ -195,6 +195,15 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails Own
 
 	}
 
+	// to make sure that the tombstone of discoverycontainer has a proper persistence path set, update it
+	// might happen only in case where the WekaClient manifest does not provide OS distro.
+	if discoveryContainer.IsUnspecifiedOs() {
+		discoveryContainer.Spec.OsDistro = discoveryNodeInfo.Os
+		err = c.Update(ctx, discoveryContainer)
+		if err != nil {
+			return err
+		}
+	}
 	// Update the node with data in annotation
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
