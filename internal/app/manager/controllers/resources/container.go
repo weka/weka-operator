@@ -49,7 +49,6 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-const PersistentContainersLocation = "/opt/k8s-weka/containers"
 const PersistentHostClusterLocation = "/opt/k8s-weka/clusters"
 
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
@@ -112,7 +111,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsidePersistence := fmt.Sprintf("%s/%s", PersistentContainersLocation, f.container.GetUID())
+	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
 	hostsideClusterPersistence := fmt.Sprintf("%s/%s", PersistentHostClusterLocation, "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
 		clusterId := f.container.GetOwnerReferences()[0].UID
@@ -186,23 +185,8 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							SubPath:   "run-weka-cli.sh",
 						},
 						{
-							Name:      "weka-container-persistence-dir",
-							MountPath: containerPathPersistence,
-						},
-						{
-							Name:      "weka-container-persistence-dir",
-							MountPath: "/var/log",
-							SubPath:   "var/log",
-						},
-						{
-							Name:      "weka-container-persistence-dir",
-							MountPath: "/opt/k8s-weka/boot-level",
-							SubPath:   "tmpfss/boot-level",
-						},
-						{
-							Name:      "weka-cluster-persistence-dir",
-							MountPath: "/opt/k8s-weka/node-cluster",
-							SubPath:   "shared-configs",
+							Name:      "osrelease",
+							MountPath: "/hostside/etc/os-release",
 						},
 					},
 					Env: []corev1.EnvVar{
@@ -293,6 +277,15 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					},
 				},
 				{
+					Name: "osrelease",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/os-release",
+							Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+						},
+					},
+				},
+				{
 					Name: "dev",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
@@ -319,26 +312,83 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 					},
 				},
-				{
-					Name: "weka-container-persistence-dir",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: hostsidePersistence,
-							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
-						},
-					},
-				},
-				{
-					Name: "weka-cluster-persistence-dir",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: hostsideClusterPersistence,
-							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
-						},
-					},
-				},
 			},
 		},
+	}
+
+	if !f.container.IsDiscoveryContainer() {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-container-persistence-dir",
+			MountPath: containerPathPersistence,
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-container-persistence-dir",
+			MountPath: "/var/log",
+			SubPath:   "var/log",
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-container-persistence-dir",
+			MountPath: "/opt/k8s-weka/boot-level",
+			SubPath:   "tmpfss/boot-level",
+		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "weka-cluster-persistence-dir",
+			MountPath: "/opt/k8s-weka/node-cluster",
+			SubPath:   "shared-configs",
+		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "weka-container-persistence-dir",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsidePersistence,
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+				},
+			},
+		})
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "weka-cluster-persistence-dir",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideClusterPersistence,
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+				},
+			},
+		})
+
+	}
+
+	if f.container.IsDiscoveryContainer() && f.container.IsCos() {
+		allowCosHugepageConfig := os.Getenv("COS_ALLOW_HUGEPAGE_CONFIG")
+		if allowCosHugepageConfig != "true" {
+			allowCosHugepageConfig = "false"
+		}
+		if allowCosHugepageConfig == "true" {
+			globalCosHugepageSize := os.Getenv("COS_GLOBAL_HUGEPAGE_SIZE")
+			if globalCosHugepageSize == "" {
+				globalCosHugepageSize = "2m"
+			}
+			globalCosHugepageCount := os.Getenv("COS_GLOBAL_HUGEPAGE_COUNT")
+			if globalCosHugepageCount == "" {
+				return nil, errors.New("COS_GLOBAL_HUGEPAGE_COUNT env var is not set")
+			}
+			if _, err := strconv.Atoi(globalCosHugepageCount); err != nil {
+				return nil, errors.New("COS_GLOBAL_HUGEPAGE_COUNT env var is not a number")
+			}
+
+			// for discovery containers, set COS params for hugepages
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_ALLOW_HUGEPAGE_CONFIG",
+				Value: allowCosHugepageConfig,
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_GLOBAL_HUGEPAGE_SIZE",
+				Value: globalCosHugepageSize,
+			})
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "COS_GLOBAL_HUGEPAGE_COUNT",
+				Value: globalCosHugepageCount,
+			})
+		}
 	}
 
 	err := f.setResources(ctx, pod)
