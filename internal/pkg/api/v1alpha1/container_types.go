@@ -203,6 +203,10 @@ func (w *WekaContainer) IsDiscoveryContainer() bool {
 	return w.Spec.Mode == WekaContainerModeDiscovery
 }
 
+func (w *WekaContainer) HasPersistentStorage() bool {
+	return !w.IsDiscoveryContainer()
+}
+
 func (w *WekaContainer) GetOsDistro() string {
 	return w.Spec.OsDistro
 }

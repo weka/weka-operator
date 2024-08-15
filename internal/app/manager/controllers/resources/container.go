@@ -314,7 +314,7 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		},
 	}
 
-	if !f.container.IsDiscoveryContainer() {
+	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
 			MountPath: containerPathPersistence,
