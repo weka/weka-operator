@@ -25,6 +25,7 @@ JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
 OS_DISTRO = ""
 OS_BUILD_ID = ""
+DISCOVERY_SCHEMA = 1
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -362,7 +363,7 @@ def read_siblings_list(cpu_index):
 class HostInfo:
     kubernetes_distro = 'k8s'
     os = 'unknown'
-    os_build_id = ''
+    os_build_id = ''  # this is either COS build ID OR OpenShift version tag, e.g. 415.92.202406111137-0
 
     def is_rhcos(self):
         return self.os == OS_NAME_REDHAT_COREOS
@@ -387,6 +388,7 @@ def get_host_info():
 
     if ret.is_rhcos():
         ret.kubernetes_distro = KUBERNETES_DISTRO_OPENSHIFT
+        ret.os_build_id = raw_data.get("VERSION", "")
 
     elif ret.is_cos():
         ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
@@ -934,6 +936,7 @@ async def discovery():
             kubernetes_distro=host_info.kubernetes_distro,
             os=host_info.os,
             os_build_id=host_info.os_build_id,
+            schema=DISCOVERY_SCHEMA,
         )
         json.dump(data, f)
     os.rename("/tmp/weka-discovery.json.tmp", "/tmp/weka-discovery.json")

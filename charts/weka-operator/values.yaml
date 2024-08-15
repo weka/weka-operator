@@ -40,7 +40,7 @@ persistence:
 
 ocpCompatibility:
   driverToolkitSecretName:
-  driverToolkitImage: quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:efa99ae171e7db22aa2d320b7bc78e950db01987889b6a8529e1945670e80792
+  driverToolkitImageBaseUrl: quay.io/openshift-release-dev/ocp-v4.0-art-dev
   # -- automatically create Tuned profile for the cluster nodes to apply hugepages configuration.
   # -- WARNING: do not enable this feature if you are already using custom Tuned profiles for setting hugepages
   hugepageConfiguration:

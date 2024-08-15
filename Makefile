@@ -175,11 +175,44 @@ run: generate manifests install fmt vet deploy runcontroller ## Run a controller
 
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT} OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" go run ./cmd/manager/main.go --enable-cluster-api=$(ENABLE_CLUSTER_API) --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+    WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance \
+    WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT} \
+    WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" \
+    WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" \
+    WEKA_OCP_PULL_SECRET=ocp-buildkit-secret \
+    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/openshift-release-dev/ocp-v4.0-art-dev \
+    WEKA_COS_SERVICE_ACCOUNT_SECRET=weka-builder \
+    WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
+    WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
+    WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
+    OPERATOR_DEV_MODE=true \
+    OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
+    go run ./cmd/manager/main.go \
+    --enable-cluster-api=$(ENABLE_CLUSTER_API) \
+    --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
-	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance OPERATOR_DEV_MODE=true OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient ./cmd/manager/main.go
+	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance \
+	WEKA_OPERATOR_WEKA_HOME_ENDPOINT=${WH_ENDPOINT}
+	WEKA_OPERATOR_WEKA_HOME_INSECURE="${WH_ENABLE_INSECURE}" \
+	WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET="${WH_CACERT_SECRET}" \
+    WEKA_OCP_PULL_SECRET=ocp-buildkit-secret \
+    WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/openshift-release-dev/ocp-v4.0-art-dev \
+    WEKA_COS_SERVICE_ACCOUNT_SECRET=weka-builder \
+    WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
+    WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
+    WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
+	OPERATOR_DEV_MODE=true \
+    OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
+    dlv debug \
+    --headless \
+    --listen=:2345 \
+    --api-version=2 \
+    --accept-multiclient \
+    ./cmd/manager/main.go -- \
+    --enable-cluster-api=$(ENABLE_CLUSTER_API) \
+    --tombstone-expiration=$(TOMBSTONE_EXPIRATION)
 
 #.PHONY: docker-build
 #docker-build: ## Build docker image with the manager.
@@ -219,8 +252,11 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
 		--set wekahome.cacertSecret="${WH_CACERT_SECRET}" \
 		--set ocpCompatibility.hugepageConfiguration.enabled=true \
+		--set ocpCompatibility.driverToolkitSecretName=ocp-buildkit-secret \
+		--set ocpCompatibility.driverToolkitImageBaseUrl=quay.io/weka.io/gke-toolkit \
 		--set gkeCompatibility.hugepageConfiguration.enabled=true \
-		--set gkeCompatibility.disableDriverSigning=true
+		--set gkeCompatibility.disableDriverSigning=true \
+		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

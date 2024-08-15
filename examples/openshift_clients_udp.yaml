@@ -9,6 +9,10 @@ spec:
   driversDistService: "http://weka-driver-builder:60002"
   port: 45001
   agentPort: 45000
-  wekaSecretRef: weka-cluster-cluster-dev
   coresNum: 1
   joinIpPorts: ["10.222.96.0:14000"]
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  tracesConfiguration:
+    maxCapacityPerIoNode: 10
+    ensureFreeSpace: 50

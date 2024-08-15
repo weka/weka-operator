@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"github.com/pkg/errors"
@@ -17,22 +18,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const DiscoveryTargetVersion = 1
+const DiscoveryTargetSchema = 1
+const ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
 
 type DiscoveryNodeInfo struct {
-	IsHt             bool   `json:"is_ht"`
-	KubernetesDistro string `json:"kubernetes_distro,omitempty"`
-	Os               string `json:"os,omitempty"`
-	OsBuildId        string `json:"os_build_id,omitempty"`
-	BootID           string `json:"boot_id,omitempty"`
-	Version          int
+	IsHt               bool   `json:"is_ht"`
+	KubernetesDistro   string `json:"kubernetes_distro,omitempty"`
+	Os                 string `json:"os,omitempty"`
+	OsBuildId          string `json:"os_build_id,omitempty"`
+	BootID             string `json:"boot_id,omitempty"`
+	Schema             int    `json:"schema,omitempty"`
+	InitContainerImage string `json:"init_container_image,omitempty"`
 }
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
 
-func (nodeInfo *DiscoveryNodeInfo) IsOpenshift() bool {
-	return nodeInfo.KubernetesDistro == v1alpha1.OsNameOpenshift
-
+func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
+	return nodeInfo.Os == v1alpha1.OsNameOpenshift
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
@@ -40,7 +42,7 @@ func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
 }
 
 func (d *DiscoveryNodeInfo) GetHostsidePersistenceBaseLocation() string {
-	if d.IsOpenshift() {
+	if d.IsRhCos() {
 		return v1alpha1.PersistencePathBaseRhCos
 	}
 	if d.IsCos() {
@@ -172,7 +174,7 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1a
 		// Validate the annotation is up to date
 		discoveryNodeInfo := &DiscoveryNodeInfo{}
 		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
-		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Version >= DiscoveryTargetVersion {
+		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Schema >= DiscoveryTargetSchema {
 			return discoveryNodeInfo, nil
 		}
 	}
@@ -235,6 +237,18 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1a
 	}
 
 	discoveryNodeInfo.BootID = node.Status.NodeInfo.BootID
+	// if Openshift, update image
+	if discoveryNodeInfo.IsRhCos() && discoveryNodeInfo.InitContainerImage == "" {
+		if discoveryNodeInfo.OsBuildId == "" {
+			return nil, errors.New("Failed to get OCP version from node")
+		}
+		image, err := GetOcpToolkitImage(ctx, c, discoveryNodeInfo.OsBuildId)
+		if err != nil || image == "" {
+			return nil, errors.Wrap(err, fmt.Sprintf("Failed to get OCP toolkit image for version %s", discoveryNodeInfo.OsBuildId))
+		}
+		discoveryNodeInfo.InitContainerImage = image
+	}
+
 	discoveryString, err := json.Marshal(discoveryNodeInfo)
 	if err != nil {
 		return nil, errors.Wrap(err, "Failed to marshal discovery.json")
@@ -260,4 +274,28 @@ func EnsureNodeDiscovered(ctx context.Context, c client.Client, ownerDetails v1a
 	}
 
 	return discoveryNodeInfo, nil
+}
+
+func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string, error) {
+	toolkitMap := &corev1.ConfigMap{}
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		return "", err
+	}
+	if err := c.Get(ctx, types.NamespacedName{Name: ocpDriverToolkitMapName, Namespace: namespace}, toolkitMap); err != nil {
+		return "", err
+	}
+	imageTag := ""
+	if toolkitMap != nil {
+		if toolkitMap.Data != nil {
+			if toolkitMap.Data[v] != "" {
+				imageTag = toolkitMap.Data[v]
+			}
+		}
+	}
+	if imageTag == "" {
+		return "", errors.New(fmt.Sprintf("Failed to fetch image tag %s from configmap %s", v, ocpDriverToolkitMapName))
+	}
+	imageBase := v1alpha1.GetStringEnv(v1alpha1.EnvOCPToolkitImageBaseUrl, "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
+	return fmt.Sprintf("%s@sha256:%s", imageBase, imageTag), nil
 }
