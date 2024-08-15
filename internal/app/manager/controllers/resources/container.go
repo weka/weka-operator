@@ -49,8 +49,6 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
-const PersistentHostClusterLocation = "/opt/k8s-weka/clusters"
-
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -111,11 +109,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsidePersistence := fmt.Sprintf("%s/%s", f.container.GetPersistentLocation(), f.container.GetUID())
-	hostsideClusterPersistence := fmt.Sprintf("%s/%s", PersistentHostClusterLocation, "cluster-less")
+	hostsideContainerPersistence := fmt.Sprintf("%s/%s", f.container.GetHostsideContainerPersistence(), f.container.GetUID())
+	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.container.GetHostsideClusterPersistence(), "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
 		clusterId := f.container.GetOwnerReferences()[0].UID
-		hostsideClusterPersistence = fmt.Sprintf("%s/%s", PersistentHostClusterLocation, clusterId)
+		hostsideClusterPersistence = fmt.Sprintf("%s/%s", f.container.GetHostsideClusterPersistence(), clusterId)
 	}
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
 
@@ -328,19 +326,19 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
-			MountPath: "/opt/k8s-weka/boot-level",
+			MountPath: f.container.GetHostsidePersistenceBaseLocation() + "/boot-level",
 			SubPath:   "tmpfss/boot-level",
 		})
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-cluster-persistence-dir",
-			MountPath: "/opt/k8s-weka/node-cluster",
+			MountPath: f.container.GetHostsidePersistenceBaseLocation() + "/node-cluster",
 			SubPath:   "shared-configs",
 		})
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-container-persistence-dir",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsidePersistence,
+					Path: hostsideContainerPersistence,
 					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 				},
 			},

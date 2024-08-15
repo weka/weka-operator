@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -38,11 +39,9 @@ func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reco
 }
 
 type TombstoneConfig struct {
-	EnableTombstoneGc          bool
-	TombstoneGcInterval        time.Duration
-	TombstoneExpiration        time.Duration
-	MaintenanceImage           string
-	MaintenanceImagePullSecret string
+	EnableTombstoneGc   bool
+	TombstoneGcInterval time.Duration
+	TombstoneExpiration time.Duration
 }
 
 func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *TombstoneReconciller {
@@ -195,7 +194,13 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 	if persistencePath == "" {
 		// we assume that new version of tombstone will always have the persistencePath.
 		// if not, we will use the default path for pre-existing tombstones, being the "plain kubernetes" one
-		persistencePath = "/opt/k8s-weka/containers"
+		persistencePath = wekav1alpha1.PersistencePathBase + "/containers"
+	}
+
+	maintenanceImage := os.Getenv("WEKA_MAINTENANCE_IMAGE")
+	maintenanceImagePullSecret := os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
+	if maintenanceImage == "" {
+		maintenanceImage = "busybox"
 	}
 
 	job := &v1.Job{
@@ -210,7 +215,7 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 					Containers: []corev1.Container{
 						{
 							Name:  "delete-tombstone",
-							Image: "busybox",
+							Image: maintenanceImage,
 							Command: []string{
 								"sh",
 								"-c",
@@ -240,7 +245,13 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 			},
 		},
 	}
-
+	if maintenanceImagePullSecret != "" {
+		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+			{
+				Name: maintenanceImagePullSecret,
+			},
+		}
+	}
 	if tombstone.Spec.NodeAffinity != "" {
 		job.Spec.Template.Spec.Affinity = &corev1.Affinity{
 			NodeAffinity: &corev1.NodeAffinity{

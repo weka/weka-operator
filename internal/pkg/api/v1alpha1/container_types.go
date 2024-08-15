@@ -29,20 +29,20 @@ type WekaContainer struct {
 type WekaContainerMode string
 
 const (
-	WekaContainerModeDist             = "dist"
-	WekaContainerModeDriversLoader    = "drivers-loader"
-	WekaContainerModeCompute          = "compute"
-	WekaContainerModeDrive            = "drive"
-	WekaContainerModeClient           = "client"
-	WekaContainerModeDiscovery        = "discovery"
-	WekaContainerModeS3               = "s3"
-	WekaContainerModeEnvoy            = "envoy"
-	WekaContainerModeBuild            = "build"
-	PersistentContainersLocation      = "/opt/k8s-weka/containers"
-	PersistentContainersLocationCos   = "/mnt/stateful_partition/k8s-weka/containers"
-	PersistentContainersLocationRhCos = "/root/k8s-weka/containers"
-	OsNameOpenshift                   = "rhcos"
-	OsNameCos                         = "cos"
+	WekaContainerModeDist          = "dist"
+	WekaContainerModeDriversLoader = "drivers-loader"
+	WekaContainerModeCompute       = "compute"
+	WekaContainerModeDrive         = "drive"
+	WekaContainerModeClient        = "client"
+	WekaContainerModeDiscovery     = "discovery"
+	WekaContainerModeS3            = "s3"
+	WekaContainerModeEnvoy         = "envoy"
+	WekaContainerModeBuild         = "build"
+	PersistencePathBase            = "/opt/k8s-weka"
+	PersistencePathBaseCos         = "/mnt/stateful_partition/k8s-weka"
+	PersistencePathBaseRhCos       = "/root/k8s-weka"
+	OsNameOpenshift                = "rhcos"
+	OsNameCos                      = "cos"
 )
 
 type S3Params struct {
@@ -219,13 +219,21 @@ func (w *WekaContainer) IsUnspecifiedOs() bool {
 	return w.Spec.OsDistro == ""
 }
 
-func (w *WekaContainer) GetPersistentLocation() string {
+func (w *WekaContainer) GetHostsidePersistenceBaseLocation() string {
 	if w.Spec.OsDistro == OsNameOpenshift {
-		return PersistentContainersLocationRhCos //TODO: check persistence for openshift
+		return PersistencePathBaseRhCos //TODO: check persistence for openshift
 	} else if w.Spec.OsDistro == OsNameCos {
-		return PersistentContainersLocationCos
+		return PersistencePathBaseCos
 	}
-	return PersistentContainersLocation
+	return PersistencePathBase
+}
+
+func (w *WekaContainer) GetHostsideContainerPersistence() string {
+	return w.GetHostsidePersistenceBaseLocation() + "/containers"
+}
+
+func (w *WekaContainer) GetHostsideClusterPersistence() string {
+	return w.GetHostsidePersistenceBaseLocation() + "/clusters"
 }
 
 func (w *WekaContainer) IsWekaContainer() bool {
