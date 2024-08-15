@@ -36,6 +36,7 @@ persistence:
       enabled: true
       interval: 5m
       retention: 72h
+      allowDeleteOnNodeMissing: true
 
 ocpCompatibility:
   # -- automatically create Tuned profile for the cluster nodes to apply hugepages configuration.

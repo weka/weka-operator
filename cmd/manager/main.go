@@ -76,6 +76,7 @@ func main() {
 	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
 	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
+	flag.BoolVar(&tombstoneConfig.DeleteOnNodeMissing, "allow-tombstone-delete-on-node-missing", false, "Allow deletion of tombstones when node is not anymore a part of the cluster")
 
 	ctx := ctrl.SetupSignalHandler()
 

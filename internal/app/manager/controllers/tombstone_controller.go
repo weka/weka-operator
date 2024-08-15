@@ -30,6 +30,7 @@ type TombstoneReconciller struct {
 	Recorder    record.EventRecorder
 	ExecService services.ExecService
 	KubeService services.KubeService
+	config      TombstoneConfig
 }
 
 func (r TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
@@ -42,6 +43,7 @@ type TombstoneConfig struct {
 	EnableTombstoneGc   bool
 	TombstoneGcInterval time.Duration
 	TombstoneExpiration time.Duration
+	DeleteOnNodeMissing bool
 }
 
 func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *TombstoneReconciller {
@@ -53,6 +55,7 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 		Recorder:    mgr.GetEventRecorderFor("wekaCluster-controller"),
 		ExecService: services.NewExecService(restConfig),
 		KubeService: services.NewKubeService(mgr.GetClient()),
+		config:      config,
 	}
 
 	if config.EnableTombstoneGc {
@@ -73,6 +76,26 @@ func (r TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.R
 		if client.IgnoreNotFound(err) == nil {
 			return reconcile.Result{}, nil
 		}
+		return reconcile.Result{}, err
+	}
+	nodename := tombstone.Spec.NodeAffinity
+	node := corev1.Node{}
+	err = r.Client.Get(ctx, client.ObjectKey{Name: nodename}, &node)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			if r.config.DeleteOnNodeMissing {
+				logger.Info("node is not a member of cluster, removing tombstone", "node", nodename)
+				err = r.removeFinalizer(ctx, tombstone)
+				if err != nil {
+					logger.Error(err, "Failed to remove finalizer", "nodename", nodename, "finalizer", WekaFinalizer)
+					return reconcile.Result{}, err
+				}
+			} else {
+				logger.Info("node is not a member of cluster, keeping tombstone", "node", nodename)
+				return reconcile.Result{}, nil
+			}
+		}
+		logger.Error(err, "Failed to locate tombstone node", "nodename", nodename)
 		return reconcile.Result{}, err
 	}
 
@@ -224,7 +247,9 @@ func (r TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) 
 							Command: []string{
 								"sh",
 								"-c",
-								"rm -rf " + fmt.Sprintf("%s/%s", persistencePath, tombstone.Spec.CrId),
+								fmt.Sprintf("echo 'Deleting tombstone %s/%s' && rm -rf ", persistencePath, tombstone.Spec.CrId) +
+									fmt.Sprintf("%s/%s 2>&1", persistencePath, tombstone.Spec.CrId) +
+									" && echo 'Tombstone deleted' || echo 'Tombstone not found' && sleep 5 && exit 0",
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -292,16 +317,34 @@ func (r TombstoneReconciller) ensureFinalizer(ctx context.Context, tombstone *we
 	return nil
 }
 
+func (r TombstoneReconciller) removeFinalizer(ctx context.Context, tombtsone *wekav1alpha1.Tombstone) error {
+	if slices.Contains(tombtsone.Finalizers, WekaFinalizer) {
+		var newFinalizers []string
+		for _, finalizer := range tombtsone.Finalizers {
+			if finalizer == WekaFinalizer {
+				continue
+			}
+			newFinalizers = append(newFinalizers, finalizer)
+		}
+		tombtsone.Finalizers = newFinalizers
+		err := r.Client.Update(ctx, tombtsone)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r TombstoneReconciller) GCLoop(config TombstoneConfig) {
 	for {
 		ctx := context.Background()
 		//getlogspan
-		_ = r.GC(ctx, config)
+		_ = r.GC(ctx)
 		time.Sleep(config.TombstoneGcInterval)
 	}
 }
 
-func (r TombstoneReconciller) GC(ctx context.Context, config TombstoneConfig) error {
+func (r TombstoneReconciller) GC(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TombstoneGC")
 	defer end()
 
@@ -313,7 +356,7 @@ func (r TombstoneReconciller) GC(ctx context.Context, config TombstoneConfig) er
 
 	for _, tombstone := range tombstones.Items {
 		if tombstone.DeletionTimestamp == nil {
-			if tombstone.CreationTimestamp.Add(config.TombstoneExpiration).Before(time.Now()) {
+			if tombstone.CreationTimestamp.Add(r.config.TombstoneExpiration).Before(time.Now()) {
 				err := r.Client.Delete(ctx, &tombstone)
 				if err != nil {
 					if apierrors.IsNotFound(err) {
