@@ -37,6 +37,8 @@ spec:
             type: object
           spec:
             properties:
+              container_name:
+                type: string
               cr_id:
                 type: string
               cr_type:

@@ -1181,6 +1181,7 @@ func (r *ContainerController) ensureTombstone(ctx context.Context, container *we
 			CrId:            string(container.UID),
 			NodeAffinity:    nodeAffinity,
 			PersistencePath: container.GetHostsideContainerPersistence(),
+			ContainerName:   container.Name,
 		},
 	}
 
