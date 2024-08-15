@@ -83,10 +83,6 @@ def wait_for_agent():
         print("Waiting for weka-agent to start")
 
 
-def should_build_externally():
-    return is_google_cos()
-
-
 async def ensure_drivers():
     logging.info("waiting for drivers")
     drivers = "wekafsio wekafsgw mpin_user".split()
@@ -181,6 +177,12 @@ VERSION_TO_DRIVERS_MAP_WEKAFS = {
     "4.2.10.1671-363e1e8fcfb1290e061815445e973310-dev": dict(
         wekafs="1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
     ),
+    "4.3.3": dict(
+        wekafs="cbd05f716a3975f7-GW_556972ab1ad2a29b0db5451e9db18748",
+        uio_pci_generic=False,
+        dependencies="7955984e4bce9d8b",
+        weka_drivers_handling=False,
+    ),
 }
 # WEKA_DRIVER_VERSION_OPTIONS = [
 #     "1.0.0-c50570e208c935e9129c9054140ab11a-GW_aedf44a11ca66c7bb599f302ae1dff86",
@@ -233,14 +235,14 @@ async def load_drivers():
         weka_driver_version = version_params.get('wekafs')
         download_cmds = [
             (f"mkdir -p /opt/weka/dist/drivers", "creating drivers directory"),
-            (f"curl -fo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko", "downloading wekafsgw driver"),
-            (f"curl -fo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko", "downloading wekafsio driver"),
-            (f"curl -fo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading mpin_user driver")
+            (f"curl -kfo /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko", "downloading wekafsgw driver"),
+            (f"curl -kfo /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko", "downloading wekafsio driver"),
+            (f"curl -kfo /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading mpin_user driver")
         ]
         if not should_skip_igb_uio():
-            download_cmds.append((f"curl -fo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading igb_uio driver"))
+            download_cmds.append((f"curl -kfo /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading igb_uio driver"))
         if not should_skip_uio_pci_generic():
-            download_cmds.append((f"curl -fo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading uio_pci_generic driver"))
+            download_cmds.append((f"curl -kfo /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko {DIST_SERVICE}/dist/v1/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko", "downloading uio_pci_generic driver"))
 
         load_cmds = [
             (f"lsmod | grep -w wekafsgw || insmod /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko", "loading wekafsgw driver"),
@@ -406,6 +408,9 @@ def find_full_cores(n):
     allowed_cores = parse_cpu_allowed_list()
 
     for cpu_index in allowed_cores:
+        if is_rhcos() and cpu_index in [0]:
+            continue  # TODO: remove this once a better solution is found to avoid using CPU 0 and 1
+
         siblings = read_siblings_list(cpu_index)
         if all(sibling in allowed_cores for sibling in siblings):
             if any(sibling in selected_siblings for sibling in siblings):
@@ -1206,15 +1211,15 @@ async def main():
 
     if MODE == "dist":
         logging.info("dist-service flow")
-        if not should_build_externally():
+        if is_google_cos():
+            await install_gsutil()
+            await cos_build_drivers()
+
+        else:  # default
             await agent.stop()
             await configure_agent(agent_handle_drivers=True)
-            await agent.start()
+            await agent.start()  # here the build happens
             await await_agent()
-        else:
-            if is_google_cos():
-                await install_gsutil()
-                await cos_build_drivers()
 
         await ensure_dist_container()
         await configure_traces()
