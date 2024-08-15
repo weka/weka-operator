@@ -29,21 +29,36 @@ type WekaContainer struct {
 type WekaContainerMode string
 
 const (
-	WekaContainerModeDist          = "dist"
-	WekaContainerModeDriversLoader = "drivers-loader"
-	WekaContainerModeCompute       = "compute"
-	WekaContainerModeDrive         = "drive"
-	WekaContainerModeClient        = "client"
-	WekaContainerModeDiscovery     = "discovery"
-	WekaContainerModeS3            = "s3"
-	WekaContainerModeEnvoy         = "envoy"
-	WekaContainerModeBuild         = "build"
+	WekaContainerModeDist             = "dist"
+	WekaContainerModeDriversLoader    = "drivers-loader"
+	WekaContainerModeCompute          = "compute"
+	WekaContainerModeDrive            = "drive"
+	WekaContainerModeClient           = "client"
+	WekaContainerModeDiscovery        = "discovery"
+	WekaContainerModeS3               = "s3"
+	WekaContainerModeEnvoy            = "envoy"
+	WekaContainerModeBuild            = "build"
+	PersistentContainersLocation      = "/opt/k8s-weka/containers"
+	PersistentContainersLocationCos   = "/mnt/stateful_partition/k8s-weka/containers"
+	PersistentContainersLocationRhCos = "/root/k8s-weka/containers"
+	OsNameOpenshift                   = "rhcos"
+	OsNameCos                         = "cos"
 )
 
 type S3Params struct {
 	EnvoyPort      int `json:"envoyPort,omitempty"`
 	EnvoyAdminPort int `json:"envoyAdminPort,omitempty"`
 	S3Port         int `json:"s3Port,omitempty"`
+}
+
+type CoreOSBuildSpec struct {
+	DriverToolkitImagePullSecret string `json:"driverToolkitImagePullSecret,omitempty"`
+	DriverToolkitImage           string `json:"driverToolkitImage,omitempty"`
+}
+
+type COSBuildSpec struct {
+	OsBuildId               string `json:"osBuildId,omitempty"`
+	GcloudCredentialsSecret string `json:"gcloudCredentialsSecret,omitempty"`
 }
 
 type WekaContainerSpec struct {
@@ -54,7 +69,11 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3;build;envoy
+	CoreOSBuildSpec   *CoreOSBuildSpec  `json:"coreOSBuildSpec,omitempty"`
+	COSBuildSpec      *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
+	// +kubebuilder:validation:Enum="cos";rhcos;"ubuntu";""
+	OsDistro string `json:"osDistro,omitempty"`
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -78,6 +97,7 @@ type WekaContainerSpec struct {
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	ForceAllowDriveSign bool                 `json:"forceAllowDriveSign,omitempty"`
 	Group               string               `json:"group,omitempty"`
+	ServiceAccountName  string               `json:"serviceAccountName,omitempty"`
 	AdditionalSecrets   map[string]string    `json:"additionalSecrets,omitempty"`
 }
 
@@ -169,6 +189,43 @@ func (w *WekaContainer) IsHostNetwork() bool {
 
 func (w *WekaContainer) IsDriversContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeBuild}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsDriversBuilder() bool {
+	return w.Spec.Mode == WekaContainerModeDist
+}
+
+func (w *WekaContainer) IsBackend() bool {
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsDiscoveryContainer() bool {
+	return w.Spec.Mode == WekaContainerModeDiscovery
+}
+
+func (w *WekaContainer) GetOsDistro() string {
+	return w.Spec.OsDistro
+}
+
+func (w *WekaContainer) IsOpenshift() bool {
+	return w.Spec.OsDistro == OsNameOpenshift
+}
+
+func (w *WekaContainer) IsCos() bool {
+	return w.Spec.OsDistro == OsNameCos
+}
+
+func (w *WekaContainer) IsUnspecifiedOs() bool {
+	return w.Spec.OsDistro == ""
+}
+
+func (w *WekaContainer) GetPersistentLocation() string {
+	if w.Spec.OsDistro == OsNameOpenshift {
+		return PersistentContainersLocationRhCos //TODO: check persistence for openshift
+	} else if w.Spec.OsDistro == OsNameCos {
+		return PersistentContainersLocationCos
+	}
+	return PersistentContainersLocation
 }
 
 func (w *WekaContainer) IsWekaContainer() bool {

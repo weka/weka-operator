@@ -120,7 +120,6 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 		fmt.Printf("failed to create manager: %v", err)
 		return nil, err
 	}
-
 	os.Setenv("OPERATOR_DEV_MODE", "true")
 	clusterController := NewWekaClusterController(testEnv.Manager)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)

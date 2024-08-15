@@ -104,6 +104,8 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              osDistro:
+                type: string
               port:
                 type: integer
               rawTolerations:

@@ -92,6 +92,20 @@ spec:
                   s3:
                     type: integer
                 type: object
+              coreOSBuildSpec:
+                properties:
+                  driverToolkitImage:
+                    type: string
+                  driverToolkitImagePullSecret:
+                    type: string
+                type: object
+              cosBuildSpec:
+                properties:
+                  gcloudCredentialsSecret:
+                    type: string
+                  osBuildId:
+                    type: string
+                type: object
               cpuPolicy:
                 default: auto
                 enum:
@@ -147,6 +161,8 @@ spec:
                   type: string
                 type: object
               operatorSecretRef:
+                type: string
+              osDistro:
                 type: string
               ports:
                 properties:

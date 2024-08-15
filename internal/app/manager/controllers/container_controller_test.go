@@ -110,7 +110,6 @@ func TestNewContainerController(t *testing.T) {
 		t.Errorf("failed to create manager")
 		return
 	}
-
 	subject := NewContainerController(testEnv.Manager)
 	if subject == nil {
 		t.Errorf("NewContainerController() returned nil")

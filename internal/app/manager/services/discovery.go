@@ -18,7 +18,11 @@ import (
 )
 
 type DiscoveryNodeInfo struct {
-	IsHt bool `json:"is_ht"`
+	IsHt             bool   `json:"is_ht"`
+	KubernetesDistro string `json:"kubernetes_distro,omitempty"`
+	Os               string `json:"os,omitempty"`
+	OsBuildId        string `json:"os_build_id,omitempty"`
+	BootID           string `json:"boot_id,omitempty"`
 }
 
 const discoveryAnnotation = "k8s.weka.io/discovery.json"
@@ -238,4 +242,24 @@ func ResolveCpuPolicy(ctx context.Context, c client.Client, node string, cpuPoli
 		cpuPolicy = v1alpha1.CpuPolicyDedicated
 	}
 	return cpuPolicy, nil
+}
+
+func GetClientOs(ctx context.Context, c client.Client, node string) (OsDistro, OsBuildId string, err error) {
+	nodeInfo, err := GetNodeDiscovery(ctx, c, node)
+	if err != nil {
+		return "", "", err
+	}
+
+	if nodeInfo == nil { // asserting just in case
+		return "", "", errors.New("nil-node info, while no error on node discovery")
+	}
+
+	if nodeInfo.Os != "" {
+		OsDistro = nodeInfo.Os
+	}
+	if nodeInfo.OsBuildId != "" {
+		OsBuildId = nodeInfo.OsBuildId
+	}
+
+	return OsDistro, OsBuildId, nil
 }

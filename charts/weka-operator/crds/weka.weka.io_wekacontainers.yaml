@@ -80,6 +80,20 @@ spec:
                 items:
                   type: integer
                 type: array
+              coreOSBuildSpec:
+                properties:
+                  driverToolkitImage:
+                    type: string
+                  driverToolkitImagePullSecret:
+                    type: string
+                type: object
+              cosBuildSpec:
+                properties:
+                  gcloudCredentialsSecret:
+                    type: string
+                  osBuildId:
+                    type: string
+                type: object
               cpuPolicy:
                 default: auto
                 enum:
@@ -126,8 +140,6 @@ spec:
                 - drivers-loader
                 - discovery
                 - s3
-                - build
-                - envoy
                 type: string
               name:
                 type: string
@@ -154,8 +166,17 @@ spec:
                 type: integer
               numDrives:
                 type: integer
+              osDistro:
+                enum:
+                - cos
+                - rhcos
+                - ubuntu
+                - ""
+                type: string
               port:
                 type: integer
+              serviceAccountName:
+                type: string
               tolerations:
                 items:
                   description: |-

@@ -119,6 +119,8 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		hostsideClusterPersistence = fmt.Sprintf("%s/%s", PersistentHostClusterLocation, clusterId)
 	}
 	wekaPort := strconv.Itoa(f.container.Spec.Port)
+
+	serviceAccountName := f.container.Spec.ServiceAccountName
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -264,6 +266,19 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
 						},
+						{
+							Name:  "OS_DISTRO",
+							Value: f.container.Spec.OsDistro,
+						},
+						{
+							Name: "OS_BUILD_ID",
+							Value: func() string {
+								if f.container.Spec.COSBuildSpec != nil {
+									return f.container.Spec.COSBuildSpec.OsBuildId
+								}
+								return ""
+							}(),
+						},
 					},
 				},
 			},
@@ -355,6 +370,11 @@ func (f *ContainerFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			})
 		}
 	}
+
+	if serviceAccountName != "" {
+		pod.Spec.ServiceAccountName = serviceAccountName
+	}
+
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	if f.container.Spec.NodeInfoConfigMap != "" {

@@ -68,6 +68,7 @@ type WekaClientSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
+	OsDistro            string               `json:"osDistro,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	WekaHomeConfig      WekahomeClientConfig `json:"wekaHomeConfig,omitempty"`
 }

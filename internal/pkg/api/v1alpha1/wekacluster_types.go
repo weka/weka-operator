@@ -72,9 +72,12 @@ type WekaClusterSpec struct {
 	Topology           string            `json:"topology"`
 	Image              string            `json:"image"`
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
+	OsDistro           string            `json:"osDistro,omitempty"`
+	CoreOSBuildSpec    *CoreOSBuildSpec  `json:"coreOSBuildSpec,omitempty"`
+	COSBuildSpec       *COSBuildSpec     `json:"cosBuildSpec,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
-	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
+	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
