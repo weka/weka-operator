@@ -19,8 +19,8 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	"os"
 	"reflect"
@@ -103,13 +103,19 @@ func (r *ClientReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	applicableNodes, err := allocator.GetNodesByLabels(ctx, r.Client, wekaClient.Spec.NodeSelector)
+	kubeService := kubernetes.NewKubeService(r.Client)
+
+	applicableNodes, err := kubeService.GetNodes(ctx, wekaClient.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "Failed to get applicable nodes by labels")
 		return ctrl.Result{}, err
 	}
+	nodeNames := []string{}
+	for _, node := range applicableNodes {
+		nodeNames = append(nodeNames, node.Name)
+	}
 
-	result, containers, err := r.ensureClientsWekaContainers(ctx, wekaClient, applicableNodes)
+	result, containers, err := r.ensureClientsWekaContainers(ctx, wekaClient, nodeNames)
 	if err != nil {
 		logger.Error(err, "Failed to ensure weka containers")
 		return result, err
