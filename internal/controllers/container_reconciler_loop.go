@@ -203,6 +203,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				CondMessage: fmt.Sprintf("Added %d drives", container.Spec.NumDrives),
 				Predicates: lifecycle.Predicates{
 					container.IsDriveContainer,
+					func() bool {
+						return loop.container.Spec.NumDrives > 0
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -272,13 +275,6 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
-	if r.container.Spec.Mode != weka.WekaContainerModeDrive || r.container.Spec.NumDrives == 0 {
-		return nil
-	}
-	return r.ensureDrives(ctx)
 }
 
 // Implement the remaining methods (createPod, reconcileDriversStatus, reconcileManagementIP, etc.)
@@ -1051,10 +1047,10 @@ func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) ensureDrives(ctx context.Context) error {
+func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	container := r.container
 	pod := r.pod
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
 	defer end()
 
 	executor, err := util.NewExecInPod(pod)
@@ -1117,7 +1113,7 @@ func (r *containerReconcilerLoop) ensureDrives(ctx context.Context) error {
 				if err2 != nil {
 					return err2
 				}
-				err2 = r.forceResignDrive(ctx, executor, drive) // This changes UUID, effectively making claim obsolete
+				err2 = r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
 				if err2 != nil {
 					return err2
 				}
