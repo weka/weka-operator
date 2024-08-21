@@ -11,6 +11,12 @@
     "@semantic-release/changelog",
     "@semantic-release/github",
     "@semantic-release/git"
+    [
+          "@semantic-release/exec",
+          {
+            "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
+          }
+    ]
   ],
   "preset": "conventionalcommits"
 }

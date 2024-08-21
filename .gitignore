@@ -46,3 +46,4 @@ mock_*.go
 prog.bin
 .envrc.private
 .aider*
+.VERSION
