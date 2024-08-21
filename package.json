@@ -26,5 +26,8 @@
   "license": "ISC",
   "dependencies": {
     "conventional-changelog-writer": "^8.0.0"
+  },
+  "overrides": {
+    "conventional-changelog-conventionalcommits": ">= 8.0.0"
   }
 }
