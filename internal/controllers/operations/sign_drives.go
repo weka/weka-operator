@@ -98,9 +98,9 @@ func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
 func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	var instructions string
 	switch o.payload.Type {
-	case "sign-aws":
+	case "aws-all":
 		instructions = "sign-aws-drives"
-	case "sign-not-mounted":
+	case "not-mounted":
 		instructions = "sign-not-mounted"
 
 	}

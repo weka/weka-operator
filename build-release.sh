@@ -25,6 +25,7 @@ export GOARCH=amd64
 
 echo "Generating code and building binary"
 make generate
+make rbac
 go vet ./...
 go build -o dist/weka-operator cmd/manager/main.go
 

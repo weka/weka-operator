@@ -37,9 +37,6 @@ type manualOpLoop struct {
 	Op        operations.Operation
 }
 
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/finalizers,verbs=update
 func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaManualOperationReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()

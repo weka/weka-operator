@@ -217,6 +217,32 @@ rules:
 - apiGroups:
   - weka.weka.io
   resources:
+  - wekamanualoperations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekamanualoperations/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
+  - wekamanualoperations/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - weka.weka.io
+  resources:
   - wekapolicies
   verbs:
   - create
