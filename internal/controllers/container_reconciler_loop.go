@@ -115,7 +115,10 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.enforceNodeAffinity, Condition: condition.CondContainerAffinitySet},
+			{
+				Run:       loop.enforceNodeAffinity,
+				Condition: condition.CondContainerAffinitySet,
+			},
 			{
 				Run: loop.CleanupUnschedulable,
 				Predicates: lifecycle.Predicates{
@@ -1407,40 +1410,41 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		return nil // no need to enforce FDs/uniqueness
 	}
 
-	lockname := fmt.Sprintf("%s-%s", node, r.container.Spec.Mode)
-	lock := r.nodeAffinityLock.GetLock(lockname)
-	lock.Lock()
-	defer lock.Unlock()
+	if !r.container.Spec.NoAffinityConstraints {
+		lockname := fmt.Sprintf("%s-%s", node, r.container.Spec.Mode)
+		lock := r.nodeAffinityLock.GetLock(lockname)
+		lock.Lock()
+		defer lock.Unlock()
 
-	pods, err := r.KubeService.GetPods(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
-	if err != nil {
-		return err
-	}
-	for _, pod := range pods {
-		if pod.UID == r.pod.UID {
-			continue // that's us, skipping
-		}
-		owner := pod.GetOwnerReferences()
-		if len(owner) == 0 {
-			continue // not owned pod, no idea what is it, but bypassing
-		}
-
-		var ownerContainer weka.WekaContainer
-		err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: owner[0].Name}, &ownerContainer)
+		pods, err := r.KubeService.GetPods(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
 		if err != nil {
 			return err
 		}
-		if ownerContainer.Status.NodeAffinity != "" {
-			deleteErr := r.ensureNoPod(ctx)
-			if deleteErr != nil {
-				return deleteErr
-			} else {
-				return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))
+		for _, pod := range pods {
+			if pod.UID == r.pod.UID {
+				continue // that's us, skipping
+			}
+			owner := pod.GetOwnerReferences()
+			if len(owner) == 0 {
+				continue // not owned pod, no idea what is it, but bypassing
+			}
+
+			var ownerContainer weka.WekaContainer
+			err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: owner[0].Name}, &ownerContainer)
+			if err != nil {
+				return err
+			}
+			if ownerContainer.Status.NodeAffinity != "" {
+				deleteErr := r.ensureNoPod(ctx)
+				if deleteErr != nil {
+					return deleteErr
+				} else {
+					return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))
+				}
 			}
 		}
+		// no one else is using this node, we can safely set it
 	}
-	// no one else is using this node, we can safely set it
-
 	r.container.Status.NodeAffinity = weka.NodeName(node)
 	logger.Info("binding to node", "node", node, "container_name", r.container.Name)
 	return r.Status().Update(ctx, r.container)

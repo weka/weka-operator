@@ -81,7 +81,7 @@ type WekaClusterSpec struct {
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
 	Ports               ClusterPorts         `json:"ports,omitempty"`
-	MaxFdsPerNode       int                  `json:"maxFdsPerNode,omitempty"`
+	DisregardRedundancy bool                 `json:"disregardRedundancy,omitempty"`
 	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`

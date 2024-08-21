@@ -92,6 +92,7 @@ type WekaContainerSpec struct {
 	ServiceAccountName    string               `json:"serviceAccountName,omitempty"`
 	AdditionalSecrets     map[string]string    `json:"additionalSecrets,omitempty"`
 	Instructions          string               `json:"instructions,omitempty"`
+	NoAffinityConstraints bool                 `json:"dropAffinityConstraints,omitempty"`
 }
 
 type Network struct {

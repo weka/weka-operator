@@ -101,6 +101,8 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
+              disregardRedundancy:
+                type: boolean
               driversDistService:
                 type: string
               dynamicTemplate:
@@ -140,8 +142,6 @@ spec:
                 type: string
               ipv6:
                 type: boolean
-              maxFdsPerNode:
-                type: integer
               network:
                 properties:
                   ethDevice:

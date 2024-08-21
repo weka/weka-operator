@@ -80,8 +80,8 @@ func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 		{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
 		{Name: "EnsureContainers", Run: o.EnsureContainers},
 		{Name: "PollResults", Run: o.PollResults},
-		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		{Name: "ProcessResult", Run: o.ProcessResult},
+		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }

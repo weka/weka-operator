@@ -90,6 +90,8 @@ spec:
                 type: array
               driversDistService:
                 type: string
+              dropAffinityConstraints:
+                type: boolean
               extraCores:
                 type: integer
               forceAllowDriveSign:

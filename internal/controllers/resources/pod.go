@@ -896,7 +896,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	clusterId := f.container.GetParentClusterId()
-	if f.container.IsAllocatable() {
+	if f.container.IsAllocatable() && !f.container.Spec.NoAffinityConstraints {
 		// generalize above code using mode
 		pod.Spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
