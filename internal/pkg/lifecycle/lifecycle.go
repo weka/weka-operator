@@ -254,15 +254,24 @@ func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl
 	err := r.Run(ctx)
 	if err != nil {
 		// check if the error is WaitError or AbortError, then return without error, but with 3 seconds wait
-		if unpacked, ok := err.(*ReconciliationError); ok {
-			//panic("unpacked, next one:" + reflect.TypeOf(unpacked.Err).String())
-			if _, ok := unpacked.Err.(*WaitError); ok {
-				logger.Debug("waiting for conditions to be met", "error", err)
-				return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
-			}
-			if _, ok := unpacked.Err.(*AbortedByPredicate); ok {
-				logger.Debug("aborted by predicate", "error", err)
-				return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+		for {
+			unpacked, ok := err.(*ReconciliationError)
+			var lastUnpacked *ReconciliationError
+			if !ok {
+				if lastUnpacked == nil {
+					break
+				}
+				if _, ok := unpacked.Err.(*WaitError); ok {
+					logger.Debug("waiting for conditions to be met", "error", err)
+					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+				}
+				if _, ok := unpacked.Err.(*AbortedByPredicate); ok {
+					logger.Debug("aborted by predicate", "error", err)
+					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+				}
+				break
+			} else {
+				lastUnpacked = unpacked
 			}
 		}
 		logger.Error(err, "Error processing reconciliation steps")
