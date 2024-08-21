@@ -87,47 +87,78 @@ async def sign_aws_drives():
         drives=signed_drives
     ))
 
-
-async def discover_drives():
+async def sign_not_mounted():
+    """
+    [root@wekabox18 sdc] 2024-08-21 19:14:58 $ cat /run/udev/data/b`cat /sys/block/sdc/dev` | grep ID_SERIAL=
+        E:ID_SERIAL=TOSHIBA_THNSN81Q92CSE_86DS107ATB4V
+    :return:
+    """
+    logging.info("Signing drives not mounted")
+    stdout, stderr, ec = await run_command("lsblk -o NAME,TYPE,MOUNTPOINT,ROTA,MODEL,SERIAL")
+    if ec != 0:
+        return
+    lines = stdout.decode().strip().split("\n")
+    signed_drives = []
+    for line in lines[1:]:
+        parts = line.split()
+        if parts[1] == "disk" and parts[2] == "":
+            device = f"/dev/{parts[0]}"
+            stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
+            if ec != 0:
+                logging.error(f"Failed to sign drive {device}: {stderr}")
+                continue
+            signed_drives.append(device)
     write_results(dict(
         err=None,
-        drives=find_weka_drives(),
+        drives=signed_drives
+    ))
+
+async def discover_drives():
+    drives = await find_weka_drives()
+    write_results(dict(
+        err=None,
+        drives=drives,
     ))
 
 
-def find_weka_drives():
+async def find_weka_drives():
     drives = []
+    # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
-    def add_nvme_drives():
-        devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
-        for device in devices:
-            logging.info("resolving device: " + device)
-            if "nvme" in device:
-                type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{device}",
+    devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+    for block_device in devices:
+        logging.info("resolving block_device: " + block_device)
+        type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
+                                          shell=True).decode().strip()
+        if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
+            # TODO: Read and populate actual weka guid here
+            weka_guid = ""
+            # resolve block_device to serial id
+            partition_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{block_device})",
                                                   shell=True).decode().strip()
-                if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
-                    # TODO: Read and populate actual weka guid here
-                    weka_guid = ""
-                    # resolve device to serial id
-                    device_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{device})",
-                                                          shell=True).decode().strip()
-                    logging.info(f"resolved device name: {device_name}")
-                    device_path = subprocess.check_output(f"readlink -f /sys/class/block/{device_name}/device",
-                                                          shell=True).decode().strip()
-                    logging.info(f"resolved device path: {device_path}")
-                    # 3 directories up is the serial id
-                    serial_id_path = "/".join(device_path.split("/")[:-3]) + "/serial"
-                    serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
-                    drives.append({
-                        "partition": "/dev/" + device_name,
-                        "device": "/dev/" + device_path.split("/")[-3],
-                        "serial_id": serial_id,
-                        "weka_guid": weka_guid
-                    })
+            logging.info(f"resolved block_device name: {partition_name}")
+            pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{partition_name}",
+                                                  shell=True).decode().strip()
+            logging.info(f"resolved block_device path: {pci_device_path}")
+            if "nvme" in block_device:
+                # 3 directories up is the serial id
+                serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
+                serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
+                device_path = "/dev/" + pci_device_path.split("/")[-2],
+            else:
+                device_name = pci_device_path.split("/")[-2]
+                device_path = "/dev/" + device_name
+                serial_id_cmd = f"cat /run/udev/data/b`cat /sys/block/{device_name}/dev` | grep ID_SERIAL="
+                stdout, stderr, ec = await run_command(serial_id_cmd)
+                serial_id = stdout.decode().strip().split("=")[-1]
 
-    logging.info("Discovering drives")
-    add_nvme_drives()
-    logging.info(f"Found drives: {drives}")
+            drives.append({
+                "partition": "/dev/" + partition_name,
+                "block_device": device_path,
+                "serial_id": serial_id,
+                "weka_guid": weka_guid
+            })
+
     return drives
 
 
@@ -1305,7 +1336,7 @@ async def wait_for_resources():
 
 
 async def ensure_drives():
-    sys_drives = find_weka_drives()
+    sys_drives = await find_weka_drives()
     requested_drives = RESOURCES.get("drives", [])
     drives_to_setup = []
     for drive in requested_drives:
@@ -1410,6 +1441,8 @@ async def main():
         await ensure_container_exec()
         if INSTRUCTIONS == "sign-aws-drives":
             await sign_aws_drives()
+        elif INSTRUCTIONS == "sign-not-mounted":
+            await sign_not_mounted()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return

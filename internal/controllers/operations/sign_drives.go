@@ -96,7 +96,17 @@ func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
-	instructions := "sign-aws-drives"
+	var instructions string
+	switch o.payload.Type {
+	case "sign-aws":
+		instructions = "sign-aws-drives"
+	case "sign-not-mounted":
+		instructions = "sign-not-mounted"
+
+	}
+	if instructions == "" {
+		return fmt.Errorf("unsupported sign drives type: %s", o.payload.Type)
+	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
 	if err != nil {
