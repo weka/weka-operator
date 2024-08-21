@@ -1,8 +1,8 @@
 module github.com/weka/weka-operator
 
-go 1.21
+go 1.22
 
-toolchain go1.21.6
+toolchain go1.22.3
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible
