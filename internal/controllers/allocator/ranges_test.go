@@ -1,32 +1,8 @@
 package allocator
 
 import (
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"testing"
 )
-
-func getTestTopology() *Topology {
-	testTopology := &Topology{
-		Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
-		Nodes: []string{
-			"wekabox14.lan", "wekabox15.lan", "wekabox16.lan", "wekabox17.lan", "wekabox18.lan",
-			"wekabox19.lan", "wekabox20.lan", "wekabox21.lan", "wekabox22.lan", "wekabox23.lan",
-		},
-		// TODO: Get from k8s instead, but having it here helps for now with testing, minimizing relying on k8s
-		//MinCore:  2,
-		//CoreStep: 1,
-		//MaxCore:  7,
-		Network: v1alpha1.NetworkSelector{
-			EthSlots: []string{"aws_0", "aws_1", "aws_2",
-				"aws_3", "aws_4", "aws_5",
-				"aws_6", "aws_7", "aws_8",
-				"aws_9", "aws_10", "aws_11",
-				"aws_12", "aws_13", "aws_14",
-			},
-		},
-	}
-	return testTopology
-}
 
 func TestGetFreeRange(t *testing.T) {
 	ownerCluster := OwnerCluster{
