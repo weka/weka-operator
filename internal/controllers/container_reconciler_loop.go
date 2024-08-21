@@ -118,6 +118,11 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return loop.container.IsAllocatable() && loop.container.IsBackend()
+					},
+				},
 			},
 			{
 				Run: loop.CleanupUnschedulable,
@@ -172,7 +177,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run: loop.reconcileManagementIP, // TODO: #shouldRefresh?
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsEmptyString(container.Status.ManagementIP),
-					lifecycle.IsNotFunc(container.IsServiceContainer),
+					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
 			},

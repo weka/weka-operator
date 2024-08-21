@@ -30,8 +30,6 @@ type DiscoveryNodeInfo struct {
 	NumDrives          int    `json:"num_drives,omitempty"`
 }
 
-const discoveryAnnotation = "weka.io/discovery.json"
-
 func (nodeInfo *DiscoveryNodeInfo) GetDrivesNumber() int {
 	return nodeInfo.NumDrives
 }
