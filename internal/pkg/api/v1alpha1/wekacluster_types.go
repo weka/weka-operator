@@ -63,6 +63,25 @@ type WekaHomeConfig struct {
 	EnableStats   *bool  `json:"enableStats"`
 }
 
+type RoleNodeSelector struct {
+	Compute map[string]string `json:"compute,omitempty"`
+	Drive   map[string]string `json:"drive,omitempty"`
+	S3      map[string]string `json:"s3,omitempty"`
+}
+
+func (s RoleNodeSelector) ForRole(role string) map[string]string {
+	switch role {
+	case "compute":
+		return s.Compute
+	case "drive":
+		return s.Drive
+	case "s3":
+		return s.S3
+	default:
+		return nil
+	}
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	Size               int               `json:"size,omitempty"`
@@ -71,6 +90,7 @@ type WekaClusterSpec struct {
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
+	RoleNodeSelector   RoleNodeSelector  `json:"roleNodeSelector,omitempty"`
 	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
