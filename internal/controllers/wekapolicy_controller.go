@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +32,7 @@ func NewWekaPolicyController(mgr ctrl.Manager) *WekaPolicyReconciler {
 }
 
 type policyLoop struct {
-	Policy *v1alpha1.WekaPolicy
+	Policy *weka.WekaPolicy
 	Client client.Client
 	Op     operations.Operation
 }
@@ -46,7 +46,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	defer end()
 
 	// Fetch the WekaPolicy instance
-	wekaPolicy := &v1alpha1.WekaPolicy{}
+	wekaPolicy := &weka.WekaPolicy{}
 	err := r.Get(ctx, req.NamespacedName, wekaPolicy)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -78,7 +78,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
 			wekaPolicy,
-			v1alpha1.OwnerWekaObject{
+			weka.OwnerWekaObject{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
 			},
@@ -91,7 +91,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DiscoverDrives,
 			wekaPolicy,
-			v1alpha1.OwnerWekaObject{
+			weka.OwnerWekaObject{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
 			},
@@ -130,6 +130,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WekaPolicyReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.WekaPolicy{}).
+		For(&weka.WekaPolicy{}).
+		Owns(&weka.WekaContainer{}).
 		Complete(wrappedReconcile)
 }

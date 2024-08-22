@@ -305,6 +305,10 @@ func (w *WekaContainer) GetAgentPort() int {
 	return w.Status.Allocations.AgentPort
 }
 
+func (c *WekaContainer) IsMarkedForDeletion() bool {
+	return !c.GetDeletionTimestamp().IsZero()
+}
+
 type OwnerWekaObject struct {
 	Image           string          `json:"image"`
 	ImagePullSecret string          `json:"imagePullSecrets"`

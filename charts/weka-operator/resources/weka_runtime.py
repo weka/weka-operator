@@ -87,6 +87,7 @@ async def sign_aws_drives():
         drives=signed_drives
     ))
 
+
 async def sign_not_mounted():
     """
     [root@wekabox18 sdc] 2024-08-21 19:14:58 $ cat /run/udev/data/b`cat /sys/block/sdc/dev` | grep ID_SERIAL=
@@ -94,15 +95,18 @@ async def sign_not_mounted():
     :return:
     """
     logging.info("Signing drives not mounted")
-    stdout, stderr, ec = await run_command("lsblk -o NAME,TYPE,MOUNTPOINT,ROTA,MODEL,SERIAL")
+    stdout, stderr, ec = await run_command("lsblk -o NAME,TYPE,MOUNTPOINT", capture_stdout=True)
     if ec != 0:
         return
     lines = stdout.decode().strip().split("\n")
     signed_drives = []
+    logging.info(f"Found drives: {lines}")
     for line in lines[1:]:
         parts = line.split()
-        if parts[1] == "disk" and parts[2] == "":
+        logging.info(f"Processing line: {parts}")
+        if parts[1] == "disk" and len(parts) < 3:
             device = f"/dev/{parts[0]}"
+            logging.info(f"Signing drive {device}")
             stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
             if ec != 0:
                 logging.error(f"Failed to sign drive {device}: {stderr}")
@@ -112,6 +116,7 @@ async def sign_not_mounted():
         err=None,
         drives=signed_drives
     ))
+
 
 async def discover_drives():
     drives = await find_weka_drives()
@@ -135,10 +140,10 @@ async def find_weka_drives():
             weka_guid = ""
             # resolve block_device to serial id
             partition_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{block_device})",
-                                                  shell=True).decode().strip()
+                                                     shell=True).decode().strip()
             logging.info(f"resolved block_device name: {partition_name}")
             pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{partition_name}",
-                                                  shell=True).decode().strip()
+                                                      shell=True).decode().strip()
             logging.info(f"resolved block_device path: {pci_device_path}")
             if "nvme" in block_device:
                 # 3 directories up is the serial id

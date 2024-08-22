@@ -38,8 +38,9 @@ docker buildx build --platform linux/amd64 --tag quay.io/weka.io/weka-operator:$
 
 # helm chart push
 if ! helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm; then
-  echo "helm push failed, ensure login" && exit 1
+  echo "helm push failed, ensure login"
   rm -f charts/weka-operator-*.tgz
+  exit 1
 fi
 rm -f charts/weka-operator-*.tgz
 

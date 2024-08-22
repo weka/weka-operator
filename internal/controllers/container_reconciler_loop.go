@@ -98,7 +98,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
-					lifecycle.IsNotFunc(container.DeletionTimestamp.IsZero),
+					container.IsMarkedForDeletion,
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
@@ -123,6 +123,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 						return loop.container.IsAllocatable() && loop.container.IsBackend()
 					},
 				},
+				ContinueOnPredicatesFalse: true,
 			},
 			{
 				Run: loop.CleanupUnschedulable,

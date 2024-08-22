@@ -254,33 +254,40 @@ func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl
 	err := r.Run(ctx)
 	if err != nil {
 		// check if the error is WaitError or AbortError, then return without error, but with 3 seconds wait
+		var lastUnpacked *ReconciliationError
+		var unpackTarget error
+		unpackTarget = err
 		for {
-			unpacked, ok := err.(*ReconciliationError)
-			var lastUnpacked *ReconciliationError
+			unpacked, ok := unpackTarget.(*ReconciliationError)
 			if !ok {
 				if lastUnpacked == nil {
 					break
 				}
-				if _, ok := unpacked.Err.(*WaitError); ok {
+				if _, ok := lastUnpacked.Err.(*WaitError); ok {
 					logger.Debug("waiting for conditions to be met", "error", err)
 					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 				}
-				if _, ok := unpacked.Err.(*AbortedByPredicate); ok {
+				if _, ok := lastUnpacked.Err.(*AbortedByPredicate); ok {
 					logger.Debug("aborted by predicate", "error", err)
 					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 				}
 				break
 			} else {
 				lastUnpacked = unpacked
+				unpackTarget = unpacked.Err
 			}
 		}
 		logger.Error(err, "Error processing reconciliation steps")
 		return ctrl.Result{
+			Requeue:      true,
 			RequeueAfter: 10 * time.Second,
 		}, nil
 	}
 	logger.Info("Reconciliation steps completed successfully")
-	return ctrl.Result{RequeueAfter: time.Second * 30}, nil // Never fully abort
+	return ctrl.Result{
+		Requeue:      true,
+		RequeueAfter: time.Second * 30,
+	}, nil // Never fully abort
 }
 
 func IsNotNil(obj any) PredicateFunc {
