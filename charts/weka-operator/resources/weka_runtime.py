@@ -132,7 +132,6 @@ async def find_weka_drives():
 
     devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
     for block_device in devices:
-        logging.info("resolving block_device: " + block_device)
         type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
                                           shell=True).decode().strip()
         if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
@@ -141,10 +140,8 @@ async def find_weka_drives():
             # resolve block_device to serial id
             partition_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{block_device})",
                                                      shell=True).decode().strip()
-            logging.info(f"resolved block_device name: {partition_name}")
             pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{partition_name}",
                                                       shell=True).decode().strip()
-            logging.info(f"resolved block_device path: {pci_device_path}")
             if "nvme" in block_device:
                 # 3 directories up is the serial id
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
@@ -153,9 +150,9 @@ async def find_weka_drives():
             else:
                 device_name = pci_device_path.split("/")[-2]
                 device_path = "/dev/" + device_name
-                serial_id_cmd = f"cat /run/udev/data/b`cat /sys/block/{device_name}/dev` | grep ID_SERIAL="
-                stdout, stderr, ec = await run_command(serial_id_cmd)
-                serial_id = stdout.decode().strip().split("=")[-1]
+                dev_index = subprocess.check_output(f"cat /sys/block/{device_name}/dev", shell=True).decode().strip()
+                serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
+                serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
 
             drives.append({
                 "partition": "/dev/" + partition_name,
@@ -1347,7 +1344,7 @@ async def ensure_drives():
     for drive in requested_drives:
         for sd in sys_drives:
             if sd["serial_id"] == drive:
-                drives_to_setup.append(sd["device"])
+                drives_to_setup.append(sd["block_device"])
                 break
         # else:
         #     raise Exception(f"Drive {drive['serial_id']} not found")

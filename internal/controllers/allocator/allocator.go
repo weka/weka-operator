@@ -68,7 +68,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	}
 
 	targetPort := cluster.Spec.Ports.BasePort
-	targetSize := cluster.Spec.Ports.BasePort
+	targetSize := cluster.Spec.Ports.PortRange
 
 	if targetSize == 0 {
 		targetSize = 500

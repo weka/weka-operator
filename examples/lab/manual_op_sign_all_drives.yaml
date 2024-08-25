@@ -1,0 +1,16 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-all-drives
+  namespace: weka-operator-system
+spec:
+  image: kontrol-k8s-data.lan:30100/weka-in-container:4.3.3.129-k8s.1-upgrade
+  imagePullSecret: "quay-io-robot-secret"
+  action: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: not-mounted
+      nodeSelector: { }
+
+
+

@@ -96,7 +96,6 @@ func (r *ContainerController) refreshContainer(ctx context.Context, req ctrl.Req
 
 	container := &wekav1alpha1.WekaContainer{}
 	if err := r.Get(ctx, req.NamespacedName, container); err != nil {
-		logger.Error(err, "Error refreshing container")
 		return nil, errors.Wrap(err, "refreshContainer")
 	}
 	logger.SetStatus(codes.Ok, "Container refreshed")

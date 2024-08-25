@@ -115,7 +115,6 @@ func (ls *SpanLogger) Error(err error, msg string, keysAndValues ...interface{})
 }
 
 func (ls *SpanLogger) SetError(err error, msg string, keysAndValues ...interface{}) {
-	ls.Error(err, msg, keysAndValues...)
 	ls.SetStatus(codes.Error, msg)
 	// TODO: Validate that error is not set yet
 }

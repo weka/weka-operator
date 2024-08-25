@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -347,7 +346,7 @@ func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) erro
 		}
 		if container.GetDeletionTimestamp() != nil {
 			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
-			return errors.New("Container " + container.Name + " is being deleted, rejecting cluster create")
+			return lifecycle.NewWaitError(errors.New("Container " + container.Name + " is being deleted, rejecting cluster create"))
 		}
 
 		if container.Status.Status != "Running" {
@@ -371,14 +370,11 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 	if wekaCluster.Spec.ExpandEndpoints == nil {
 		err := wekaClusterService.FormCluster(ctx, containers)
 		if err != nil {
-			logger.Error(err, "Failed to create cluster")
-			meta.SetStatusCondition(&wekaCluster.Status.Conditions, metav1.Condition{
-				Type:   condition.CondClusterCreated,
-				Status: metav1.ConditionFalse, Reason: "Error", Message: err.Error(),
-			})
-			_ = r.getClient().Status().Update(ctx, wekaCluster)
-			return err
+			logger.Error(err, "Failed to form cluster")
+			return lifecycle.WaitError{Err: err}
 		}
+		return nil
+		// TODO: We might want to capture specific errors, and return "unknown"/bigger errors
 	}
 	return nil
 }
@@ -948,8 +944,8 @@ wekaauthcli debug jrpc unprepare_leader_for_upgrade
 }
 
 func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error {
-	//ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources")
-	//defer end()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources")
+	defer end()
 
 	// Fetch all own containers
 	// Filter by .Allocated == nil
@@ -974,11 +970,12 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 	notChanged := []*wekav1alpha1.WekaContainer{}
 
 	if err != nil {
-		var failedAllocations allocator.FailedAllocations
-		if errors.As(err, &failedAllocations) {
-			for _, allocation := range failedAllocations {
+		if failedAllocs, ok := err.(*allocator.FailedAllocations); ok {
+			for _, allocation := range *failedAllocs {
 				notChanged = append(notChanged, allocation.Container)
 			}
+			logger.Error(err, "Failed to allocate resources for containers", "failed", len(*failedAllocs))
+			// we proceed despite failures, as partial might be sufficient(?)
 		} else {
 			return err
 		}
@@ -1009,6 +1006,18 @@ func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
 	return len(r.SelectS3Containers(r.containers)) > 0
 }
 
+func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
+	wekaCluster := r.cluster
+
+	if wekaCluster.Status.Status != "Ready" {
+		wekaCluster.Status.Status = "Ready"
+		wekaCluster.Status.TraceId = ""
+		wekaCluster.Status.SpanID = ""
+		return r.getClient().Update(ctx, wekaCluster)
+	}
+	return nil
+}
+
 func NewContainerName(role string) string {
 	guid := string(uuid.NewUUID())
 	return fmt.Sprintf("%s-%s", role, guid)
@@ -1017,7 +1026,7 @@ func NewContainerName(role string) string {
 func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
-	for _, role := range []string{"compute", "drive", "s3", "envoy"} {
+	for _, role := range []string{"drive", "compute", "s3", "envoy"} {
 		var numContainers int
 
 		switch role {

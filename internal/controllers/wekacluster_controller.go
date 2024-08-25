@@ -80,6 +80,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	ctx, logger, end = instrumentation.GetLogSpan(ctx, "WekaClusterReconcileLoop", "cluster_uid", string(loop.cluster.GetUID()))
 	defer end()
 
+	logger.Info("Reconciling WekaCluster")
+	defer logger.Info("Reconciliation of WekaCluster finished")
+
 	reconSteps := lifecycle.ReconciliationSteps{
 		Client:           r.Client,
 		ConditionsObject: loop.cluster,
@@ -208,31 +211,16 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run:       loop.configureWekaHome,
 			},
 			{
+				Condition: condition.CondClusterReady,
+				Run:       loop.MarkAsReady,
+			},
+			{
 				Run: loop.handleUpgrade,
 			},
 		},
 	}
 
-	err = reconSteps.Run(ctx)
-	// TODO: wrap building of return value under recon steps, consider special errors for deciding if to return as error or expected error and just silent retry
-	if err != nil {
-		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-	}
-
-	wekaCluster := loop.cluster
-
-	if wekaCluster.Status.Status != "Ready" {
-		wekaCluster.Status.Status = "Ready"
-		wekaCluster.Status.TraceId = ""
-		wekaCluster.Status.SpanID = ""
-		err = r.Status().Update(ctx, wekaCluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return ctrl.Result{RequeueAfter: time.Second * 3}, nil
-		}
-	}
-
-	return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+	return reconSteps.RunAsReconcilerResponse(ctx)
 }
 
 func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *wekav1alpha1.WekaCluster) (context.Context, error) {

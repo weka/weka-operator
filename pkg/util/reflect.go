@@ -3,8 +3,12 @@ package util
 import (
 	"reflect"
 	"runtime"
+	"strings"
 )
 
 func GetFunctionName(i interface{}) string {
-	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+	baseName := runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+	//return last part
+	parts := strings.Split(baseName, ".")
+	return parts[len(parts)-1]
 }

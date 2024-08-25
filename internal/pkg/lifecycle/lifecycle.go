@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
+	"go.opentelemetry.io/otel/codes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"time"
 
@@ -146,17 +147,21 @@ func (e RetryableError) Error() string {
 
 func (r *ReconciliationSteps) Run(ctx context.Context) error {
 	var end func()
+	var runLogger *instrumentation.SpanLogger
 	if r.ConditionsObject != nil {
-		ctx, _, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps", "namespace", r.ConditionsObject.GetNamespace(), "name", r.ConditionsObject.GetName())
+		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps", "object_namespace", r.ConditionsObject.GetNamespace(), "object_name", r.ConditionsObject.GetName())
 		defer end()
 	} else {
-		ctx, _, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps")
+		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps")
 		defer end()
 	}
 
 	var stepEnd func()
 STEPS:
 	for _, step := range r.Steps {
+		// setValues does not seem to affect span.
+		// TODO: Fix it! but, first need to move to standalone observability lib and fix there if broken
+		runLogger.SetValues("last_step", step.Name)
 		if stepEnd != nil {
 			stepEnd()
 			stepEnd = nil
@@ -164,9 +169,9 @@ STEPS:
 		if step.Name == "" {
 			step.Name = util.GetFunctionName(step.Run)
 		}
-		stepCtx, spanLogger, end := instrumentation.GetLogSpan(ctx, step.Name)
-		stepEnd = end
-		defer end() // in case we dont handle it will in terms of closing in for loop
+		stepCtx, stepLogger, spanEnd := instrumentation.GetLogSpan(ctx, step.Name)
+		stepEnd = spanEnd
+		defer spanEnd() // in case we dont handle it will in terms of closing in for loop
 
 		// Check if step is already done or if the condition should be able to run again
 		if step.Condition != "" && !step.SkipOwnConditionCheck {
@@ -185,7 +190,9 @@ STEPS:
 					stepEnd()
 					continue STEPS
 				} else {
-					return &AbortedByPredicate{fmt.Errorf("aborted: predicate %v is false for step %s", predicate, step.Name)}
+					stopErr := &AbortedByPredicate{fmt.Errorf("aborted: predicate %v is false for step %s", predicate, step.Name)}
+					runLogger.SetValues("stop_err", stopErr.Error())
+					return stopErr
 				}
 			}
 		}
@@ -198,13 +205,20 @@ STEPS:
 					Message: err.Error(),
 				})
 				if setCondError != nil {
-					spanLogger.Debug("error setting reconcile error on object", "step", step.Name, "error", setCondError)
+					stepLogger.Debug("error setting reconcile error on object", "step", step.Name, "error", setCondError)
+					stepLogger.SetError(err, "Error running step")
+					stepEnd()
+					return setCondError
 				}
 			}
 			//spanLogger.Error(err, "Error running step")
+			stepLogger.SetError(err, "Error running step")
+			runLogger.SetError(err, "Error running step "+step.Name)
+			runLogger.SetValues("stop_err", err.Error())
 			stepEnd()
 			return &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
 		} else {
+			stepLogger.SetStatus(codes.Ok, "Step completed successfully")
 			if step.FinishOnSuccess {
 				stepEnd()
 				return nil
@@ -231,7 +245,11 @@ STEPS:
 
 			if err != nil {
 				stepEnd()
-				return &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
+				stopErr := &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
+				runLogger.SetValues("stop_err", stopErr.Error())
+				runLogger.SetError(err, "Error running step "+step.Name)
+				stepLogger.SetError(err, "Error setting condition")
+				return stopErr
 			}
 		}
 	}
@@ -264,11 +282,11 @@ func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl
 					break
 				}
 				if _, ok := lastUnpacked.Err.(*WaitError); ok {
-					logger.Debug("waiting for conditions to be met", "error", err)
+					logger.Info("waiting for conditions to be met", "error", err)
 					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 				}
 				if _, ok := lastUnpacked.Err.(*AbortedByPredicate); ok {
-					logger.Debug("aborted by predicate", "error", err)
+					logger.Info("aborted by predicate", "error", err)
 					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
 				}
 				break

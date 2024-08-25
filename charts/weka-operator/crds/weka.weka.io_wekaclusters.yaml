@@ -213,6 +213,21 @@ spec:
                       type: string
                   type: object
                 type: array
+              roleNodeSelector:
+                properties:
+                  compute:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  drive:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  s3:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
               size:
                 type: integer
               template:

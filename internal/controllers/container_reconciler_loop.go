@@ -433,11 +433,9 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 	}
 
 	if response.Value == nil {
-		logger.InfoWithStatus(codes.Unset, "No response from weka local container-get-identity")
 		return lifecycle.NewWaitError(errors.New("no value in response from weka local container-get-identity"))
 	}
 	if response.Value.ClusterId == "" || response.Value.ClusterId == "00000000-0000-0000-0000-000000000000" {
-		logger.InfoWithStatus(codes.Unset, "Cluster not ready")
 		return lifecycle.NewWaitError(errors.New("cluster not ready"))
 	}
 
@@ -1137,7 +1135,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		}
 		l.Info("Adding drive into system")
 		// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-		cmd = fmt.Sprintf("wekaauthcli cluster drive add %d %s", *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
+		cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterDriveAdd", []string{"bash", "-ce", cmd})
 		if err != nil {
 			if !strings.Contains(stderr.String(), "Device is already in use") {

@@ -22,4 +22,5 @@ const (
 	CondEnsureDrivers               = "EnsuredDrivers"
 	CondContainerResourcesAllocated = "ContainerResourcesAllocated"
 	CondContainerAffinitySet        = "ContainerAffinitySet"
+	CondClusterReady                = "ClusterIsReady"
 )

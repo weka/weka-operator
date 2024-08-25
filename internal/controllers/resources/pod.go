@@ -163,6 +163,10 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 							MountPath: "/dev",
 						},
 						{
+							Name:      "run",
+							MountPath: "/host/run",
+						},
+						{
 							Name:      "hugepages",
 							MountPath: "/dev/hugepages",
 						},
@@ -279,6 +283,14 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
 							Path: "/dev",
+						},
+					},
+				},
+				{
+					Name: "run",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/run",
 						},
 					},
 				},

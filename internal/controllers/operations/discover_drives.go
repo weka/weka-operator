@@ -40,7 +40,7 @@ type DiscoverDrivesOperation struct {
 type DriveInfo struct {
 	SerialId   string `json:"serial_id"`
 	WekaGuid   string `json:"weka_guid"`
-	DevicePath string `json:"device"`
+	DevicePath string `json:"block_device"`
 	Partition  string `json:"partition"`
 }
 
@@ -236,10 +236,16 @@ func (o *DiscoverDrivesOperation) UpdateNodeAnnotations(ctx context.Context) err
 
 		seenDrives := make(map[string]bool)
 		for _, drive := range previousDrives {
+			if drive == "" {
+				continue // clean bad records of empty serial ids
+			}
 			seenDrives[drive] = true
 		}
 
 		for _, drive := range result.Drives {
+			if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
+				continue
+			}
 			if _, ok := seenDrives[drive.SerialId]; !ok {
 				newDrivesFound++
 			}
@@ -247,7 +253,7 @@ func (o *DiscoverDrivesOperation) UpdateNodeAnnotations(ctx context.Context) err
 		}
 
 		if newDrivesFound == 0 {
-			return nil
+			continue
 		}
 
 		updatedDrivesList := []string{}
