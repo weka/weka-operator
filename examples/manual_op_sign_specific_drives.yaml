@@ -1,16 +1,23 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaManualOperation
 metadata:
-  name: sign-all-drives
+  name: sign-specific-drives
   namespace: weka-operator-system
 spec:
+  action: "sign-drives"
   image: quay.io/weka.io/weka-in-container:4.3.3.129-k8s.1-upgrade
   imagePullSecret: "quay-io-robot-secret"
-  action: "sign-drives"
   payload:
     signDrivesPayload:
-      type: all-non-root
+      type: device-paths
       nodeSelector: { }
+      devicePaths:
+        - /dev/sdb
+        - /dev/sdc
+        - /dev/sdd
+        - /dev/sde
+        - /dev/sdf
+        - /dev/sdg
 
 
 

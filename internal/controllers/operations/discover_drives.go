@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -184,12 +185,16 @@ func (o *DiscoverDrivesOperation) PollResults(ctx context.Context) error {
 }
 
 func (o *DiscoverDrivesOperation) ProcessResult(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
+	defer end()
+
 	results := make(map[string]driveNodeResults)
 	errorCount := 0
 
 	for _, container := range o.containers {
 		var opResult driveNodeResults
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
+		logger.Info("Processing container result", "container", container.Name, "result", opResult)
 		if err != nil {
 			errs := err.Error()
 			results[string(container.GetNodeAffinity())] = driveNodeResults{

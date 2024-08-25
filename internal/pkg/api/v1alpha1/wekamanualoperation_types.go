@@ -63,6 +63,7 @@ type NamespacedOwnerWekaObject struct {
 type SignDrivesPayload struct {
 	Type         string            `json:"type"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	DevicePaths  []string          `json:"devicePaths,omitempty"`
 }
 
 type BlockDrivesPayload struct {

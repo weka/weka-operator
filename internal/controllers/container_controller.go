@@ -66,6 +66,7 @@ type ContainerController struct {
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
+//+kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch

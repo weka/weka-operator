@@ -63,6 +63,10 @@ spec:
                     type: object
                   signDrives:
                     properties:
+                      devicePaths:
+                        items:
+                          type: string
+                        type: array
                       nodeSelector:
                         additionalProperties:
                           type: string

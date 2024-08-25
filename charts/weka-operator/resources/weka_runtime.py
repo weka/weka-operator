@@ -118,6 +118,20 @@ async def sign_not_mounted():
     ))
 
 
+async def sign_device_paths(devices_paths):
+    signed_drives = []
+    for device_path in devices_paths:
+        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device_path}")
+        if ec != 0:
+            logging.error(f"Failed to sign drive {device_path}: {stderr}")
+            continue
+        signed_drives.append(device_path)
+    write_results(dict(
+        err=None,
+        drives=signed_drives
+    ))
+
+
 async def discover_drives():
     drives = await find_weka_drives()
     write_results(dict(
@@ -131,6 +145,7 @@ async def find_weka_drives():
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
     devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+    logging.info(f"Found block devices devices: {devices}")
     for block_device in devices:
         type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
                                           shell=True).decode().strip()
@@ -146,7 +161,7 @@ async def find_weka_drives():
                 # 3 directories up is the serial id
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
                 serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
-                device_path = "/dev/" + pci_device_path.split("/")[-2],
+                device_path = "/dev/" + pci_device_path.split("/")[-2]
             else:
                 device_name = pci_device_path.split("/")[-2]
                 device_path = "/dev/" + device_name
@@ -1356,6 +1371,7 @@ async def ensure_drives():
     logging.info(f"in-kernel drives are: {drives_to_setup}")
 
 
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -1441,10 +1457,13 @@ async def main():
         await configure_traces()
         await start_stem_container()
         await ensure_container_exec()
-        if INSTRUCTIONS == "sign-aws-drives":
+        instruction = json.loads(INSTRUCTIONS)
+        if instruction['type'] == "aws-all":
             await sign_aws_drives()
-        elif INSTRUCTIONS == "sign-not-mounted":
+        elif instruction['type'] == "all-not-root":
             await sign_not_mounted()
+        elif instruction['type'] == "device-paths":
+            await sign_device_paths(instruction['devicePaths'])
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return

@@ -1013,7 +1013,7 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 		wekaCluster.Status.Status = "Ready"
 		wekaCluster.Status.TraceId = ""
 		wekaCluster.Status.SpanID = ""
-		return r.getClient().Update(ctx, wekaCluster)
+		return r.getClient().Status().Update(ctx, wekaCluster)
 	}
 	return nil
 }
