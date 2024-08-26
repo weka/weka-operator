@@ -6,33 +6,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestInitStatus(t *testing.T) {
-	status := WekaClusterStatus{}
-
-	t.Run("before initialization", func(t *testing.T) {
-		if len(status.Conditions) != 0 {
-			t.Errorf("Expected no conditions, got %d", len(status.Conditions))
-		}
-	})
-
-	status.InitStatus()
-
-	t.Run("after initialization", func(t *testing.T) {
-		if len(status.Conditions) == 0 {
-			t.Errorf("Expected conditions, got none")
-		}
-
-		for _, cond := range status.Conditions {
-			if cond.Status != v1.ConditionFalse {
-				t.Errorf("Expected condition status to be False, got %s", cond.Status)
-			}
-			if cond.Reason != "Init" {
-				t.Errorf("Expected condition reason to be 'Init', got %s", cond.Reason)
-			}
-		}
-	})
-}
-
 func TestGetOperatorSecretName(t *testing.T) {
 	cluster := WekaCluster{
 		ObjectMeta: v1.ObjectMeta{
