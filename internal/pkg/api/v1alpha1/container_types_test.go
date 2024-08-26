@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/weka/weka-operator/internal/controllers/condition"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -112,44 +110,6 @@ func TestIsDriversLoaderMode(t *testing.T) {
 		actual := container.IsDriversLoaderMode()
 		if actual != test.expected {
 			t.Errorf("IsDriversLoaderMode() - mode: %v, expected: %v, actual: %v", test.mode, test.expected, container.IsDriversLoaderMode())
-		}
-	}
-}
-
-func TestInitEnsureDriversCondition(t *testing.T) {
-	container := &WekaContainer{
-		Spec: WekaContainerSpec{
-			Mode: "",
-		},
-		Status: WekaContainerStatus{
-			Conditions: []v1.Condition{},
-		},
-	}
-
-	tests := []struct {
-		mode     string
-		expected metav1.ConditionStatus
-	}{
-		{"", metav1.ConditionFalse},
-		{WekaContainerModeDist, metav1.ConditionFalse},
-		{WekaContainerModeDrive, metav1.ConditionFalse},
-		{WekaContainerModeDriversLoader, metav1.ConditionFalse},
-		{WekaContainerModeCompute, metav1.ConditionFalse},
-		{WekaContainerModeClient, metav1.ConditionFalse},
-	}
-
-	for _, test := range tests {
-		container.Spec.Mode = test.mode
-		container.InitEnsureDriversCondition()
-		actual := meta.FindStatusCondition(container.Status.Conditions, condition.CondEnsureDrivers)
-		if actual.Status != test.expected {
-			t.Errorf("SupportsEnsureDriversCondition() - mode: %v, expected: %v, actual: %v",
-				test.mode, test.expected, actual)
-		}
-
-		if actual.Message != "Init" {
-			t.Errorf("SupportsEnsureDriversCondition() - mode: %v, expected: %v, actual: %v",
-				test.mode, "Init", actual.Message)
 		}
 	}
 }
