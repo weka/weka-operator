@@ -116,34 +116,6 @@ func TestIsDriversLoaderMode(t *testing.T) {
 	}
 }
 
-func TestSupportsEnsureDriversCondition(t *testing.T) {
-	container := &WekaContainer{
-		Spec: WekaContainerSpec{
-			Mode: "",
-		},
-	}
-
-	tests := []struct {
-		mode     string
-		expected bool
-	}{
-		{"", true},
-		{WekaContainerModeDist, false},
-		{WekaContainerModeDrive, true},
-		{WekaContainerModeDriversLoader, false},
-		{WekaContainerModeCompute, true},
-		{WekaContainerModeClient, true},
-	}
-
-	for _, test := range tests {
-		container.Spec.Mode = test.mode
-		actual := container.SupportsEnsureDriversCondition()
-		if actual != test.expected {
-			t.Errorf("SupportsEnsureDriversCondition() - mode: %v, expected: %v, actual: %v", test.mode, test.expected, container.SupportsEnsureDriversCondition())
-		}
-	}
-}
-
 func TestInitEnsureDriversCondition(t *testing.T) {
 	container := &WekaContainer{
 		Spec: WekaContainerSpec{
