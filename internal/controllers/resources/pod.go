@@ -919,7 +919,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 							"weka.io/mode":       f.container.Spec.Mode,
 						},
 					},
-					TopologyKey: "weka.io/" + f.container.Spec.Mode,
+					TopologyKey: "kubernetes.io/hostname",
 				},
 			},
 		}
@@ -936,7 +936,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 								"weka.io/cluster-id": clusterId,
 							},
 						},
-						TopologyKey: "weka.io/" + f.container.Spec.Mode,
+						TopologyKey: "kubernetes.io/hostname",
 					},
 				},
 			}
