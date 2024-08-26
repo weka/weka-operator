@@ -73,10 +73,6 @@ func TestAllocationsRanges(t *testing.T) {
 		Size: 500,
 	}
 
-	allocations.NodeMap["wekabox14.lan"] = NodeAllocations{
-		AllocatedRanges: map[Owner]map[string]Range{},
-	}
-
 	owner := Owner{
 		OwnerCluster: ownerCluster,
 		Container:    "test",
@@ -93,7 +89,10 @@ func TestAllocationsRanges(t *testing.T) {
 		t.Errorf("Expected %d, got %d", StartingPort, rN1.Base)
 		return
 	}
-	allocations.NodeMap["wekabox14.lan"].AllocatedRanges[owner]["test"] = rN1
+	allocations.InitNodeAllocations("wekabox14.lan")
+	allocations.NodeMap["wekabox14.lan"].AllocatedRanges[owner] = map[string]Range{
+		"test": rN1,
+	}
 
 	owner.Container = "test2"
 	rN2, err := allocations.FindNodeRangeWithOffset(owner, "wekabox14.lan", 1, SinglePortsOffset)

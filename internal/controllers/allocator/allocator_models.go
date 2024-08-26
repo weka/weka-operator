@@ -1,7 +1,7 @@
 package allocator
 
 import (
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -9,7 +9,7 @@ const StartingPort = 15000
 const MaxPort = 65535
 
 type (
-	NodeAllocMap map[v1alpha1.NodeName]NodeAllocations
+	NodeAllocMap map[weka.NodeName]NodeAllocations
 )
 
 type AllocRoleMap map[OwnerRole]int
@@ -17,6 +17,14 @@ type AllocRoleMap map[OwnerRole]int
 type Allocations struct {
 	Global  GlobalAllocations
 	NodeMap NodeAllocMap
+}
+
+func (a *Allocations) InitNodeAllocations(nodeName weka.NodeName) {
+	if _, ok := a.NodeMap[nodeName]; !ok {
+		a.NodeMap[nodeName] = NodeAllocations{
+			AllocatedRanges: map[Owner]map[string]Range{},
+		}
+	}
 }
 
 type Range struct {
