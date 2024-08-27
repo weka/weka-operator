@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 
 # This script creates usable release, can be ran locally or as part of workflow, whole release flow is encapsulated here
