@@ -1,6 +1,5 @@
 {
   "branches": [
-  {
     {
       "name": "main",
       "prerelease": "dev"
@@ -20,7 +19,7 @@
           {
             "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
           }
-    ]
+    ],
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     "@semantic-release/changelog",
