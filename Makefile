@@ -116,7 +116,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: ## Run tests.
-	go test -v ./internal/... ./util/... -coverprofile cover.out
+	go test -v ./... -coverprofile cover.out
 
 .PHONY: test-functional
 test-functional: ## Run functional tests.
