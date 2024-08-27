@@ -24,6 +24,7 @@ export GOOS=linux
 export GOARCH=amd64
 
 echo "Generating code and building binary"
+go generate ./...
 make generate
 make rbac
 make crd

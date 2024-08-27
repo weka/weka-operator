@@ -27,6 +27,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21.3"
       - name: Cache npm modules
         uses: actions/cache@v3
         with:
@@ -38,10 +42,6 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version: 'lts/iron'
-      - name: Setup Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21.3"
       - name: Docker login
         run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
       - name: Set up Helm
