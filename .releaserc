@@ -1,9 +1,18 @@
 {
   "branches": [
-    "main",
-    {"name": "release/alpha", "prerelease": "alpha"},
-    {"name": "release/beta", "prerelease": "beta"},
-    "release/v1"
+  {
+    {
+      "name": "main",
+      "prerelease": "dev"
+    },
+    {
+      "name": "release/v1",
+      "prerelease": false
+    },
+    {
+      "name": "release/*",
+      "prerelease": "${name.replace(/^release\\//, '')}"
+    }
   ],
   "plugins": [
     [

@@ -4,9 +4,8 @@ run-name: ${{ github.actor }} is building the Helm package
 on:
   push:
     branches:
-      - release/v0
-      - release/v1-beta
-      - release/v1-envoy
+      - main
+      - release/*
 
 permissions:
   contents: write
@@ -20,43 +19,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 'lts/iron'
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version: "1.21.3"
-      - run: go version
-
       - name: Docker login
         run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
-
-      - name: Building Release
-        uses: go-semantic-release/action@v1
-        id: semrel
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          hooks: goreleaser
-          update-file: charts/weka-operator/Chart.yaml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Chart
-        if: steps.semrel.outputs.version != ''
-        run: |
-          echo 'v${{ steps.semrel.outputs.version }}'
-          make chart VERSION=v${{ steps.semrel.outputs.version }}
-      - name: Configure git
-        if: steps.semrel.outputs.version != ''
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Set up Helm
-        if: steps.semrel.outputs.version != ''
         uses: azure/setup-helm@v3
         with:
           version: v3.12.1
       - name: Login to Registry
-        if: steps.semrel.outputs.version != ''
         run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
-      - name: Push chart to registry
-        if: steps.semrel.outputs.version != ''
-        run: helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm
+      - name: Configure git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Install dependencies
+        run: npm install
+      - name: Generating version
+        run: npm run release -- --dry-run
+      - name: Read VERSION file
+        id: version
+        run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
+      - name: build version
+        run: VERSION=${{ env.VERSION }} ./build-release.sh
+      - name: Create release
+        run: npm run release
