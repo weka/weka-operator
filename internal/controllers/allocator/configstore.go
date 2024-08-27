@@ -109,7 +109,7 @@ type InMemoryConfigStore struct {
 	allocations *Allocations
 }
 
-func NewInMemoryConfigStore() AllocationsStore {
+func NewInMemoryConfigStore() *InMemoryConfigStore {
 	return &InMemoryConfigStore{
 		allocations: InitAllocationsMap(),
 	}

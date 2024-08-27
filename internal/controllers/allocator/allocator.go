@@ -28,9 +28,55 @@ type Allocator interface {
 	//DeallocateContainers(ctx context.Context, containers []v1alpha1.WekaContainer) error
 }
 
+type AllocatorNodeInfo struct {
+	AvailableDrives []string
+}
+
+type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
+
 type ResourcesAllocator struct {
-	configStore AllocationsStore
-	client      client.Client
+	configStore    AllocationsStore
+	client         client.Client
+	nodeInfoGetter NodeInfoGetter
+}
+
+func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
+	return func(ctx context.Context, nodeName weka.NodeName) (nodeInfo *AllocatorNodeInfo, err error) {
+		node := &v1.Node{}
+		err = k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node)
+		if err != nil {
+			return
+		}
+
+		nodeInfo = &AllocatorNodeInfo{}
+
+		// get from annotations, all serial ids minus blocked-drives serial ids
+		allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]
+		if !ok {
+			nodeInfo.AvailableDrives = []string{}
+			return
+		}
+		blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]
+		if !ok {
+			blockedDrivesStr = "[]"
+		}
+		//blockedDrivesStr  is json list, unwrap it
+		blockedDrives := []string{}
+		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+
+		availableDrives := []string{}
+		allDrives := []string{}
+		_ = json.Unmarshal([]byte(allDrivesStr), &allDrives)
+
+		for _, drive := range allDrives {
+			if !slices.Contains(blockedDrives, drive) {
+				availableDrives = append(allDrives, drive)
+			}
+		}
+
+		nodeInfo.AvailableDrives = availableDrives
+		return
+	}
 }
 
 func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, error) {
@@ -138,34 +184,6 @@ func (t *ResourcesAllocator) GetNode(ctx context.Context, nodeName weka.NodeName
 	return node, nil
 }
 
-func (t *ResourcesAllocator) GetNonBlockedDrives(ctx context.Context, node *v1.Node) []string {
-	// get from annotations, all serial ids minus blocked-drives serial ids
-	allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]
-	if !ok {
-		return []string{}
-	}
-	blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]
-	if !ok {
-		blockedDrivesStr = "[]"
-	}
-	//blockedDrivesStr  is json list, unwrap it
-	blockedDrives := []string{}
-	_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
-
-	availableDrives := []string{}
-	allDrives := []string{}
-	_ = json.Unmarshal([]byte(allDrivesStr), &allDrives)
-
-	for _, drive := range allDrives {
-		if !slices.Contains(blockedDrives, drive) {
-			availableDrives = append(allDrives, drive)
-		}
-	}
-
-	return availableDrives
-
-}
-
 type AllocationFailure struct {
 	Err       error
 	Container *weka.WekaContainer
@@ -215,8 +233,9 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		revert := func(err error, container *weka.WekaContainer) {
 			for _, f := range revertFuncs {
 				f()
-				failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
 			}
+			logger.Error(err, "Reverted allocation", "container", container.Name)
+			failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
 		}
 		//var requiredNics int
 		role := container.Spec.Mode
@@ -225,7 +244,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: role}
 
 		nodeName := container.GetNodeAffinity()
-		node, err := t.GetNode(ctx, nodeName)
+		nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
 		if err != nil {
 			logger.Info("Failed to get node", "error", err)
 			revert(err, container)
@@ -251,14 +270,14 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 
 		if container.Spec.NumDrives > 0 {
 			if nodeAlloc.Drives[owner] == nil || len(nodeAlloc.Drives[owner]) == 0 {
-				allDrives := t.GetNonBlockedDrives(ctx, node)
+				allDrives := nodeInfo.AvailableDrives
 				if err != nil {
 					logger.Info("Failed to get node", "error", err)
 					revert(err, container)
 					continue
 				}
 				if len(allDrives) < container.Spec.NumDrives {
-					logger.Info("Not enough drives to allocate request", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
+					logger.Info("Not enough drives to allocate request even on fully free node", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
 					revert(fmt.Errorf("Not enough drives to allocate request"), container)
 					continue
 				}
@@ -266,7 +285,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 				//TODO: Merge above check with below, they are doing same, but below might have a bug
 				allocatedDrives := nodeAlloc.allocateDrives(owner, container.Spec.NumDrives, allDrives)
 				if allocatedDrives == nil {
-					logger.Info("Not enough drives to allocate request", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
+					logger.Info("Not enough drives free to allocate request", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
 					revert(fmt.Errorf("Not enough drives to allocate request"), container)
 					continue
 				}
@@ -469,9 +488,11 @@ func NewResourcesAllocator(ctx context.Context, client client.Client) (Allocator
 	if err != nil {
 		return nil, err
 	}
+
 	return &ResourcesAllocator{
-		configStore: cs,
-		client:      client,
+		configStore:    cs,
+		client:         client,
+		nodeInfoGetter: NewK8sNodeInfoGetter(client),
 	}, nil
 }
 

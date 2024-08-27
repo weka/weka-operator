@@ -15,7 +15,6 @@ type ClusterTemplate struct {
 	DriveContainers     int
 	S3Containers        int
 	NumDrives           int
-	MaxFdsPerNode       int
 	DriveHugepages      int
 	ComputeHugepages    int
 	HugePageSize        string

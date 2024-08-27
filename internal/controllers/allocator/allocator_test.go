@@ -1,133 +1,214 @@
 package allocator
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
 	"fmt"
-	"testing"
-
+	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"testing"
 )
 
-//	func newTestAllocator(ctx context.Context, topology *Topology) (Allocator, error) {
-//		cs := NewInMemoryConfigStore()
-//		return &ResourcesAllocator{
-//			Topology:    topology,
-//			configStore: cs,
-//		}, nil
-//	}
-//
-//	func testWekaCluster(name string) *v1alpha1.WekaCluster {
-//		return &v1alpha1.WekaCluster{
-//			Spec: v1alpha1.WekaClusterSpec{
-//				Template: "small",
-//			},
-//			ObjectMeta: v1.ObjectMeta{
-//				Name:      name,
-//				Namespace: "testNamespace",
-//			},
-//		}
-//	}
-func TestAllocatePort(t *testing.T) {
+func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {
+	return func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error) {
+		drives := []string{}
+		for i := 0; i < numDrives; i++ {
+			drives = append(drives, fmt.Sprintf("some-longer-drive-%d", i))
+		}
 
+		return &AllocatorNodeInfo{
+			AvailableDrives: drives,
+		}, nil
+	}
 }
 
-//func TestAllocatePort(t *testing.T) {
-// TODO: Test commented out as it is using factory creating cyclic import that needs to be broken. Fix this test it is important
-//	ctx := context.Background()
-//
-//	testTopology := Topology{
-//		Drives: []string{"/dev/sdb", "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdf"},
-//		Nodes: []string{
-//			"wekabox14.lan", "wekabox15.lan", "wekabox16.lan", "wekabox17.lan", "wekabox18.lan",
-//			"wekabox19.lan", "wekabox20.lan", "wekabox21.lan", "wekabox22.lan", "wekabox23.lan",
-//		},
-//		// TODO: Get from k8s instead, but having it here helps for now with testing, minimizing relying on k8s
-//		MinCore:  2,
-//		CoreStep: 1,
-//		MaxCore:  11,
-//		Network: v1alpha1.NetworkSelector{
-//			EthSlots: []string{"aws_0", "aws_1", "aws_2",
-//				"aws_3", "aws_4", "aws_5",
-//				"aws_6", "aws_7", "aws_8",
-//				"aws_9", "aws_10", "aws_11",
-//				"aws_12", "aws_13", "aws_14",
-//			},
-//		},
-//	}
-//
-//	template := ClusterTemplate{
-//		DriveCores:        1,
-//		ComputeCores:      1,
-//		ComputeContainers: 5,
-//		DriveContainers:   5,
-//		NumDrives:         1,
-//		MaxFdsPerNode:     1,
-//	}
-//
-//	allocator, err := newTestAllocator(ctx, testTopology)
-//	if err != nil {
-//		t.Errorf("Failed to create allocator: %v", err)
-//	}
-//
-//	clusters := []*v1alpha1.WekaCluster{
-//		testWekaCluster("a"),
-//		testWekaCluster("b"),
-//		testWekaCluster("c"),
-//		testWekaCluster("d"),
-//		testWekaCluster("e"),
-//		//
-//		testWekaCluster("f"),
-//		testWekaCluster("g"),
-//		testWekaCluster("h"),
-//		testWekaCluster("i"),
-//		testWekaCluster("j"),
-//	}
-//
-//	// TODO: Make smarter test, this is just fitting 10 clusters on 10 machines
-//
-//	for _, cluster := range clusters {
-//		containers, err := factory.BuildMissingContainers(cluster, template, testTopology, nil)
-//		if err != nil {
-//			t.Errorf("Failed to build containers: %v", err)
-//			return
-//		}
-//
-//		err = allocator.AllocateClusterRange(ctx, cluster)
-//		if err != nil {
-//			t.Errorf("Failed to allocate cluster range: %v", err)
-//			return
-//		}
-//
-//		err = allocator.AllocateContainers(ctx, *cluster, containers)
-//		if err != nil {
-//			t.Errorf("Failed to allocate containers: %v", err)
-//			return
-//		}
-//
-//		agentNodePorts := map[string]bool{}
-//		for _, container := range containers {
-//			if !container.IsWekaContainer() {
-//				continue
-//			}
-//			found := agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Spec.AgentPort)]
-//			if found {
-//				t.Errorf("Node port already allocated: %s:%d", container.Spec.NodeAffinity, container.Spec.AgentPort)
-//				allocations, _ := allocator.GetAllocations(ctx)
-//				printAsYaml(allocations)
-//				return
-//			} else {
-//				agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Spec.AgentPort)] = true
-//			}
-//		}
-//	}
-//
-//	for _, cluster := range clusters {
-//		err = allocator.DeallocateCluster(ctx, *cluster)
-//		if err != nil {
-//			t.Errorf("Failed to deallocate cluster: %v", err)
-//		}
-//	}
-//
-//}
+func newTestAllocator(ctx context.Context, numDrives int) (Allocator, *InMemoryConfigStore, error) {
+	cs := NewInMemoryConfigStore()
+	return &ResourcesAllocator{
+		configStore:    cs,
+		nodeInfoGetter: newTestAllocatorInfoGetter(numDrives),
+	}, cs, nil
+}
+
+func testWekaCluster(name string) *weka.WekaCluster {
+	return &weka.WekaCluster{
+		Spec: weka.WekaClusterSpec{
+			Template: "dynamic",
+			Dynamic: &weka.WekaConfig{
+				DriveContainers:   util.IntRef(5),
+				ComputeContainers: util.IntRef(5),
+				NumDrives:         4,
+			},
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: "testNamespace",
+		},
+	}
+}
+
+// every allocated container will increment the placement by one, nodeNamePool will rotate as needed when reaching the end, by module basically
+var rolePlacement = map[string]int{
+	"drive":   0,
+	"compute": 0,
+}
+
+func buildTestContainers(cluster *weka.WekaCluster, nodeNamePool []weka.NodeName) []*weka.WekaContainer {
+	containers := []*weka.WekaContainer{}
+	pairs := map[string]int{
+		"drive":   *cluster.Spec.Dynamic.DriveContainers,
+		"compute": *cluster.Spec.Dynamic.ComputeContainers,
+	}
+
+	for mode, count := range pairs {
+		for i := 0; i < count; i++ {
+			placement := nodeNamePool[rolePlacement[mode]]
+			rolePlacement[mode] = (rolePlacement[mode] + 1) % len(nodeNamePool)
+			numDrives := 0
+			switch mode {
+			case "drive":
+				numDrives = cluster.Spec.Dynamic.NumDrives
+			}
+			containers = append(containers, &weka.WekaContainer{
+				Spec: weka.WekaContainerSpec{
+					NodeAffinity: placement,
+					Mode:         mode,
+					NumDrives:    numDrives,
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:      weka.NewContainerName(mode),
+					Namespace: "testNamespace",
+				},
+			})
+		}
+	}
+	return containers
+}
+
+func buildTestClusters(numClusters int) []*weka.WekaCluster {
+	clusters := []*weka.WekaCluster{}
+	for i := 0; i < numClusters; i++ {
+		clusters = append(clusters, testWekaCluster(fmt.Sprintf("cluster-%d", i)))
+	}
+	return clusters
+}
+
+func TestAllocatePort(t *testing.T) {
+	//TODO: Test commented out as it is using factory creating cyclic import that needs to be broken. Fix this test it is important
+	ctx := context.Background()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TestAllocatePort")
+	defer end()
+
+	allocator, cs, err := newTestAllocator(ctx, 24)
+	if err != nil {
+		t.Errorf("Failed to create allocator: %v", err)
+	}
+
+	clusters := buildTestClusters(10)
+	nodes := buildTestNodeNames(9)
+
+	for _, cluster := range clusters {
+		err = allocator.AllocateClusterRange(ctx, cluster)
+		if err != nil {
+			t.Errorf("Failed to allocate cluster range: %v", err)
+			return
+		}
+
+		containers := buildTestContainers(cluster, nodes)
+
+		err = allocator.AllocateContainers(ctx, cluster, containers)
+		if err != nil {
+			t.Errorf("Failed to allocate containers: %v", err)
+			return
+		}
+
+		notChanged := []*weka.WekaContainer{}
+
+		if err != nil {
+			if failedAllocs, ok := err.(*FailedAllocations); ok {
+				for _, allocation := range *failedAllocs {
+					notChanged = append(notChanged, allocation.Container)
+				}
+				// we proceed despite failures, as partial might be sufficient(?)
+				if len(notChanged) != 0 {
+					t.Errorf("some allocations have failed %v", err)
+					return
+				}
+			} else {
+				t.Errorf("Failed to allocate containers: %v", err)
+				return
+			}
+		}
+
+		// validating that no two containers have the same agent port on the same node
+		agentNodePorts := map[string]bool{}
+		for _, container := range containers {
+			if !container.IsWekaContainer() {
+				continue
+			}
+			found := agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)]
+			if found {
+				t.Errorf("Node port already allocated: %s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)
+				allocations, _ := allocator.GetAllocations(ctx)
+				printAsYaml(allocations)
+				return
+			} else {
+				agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)] = true
+			}
+		}
+	}
+
+	marshalled, _ := yaml.Marshal(cs.allocations)
+	logger.Info("bytes in use by configmap", "bytes", len(marshalled))
+
+	// compress and print copmressed size as well
+	compressed, _ := compressBytes(marshalled)
+	logger.Info("compressed bytes in use by configmap", "bytes", len(compressed))
+
+	if err != nil {
+		t.Errorf("Failed to compress bytes: %v", err)
+		return
+	}
+
+	for _, cluster := range clusters {
+		err = allocator.DeallocateCluster(ctx, cluster)
+		if err != nil {
+			t.Errorf("Failed to deallocate cluster: %v", err)
+		}
+	}
+}
+
+func buildTestNodeNames(i int) []weka.NodeName {
+	nodeNames := []weka.NodeName{}
+	for j := 0; j < i; j++ {
+		nodeNames = append(nodeNames, weka.NodeName(fmt.Sprintf("some-longer-node-%d", j)))
+	}
+	return nodeNames
+}
+
+func compressBytes(input []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buf)
+
+	// Write the input byte array to the gzip writer
+	_, err := gzipWriter.Write(input)
+	if err != nil {
+		return nil, err
+	}
+
+	// Close the writer to flush any remaining data
+	err = gzipWriter.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the compressed data
+	return buf.Bytes(), nil
+}
 
 func printAsYaml(allocations *Allocations) {
 	data, _ := yaml.Marshal(allocations)

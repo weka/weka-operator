@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1018,11 +1017,6 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	return nil
 }
 
-func NewContainerName(role string) string {
-	guid := string(uuid.NewUUID())
-	return fmt.Sprintf("%s-%s", role, guid)
-}
-
 func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
@@ -1048,7 +1042,7 @@ func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocato
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, NewContainerName(role))
+			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, wekav1alpha1.NewContainerName(role))
 			if err != nil {
 				return nil, err
 			}
