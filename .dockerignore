@@ -2,3 +2,11 @@
 # Ignore build and test binaries.
 bin/
 testbin/
+.git
+examples
+node_modules
+terraform
+packer
+ansible
+.github
+doc

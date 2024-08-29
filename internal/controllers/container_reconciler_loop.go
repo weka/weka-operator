@@ -415,9 +415,9 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 
 	containerName := container.Spec.WekaContainerName
 
-	cmd := fmt.Sprintf("weka local run wapi -H localhost:%d/jrpc -W container-get-identity --container-name %s --json", container.Status.Allocations.AgentPort, containerName)
+	cmd := fmt.Sprintf("weka local run wapi -H localhost:%d/jrpc -W container-get-identity --container-name %s --json", container.GetAgentPort(), containerName)
 	if container.Spec.JoinIps != nil {
-		cmd = fmt.Sprintf("wekaauthcli local run wapi -H localhost:%d/jrpc -W container-get-identity --container-name %s --json", container.Status.Allocations.AgentPort, containerName)
+		cmd = fmt.Sprintf("wekaauthcli local run wapi -H localhost:%d/jrpc -W container-get-identity --container-name %s --json", container.GetAgentPort(), containerName)
 	}
 
 	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalContainerGetIdentity", []string{"bash", "-ce", cmd})

@@ -850,7 +850,7 @@ async def configure_traces():
         set -e
         mkdir -p /opt/weka/k8s-scripts
         echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
-        weka local run mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
+        weka local run --container {NAME} mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
         """)
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
@@ -878,7 +878,7 @@ async def ensure_weka_container():
 
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
-    resources, stderr, ec = await run_command("weka local resources --json")
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json")
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
