@@ -30,22 +30,22 @@ type WekaContainer struct {
 type WekaContainerMode string
 
 const (
-	WekaContainerModeDist          = "dist"
-	WekaContainerModeDriversLoader = "drivers-loader"
-	WekaContainerModeCompute       = "compute"
-	WekaContainerModeDrive         = "drive"
-	WekaContainerModeClient        = "client"
-	WekaContainerModeDiscovery     = "discovery"
-	WekaContainerModeS3            = "s3"
-	WekaContainerModeEnvoy         = "envoy"
-	WekaContainerModeBuild         = "build"
-	WekaContainerModeAdhocOpWC     = "adhoc-op-with-container"
-	WekaContainerModeAdhocOp       = "adhoc-op"
-	PersistencePathBase            = "/opt/k8s-weka"
-	PersistencePathBaseCos         = "/mnt/stateful_partition/k8s-weka"
-	PersistencePathBaseRhCos       = "/root/k8s-weka"
-	OsNameOpenshift                = "rhcos"
-	OsNameCos                      = "cos"
+	WekaContainerModeDist           = "dist"
+	WekaContainerModeDriversLoader  = "drivers-loader"
+	WekaContainerModeDriversBuilder = "drivers-builder"
+	WekaContainerModeCompute        = "compute"
+	WekaContainerModeDrive          = "drive"
+	WekaContainerModeClient         = "client"
+	WekaContainerModeDiscovery      = "discovery"
+	WekaContainerModeS3             = "s3"
+	WekaContainerModeEnvoy          = "envoy"
+	WekaContainerModeAdhocOpWC      = "adhoc-op-with-container"
+	WekaContainerModeAdhocOp        = "adhoc-op"
+	PersistencePathBase             = "/opt/k8s-weka"
+	PersistencePathBaseCos          = "/mnt/stateful_partition/k8s-weka"
+	PersistencePathBaseRhCos        = "/root/k8s-weka"
+	OsNameOpenshift                 = "rhcos"
+	OsNameCos                       = "cos"
 	// Statis is fine, since we will not relay on host network here
 	StaticPortAdhocyWCOperations      = 60040
 	StaticPortAdhocyWCOperationsAgent = 60039
@@ -65,7 +65,7 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;discovery;s3;adhoc-op-with-container;adhoc-op
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -92,6 +92,7 @@ type WekaContainerSpec struct {
 	AdditionalSecrets     map[string]string    `json:"additionalSecrets,omitempty"`
 	Instructions          string               `json:"instructions,omitempty"`
 	NoAffinityConstraints bool                 `json:"dropAffinityConstraints,omitempty"`
+	UploadResultsTo       string               `json:"uploadResultsTo,omitempty"`
 }
 
 type Network struct {
@@ -126,6 +127,13 @@ type TracesConfiguration struct {
 	MaxCapacityPerIoNode int `json:"maxCapacityPerIoNode,omitempty"`
 	// +kubebuilder:default=20
 	EnsureFreeSpace int `json:"ensureFreeSpace,omitempty"`
+}
+
+func GetDefaultTracesConfiguration() *TracesConfiguration {
+	return &TracesConfiguration{
+		MaxCapacityPerIoNode: 10,
+		EnsureFreeSpace:      20,
+	}
 }
 
 // +kubebuilder:object:root=true
@@ -184,7 +192,7 @@ func (w *WekaContainer) InitEnsureDriversCondition() {
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeBuild, WekaContainerModeEnvoy, WekaContainerModeAdhocOpWC, WekaContainerModeAdhocOp}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeDriversBuilder, WekaContainerModeEnvoy, WekaContainerModeAdhocOpWC, WekaContainerModeAdhocOp}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
@@ -192,11 +200,11 @@ func (w *WekaContainer) IsHostNetwork() bool {
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeBuild}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDriversBuilder}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDriversBuilder() bool {
-	return w.Spec.Mode == WekaContainerModeDist
+	return w.Spec.Mode == WekaContainerModeDriversBuilder
 }
 
 func (w *WekaContainer) IsBackend() bool {
@@ -212,7 +220,14 @@ func (w *WekaContainer) IsAdhocOpContainer() bool {
 }
 
 func (w *WekaContainer) HasPersistentStorage() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeEnvoy, WekaContainerModeClient}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeDrive,
+		WekaContainerModeCompute,
+		WekaContainerModeS3,
+		WekaContainerModeEnvoy,
+		WekaContainerModeClient,
+		WekaContainerModeDist,
+	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsS3Container() bool {
@@ -253,8 +268,8 @@ func (w *WekaContainer) GetNodeAffinity() NodeName {
 	return ""
 }
 
-func (w *WekaContainer) ToOwnerObject() *OwnerWekaObject {
-	return &OwnerWekaObject{
+func (w *WekaContainer) ToOwnerObject() *WekaContainerDetails {
+	return &WekaContainerDetails{
 		Image:           w.Spec.Image,
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     w.Spec.Tolerations,
@@ -262,7 +277,13 @@ func (w *WekaContainer) ToOwnerObject() *OwnerWekaObject {
 }
 
 func (w *WekaContainer) IsOneOff() bool {
-	return slices.Contains([]string{WekaContainerModeAdhocOpWC, WekaContainerModeDiscovery, WekaContainerModeAdhocOp}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeAdhocOpWC,
+		WekaContainerModeDiscovery,
+		WekaContainerModeAdhocOp,
+		WekaContainerModeDriversLoader,
+		WekaContainerModeDriversBuilder,
+	}, w.Spec.Mode)
 
 }
 
@@ -308,7 +329,7 @@ func (c *WekaContainer) IsMarkedForDeletion() bool {
 	return !c.GetDeletionTimestamp().IsZero()
 }
 
-type OwnerWekaObject struct {
+type WekaContainerDetails struct {
 	Image           string          `json:"image"`
 	ImagePullSecret string          `json:"imagePullSecrets"`
 	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`

@@ -136,7 +136,6 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
 
-	logger.SetPhase("Cluster created")
 	return nil
 }
 

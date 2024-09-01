@@ -5,7 +5,7 @@ metadata:
   namespace: weka-operator-system
 spec:
   action: "discover-drives"
-  image: kontrol-k8s.lan/weka-in-container:4.3.3.129-k8s.1-upgrade
+  image: kontrol-k8s.lan/weka-in-container:4.3.5.4165-7ffb076861da6a1f1e163e8a1e0c753f-dev
   imagePullSecret: "quay-io-robot-secret"
   payload:
     discoverDrivesPayload:

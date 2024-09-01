@@ -96,7 +96,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
 			wekaPolicy,
-			weka.OwnerWekaObject{
+			weka.WekaContainerDetails{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
 			},
@@ -109,7 +109,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DiscoverDrives,
 			wekaPolicy,
-			weka.OwnerWekaObject{
+			weka.WekaContainerDetails{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
 			},

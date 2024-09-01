@@ -370,7 +370,7 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 		err := wekaClusterService.FormCluster(ctx, containers)
 		if err != nil {
 			logger.Error(err, "Failed to form cluster")
-			return lifecycle.WaitError{Err: err}
+			return lifecycle.NewWaitError(err)
 		}
 		return nil
 		// TODO: We might want to capture specific errors, and return "unknown"/bigger errors
@@ -506,7 +506,6 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 	//if err != nil {
 	//	return err
 	//}
-	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
 
 }

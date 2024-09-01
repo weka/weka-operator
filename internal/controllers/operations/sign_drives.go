@@ -51,7 +51,7 @@ type nodeResult struct {
 	Drives []string `json:"drives"`
 }
 
-func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.OwnerWekaObject, ownerStatus string, successCallback lifecycle.StepFunc) *SignDrivesOperation {
+func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *SignDrivesOperation {
 	kclient := mgr.GetClient()
 	return &SignDrivesOperation{
 		mgr:             mgr,

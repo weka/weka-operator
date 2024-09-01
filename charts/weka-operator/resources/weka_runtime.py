@@ -405,14 +405,22 @@ async def load_drivers():
         load_cmds.append((
             f"lsmod | grep -w uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko",
             "loading uio_pci_generic driver"))
-    load_cmds.append(("echo 'drivers_loaded' > /tmp/weka-drivers-loader", "all drivers loaded"))
 
+    logging.info("Downloading and loading drivers")
     for cmd, desc in download_cmds + load_cmds:
         logging.info(f"Driver loading step: {desc}")
         stdout, stderr, ec = await run_command(cmd)
         if ec != 0:
             logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
+            write_results(dict(
+                err=stderr.decode('utf-8'),
+                drivers_loaded=False,
+            ))
             raise Exception(f"Failed to load drivers: {stderr.decode('utf-8')}")
+    write_results(dict(
+        err=None,
+        drivers_loaded=True
+    ))
     logging.info("All drivers loaded successfully")
 
 
@@ -1014,6 +1022,7 @@ async def configure_agent(agent_handle_drivers=False):
         {drivers_handling_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
+        # sed -i "s/serve_static=false/serve_static=true/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
     """)
     stdout, stderr, ec = await run_command(cmd, env=env_vars)
@@ -1103,6 +1112,7 @@ async def ensure_container_exec():
 
 
 def write_results(results):
+    logging.info("Writing result into /weka-runtime/results.json, results: \n%s", results)
     os.makedirs("/weka-runtime", exist_ok=True)
     with open("/weka-runtime/results.json.tmp", "w") as f:
         json.dump(results, f)
@@ -1228,7 +1238,7 @@ async def cos_disable_driver_signing_verification():
 
 async def cos_configure_hugepages():
     if not is_google_cos():
-        logging.info("Skipping hugepages configuration")
+        logging.debug("Skipping hugepages configuration")
         return
 
     logging.info("Checking if hugepages are set")
@@ -1381,6 +1391,22 @@ async def ensure_drives():
     logging.info(f"in-kernel drives are: {drives_to_setup}")
 
 
+async def is_legacy_driver_cmd() -> bool:
+    cmd = "weka driver --help | grep pack"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec == 0:
+        return False
+    return True
+
+
+async def pack_drivers():
+    logging.info("Packing drivers")
+    cmd = "weka driver pack"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to pack drivers: {stderr}")
+    logging.info("Drivers packed successfully")
+
 
 async def main():
     host_info = get_host_info()
@@ -1395,6 +1421,7 @@ async def main():
     if is_google_cos():
         logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
 
+    DIST_LEGACY_MODE = await is_legacy_driver_cmd()
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
@@ -1414,6 +1441,7 @@ async def main():
 
     if MODE == "discovery":
         # self signal to exit
+        logging.info("discovery mode")
         await cos_configure_hugepages()
         await discovery()
         return
@@ -1436,35 +1464,22 @@ async def main():
     await ensure_weka_version()
     await override_dependencies_flag()
 
-    if MODE not in ["dist", "drivers-loader", "build", "adhoc-op-with-container", "envoy", "adhoc-op"]:
+    if MODE not in ["dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
         await ensure_drivers()
 
     if MODE == "dist":
+        # Dist is only serving, we will invoke downloads on it, probably in stand-alone ad-hoc container, but never actually build
+        # if DIST_LEGACY_MODE:
         logging.info("dist-service flow")
-        if is_google_cos():
-            await install_gsutil()
-            await cos_build_drivers()
-
-        else:  # default
-            await agent.stop()
-            await configure_agent(agent_handle_drivers=True)
-            await agent.start()  # here the build happens
-            await await_agent()
-
-        await ensure_stem_container()
+        await ensure_stem_container("dist")
         await configure_traces()
-        await agent.stop()
-        await configure_agent(agent_handle_drivers=False)
-        await agent.start()
-        await await_agent()
-        await copy_drivers()
         await start_stem_container()
         await cleanup_traces_and_stop_dumper()
         return
 
     if MODE == "adhoc-op-with-container":
         global NAME
-        NAME="adhoc"
+        NAME = "adhoc"
         await ensure_stem_container(NAME)
         await configure_traces()
         await start_stem_container()
@@ -1487,16 +1502,38 @@ async def main():
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return
 
-    if MODE == "build":
-        logging.info("dist-build flow")
-        # await stop_daemon(processes.get("agent"))
-        # await configure_agent(agent_handle_drivers=True)
-        # await ensure_daemon(agent_cmd, alias="agent")
-        # await await_agent()
-        await override_dependencies_flag()
-        # await configure_traces()
-        # await cleanup_traces_and_stop_dumper()
-        await asyncio.sleep(600)  # giving 10 minutes for manual hacks until this actually works
+    if MODE == "drivers-builder":
+        logging.info("dist-service flow")
+        if is_google_cos():
+            await install_gsutil()
+            await cos_build_drivers()
+
+        else:  # default
+            await agent.stop()
+            await configure_agent(agent_handle_drivers=True)
+            await agent.start()  # here the build happens
+            await await_agent()
+
+        await ensure_stem_container("dist")
+        await configure_traces()
+        if not DIST_LEGACY_MODE:
+            await pack_drivers()  # explicit pack of drivers if supported, which is new method, that should become default with rest of code removed eventually
+        await agent.stop()
+        await configure_agent(agent_handle_drivers=False)
+        await agent.start()
+        await await_agent()
+
+        if DIST_LEGACY_MODE:
+            await copy_drivers()
+        await start_stem_container()
+        await cleanup_traces_and_stop_dumper()
+        weka_version, _, _ = await run_command("weka version current")
+        write_results(
+            {
+                "driver_built": True,
+                "err": "",
+                "weka_version": weka_version.decode().strip(),
+            })
         return
 
     if MODE == "envoy":

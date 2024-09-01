@@ -55,7 +55,7 @@ type DiscoverDrivesResult struct {
 	Results map[string]driveNodeResults `json:"results"`
 }
 
-func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.OwnerWekaObject, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
+func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
 	kclient := mgr.GetClient()
 	return &DiscoverDrivesOperation{
 		mgr:             mgr,

@@ -73,7 +73,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.SignDrives,
 			wekaManualOperation,
-			weka.OwnerWekaObject{
+			weka.WekaContainerDetails{
 				Image:           wekaManualOperation.Spec.Image,
 				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
@@ -93,7 +93,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.DiscoverDrives,
 			wekaManualOperation,
-			weka.OwnerWekaObject{
+			weka.WekaContainerDetails{
 				Image:           wekaManualOperation.Spec.Image,
 				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,

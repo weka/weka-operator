@@ -1,0 +1,31 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: cluster-dev
+  namespace: default
+spec:
+  size: 1
+  template: dynamic
+  dynamicTemplate:
+    computeContainers: 6
+    driveContainers: 6
+  imagePullSecret: "quay-io-robot-secret"
+  image: quay.io/weka.io/weka-in-container:4.4.1.741-ad4b631246430c42e5e2fdcd78ef6d74-dev
+  driversDistService: "https://weka-driver-dist.weka-operator-system.svc.cluster.local:60002"
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.4.1.741-ad4b631246430c42e5e2fdcd78ef6d74-dev
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://weka-driver-dist.weka-operator-system.svc.cluster.local:60002"
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-client-cluster-dev
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  coresNum: 1

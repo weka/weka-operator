@@ -8,7 +8,6 @@ import (
 type Operation interface {
 	AsStep() lifecycle.Step
 	GetSteps() []lifecycle.Step
-	Cleanup() lifecycle.Step
 	GetJsonResult() string
 }
 

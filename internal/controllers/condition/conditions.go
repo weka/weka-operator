@@ -17,6 +17,8 @@ const (
 	CondDrivesAdded                 = "DrivesAdded"
 	CondIoStarted                   = "IoStarted"
 	CondJoinedCluster               = "JoinedCluster"
+	CondResultsReceived             = "CondResultsReceived"
+	CondResultsProcessed            = "CondResultsProcessed"
 	CondJoinedS3Cluster             = "JoinedS3Cluster"
 	CondContainerResourcesWritten   = "ContainerResourcesWritten"
 	CondEnsureDrivers               = "EnsuredDrivers"

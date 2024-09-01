@@ -36,14 +36,13 @@ type DiscoverNodeOperation struct {
 	result          *discovery.DiscoveryNodeInfo
 	container       *weka.WekaContainer
 	ownerRef        client.Object
-	atus            string
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
 	tolerations     []corev1.Toleration
 	node            *corev1.Node
 }
 
-func NewDiscoverNodeOperation(mgr ctrl.Manager, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.OwnerWekaObject) *DiscoverNodeOperation {
+func NewDiscoverNodeOperation(mgr ctrl.Manager, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaContainerDetails) *DiscoverNodeOperation {
 	kclient := mgr.GetClient()
 	return &DiscoverNodeOperation{
 		mgr:         mgr,
