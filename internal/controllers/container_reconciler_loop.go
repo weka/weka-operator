@@ -69,6 +69,7 @@ type containerReconcilerLoop struct {
 	container        *weka.WekaContainer
 	pod              *v1.Pod
 	nodeAffinityLock LockMap
+	node             *v1.Node
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -104,6 +105,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				FinishOnSuccess:           true,
 			},
 			{Run: loop.initState},
+			{Run: loop.deleteIfNoNode},
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
@@ -541,6 +543,17 @@ func (r *containerReconcilerLoop) ensureTombstone(ctx context.Context) error {
 
 	nodeInfo, err := r.GetNodeInfo(ctx)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("node is deleted, no need for tombstone")
+			return nil
+		}
+		// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
+		// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
+		// but generic ReconcilationError wrapping error is sort of pointless
+		if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
+			logger.Info("node is deleted, no need for tombstone")
+			return nil
+		}
 		logger.Error(err, "Error getting node discovery")
 		return err
 	}
@@ -755,11 +768,12 @@ func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) erro
 	if !apierrors.IsNotFound(err) {
 		return nil // node still exists, handling only not found node
 	}
+	panic("here")
 
 	// We are safe to delete clients after a configurable while
 	// TODO: Make configurable, for now we delete after 5 minutes since downtime
 	// relying onlastTransitionTime of Unschedulable condition
-	rescheduleAfter := 30 * time.Minute
+	rescheduleAfter := 30 * time.Second
 	if time.Since(unschedulableSince) > rescheduleAfter {
 		logger.Info("Deleting unschedulable pod")
 		err := r.Delete(ctx, container)
@@ -1504,6 +1518,25 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		}
 		logger.WithValues("status", status).Info("Status updated")
 		return nil
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
+	affinity := r.container.GetNodeAffinity()
+	if affinity != "" {
+
+		node, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				deleteError := r.Client.Delete(ctx, r.container)
+				if deleteError != nil {
+					return deleteError
+				}
+				return lifecycle.NewWaitError(errors.New("Node is not found, deleting container"))
+			}
+		}
+		r.node = node
 	}
 	return nil
 }
