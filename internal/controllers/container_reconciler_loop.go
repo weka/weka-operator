@@ -768,7 +768,6 @@ func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) erro
 	if !apierrors.IsNotFound(err) {
 		return nil // node still exists, handling only not found node
 	}
-	panic("here")
 
 	// We are safe to delete clients after a configurable while
 	// TODO: Make configurable, for now we delete after 5 minutes since downtime

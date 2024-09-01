@@ -637,6 +637,11 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 func (f *PodFactory) getTolerations() []corev1.Toleration {
 	tolerations := []corev1.Toleration{
 		{
+			Key:      "weka.io/shutdown-node",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
 			Key:      "node.kubernetes.io/not-ready",
 			Operator: corev1.TolerationOpExists,
 			Effect:   corev1.TaintEffectNoExecute,
