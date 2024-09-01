@@ -1463,7 +1463,9 @@ async def main():
         return
 
     if MODE == "adhoc-op-with-container":
-        await ensure_stem_container("adhoc")
+        global NAME
+        NAME="adhoc"
+        await ensure_stem_container(NAME)
         await configure_traces()
         await start_stem_container()
         await ensure_container_exec()
