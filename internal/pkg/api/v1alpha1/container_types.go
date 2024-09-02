@@ -87,7 +87,6 @@ type WekaContainerSpec struct {
 	NodeInfoConfigMap     string               `json:"nodeInfoConfigMap,omitempty"`
 	Ipv6                  bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory      int                  `json:"additionalMemory,omitempty"`
-	RemoveForceAllowSign  bool                 `json:"forceAllowDriveSign,omitempty"`
 	Group                 string               `json:"group,omitempty"`
 	ServiceAccountName    string               `json:"serviceAccountName,omitempty"`
 	AdditionalSecrets     map[string]string    `json:"additionalSecrets,omitempty"`
