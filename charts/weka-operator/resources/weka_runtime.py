@@ -77,7 +77,7 @@ async def sign_aws_drives():
     pci_devices = stdout.decode().strip().split()
     for pci_device in pci_devices:
         device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
-        stdout, stderr, ec = await run_command(f"weka local exec --container {NAME} -- /weka/tools/weka_sign_drive {device}")
+        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
         if ec != 0:
             logging.error(f"Failed to sign AWS drive {pci_device}: {stderr}")
             continue
@@ -1093,7 +1093,7 @@ async def ensure_container_exec():
     logging.info("ensuring container exec")
     start = time.time()
     while True:
-        stdout, stderr, ec = await run_command(f"weka local exec -- ls")
+        stdout, stderr, ec = await run_command(f"weka local exec --container {NAME} -- ls")
         if ec == 0:
             break
         await asyncio.sleep(1)
