@@ -72,6 +72,7 @@ func setup(t *testing.T, ctx context.Context) *ClusterTest {
 			Name:              awsClusterName,
 			WekaClusterName:   wekaClusterName,
 			OperatorNamespace: "weka-operator-system",
+			Kubernetes:        k8s,
 		},
 	}
 

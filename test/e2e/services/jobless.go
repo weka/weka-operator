@@ -153,6 +153,7 @@ func GoRunBliss[T any](args ...string) (*T, error) {
 // This uses the go module system to fetch the latest version of the jobless module
 func GoRunBlissRemote[T any](args ...string) (*T, error) {
 	blissVersion := "v1.11.1"
+	os.Setenv("GOPRIVATE", "github.com/weka")
 	module := fmt.Sprintf("github.com/weka/bliss@%s", blissVersion)
 
 	// Run go run jobless/main.go

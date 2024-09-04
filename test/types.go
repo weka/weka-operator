@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weka/weka-operator/test/e2e/fixtures"
 	"github.com/weka/weka-operator/test/e2e/services"
@@ -23,6 +24,12 @@ type ClusterTest struct {
 }
 
 func (ct *ClusterTest) k8sClient(ctx context.Context) (client.Client, error) {
+	if ct.Cluster == nil {
+		return nil, fmt.Errorf("cluster is nil")
+	}
+	if ct.Cluster.Kubernetes == nil {
+		return nil, fmt.Errorf("kubernetes is nil")
+	}
 	client, err := ct.Cluster.Kubernetes.GetClient(ctx)
 	if err != nil {
 		return nil, err
