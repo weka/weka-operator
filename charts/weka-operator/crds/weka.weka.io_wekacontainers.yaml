@@ -94,8 +94,6 @@ spec:
                 type: boolean
               extraCores:
                 type: integer
-              forceAllowDriveSign:
-                type: boolean
               group:
                 type: string
               hugepages:
