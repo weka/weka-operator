@@ -849,7 +849,7 @@ func (r *containerReconcilerLoop) resetEnsureDriversForNewPod(ctx context.Contex
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
-	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *r.container.ToOwnerObject(), r.container.Spec.DriversDistService)
+	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *r.container.ToOwnerObject(), r.container.Spec.DriversDistService, r.container.HasFrontend())
 	return operations.ExecuteOperation(ctx, driversLoader)
 }
 

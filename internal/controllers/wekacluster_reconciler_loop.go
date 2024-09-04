@@ -782,7 +782,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = allAtOnceUpgrade(driveContainers)
+		err = rollingUpgrade(driveContainers)
 		if err != nil {
 			return err
 		}
@@ -806,7 +806,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = allAtOnceUpgrade(computeContainers)
+		err = rollingUpgrade(computeContainers)
 		if err != nil {
 			return err
 		}

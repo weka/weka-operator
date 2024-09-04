@@ -29,9 +29,10 @@ type LoadDrivers struct {
 	container           *weka.WekaContainer
 	namespace           string
 	results             *string
+	isFrontend          bool // defines whether we should enforce latest version, or suffice with any version
 }
 
-func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.WekaContainerDetails, distServiceEndpoint string) *LoadDrivers {
+func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.WekaContainerDetails, distServiceEndpoint string, isFrontend bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace()
 	return &LoadDrivers{
@@ -43,6 +44,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.W
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
+		isFrontend:          isFrontend,
 	}
 }
 
@@ -57,6 +59,7 @@ func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		{Name: "GetCurrentContainer", Run: o.GetCurrentContainers},
 		{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
+		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
 		{Name: "CreateContainer", Run: o.CreateContainer, Predicates: lifecycle.Predicates{o.HasNotContainer}, ContinueOnPredicatesFalse: true},
 		{Name: "PollResults", Run: o.PollResults},
 		{Name: "ProcessResult", Run: o.ProcessResult},
@@ -70,7 +73,11 @@ func (o *LoadDrivers) GetJsonResult() string {
 
 func (o *LoadDrivers) IsLoaded() bool {
 	annotations := o.node.Annotations
-	if annotations["weka.io/drivers-loaded"] == o.GetExpectedDriversVersion() {
+	current, ok := annotations["weka.io/drivers-loaded"]
+	if ok && !o.isFrontend {
+		return true
+	}
+	if current == o.GetExpectedDriversVersion() {
 		return true
 	}
 	return false

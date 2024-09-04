@@ -242,6 +242,10 @@ func (w *WekaContainer) IsDriveContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDrive}, w.Spec.Mode)
 }
 
+func (w *WekaContainer) HasFrontend() bool {
+	return slices.Contains([]string{WekaContainerModeClient, WekaContainerModeS3}, w.Spec.Mode)
+}
+
 func (w *WekaContainer) IsWekaContainer() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeClient}, w.Spec.Mode)
 }
