@@ -24,6 +24,14 @@ while [[ $# -gt 0 ]]; do
     shift
     shift
     ;;
+  --verbose)
+    VERBOSE=true
+    shift
+    ;;
+  --debug)
+    DEBUG=true
+    shift
+    ;;
   *)
     echo "Unknown option: $1"
     exit 1
@@ -44,4 +52,4 @@ TIMEOUT="${TIMEOUT:-20m}"
 # Run the test SUITE
 set -x
 go test -v ./test -timeout "${TIMEOUT}" -run "^${SUITE}$" -count 1 -failfast \
-  -bliss-version "${BLISS_VERSION}"
+  -bliss-version "${BLISS_VERSION}" -verbose "${VERBOSE:-false}" -debug "${DEBUG:-false}"

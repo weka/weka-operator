@@ -32,7 +32,7 @@ func (ct *ClusterTest) k8sClient(ctx context.Context) (client.Client, error) {
 	}
 	client, err := ct.Cluster.Kubernetes.GetClient(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("k8sClient > GetClient: %w", err)
 	}
 	return client, nil
 }

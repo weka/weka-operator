@@ -10,6 +10,7 @@ import (
 	prettyconsole "github.com/thessem/zap-prettyconsole"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	uzap "go.uber.org/zap"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
@@ -45,6 +46,8 @@ func TestMain(m *testing.M) {
 	// Add logger to context
 	ctx, logger = instrumentation.GetLoggerForContext(ctx, &logger, "operator.test")
 	pkgCtx = ctx
+
+	log.SetLogger(logger)
 
 	logger.Info("main_test")
 	m.Run()

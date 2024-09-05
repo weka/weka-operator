@@ -2,10 +2,7 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -48,16 +45,6 @@ func TestWekaCluster(t *testing.T) {
 //}
 
 func setup(t *testing.T, ctx context.Context) *ClusterTest {
-	kubebuilderRelease := "1.26.0"
-	kubebuilderOs := runtime.GOOS
-	kubebuilderArch := runtime.GOARCH
-	kubebuilderVersion := fmt.Sprintf("%s-%s-%s", kubebuilderRelease, kubebuilderOs, kubebuilderArch)
-	os.Setenv("KUBEBUILDER_ASSETS", filepath.Join("..", "..", "..", "..", "bin", "k8s", kubebuilderVersion))
-
-	os.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc.cluster.local")
-	os.Setenv("KUBERNETES_SERVICE_PORT", "443")
-	os.Setenv("UNIT_TEST", "true")
-
 	jobless := services.NewJobless(ctx, *BlissVersion)
 	wekaClusterName := "ft-cluster"
 	kubeConfig := os.Getenv("KUBECONFIG")
@@ -67,7 +54,7 @@ func setup(t *testing.T, ctx context.Context) *ClusterTest {
 	awsClusterName := os.Getenv("CLUSTER_NAME")
 	st := &ClusterTest{
 		Jobless: jobless,
-		Image:   "quay.io/weka.io/weka-in-container:4.2.7.64-s3multitenancy.7",
+		Image:   "quay.io/weka.io/weka-in-container:4.3.4",
 		Cluster: &fixtures.Cluster{
 			Name:              awsClusterName,
 			WekaClusterName:   wekaClusterName,

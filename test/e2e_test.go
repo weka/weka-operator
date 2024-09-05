@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/test/e2e/fixtures"
 	"github.com/weka/weka-operator/test/e2e/services"
 	"github.com/weka/weka-operator/test/e2e/types"
 
 	"github.com/thoas/go-funk"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func antonVPC() *types.AwsParams {
@@ -38,7 +38,12 @@ func BlessIPv6VPC() *types.AwsParams {
 }
 
 func TestHappyPath(t *testing.T) {
-	e2eTest := NewE2ETest(t)
+	ctx, logger, done := instrumentation.GetLogSpan(pkgCtx, "TestHappyPath")
+	e2eTest := NewE2ETest(ctx, t)
+	defer done()
+	logger.Info("Info logging enabled")
+	logger.V(1).Info("Debug logging enabled")
+
 	t.Run("Test Environment", e2eTest.ValidateTestEnvironment)
 	t.Run("Provision", e2eTest.Provision)
 	t.Run("Install", e2eTest.Install)
@@ -46,7 +51,10 @@ func TestHappyPath(t *testing.T) {
 	t.Run("Cleanup", e2eTest.Cleanup)
 }
 
-func NewE2ETest(t *testing.T) *E2ETest {
+func NewE2ETest(ctx context.Context, t *testing.T) *E2ETest {
+	ctx, logger, done := instrumentation.GetLogSpan(ctx, "NewE2ETest")
+	defer done()
+
 	operatorTemplate := "small_s3"
 	provisionTemplate := "aws_small_udp"
 	clusterName := os.Getenv("CLUSTER_NAME")
@@ -67,10 +75,8 @@ func NewE2ETest(t *testing.T) *E2ETest {
 		t.Fatalf("Expected WEKA_IMAGE to be set")
 	}
 
-	logger := zap.New(zap.UseDevMode(true))
-	log.SetLogger(logger)
+	log.SetLogger(logger.Logger)
 
-	ctx := context.Background()
 	j := services.NewJobless(ctx, *BlissVersion)
 	clusters := funk.Map(names, func(name string) *fixtures.Cluster {
 		cluster := &fixtures.Cluster{

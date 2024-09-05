@@ -180,7 +180,7 @@ func (k *kubernetes) StartEnvTest(ctx context.Context) (*rest.Config, error) {
 	if k.RestConfig == nil {
 		if err := k.ExportKubeConfig(ctx); err != nil {
 			return nil, &KubernetesError{
-				Message: "failed to start test environment",
+				Message: "StartEnvTest > ExportKubeConfig failed",
 				Err:     err,
 			}
 		}
@@ -188,7 +188,7 @@ func (k *kubernetes) StartEnvTest(ctx context.Context) (*rest.Config, error) {
 		cfg, err := k.Environment.Start()
 		if err != nil {
 			return nil, &KubernetesError{
-				Message: "failed to start test environment",
+				Message: "StartEnvTest > Start failed",
 				Err:     err,
 			}
 		}
