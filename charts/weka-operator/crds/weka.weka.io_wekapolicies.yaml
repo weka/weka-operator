@@ -45,7 +45,7 @@ spec:
                 type: string
               payload:
                 properties:
-                  discoverDrives:
+                  discoverDrivesPayload:
                     properties:
                       nodeSelector:
                         additionalProperties:
@@ -54,14 +54,14 @@ spec:
                     type: object
                   interval:
                     type: string
-                  schedulingConfig:
+                  schedulingConfigPayload:
                     properties:
                       allowNoFds:
                         type: boolean
                     required:
                     - allowNoFds
                     type: object
-                  signDrives:
+                  signDrivesPayload:
                     properties:
                       devicePaths:
                         items:

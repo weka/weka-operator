@@ -48,9 +48,9 @@ type WekaManualOperationList struct {
 }
 
 type ManualOperatorPayload struct {
-	SignDrivesPayload     *SignDrivesPayload     `json:"signDrivesPayload,omitempty"`
-	BlockDrivesPayload    *BlockDrivesPayload    `json:"blockDrivesPayload,omitempty"`
-	DiscoverDrivesPayload *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
+	SignDrives     *SignDrivesPayload     `json:"signDrivesPayload,omitempty"`
+	BlockDrives    *BlockDrivesPayload    `json:"blockDrivesPayload,omitempty"`
+	DiscoverDrives *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
 }
 
 type NamespacedOwnerWekaObject struct {

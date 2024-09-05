@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
+
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -13,7 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 )
 
 // WekaPolicyReconciler reconciles a WekaPolicy object
@@ -58,17 +60,33 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 	logger.Info("Reconciling WekaPolicy", "type", wekaPolicy.Spec.Type)
 
-	loop := policyLoop{
+	loop := &policyLoop{
 		Policy: wekaPolicy,
 		Client: r.Client,
+	}
+
+	if loop.DurationTillNext() > 0 {
+		logger.Info("Policy not ready to run", "requeueAfter", loop.DurationTillNext())
+		return ctrl.Result{RequeueAfter: loop.DurationTillNext()}, nil
+	}
+
+	if slices.Contains([]string{"Done", ""}, wekaPolicy.Status.Status) {
+		wekaPolicy.Status.Status = "Running"
+		if wekaPolicy.Status.LastRunTime.IsZero() {
+			// put old time to avoid "invalidValue" error
+			wekaPolicy.Status.LastRunTime = metav1.NewTime(time.Now().Add(-time.Hour))
+		}
+		err = r.Status().Update(ctx, wekaPolicy)
+		if err != nil {
+			logger.Error(err, "Failed to update WekaPolicy status")
+			return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+		}
 	}
 
 	onSuccess := func(ctx context.Context) error {
 		wekaPolicy.Status.LastResult = loop.Op.GetJsonResult()
 		wekaPolicy.Status.LastRunTime = metav1.Now()
-		if wekaPolicy.Status.Status == "Done" {
-			wekaPolicy.Status.Status = "" // Reset status
-		}
+		wekaPolicy.Status.Status = "Done"
 		return r.Status().Update(ctx, wekaPolicy)
 	}
 
@@ -119,12 +137,25 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// If the policy is done, requeue after the specified interval
-	if wekaPolicy.Status.Status == "Done" {
-		interval, _ := time.ParseDuration(wekaPolicy.Spec.Payload.Interval)
-		return ctrl.Result{RequeueAfter: interval}, nil
+	if loop.DurationTillNext() > 0 {
+		logger.Info("Policy done, requeueing", "requeueAfter", loop.DurationTillNext())
+		return ctrl.Result{RequeueAfter: loop.DurationTillNext()}, nil
 	}
 
 	return result, nil
+}
+
+func (r *policyLoop) DurationTillNext() time.Duration {
+	if r.Policy.Status.Status != "Done" {
+		return 0
+	}
+	if r.Policy.Status.LastRunTime.IsZero() {
+		return 0
+	}
+
+	interval, _ := time.ParseDuration(r.Policy.Spec.Payload.Interval)
+	sleepFor := time.Until(r.Policy.Status.LastRunTime.Add(interval))
+	return sleepFor
 }
 
 // SetupWithManager sets up the controller with the Manager.

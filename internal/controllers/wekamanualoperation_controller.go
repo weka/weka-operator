@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
@@ -13,7 +15,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -70,7 +71,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	case "sign-drives":
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
-			wekaManualOperation.Spec.Payload.SignDrivesPayload,
+			wekaManualOperation.Spec.Payload.SignDrives,
 			wekaManualOperation,
 			weka.OwnerWekaObject{
 				Image:           wekaManualOperation.Spec.Image,
@@ -84,13 +85,13 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	case "block-drives":
 		blockDrivesOp := operations.NewBlockDrivesOperation(
 			r.Mgr,
-			wekaManualOperation.Spec.Payload.BlockDrivesPayload,
+			wekaManualOperation.Spec.Payload.BlockDrives,
 		)
 		loop.Op = blockDrivesOp
 	case "discover-drives":
 		discoverDrivesOp := operations.NewDiscoverDrivesOperation(
 			r.Mgr,
-			wekaManualOperation.Spec.Payload.DiscoverDrivesPayload,
+			wekaManualOperation.Spec.Payload.DiscoverDrives,
 			wekaManualOperation,
 			weka.OwnerWekaObject{
 				Image:           wekaManualOperation.Spec.Image,
