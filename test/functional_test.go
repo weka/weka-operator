@@ -58,7 +58,7 @@ func setup(t *testing.T, ctx context.Context) *ClusterTest {
 	os.Setenv("KUBERNETES_SERVICE_PORT", "443")
 	os.Setenv("UNIT_TEST", "true")
 
-	jobless := services.NewJobless(ctx)
+	jobless := services.NewJobless(ctx, *BlissVersion)
 	wekaClusterName := "ft-cluster"
 	kubeConfig := os.Getenv("KUBECONFIG")
 	k8s := services.NewKubernetes(jobless, wekaClusterName, kubeConfig)

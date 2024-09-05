@@ -37,15 +37,17 @@ func (e *InstallationError) Error() string {
 	return fmt.Sprintf("Installation error - %v: %v", e.Arguments, e.Err)
 }
 
-func NewJobless(ctx context.Context) Jobless {
+func NewJobless(ctx context.Context, version string) Jobless {
 	return &joblessGoRun{
-		KubeConfig: make(map[string]string),
+		KubeConfig:   make(map[string]string),
+		BlissVersion: version,
 	}
 }
 
 type (
 	joblessGoRun struct {
-		KubeConfig map[string]string
+		KubeConfig   map[string]string
+		BlissVersion string
 	}
 )
 
@@ -59,8 +61,12 @@ func (j *joblessGoRun) EnsureDeployment(ctx context.Context, params ProvisionPar
 	clusterName := params.GetClusterName()
 
 	// Skip if deployment already exists
-	deployment, err := GoRunBliss[Deployment]("info", "--cluster-name", clusterName)
+	deploymentBytes, err := j.GoRunBliss("info", "--cluster-name", clusterName)
 	if err == nil {
+		deployment, err := unmarshal[Deployment](deploymentBytes)
+		if err != nil {
+			return nil, err
+		}
 		return deployment, nil
 	}
 
@@ -79,7 +85,7 @@ func (j *joblessGoRun) EnsureDeployment(ctx context.Context, params ProvisionPar
 		args = append(args, "--dual-stack")
 	}
 
-	_, err = GoRunBliss[Deployment](args...)
+	_, err = j.GoRunBliss(args...)
 	if err != nil {
 		return nil, &DeploymentError{
 			Err:       err,
@@ -87,19 +93,23 @@ func (j *joblessGoRun) EnsureDeployment(ctx context.Context, params ProvisionPar
 		}
 	}
 
-	deployment, err = GoRunBliss[Deployment]("info", "--cluster-name", clusterName)
+	deploymentBytes, err = j.GoRunBliss("info", "--cluster-name", clusterName)
 	if err != nil {
 		return nil, &DeploymentError{
 			Err:       err,
 			Arguments: args,
 		}
+	}
+	deployment, err := unmarshal[Deployment](deploymentBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	return deployment, nil
 }
 
 func (j *joblessGoRun) DeleteDeployment(ctx context.Context, clusterName string) error {
-	_, err := GoRunBliss[Deployment]("delete", clusterName)
+	_, err := j.GoRunBliss("delete", clusterName)
 	if err != nil {
 		return &DeploymentError{
 			Err:       err,
@@ -126,12 +136,16 @@ func (j *joblessGoRun) Install(ctx context.Context, params InstallParams) (*Inst
 		args = append(args, "--no-csi")
 	}
 
-	installation, err := GoRunBliss[Installation](args...)
+	installationBytes, err := j.GoRunBliss(args...)
 	if err != nil {
 		return nil, &InstallationError{
 			Err:       err,
 			Arguments: args,
 		}
+	}
+	installation, err := unmarshal[Installation](installationBytes)
+	if err != nil {
+		return nil, err
 	}
 	return installation, nil
 }
@@ -144,14 +158,14 @@ func (j *joblessGoRun) GetKubeConfig(clusterName string) (string, error) {
 	return kubeconfig, nil
 }
 
-func GoRunBliss[T any](args ...string) (*T, error) {
-	return GoRunBlissRemote[T](args...)
+func (j *joblessGoRun) GoRunBliss(args ...string) ([]byte, error) {
+	return j.GoRunBlissRemote(args...)
 	// return GoRunBlissDev[T](args...)
 }
 
 // GoRunBlissRemote runs bliss using the latest version of the jobless module
 // This uses the go module system to fetch the latest version of the jobless module
-func GoRunBlissRemote[T any](args ...string) (*T, error) {
+func (j *joblessGoRun) GoRunBlissRemote(args ...string) ([]byte, error) {
 	blissVersion := "v1.11.1"
 	os.Setenv("GOPRIVATE", "github.com/weka")
 	module := fmt.Sprintf("github.com/weka/bliss@%s", blissVersion)
@@ -185,14 +199,7 @@ func GoRunBlissRemote[T any](args ...string) (*T, error) {
 		return nil, nil
 	}
 
-	result := new(T)
-	if err := json.Unmarshal(outputBytes, result); err != nil {
-		return nil, &BlissRunError{
-			Err:     err,
-			Message: fmt.Sprintf("failed to unmarshal output: %s", string(outputBytes)),
-		}
-	}
-	return result, nil
+	return outputBytes, nil
 }
 
 // GoRunBlissDev runs bliss using the local version of jobless
@@ -281,4 +288,15 @@ func localGoRun() (string, string, error) {
 	}
 
 	return pathToMainGo, workingDir, nil
+}
+
+func unmarshal[T any](bytes []byte) (*T, error) {
+	result := new(T)
+	if err := json.Unmarshal(bytes, result); err != nil {
+		return nil, &BlissRunError{
+			Err:     err,
+			Message: fmt.Sprintf("failed to unmarshal output: %s", string(bytes)),
+		}
+	}
+	return result, nil
 }

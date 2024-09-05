@@ -71,7 +71,7 @@ func NewE2ETest(t *testing.T) *E2ETest {
 	log.SetLogger(logger)
 
 	ctx := context.Background()
-	j := services.NewJobless(ctx)
+	j := services.NewJobless(ctx, *BlissVersion)
 	clusters := funk.Map(names, func(name string) *fixtures.Cluster {
 		cluster := &fixtures.Cluster{
 			Name:              name,
@@ -111,7 +111,7 @@ func NewE2ETest(t *testing.T) *E2ETest {
 	}).([]*ClusterTest)
 	return &E2ETest{
 		Ctx:     ctx,
-		Jobless: services.NewJobless(ctx),
+		Jobless: services.NewJobless(ctx, *BlissVersion),
 
 		Clusters: clusterTests,
 	}

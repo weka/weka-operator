@@ -19,6 +19,11 @@ while [[ $# -gt 0 ]]; do
     shift
     shift
     ;;
+  --bliss-version)
+    BLISS_VERSION="$2"
+    shift
+    shift
+    ;;
   *)
     echo "Unknown option: $1"
     exit 1
@@ -38,4 +43,5 @@ TIMEOUT="${TIMEOUT:-20m}"
 
 # Run the test SUITE
 set -x
-go test -v ./test -timeout "${TIMEOUT}" -run "^${SUITE}$" -count 1 -failfast
+go test -v ./test -timeout "${TIMEOUT}" -run "^${SUITE}$" -count 1 -failfast \
+  -bliss-version "${BLISS_VERSION}"
