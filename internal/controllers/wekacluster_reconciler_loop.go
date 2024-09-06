@@ -78,7 +78,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		for k := range allocator.WekaClusterTemplates {
 			keys = append(keys, k)
 		}
-		err := fmt.Errorf("Template not found")
+		err := fmt.Errorf("template not found")
 		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
 		return err
 	}

@@ -95,7 +95,7 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 		kubebuilderOs := runtime.GOOS
 		kubebuilderArch := runtime.GOARCH
 		kubebuilderVersion := fmt.Sprintf("%s-%s-%s", kubebuilderRelease, kubebuilderOs, kubebuilderArch)
-		os.Setenv("KUBEBUILDER_ASSETS", filepath.Join("..", "..", "..", "..", "bin", "k8s", kubebuilderVersion))
+		os.Setenv("KUBEBUILDER_ASSETS", filepath.Join("..", "..", "bin", "k8s", kubebuilderVersion))
 	}
 
 	os.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc.cluster.local")
@@ -104,7 +104,7 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 
 	ctx, cancel := context.WithCancel(ctx)
 	environment := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "weka-operator", "crds")},
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "charts", "weka-operator", "crds")},
 		ErrorIfCRDPathMissing: true,
 		UseExistingCluster:    func(b bool) *bool { return &b }(false),
 	}
