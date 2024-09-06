@@ -3,6 +3,12 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/condition"
@@ -18,14 +24,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"slices"
-	"strconv"
-	"strings"
-	"time"
 )
 
 func NewWekaClusterReconcileLoop(mgr ctrl.Manager) *wekaClusterReconcilerLoop {
@@ -76,7 +77,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		for k := range allocator.WekaClusterTemplates {
 			keys = append(keys, k)
 		}
-		err := fmt.Errorf("Template not found")
+		err := fmt.Errorf("template not found")
 		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
 		return err
 	}
