@@ -2,12 +2,13 @@ package controllers
 
 import (
 	"context"
+	"os"
+	"time"
+
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
-	"os"
-	"time"
 )
 
 func (r *WekaClusterReconciler) GC(ctx context.Context) error {
@@ -59,6 +60,9 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		detectZombieSecondsStr = "5m"
 	}
 	detectZombiesTime, err := time.ParseDuration(detectZombieSecondsStr)
+	if err != nil {
+		return err
+	}
 
 	if r.DetectedZombies == nil {
 		r.DetectedZombies = make(map[util.NamespacedObject]time.Time)
