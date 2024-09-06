@@ -159,8 +159,10 @@ function create() {
       --quay-username="${QUAY_USERNAME}" \
       --quay-password="${QUAY_PASSWORD}" \
       --weka-image="${WEKA_IMAGE}" \
-      --no-csi "{$REINSTALL}" \
-      --operator-version "${OPERATOR_VERSION}" \
+      --no-csi \
+      --no-operator \
+      --no-weka-cluster \
+      "{$REINSTALL}" \
       --json
   )
 

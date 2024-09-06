@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/controllers/condition"
+	"github.com/weka/weka-operator/internal/app/manager/domain"
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
@@ -38,7 +38,7 @@ func (c *Cluster) ValidateWekaCluster(ctx context.Context) func(t *testing.T) {
 		}
 
 		template := cluster.Spec.Template
-		_, ok := allocator.WekaClusterTemplates[template]
+		_, ok := domain.WekaClusterTemplates[template]
 		if !ok {
 			t.Fatalf("template %q not found in WekaClusterTemplates", template)
 		}
@@ -55,11 +55,12 @@ func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
 		Spec: wekav1alpha1.WekaClusterSpec{
 			Size:               1,
 			Template:           "small",
+			Topology:           "aws_i3en6x_bless",
 			Image:              c.Image,
 			ImagePullSecret:    "quay-io-robot-secret",
 			DriversDistService: driversDistService,
 			NodeSelector: map[string]string{
-				"weka.io/role": "backend",
+				"weka.io/supports-backends": "true",
 			},
 		},
 	}
