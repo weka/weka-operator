@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	allocator2 "github.com/weka/weka-operator/internal/controllers/allocator"
@@ -25,13 +30,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"strings"
-	"sync"
-	"time"
 )
 
 func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
@@ -456,7 +457,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 }
 
 func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureFinalizer")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	container := r.container
@@ -473,6 +474,7 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
@@ -893,7 +895,7 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 		logger.Info("Drivers not loaded, ensuring drivers dist service")
 		err2 := r.ensureDriversLoader(ctx)
 		if err2 != nil {
-			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
+			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container.Name)
 		}
 	}
 

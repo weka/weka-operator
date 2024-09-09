@@ -19,17 +19,18 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
+	"os"
+	"time"
+
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"log"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -134,7 +135,7 @@ func main() {
 	}()
 
 	ctrls := []WekaReconciler{
-		controllers.NewClientReconciler(mgr),
+		controllers.NewClientController(mgr),
 		controllers.NewContainerController(mgr),
 		controllers.NewWekaClusterController(mgr),
 		controllers.NewTombstoneController(mgr, tombstoneConfig),
