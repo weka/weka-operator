@@ -119,7 +119,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: ## Run tests.
-	go test -v ./... -coverprofile cover.out
+	OPERATOR_DEV_MODE=true go test ./... -coverprofile cover.out
 
 .PHONY: test-functional
 test-functional: ## Run functional tests.

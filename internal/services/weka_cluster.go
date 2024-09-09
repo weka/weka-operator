@@ -101,7 +101,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
-	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
+	// cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
 	cmd := fmt.Sprintf("wekaauthcli status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password`", strings.Join(hostnamesList, " "), hostIpsStr)
 	logger.Info("Creating cluster", "cmd", cmd)
 

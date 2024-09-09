@@ -56,8 +56,10 @@ type ReconciliationState[Subject client.Object] struct {
 }
 
 // -- PreconditionFuncs
-type PredicateFunc func() bool
-type Predicates []PredicateFunc
+type (
+	PredicateFunc func() bool
+	Predicates    []PredicateFunc
+)
 
 func IsNotTrueCondition(condition string, currentConditions *[]metav1.Condition) PredicateFunc {
 	return func() bool {
@@ -84,6 +86,18 @@ func (w WaitError) Error() string {
 	return "wait-error:" + w.Err.Error()
 }
 
+func (w WaitError) Unwrap() error {
+	return w.Err
+}
+
+func (w WaitError) Is(target error) bool {
+	other, ok := target.(*WaitError)
+	if !ok {
+		return false
+	}
+	return w.Err.Error() == other.Err.Error()
+}
+
 func NewWaitError(err error) error {
 	return &WaitError{Err: err}
 }
@@ -99,7 +113,7 @@ func (e ReconciliationError) Error() string {
 		kind := ""
 		// cast subject to metav1.Type
 		if e.Subject != nil {
-			//cast to metav1.Type
+			// cast to metav1.Type
 			t, ok := e.Subject.(metav1.Type)
 			if ok {
 				kind = t.GetKind()
@@ -147,15 +161,17 @@ func (e RetryableError) Error() string {
 // -- ReconciliationSteps -------------------------------------------------------
 
 func (r *ReconciliationSteps) Run(ctx context.Context) error {
-	var end func()
-	var runLogger *instrumentation.SpanLogger
+	ctx, runLogger, end := instrumentation.GetLogSpan(ctx, "ReconciliationSteps")
+	defer end()
+
 	if r.ConditionsObject != nil {
-		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps", "object_namespace", r.ConditionsObject.GetNamespace(), "object_name", r.ConditionsObject.GetName())
-		defer end()
-	} else {
-		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps")
+		runLogger.SetValues(
+			"object_namespace", r.ConditionsObject.GetNamespace(),
+			"object_name", r.ConditionsObject.GetName(),
+		)
 		defer end()
 	}
+	runLogger.V(1).Info("Running reconciliation steps")
 
 	var stepEnd func()
 STEPS:
@@ -175,9 +191,16 @@ STEPS:
 		defer spanEnd() // in case we dont handle it will in terms of closing in for loop
 
 		// Check if step is already done or if the condition should be able to run again
+		stepLogger.V(1).Info("looking for condition", "name", step.Condition)
 		if step.Condition != "" && !step.SkipOwnConditionCheck {
 			if meta.IsStatusConditionTrue(*r.Conditions, step.Condition) {
+				stepLogger.V(1).Info("condition already true, skipping step")
 				continue STEPS
+			} else {
+				stepLogger.V(1).Info("condition not true, running step")
+				for _, c := range *r.Conditions {
+					stepLogger.V(1).Info("condition", "type", c.Type, "status", c.Status)
+				}
 			}
 		}
 
@@ -200,6 +223,7 @@ STEPS:
 
 		if err := step.Run(stepCtx); err != nil {
 			if step.Condition != "" {
+				stepLogger.V(1).Info("setting condition", "name", step.Condition, "status", metav1.ConditionFalse, "reason", "Error", "message", err.Error())
 				setCondError := r.setConditions(stepCtx, metav1.Condition{
 					Type: step.Condition, Status: metav1.ConditionFalse,
 					Reason:  "Error",
@@ -212,7 +236,7 @@ STEPS:
 					return setCondError
 				}
 			}
-			//spanLogger.Error(err, "Error running step")
+			// spanLogger.Error(err, "Error running step")
 			stepLogger.SetError(err, "Error running step")
 			runLogger.SetError(err, "Error running step "+step.Name)
 			runLogger.SetValues("stop_err", err.Error())
@@ -243,7 +267,6 @@ STEPS:
 				Reason:  reason,
 				Message: message,
 			})
-
 			if err != nil {
 				stepEnd()
 				stopErr := &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
@@ -269,6 +292,10 @@ func (r *ReconciliationSteps) setConditions(ctx context.Context, condition metav
 func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	for _, condition := range *r.Conditions {
+		logger.V(1).Info("condition", "type", condition.Type, "status", condition.Status)
+	}
 
 	err := r.Run(ctx)
 	if err != nil {

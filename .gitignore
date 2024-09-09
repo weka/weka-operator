@@ -47,3 +47,5 @@ prog.bin
 .envrc.private
 .aider*
 .VERSION
+*.orig
+.vscode
