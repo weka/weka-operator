@@ -107,7 +107,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	k8sClient := r.Manager.GetClient()
 	if len(currentContainers) == 0 {
 		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
-		//TODO: should've be just own step function
+		// TODO: should've be just own step function
 		err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to allocate cluster range")
@@ -123,13 +123,13 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 
 	var joinIps []string
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || cluster.IsExpand() {
-		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
+		// TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		joinIps, err = discovery.GetJoinIps(ctx, r.getClient(), cluster)
 		allowExpansion := false
 		if err != nil {
 			allowExpansion = strings.Contains(err.Error(), "No join IP port pairs found") || strings.Contains(err.Error(), "No compute containers found")
 		}
-		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { //TO
+		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { // TO
 			joinIps = cluster.Spec.ExpandEndpoints
 		} else {
 			if err != nil {
@@ -270,7 +270,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 
 	err = resourcesAllocator.DeallocateCluster(ctx, cluster)
 	if err != nil {
-		return err
+		return fmt.Errorf("finalizeWekaCluster > DeallocateCluster: %v", err)
 	}
 	return nil
 }
@@ -331,11 +331,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 	}
 	return nil
-
 }
 
 func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "AllContainersReady")
 	defer end()
 
 	containers := r.containers
@@ -345,18 +344,17 @@ func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) erro
 			continue // ignoring envoy as not part of cluster and we can figure out at later stage
 		}
 		if container.GetDeletionTimestamp() != nil {
-			logger.Debug("Container is being deleted, rejecting cluster create", "container_name", container.Name)
+			logger.V(1).Info("Container is being deleted, rejecting cluster create", "container_name", container.Name)
 			return lifecycle.NewWaitError(errors.New("Container " + container.Name + " is being deleted, rejecting cluster create"))
 		}
 
 		if container.Status.Status != "Running" {
-			logger.Debug("Container is not running yet", "container_name", container.Name)
+			logger.V(1).Info("Container is not running yet", "container_name", container.Name)
 			return lifecycle.NewWaitError(errors.New("containers not ready"))
 		}
 	}
 	logger.InfoWithStatus(codes.Ok, "Containers are ready")
 	return nil
-
 }
 
 func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
@@ -509,7 +507,6 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 	//}
 	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
-
 }
 
 func (r *wekaClusterReconcilerLoop) getUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error) {
@@ -772,7 +769,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		// before upgrade, if if all drive nodes are still in old version - invoke upgrade prepare commands
 		prepareForUpgrade := true
 		for _, container := range driveContainers {
-			//i.e if any container already on new target version - we should not prepare for drive phase
+			// i.e if any container already on new target version - we should not prepare for drive phase
 			if container.Spec.Image == cluster.Spec.Image {
 				prepareForUpgrade = false
 			}

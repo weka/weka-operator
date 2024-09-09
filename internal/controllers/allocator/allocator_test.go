@@ -5,12 +5,13 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"testing"
+
 	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"testing"
 )
 
 func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {
@@ -98,7 +99,7 @@ func buildTestClusters(numClusters int) []*weka.WekaCluster {
 }
 
 func TestAllocatePort(t *testing.T) {
-	//TODO: Test commented out as it is using factory creating cyclic import that needs to be broken. Fix this test it is important
+	// TODO: Test commented out as it is using factory creating cyclic import that needs to be broken. Fix this test it is important
 	ctx := context.Background()
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TestAllocatePort")
 	defer end()
@@ -179,6 +180,36 @@ func TestAllocatePort(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to deallocate cluster: %v", err)
 		}
+	}
+}
+
+func TestDeallocateCluster(t *testing.T) {
+	ctx := context.Background()
+	cluster := testWekaCluster("test-cluster")
+	allocator, _, err := newTestAllocator(ctx, 24)
+	if err != nil {
+		t.Fatalf("Failed to create allocator: %v", err)
+	}
+
+	allocations, err := allocator.GetAllocations(ctx)
+	if err != nil {
+		t.Fatalf("GetAllocations() error = %v", err)
+	}
+	clusterRanges := allocations.Global.ClusterRanges
+	if len(clusterRanges) != 0 {
+		t.Fatalf("GetAllocations() = %v, want %v", len(clusterRanges), 0)
+	}
+	allocatedRanges := allocations.Global.AllocatedRanges
+	if len(allocatedRanges) != 0 {
+		t.Fatalf("GetAllocations() = %v, want %v", len(allocatedRanges), 0)
+	}
+	nodeAllocMap := allocations.NodeMap
+	if len(nodeAllocMap) != 0 {
+		t.Fatalf("GetAllocations() = %v, want %v", len(nodeAllocMap), 0)
+	}
+
+	if err := allocator.DeallocateCluster(ctx, cluster); err != nil {
+		t.Fatalf("DeallocateCluster() error = %v", err)
 	}
 }
 
