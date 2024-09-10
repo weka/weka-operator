@@ -115,3 +115,7 @@ type WekaClientList struct {
 func init() {
 	SchemeBuilder.Register(&WekaClient{}, &WekaClientList{})
 }
+
+func (c *WekaClient) IsMarkedForDeletion() bool {
+	return !c.GetDeletionTimestamp().IsZero()
+}

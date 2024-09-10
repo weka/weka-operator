@@ -457,7 +457,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 }
 
 func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureFinalizer")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	container := r.container
@@ -474,6 +474,7 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
@@ -894,7 +895,7 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 		logger.Info("Drivers not loaded, ensuring drivers dist service")
 		err2 := r.ensureDriversLoader(ctx)
 		if err2 != nil {
-			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container)
+			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container.Name)
 		}
 	}
 
