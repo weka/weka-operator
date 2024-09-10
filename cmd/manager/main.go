@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"log"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -93,7 +92,13 @@ func main() {
 	ctx, logger := instrumentation.GetLoggerForContext(ctx, nil, "")
 	ctrl.SetLogger(logger)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	setupLog.Info("Getting kubeconfig")
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		logger.Error(err, "unable to get kubeconfig")
+	}
+	setupLog.Info("initializing manager")
+	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress:    metricsAddr,
@@ -120,7 +125,7 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		logger.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
@@ -149,13 +154,14 @@ func main() {
 		})
 	}
 
+	setupLog.Info("Setting up controllers")
 	for _, c := range ctrls {
 		if err = c.SetupWithManager(mgr, setupContextMiddleware(c)); err != nil {
 			setupLog.Error(err, "unable to add controller to manager")
 			os.Exit(1)
 		}
-
 	}
+	setupLog.Info("Controllers are set up")
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
 	if enableClusterApi {
@@ -169,6 +175,7 @@ func main() {
 
 	//+kubebuilder:scaffold:builder
 
+	setupLog.Info("Setting up health checks")
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
@@ -180,8 +187,10 @@ func main() {
 
 	// index additional fields
 	// Setup Indexer
+	setupLog.Info("Setting up owner indexes")
 	if err := setupContainerIndexes(mgr); err != nil {
-		log.Fatal("Failed to set up owner reference indexer", err)
+		setupLog.Error(err, "Failed to set up owner reference indexer")
+		os.Exit(1)
 	}
 
 	setupLog.Info("starting manager")
