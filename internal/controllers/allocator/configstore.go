@@ -2,6 +2,7 @@ package allocator
 
 import (
 	"context"
+
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
@@ -43,14 +44,19 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 	key := client.ObjectKey{Namespace: podNamespace, Name: "weka-operator-allocmap"}
 	err = k8sClient.Get(ctx, key, allocMapConfigMap)
 	if err != nil && apierrors.IsNotFound(err) {
+		compressedYamlData, err := util.CompressBytes(yamlData)
+		if err != nil {
+			return nil, err
+		}
+
 		// Define a new ConfigMap
 		allocMapConfigMap = &v1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "weka-operator-allocmap",
 				Namespace: podNamespace,
 			},
-			Data: map[string]string{
-				"allocmap.yaml": string(yamlData),
+			BinaryData: map[string][]byte{
+				"allocmap.yaml": compressedYamlData,
 			},
 		}
 		err = k8sClient.Create(ctx, allocMapConfigMap)
@@ -61,7 +67,13 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 		if err != nil {
 			return nil, err
 		}
-		err = yaml.Unmarshal([]byte(allocMapConfigMap.Data["allocmap.yaml"]), &allocations)
+
+		yamlData, err := util.DecompressBytes(allocMapConfigMap.BinaryData["allocmap.yaml"])
+		if err != nil {
+			return nil, err
+		}
+
+		err = yaml.Unmarshal(yamlData, &allocations)
 		if err != nil {
 			return nil, err
 		}
@@ -95,8 +107,12 @@ func (c *ConfigMapStore) UpdateAllocations(ctx context.Context, allocations *All
 	if err != nil {
 		return err
 	}
-	//TODO: Compress and store as binary(!), we are limited by just 1MiB
-	c.configMap.Data["allocmap.yaml"] = string(yamlData)
+	// Compress and store as binary(!), we are limited by just 1MiB
+	compressedYamlData, err := util.CompressBytes(yamlData)
+	if err != nil {
+		return err
+	}
+	c.configMap.BinaryData["allocmap.yaml"] = compressedYamlData
 	err = c.client.Update(ctx, c.configMap)
 	if err != nil {
 		return err
