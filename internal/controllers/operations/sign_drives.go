@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -70,13 +71,6 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		{Name: "GetContainers", Run: o.GetContainers},
-		{
-			Name:                      "DeleteContainers",
-			Run:                       o.DeleteContainers,
-			Predicates:                lifecycle.Predicates{o.IsDone},
-			ContinueOnPredicatesFalse: true,
-			FinishOnSuccess:           true,
-		},
 		{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
 		{Name: "EnsureContainers", Run: o.EnsureContainers},
 		{Name: "PollResults", Run: o.PollResults},

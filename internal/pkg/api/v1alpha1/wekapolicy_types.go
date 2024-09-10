@@ -44,9 +44,9 @@ type WekaPolicyList struct {
 }
 
 type PolicyPayload struct {
-	SignDrives       *SignDrivesPayload       `json:"signDrives,omitempty"`
-	SchedulingConfig *SchedulingConfigPayload `json:"schedulingConfig,omitempty"`
-	DiscoverDrives   *DiscoverDrivesPayload   `json:"discoverDrives,omitempty"`
+	SignDrives       *SignDrivesPayload       `json:"signDrivesPayload,omitempty"`
+	SchedulingConfig *SchedulingConfigPayload `json:"schedulingConfigPayload,omitempty"`
+	DiscoverDrives   *DiscoverDrivesPayload   `json:"discoverDrivesPayload,omitempty"`
 	Interval         string                   `json:"interval"`
 }
 
