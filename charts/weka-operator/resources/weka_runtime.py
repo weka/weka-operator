@@ -207,6 +207,15 @@ async def ensure_drivers():
         drivers.append("igb_uio")
         if version_params.get('uio_pci_generic') is not False:
             drivers.append("uio_pci_generic")
+    if not is_legacy_driver_cmd() and MODE in ["client", "s3"]:
+        stdout, stderr, ec = await run_command("weka driver ready")
+        if ec != 0:
+            logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}")
+            write_results(dict(
+                err=stderr.decode('utf-8'),
+                drivers_loaded=False,
+            ))
+            raise Exception(f"Drivers are not ready: {stderr.decode('utf-8')}")
     for driver in drivers:
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")

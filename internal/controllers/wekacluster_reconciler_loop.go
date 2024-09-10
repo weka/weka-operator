@@ -741,6 +741,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 		return nil
 	}
+	_ = allAtOnceUpgrade // preserving function to return later, so weka will manage the order
 
 	rollingUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
 		for _, container := range containers {
@@ -856,6 +857,11 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 		logger.Error(err, "Failed to create executor")
 		return nil
 	}
+
+	// cut out everything post-`` in the version
+	targetVersion = strings.Split(targetVersion, "-")[0]
+	// cut out everything before `:` in the image
+	targetVersion = strings.Split(targetVersion, ":")[1]
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade
