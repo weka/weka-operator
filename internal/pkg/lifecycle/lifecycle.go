@@ -3,11 +3,12 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"time"
+
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"go.opentelemetry.io/otel/codes"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 

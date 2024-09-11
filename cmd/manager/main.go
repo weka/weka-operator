@@ -19,36 +19,31 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"io"
 	"os"
 	"time"
 
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"go.uber.org/zap/zapcore"
+	"github.com/rs/zerolog"
+	"github.com/weka/go-weka-observability/instrumentation"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/controllers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-
-	"github.com/weka/weka-operator/internal/controllers"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	//+kubebuilder:scaffold:imports
 )
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -60,6 +55,7 @@ func init() {
 type WekaReconciler interface {
 	reconcile.Reconciler
 	SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error
+	RunGC(ctx context.Context)
 }
 
 func main() {
@@ -81,18 +77,14 @@ func main() {
 	flag.BoolVar(&tombstoneConfig.DeleteOnNodeMissing, "allow-tombstone-delete-on-node-missing", false, "Allow deletion of tombstones when node is not anymore a part of the cluster")
 
 	ctx := ctrl.SetupSignalHandler()
-
-	opts := zap.Options{
-		Development: true,
-	}
-	zap.Level(zapcore.Level(-2))
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-
 	ctx = context.WithValue(ctx, "is_root", true)
 
-	ctx, logger := instrumentation.GetLoggerForContext(ctx, nil, "")
+	// initialize root logger and put it into context
+	logr := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
+
+	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "")
 	ctrl.SetLogger(logger)
+	klog.SetLogger(logger)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -121,11 +113,12 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		logger.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx)
+	version := os.Getenv("VERSION")
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", version, logger)
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
 		os.Exit(1)
@@ -152,62 +145,64 @@ func main() {
 
 	for _, c := range ctrls {
 		if err = c.SetupWithManager(mgr, setupContextMiddleware(c)); err != nil {
-			setupLog.Error(err, "unable to add controller to manager")
+			logger.Error(err, "unable to add controller to manager")
 			os.Exit(1)
 		}
-
+		// Run GC for each controller (if implemented)
+		go c.RunGC(ctx)
 	}
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
 	if enableClusterApi {
 		if err = (controllers.NewClusterApiController(mgr)).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ClusterAPI")
+			logger.Error(err, "unable to create controller", "controller", "ClusterAPI")
 			os.Exit(1)
 		}
 	} else {
-		setupLog.Info("Cluster API controllers are disabled by default. Enable them by setting `--enable-cluster-api=true`")
+		logger.Info("Cluster API controllers are disabled by default. Enable them by setting `--enable-cluster-api=true`")
 	}
 
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		logger.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		logger.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
 	// index additional fields
 	// Setup Indexer
-	if err := setupContainerIndexes(mgr); err != nil {
-		log.Fatal("Failed to set up owner reference indexer", err)
+	if err := setupContainerIndexes(ctx, mgr); err != nil {
+		logger.Error(err, "Failed to set up owner reference indexer")
+		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	logger.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "problem running manager")
+		logger.Error(err, "problem running manager")
 		os.Exit(1)
 	}
 }
 
-func setupContainerIndexes(mgr manager.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, "spec.nodeName", func(rawObj client.Object) []string {
+func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(rawObj client.Object) []string {
 		pod := rawObj.(*corev1.Pod)
 		return []string{pod.Spec.NodeName}
 	}); err != nil {
 		return err
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
 		return []string{string(wekaContainer.UID)}
 	}); err != nil {
 		return err
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
 		owner := metav1.GetControllerOf(wekaContainer)
 		if owner == nil {
@@ -219,4 +214,18 @@ func setupContainerIndexes(mgr manager.Manager) error {
 	}
 
 	return nil
+}
+
+type SpecificLevelWriter struct {
+	io.Writer
+	Levels []zerolog.Level
+}
+
+func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
+	for _, l := range w.Levels {
+		if l == level {
+			return w.Write(p)
+		}
+	}
+	return len(p), nil
 }

@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -508,6 +508,7 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 	//if err != nil {
 	//	return err
 	//}
+	logger.Info("Cluster credentials applied")
 	return nil
 
 }

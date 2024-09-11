@@ -99,11 +99,13 @@ func TestNewContainerController(t *testing.T) {
 	if true {
 		return
 	}
-	testEnv, err := setupTestEnv(context.Background())
+	ctx := context.Background()
+	testEnv, shutdown, err := setupTestEnv(ctx)
 	if err != nil {
 		t.Fatalf("failed to setup test environment: %v", err)
 		return
 	}
+	defer shutdown(ctx)
 	defer teardownTestEnv(testEnv)
 
 	if testEnv.Manager == nil {

@@ -10,8 +10,8 @@ import (
 
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -143,6 +143,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
 
+	logger.Info("Cluster created")
 	return nil
 }
 

@@ -12,8 +12,8 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,11 +61,13 @@ func NewTombstoneController(mgr ctrl.Manager, config TombstoneConfig) *Tombstone
 		config:      config,
 	}
 
-	if config.EnableTombstoneGc {
-		go reconciler.GCLoop(config)
-	}
-
 	return reconciler
+}
+
+func (r *TombstoneReconciller) RunGC(ctx context.Context) {
+	if r.config.EnableTombstoneGc {
+		go r.GCLoop(r.config)
+	}
 }
 
 func (r *TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {

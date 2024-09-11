@@ -25,10 +25,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/zapr"
+	"github.com/go-logr/zerologr"
 	"github.com/kr/pretty"
-	prettyconsole "github.com/thessem/zap-prettyconsole"
-	uzap "go.uber.org/zap"
+	"github.com/rs/zerolog"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -37,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
@@ -60,18 +60,35 @@ type TestEnvironment struct {
 	Logger  logr.Logger
 }
 
-func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
-	var logger logr.Logger
-
+func setupLogging(ctx context.Context) (logger logr.Logger, shutdown func(context.Context) error, err error) {
 	if os.Getenv("DEBUG") == "true" {
 		// Debug logger
-		logger = zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
+		writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
+		zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
+		logger = zerologr.New(&zeroLogger)
 	} else {
 		// Logger that drops/silences messages for unit testing
-		logger = zapr.NewLogger(uzap.NewNop())
+		zeroLogger := zerolog.Nop()
+		logger = zerologr.New(&zeroLogger)
+	}
+
+	shutdown, err = instrumentation.SetupOTelSDK(ctx, "test-weka-operator", "", logger)
+	if err != nil {
+		err = fmt.Errorf("failed to setup OTel SDK: %w", err)
+		return
 	}
 
 	logf.SetLogger(logger.WithName("test"))
+	return
+}
+
+func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(context.Context) error, err error) {
+	logger, shutdown, err := setupLogging(ctx)
+	if err != nil {
+		fmt.Printf("failed to setup logging: %v", err)
+		return
+	}
+	defer shutdown(ctx)
 
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		kubebuilderRelease := "1.26.0"
@@ -91,7 +108,7 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 		ErrorIfCRDPathMissing: true,
 		UseExistingCluster:    func(b bool) *bool { return &b }(false),
 	}
-	testEnv := &TestEnvironment{
+	testEnv = &TestEnvironment{
 		Cancel: cancel,
 		Ctx:    ctx,
 		Env:    environment,
@@ -100,16 +117,16 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 	cfg, err := testEnv.Env.Start()
 	if err != nil {
 		fmt.Printf("failed to start test environment: %v", err)
-		return nil, err
+		return
 	}
-	if err := wekav1alpha1.AddToScheme(scheme.Scheme); err != nil {
+	if err = wekav1alpha1.AddToScheme(scheme.Scheme); err != nil {
 		fmt.Printf("failed to add scheme: %v", err)
-		return nil, err
+		return
 	}
 	testEnv.Client, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		fmt.Printf("failed to create client: %v", err)
-		return nil, err
+		return
 	}
 	ctrl.SetLogger(logger.WithName("controllers"))
 
@@ -118,27 +135,27 @@ func setupTestEnv(ctx context.Context) (*TestEnvironment, error) {
 	})
 	if err != nil {
 		fmt.Printf("failed to create manager: %v", err)
-		return nil, err
+		return
 	}
 	os.Setenv("OPERATOR_DEV_MODE", "true")
 	clusterController := NewWekaClusterController(testEnv.Manager)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
 	if err != nil {
 		fmt.Printf("failed to setup WekaCluster controller: %v", err)
-		return nil, err
+		return
 	}
 	containerController := NewContainerController(testEnv.Manager)
 	err = containerController.SetupWithManager(testEnv.Manager, containerController)
 	if err != nil {
 		fmt.Printf("failed to setup Container controller: %v", err)
-		return nil, err
+		return
 	}
 
 	go func() {
 		testEnv.Manager.Start(testEnv.Ctx)
 	}()
 
-	return testEnv, nil
+	return
 }
 
 func teardownTestEnv(testEnv *TestEnvironment) error {
