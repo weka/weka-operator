@@ -37,6 +37,14 @@ persistence:
       interval: 5m
       retention: 72h
       allowDeleteOnNodeMissing: true
+manager:
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
 
 ocpCompatibility:
   driverToolkitSecretName:
