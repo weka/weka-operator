@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/operations"
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

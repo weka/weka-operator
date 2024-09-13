@@ -1,8 +1,9 @@
 package domain
 
 import (
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"os"
+
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
 func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, error) {

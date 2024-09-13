@@ -2,14 +2,15 @@ package controllers
 
 import (
 	"context"
+	"time"
+
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"time"
 
-	"github.com/weka/weka-operator/internal/controllers/condition"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/services"
 	"go.opentelemetry.io/otel/trace"

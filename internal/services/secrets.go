@@ -2,13 +2,13 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
+
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	v1 "k8s.io/api/core/v1"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -129,9 +129,9 @@ func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, clust
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientLoginCredentials")
 	defer end()
 
-	container := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if container == nil {
-		return errors.New("no active container found")
+	container, err := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
 	}
 
 	kubeService := kubernetes.NewKubeService(r.Client)

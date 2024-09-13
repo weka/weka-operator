@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - secrets
   verbs:
   - create
   - get
@@ -34,17 +35,7 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - secrets
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - daemonsets
+  - pods
   verbs:
   - create
   - delete
@@ -54,8 +45,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+- apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   verbs:
   - create
@@ -75,182 +73,14 @@ rules:
   - list
   - update
 - apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods/exec
-  verbs:
-  - create
-- apiGroups:
   - weka.weka.io
   resources:
   - driveclaims
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - driveclaims/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - driveclaims/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - tombstones
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - tombstones/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - tombstones/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - wekaclients
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekaclients/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekaclients/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - wekaclusters
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekaclusters/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekaclusters/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - wekacontainers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekacontainers/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekacontainers/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - wekamanualoperations
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekamanualoperations/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
-  - wekamanualoperations/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - weka.weka.io
-  resources:
   - wekapolicies
   verbs:
   - create
@@ -263,12 +93,24 @@ rules:
 - apiGroups:
   - weka.weka.io
   resources:
+  - driveclaims/finalizers
+  - tombstones/finalizers
+  - wekaclients/finalizers
+  - wekaclusters/finalizers
+  - wekacontainers/finalizers
+  - wekamanualoperations/finalizers
   - wekapolicies/finalizers
   verbs:
   - update
 - apiGroups:
   - weka.weka.io
   resources:
+  - driveclaims/status
+  - tombstones/status
+  - wekaclients/status
+  - wekaclusters/status
+  - wekacontainers/status
+  - wekamanualoperations/status
   - wekapolicies/status
   verbs:
   - get

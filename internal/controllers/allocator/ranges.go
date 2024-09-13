@@ -2,8 +2,9 @@ package allocator
 
 import (
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"sort"
+
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
 func (r ClusterRanges) GetFreeRange(size int) (int, error) {

@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
-	"strconv"
-	"strings"
 )
 
 type WekaStatusCapacity struct {

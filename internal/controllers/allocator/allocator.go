@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	"github.com/weka/weka-operator/pkg/util"
-	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strings"
 	"sync"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/pkg/util"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -667,4 +669,9 @@ func DeallocateContainer(ctx context.Context, container *weka.WekaContainer, cli
 	}
 
 	return DeallocateNamespacedObject(ctx, namespacedObject, allocationsStore)
+}
+
+func NewContainerName(role string) string {
+	guid := string(uuid.NewUUID())
+	return fmt.Sprintf("%s-%s", role, guid)
 }

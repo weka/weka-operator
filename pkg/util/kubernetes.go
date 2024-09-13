@@ -12,7 +12,6 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -173,31 +172,6 @@ func GetPodNamespace() (string, error) {
 	return string(namespace), nil
 }
 
-func GetLastGuidPart(uid types.UID) string {
-	guidLastPart := string(uid[strings.LastIndex(string(uid), "-")+1:])
-	return guidLastPart
-}
-
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
 	return reflect.DeepEqual(cm1.Data, cm2.Data)
-}
-
-func ExpandTolerations(tolerations []v1.Toleration, simpleTolerations []string, rawTolerations []v1.Toleration) []v1.Toleration {
-	for _, toleration := range simpleTolerations {
-		tolerations = append(tolerations, v1.Toleration{
-			Key:      toleration,
-			Operator: v1.TolerationOpExists,
-			Effect:   v1.TaintEffectNoSchedule,
-		})
-		tolerations = append(tolerations, v1.Toleration{
-			Key:      toleration,
-			Operator: v1.TolerationOpExists,
-			Effect:   v1.TaintEffectNoExecute,
-		})
-	}
-
-	if rawTolerations != nil {
-		tolerations = append(tolerations, rawTolerations...)
-	}
-	return tolerations
 }

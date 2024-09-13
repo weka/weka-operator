@@ -5,12 +5,13 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"testing"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"testing"
 )
 
 func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {
@@ -80,7 +81,7 @@ func buildTestContainers(cluster *weka.WekaCluster, nodeNamePool []weka.NodeName
 					NumDrives:    numDrives,
 				},
 				ObjectMeta: v1.ObjectMeta{
-					Name:      weka.NewContainerName(mode),
+					Name:      NewContainerName(mode),
 					Namespace: "testNamespace",
 				},
 			})

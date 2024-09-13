@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -9,7 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"

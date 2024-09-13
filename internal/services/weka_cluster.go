@@ -3,13 +3,14 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
-	"strings"
 
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
 	ctrl "sigs.k8s.io/controller-runtime"
