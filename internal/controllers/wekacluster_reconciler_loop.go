@@ -858,10 +858,11 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 		return nil
 	}
 
-	// cut out everything post-`` in the version
-	targetVersion = strings.Split(targetVersion, "-")[0]
 	// cut out everything before `:` in the image
 	targetVersion = strings.Split(targetVersion, ":")[1]
+	// cut out everything post-`` in the version
+	// TODO: Test if this work with `-`-less versions
+	targetVersion = strings.Split(targetVersion, "-")[0]
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade

@@ -207,15 +207,17 @@ async def ensure_drivers():
         drivers.append("igb_uio")
         if version_params.get('uio_pci_generic') is not False:
             drivers.append("uio_pci_generic")
-    if not is_legacy_driver_cmd() and MODE in ["client", "s3"]:
-        stdout, stderr, ec = await run_command("weka driver ready")
-        if ec != 0:
-            logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}")
-            write_results(dict(
-                err=stderr.decode('utf-8'),
-                drivers_loaded=False,
-            ))
-            raise Exception(f"Drivers are not ready: {stderr.decode('utf-8')}")
+    driver_mode = await is_legacy_driver_cmd()
+    logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
+    if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]:
+        while not exiting:
+            stdout, stderr, ec = await run_command("weka driver ready")
+            if ec != 0:
+                logging.error(f"Failed to validate drivers {stderr.decode('utf-8')}: exc={ec}")
+                await asyncio.sleep(1)
+                continue
+            logging.info("drivers are ready")
+            return
     for driver in drivers:
         while True:
             stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
@@ -1400,11 +1402,21 @@ async def ensure_drives():
     logging.info(f"in-kernel drives are: {drives_to_setup}")
 
 
+is_legacy_driver_command = None
+
+
 async def is_legacy_driver_cmd() -> bool:
+    global is_legacy_driver_command
+    if is_legacy_driver_command is not None:
+        return is_legacy_driver_command
     cmd = "weka driver --help | grep pack"
     stdout, stderr, ec = await run_command(cmd)
     if ec == 0:
+        logging.info("Driver pack command is available, new dist mode")
+        is_legacy_driver_command = False
         return False
+    logging.info("Driver pack command is not available, legacy dist mode")
+    is_legacy_driver_command = True
     return True
 
 

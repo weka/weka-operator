@@ -14,21 +14,6 @@ spec:
   numCores: 1
   port: 60002
 ---
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaContainer
-metadata:
-  name: weka-driver-builder
-  namespace: weka-operator-system
-spec:
-  agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.4.1.741-ad4b631246430c42e5e2fdcd78ef6d74-dev
-  imagePullSecret: "quay-io-robot-secret"
-  mode: "drivers-builder"
-  name: dist # name of the weka container, will be removed in future towards slimmer distribution service
-  numCores: 1
-  uploadResultsTo: "weka-driver-dist"
-  port: 60002
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -46,41 +31,11 @@ spec:
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
 metadata:
-  name: weka-driver-builder-2
-  namespace: weka-operator-system
-spec:
-  agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.4.1.1633-dde577218a5415b9c76e8e4928d1068c-dev
-  imagePullSecret: "quay-io-robot-secret"
-  mode: "drivers-builder"
-  name: dist # name of the weka container, will be removed in future towards slimmer distribution service
-  numCores: 1
-  uploadResultsTo: "weka-driver-dist"
-  port: 60002
----
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaContainer
-metadata:
-  name: weka-driver-builder-3
-  namespace: weka-operator-system
-spec:
-  agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.4.1.1660-e8c9c300f7268079dc03cfe1845fe723-dev
-  imagePullSecret: "quay-io-robot-secret"
-  mode: "drivers-builder"
-  name: dist # name of the weka container, will be removed in future towards slimmer distribution service
-  numCores: 1
-  uploadResultsTo: "weka-driver-dist"
-  port: 60002
----
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaContainer
-metadata:
   name: weka-driver-builder-4
   namespace: weka-operator-system
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.4.1.1758-c00f7734955b7e71426b738e7ff5ad10-dev
+  image: quay.io/weka.io/weka-in-container:4.4.1.2106-307280e44e1b163bfe27b94271d0adb7-dev
   imagePullSecret: "quay-io-robot-secret"
   mode: "drivers-builder"
   name: dist # name of the weka container, will be removed in future towards slimmer distribution service
@@ -95,10 +50,11 @@ metadata:
   namespace: weka-operator-system
 spec:
   agentPort: 60001
-  image: quay.io/weka.io/weka-in-container:4.4.1.1835-8eb883e9de53213d6062390e76710ccb-dev
+  image: quay.io/weka.io/weka-in-container:4.4.1.2250-b944cbadf4302ba2947ccb4de82b5096-dev
   imagePullSecret: "quay-io-robot-secret"
   mode: "drivers-builder"
   name: dist # name of the weka container, will be removed in future towards slimmer distribution service
   numCores: 1
   uploadResultsTo: "weka-driver-dist"
   port: 60002
+
