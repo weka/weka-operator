@@ -32,6 +32,7 @@ WH_ENDPOINT ?= "https://api.home.rnd.weka.io"
 WH_CACERT_SECRET ?= ""
 ENABLE_CLUSTER_API ?= false
 TOMBSTONE_EXPIRATION ?= 10s
+SKIP_CRD_INSTALL ?= false
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -76,20 +77,20 @@ help: ## Display this help.
 
 ##@ Development
 
-CRD = charts/weka-operator/crds/weka.weka.io_wekaclusters.yaml
-CRD_TYPES = internal/pkg/api/v1alpha1/driveclaims_types.go \
-		internal/pkg/api/v1alpha1/container_types.go \
-		internal/pkg/api/v1alpha1/tombstone_types.go \
-		internal/pkg/api/v1alpha1/wekacluster_types.go \
-		internal/pkg/api/v1alpha1/wekamanualoperation_types.go \
-		internal/pkg/api/v1alpha1/wekapolicy_types.go
+CRD = pkg/weka-k8s-api/crds/v1alpha1/weka.weka.io_wekaclusters.yaml
+CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/driveclaims_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/container_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/tombstone_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/wekacluster_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/wekamanualoperation_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/wekapolicy_types.go
 
 $(CRD): controller-gen $(CRD_TYPES)
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
-	mkdir -p charts/weka-operator/crds
-	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
+	mkdir -p pkg/weka-k8s-api/crds/v1alpha1
+	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=pkg/weka-k8s-api/crds/v1alpha1
 
 RBAC = charts/weka-operator/templates/role.yaml
 $(RBAC): controller-gen internal/controllers/client_controller.go
@@ -232,11 +233,11 @@ endif
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	kubectl apply -f charts/weka-operator/crds
+	if [ "$(SKIP_CRD_INSTALL)" = "false" ]; then kubectl apply -f pkg/weka-k8s-api/crds/v1alpha1; fi
 
 .PHONY: uninstall
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	kubectl delete --ignore-not-found=$(ignore-not-found) -f charts/weka-operator/crds
+	kubectl delete --ignore-not-found=$(ignore-not-found) -f pkg/weka-k8s-api/crds/v1alpha1
 
 NAMESPACE="weka-operator-system"
 VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
@@ -288,7 +289,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.15.0
+CONTROLLER_TOOLS_VERSION ?= v0.16.3
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.

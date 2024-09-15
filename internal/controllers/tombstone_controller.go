@@ -3,15 +3,16 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
-	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"slices"
 	"time"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
+	"k8s.io/apimachinery/pkg/types"
+
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"

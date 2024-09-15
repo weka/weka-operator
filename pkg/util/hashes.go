@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-func HashStruct(s interface{}) (string, error) {
+func HashStruct(s any) (string, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(s)

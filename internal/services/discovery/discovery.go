@@ -3,11 +3,13 @@ package discovery
 import (
 	"context"
 	"fmt"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	"strconv"
 
+	util2 "github.com/weka/weka-operator/pkg/util"
+
 	"github.com/pkg/errors"
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/envvars"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
@@ -179,7 +181,7 @@ func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string,
 	if imageTag == "" {
 		return "", errors.New(fmt.Sprintf("Failed to fetch image tag %s from configmap %s", v, ocpDriverToolkitMapName))
 	}
-	imageBase := weka.GetStringEnv(weka.EnvOCPToolkitImageBaseUrl, "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
+	imageBase := envvars.GetStringEnv(envvars.EnvOCPToolkitImageBaseUrl, "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	return fmt.Sprintf("%s@sha256:%s", imageBase, imageTag), nil
 }
 

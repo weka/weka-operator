@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"

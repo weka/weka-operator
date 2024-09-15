@@ -3,11 +3,18 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/pkg/errors"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/controllers/condition"
 	"github.com/weka/weka-operator/internal/controllers/factory"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -18,14 +25,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"slices"
-	"strconv"
-	"strings"
-	"time"
 )
 
 func NewWekaClusterReconcileLoop(mgr ctrl.Manager) *wekaClusterReconcilerLoop {
@@ -299,7 +301,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
-			tolerations := util2.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+			tolerations := util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
 			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
 				container.Spec.Tolerations = tolerations
 				changed = true
@@ -691,9 +693,9 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return nil // explicitly asked not to configure
 	}
 
-	driveContainer := wekaCluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if driveContainer == nil {
-		return errors.New("No drive container found")
+	driveContainer, err := wekaCluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, driveContainer)
@@ -1042,7 +1044,7 @@ func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocato
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, wekav1alpha1.NewContainerName(role))
+			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, allocator.NewContainerName(role))
 			if err != nil {
 				return nil, err
 			}

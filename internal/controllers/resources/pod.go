@@ -4,18 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/weka/weka-operator/internal/services/discovery"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/weka/weka-operator/internal/services/discovery"
 
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/pkg/envvars"
+	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type WekaLocalPs struct {
@@ -363,10 +364,10 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	if f.container.IsDiscoveryContainer() {
-		allowCosHugepageConfig := wekav1alpha1.GetBoolEnv(wekav1alpha1.EnvCosAllowHugePagesConfig, false)
+		allowCosHugepageConfig := envvars.GetBoolEnv(envvars.EnvCosAllowHugePagesConfig, false)
 		if allowCosHugepageConfig {
-			globalCosHugepageSize := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCosHugePagesSize, "2m")
-			globalCosHugepageCount := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCosHugePagesCount, "4000")
+			globalCosHugepageSize := envvars.GetStringEnv(envvars.EnvCosHugePagesSize, "2m")
+			globalCosHugepageCount := envvars.GetStringEnv(envvars.EnvCosHugePagesCount, "4000")
 			if _, err := strconv.Atoi(globalCosHugepageCount); err != nil {
 				return nil, errors.New("WEKA_COS_GLOBAL_HUGEPAGE_COUNT env var is not a number")
 			}
@@ -490,7 +491,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() {
 		if f.nodeInfo.IsCos() {
-			allowCosDisableDriverSigning := wekav1alpha1.GetBoolEnv("EnvCosAllowSigningDisable", false)
+			allowCosDisableDriverSigning := envvars.GetBoolEnv("EnvCosAllowSigningDisable", false)
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-boot-scripts",
 				MountPath: "/devenv.sh",
@@ -534,7 +535,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					Name: "gcloud-credentials",
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
-							SecretName: wekav1alpha1.GetStringEnv(wekav1alpha1.EnvCOSServiceAccount, ""),
+							SecretName: envvars.GetStringEnv(envvars.EnvCOSServiceAccount, ""),
 						},
 					},
 				})
@@ -588,7 +589,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		if f.nodeInfo.InitContainerImage == "" {
 			return nil, errors.New("cannot create build container for OCP without Toolkit image")
 		}
-		ocpPullSecret := wekav1alpha1.GetStringEnv(wekav1alpha1.EnvOCPPullSecret, "")
+		ocpPullSecret := envvars.GetStringEnv(envvars.EnvOCPPullSecret, "")
 		if ocpPullSecret != "" {
 			// we need to add the buildkit image pull secret
 			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{

@@ -2,8 +2,9 @@ package exec
 
 import (
 	"context"
+
 	"github.com/pkg/errors"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"

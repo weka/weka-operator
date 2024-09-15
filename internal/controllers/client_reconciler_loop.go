@@ -8,9 +8,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
-	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -214,7 +215,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		additionalSecrets["wekahome-cacert"] = whCaCert
 	}
 
-	tolerations := util2.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	clientName, err := c.getClientContainerName(ctx, nodeName)
 	if err != nil {
 		logger.Error(err, "Failed to create client container name, too long", "clientName", clientName)
@@ -237,7 +238,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			AgentPort:           wekaClient.Spec.AgentPort,
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
-			WekaContainerName:   fmt.Sprintf("%sclient", util2.GetLastGuidPart(wekaClient.GetUID())),
+			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
 			Mode:                "client",
 			NumCores:            numCores,
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
@@ -361,7 +362,7 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
-	tolerations := util2.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
 		container.Spec.Tolerations = tolerations
 		changed = true

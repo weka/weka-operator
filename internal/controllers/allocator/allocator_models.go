@@ -1,7 +1,7 @@
 package allocator
 
 import (
-	weka "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
