@@ -1,0 +1,11 @@
+# 1.0.0 (2024-09-15)
+
+
+### Bug Fixes
+
+* generate zz_ types from weka operator side ([5d0b9fd](https://github.com/weka/weka-k8s-api/commit/5d0b9fdea5f9f02ef8f8d95ae67928a7e6bed34f))
+
+
+### Features
+
+* new drivers flow integration ([1e98dd2](https://github.com/weka/weka-k8s-api/commit/1e98dd26dfb7fdfd5108d8cc053efe2b0ed45de9))
