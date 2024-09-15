@@ -372,7 +372,7 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 		err := wekaClusterService.FormCluster(ctx, containers)
 		if err != nil {
 			logger.Error(err, "Failed to form cluster")
-			return lifecycle.WaitError{Err: err}
+			return lifecycle.NewWaitError(err)
 		}
 		return nil
 		// TODO: We might want to capture specific errors, and return "unknown"/bigger errors
@@ -508,7 +508,6 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 	//if err != nil {
 	//	return err
 	//}
-	logger.SetPhase("CLUSTER_CREDENTIALS_APPLIED")
 	return nil
 
 }
@@ -744,6 +743,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 		return nil
 	}
+	_ = allAtOnceUpgrade // preserving function to return later, so weka will manage the order
 
 	rollingUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
 		for _, container := range containers {
@@ -785,7 +785,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = allAtOnceUpgrade(driveContainers)
+		err = rollingUpgrade(driveContainers)
 		if err != nil {
 			return err
 		}
@@ -809,7 +809,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = allAtOnceUpgrade(computeContainers)
+		err = rollingUpgrade(computeContainers)
 		if err != nil {
 			return err
 		}
@@ -859,6 +859,12 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 		logger.Error(err, "Failed to create executor")
 		return nil
 	}
+
+	// cut out everything before `:` in the image
+	targetVersion = strings.Split(targetVersion, ":")[1]
+	// cut out everything post-`` in the version
+	// TODO: Test if this work with `-`-less versions
+	targetVersion = strings.Split(targetVersion, "-")[0]
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade

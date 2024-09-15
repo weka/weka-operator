@@ -43,3 +43,20 @@ spec:
       targetPort: 60002
   selector:
     app: weka-driver-builder
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.3.3.129-k8s.1-upgrade
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-client-cluster-dev
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  coresNum: 1

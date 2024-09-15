@@ -110,7 +110,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
-			//{Run: loop.setNodeAffinity},
 			{
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
@@ -118,6 +117,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{Run: loop.GetNode},
 			{
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
@@ -161,21 +161,34 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			},
 			{
 				Condition: condition.CondEnsureDrivers,
-				Run:       loop.EnsureDrivers, // TODO: Complex, refactor as operation!
+				Run:       loop.EnsureDrivers,
 				Predicates: lifecycle.Predicates{
 					container.IsWekaContainer,
+					// TODO: We are basing on condition, so entering operation per container
+					// TODO: While we have multiple containers on the same host, so they are doing redundant work
+					// If we base logic on what pod reports(not our logic here anymore) - it wont help, as all of them will report
+					// Either we move this to global entity, like WekaNodeController(yayk), or just pay the price, for now paying the price of redundant gets
 				},
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.DriverLoaderFinished,
+				Condition: condition.CondResultsReceived,
+				Run:       loop.fetchResults,
 				Predicates: lifecycle.Predicates{
-					func() bool {
-						return container.Spec.Mode == weka.WekaContainerModeDriversLoader
-					},
+					loop.container.IsOneOff,
 				},
 				ContinueOnPredicatesFalse: true,
+				SkipOwnConditionCheck:     true,
+			},
+			{
+				Condition: condition.CondResultsProcessed,
+				Run:       loop.processResults,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsOneOff,
+				},
 				FinishOnSuccess:           true,
+				ContinueOnPredicatesFalse: true,
+				SkipOwnConditionCheck:     true,
 			},
 			{
 				Run: loop.reconcileManagementIP, // TODO: #shouldRefresh?
@@ -183,14 +196,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					lifecycle.IsEmptyString(container.Status.ManagementIP),
 					container.IsBackend,
 				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Run: loop.fetchResults,
-				Predicates: lifecycle.Predicates{
-					loop.container.IsOneOff,
-				},
-				FinishOnSuccess:           true,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
@@ -604,7 +609,7 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 		r.Manager,
 		nodeAffinity,
 		container,
-		container.ToOwnerObject(),
+		container.ToContainerDetails(),
 	)
 	err := operations.ExecuteOperation(ctx, discoverNodeOp)
 	if err != nil {
@@ -844,26 +849,8 @@ func (r *containerReconcilerLoop) resetEnsureDriversForNewPod(ctx context.Contex
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
-	container := r.container
-	err := r.reconcileDriversStatus(ctx)
-	if err != nil {
-		if strings.Contains(err.Error(), "No such file or directory") {
-			return lifecycle.NewWaitError(err)
-		}
-		if strings.Contains(err.Error(), "Drivers not loaded") {
-			return lifecycle.NewWaitError(err)
-		}
-		return err
-	}
-	meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-		Type:   condition.CondEnsureDrivers,
-		Status: metav1.ConditionTrue, Reason: "Success", Message: "Drivers are ensured",
-	})
-	err = r.Status().Update(ctx, container)
-	if err != nil {
-		return err
-	}
-	return nil
+	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *r.container.ToContainerDetails(), r.container.Spec.DriversDistService, r.container.HasFrontend())
+	return operations.ExecuteOperation(ctx, driversLoader)
 }
 
 func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) error {
@@ -872,10 +859,6 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 
 	container := r.container
 	pod := r.pod
-
-	if container.IsServiceContainer() {
-		return nil
-	}
 
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
@@ -999,51 +982,8 @@ func (r *containerReconcilerLoop) getDriverLoaderName(ctx context.Context, conta
 	return name, nil
 }
 
-func (r *containerReconcilerLoop) DriverLoaderFinished(ctx context.Context) error {
-	actualPod := r.pod
-	container := r.container
-	err := r.checkIfLoaderFinished(ctx, actualPod)
-	if err != nil {
-		return lifecycle.NewWaitError(err)
-	} else {
-		// if drivers loaded we can delete this weka container
-		return r.Delete(ctx, container)
-	}
-}
-
-func (r *containerReconcilerLoop) checkIfLoaderFinished(ctx context.Context, pod *v1.Pod) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "checkIfLoaderFinished")
-	defer end()
-
-	logger.Info("Checking if loader finished")
-
-	executor, err := util.NewExecInPod(pod)
-	if err != nil {
-		logger.Error(err, "Error creating executor")
-		return err
-	}
-	cmd := "cat /tmp/weka-drivers-loader"
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", cmd})
-	if err != nil {
-		if strings.Contains(stderr.String(), "No such file or directory") {
-			return errors.New("Loader not finished")
-		}
-		logger.Error(err, "Error checking if loader finished", "stderr", stderr.String)
-		return err
-	}
-	if strings.TrimSpace(stdout.String()) == "drivers_loaded" {
-		logger.InfoWithStatus(codes.Ok, "Loader finished")
-		return nil
-	}
-	logger.InfoWithStatus(codes.Error, "Loader not finished")
-	return errors.New(fmt.Sprintf("Loader not finished, unknown status %s", stdout.String()))
-}
-
 func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
 	container := r.container
-	if !container.IsOneOff() {
-		return nil
-	}
 
 	if container.Status.ExecutionResult != nil {
 		return nil
@@ -1526,8 +1466,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 	affinity := r.container.GetNodeAffinity()
 	if affinity != "" {
-
-		node, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
+		_, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				deleteError := r.Client.Delete(ctx, r.container)
@@ -1537,7 +1476,91 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 				return lifecycle.NewWaitError(errors.New("Node is not found, deleting container"))
 			}
 		}
-		r.node = node
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
+	if r.pod.Spec.NodeName == "" {
+		return lifecycle.NewWaitError(errors.New("pod is not assigned to node"))
+	}
+	node, err := r.KubeService.GetNode(ctx, types.NodeName(r.pod.Spec.NodeName))
+	if err != nil {
+		return err
+	}
+	r.node = node
+	return nil
+}
+
+func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
+	switch {
+	case r.container.IsDriversBuilder():
+		return r.UploadBuiltDrivers(ctx)
+	default:
+		return nil
+	}
+}
+
+type BuiltDriversResult struct {
+	WekaVersion string `json:"weka_version"`
+	Err         string `json:"err"`
+}
+
+func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
+	target := r.container.Spec.UploadResultsTo
+	if target == "" {
+		return errors.New("uploadResultsTo is not set")
+	}
+
+	targetDistcontainer := &weka.WekaContainer{}
+	// assuming same namespace
+	err := r.Get(ctx, client.ObjectKey{Name: target, Namespace: r.container.Namespace}, targetDistcontainer)
+	if err != nil {
+		return err
+	}
+
+	// TODO: This is not a best solution, to download version, but, usable.
+	// Should replace this with ad-hocy downloader container, that will use newer version(as the one who built), to download using shared storage
+
+	executor, err := r.ExecService.GetExecutor(ctx, targetDistcontainer)
+	if err != nil {
+		return err
+	}
+
+	builderIp := r.pod.Status.PodIP
+	builderPort := r.container.GetPort()
+
+	if builderIp == "" {
+		return errors.New("Builder IP is not set")
+	}
+
+	results := &BuiltDriversResult{}
+	err = json.Unmarshal([]byte(*r.container.Status.ExecutionResult), results)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s:%d", builderIp, builderPort)
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
+		[]string{"bash", "-ce",
+			"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
+		},
+	)
+	if err != nil {
+		return errors.Wrap(err, stderr.String()+stdout.String())
+	}
+
+	stdout, stderr, err = executor.ExecNamed(ctx, "DownloadDrivers",
+		[]string{"bash", "-ce",
+			"weka driver download --without-agent --version " + results.WekaVersion + " --from " + endpoint,
+		},
+	)
+
+	if err != nil {
+		return errors.Wrap(err, stderr.String()+stdout.String())
+	}
+
+	// at this point we can suicide
+	return r.Client.Delete(ctx, r.container)
 }

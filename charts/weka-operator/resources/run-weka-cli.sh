@@ -3,17 +3,24 @@
 set -o pipefail
 set -e
 
-export WEKA_USERNAME=`cat /var/run/secrets/weka-operator/operator-user/username`
-export WEKA_PASSWORD=`cat /var/run/secrets/weka-operator/operator-user/password`
-export WEKA_ORG=`cat /var/run/secrets/weka-operator/operator-user/org`
+if [[ -f /var/run/secrets/weka-operator/operator-user/username ]]; then
+  export WEKA_USERNAME=`cat /var/run/secrets/weka-operator/operator-user/username`
+  export WEKA_PASSWORD=`cat /var/run/secrets/weka-operator/operator-user/password`
+  export WEKA_ORG=`cat /var/run/secrets/weka-operator/operator-user/org`
+fi
+
 # comes either out of pod spec on repeat run or from resources.json on first run
 if [[ "$PORT" == "0" ]]; then
-  export WEKA_PORT=`cat /opt/weka/k8s-runtime/vars/port`
-  export PORT=`cat /opt/weka/k8s-runtime/vars/port`
+  if [[ -f /opt/weka/k8s-runtime/vars/port ]]; then
+    export PORT=`cat /opt/weka/k8s-runtime/vars/port`
+    export WEKA_PORT=`cat /opt/weka/k8s-runtime/vars/port`
+  fi
 fi
 
 if [[ "$AGENT_PORT" == "0" ]]; then
-  export AGENT_PORT=`cat /opt/weka/k8s-runtime/vars/agent_port`
+  if [[ -f /opt/weka/k8s-runtime/vars/agent_port ]]; then
+    export AGENT_PORT=`cat /opt/weka/k8s-runtime/vars/agent_port`
+  fi
 fi
 
 
