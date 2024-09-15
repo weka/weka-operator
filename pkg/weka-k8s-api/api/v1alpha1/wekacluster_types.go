@@ -294,8 +294,8 @@ func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*W
 	return nil, err
 }
 
-func (w *WekaCluster) ToOwnerObject() *OwnerWekaObject {
-	return &OwnerWekaObject{
+func (w *WekaCluster) ToOwnerObject() *WekaContainerDetails {
+	return &WekaContainerDetails{
 		Image:           w.Spec.Image,
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     util.ExpandTolerations([]v1.Toleration{}, w.Spec.Tolerations, w.Spec.RawTolerations),

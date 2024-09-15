@@ -19,6 +19,8 @@ const (
 	CondJoinedCluster               = "JoinedCluster"
 	CondJoinedS3Cluster             = "JoinedS3Cluster"
 	CondContainerResourcesWritten   = "ContainerResourcesWritten"
+	CondResultsReceived             = "CondResultsReceived"
+	CondResultsProcessed            = "CondResultsProcessed"
 	CondEnsureDrivers               = "EnsuredDrivers"
 	CondContainerResourcesAllocated = "ContainerResourcesAllocated"
 	CondContainerAffinitySet        = "ContainerAffinitySet"
