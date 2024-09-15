@@ -121,6 +121,7 @@ spec:
                 - client
                 - dist
                 - drivers-loader
+                - drivers-builder
                 - discovery
                 - s3
                 - adhoc-op-with-container
@@ -225,6 +226,8 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              uploadResultsTo:
+                type: string
               wekaSecretRef:
                 description: EnvVarSource represents a source for the value of an
                   EnvVar.
