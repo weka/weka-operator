@@ -16,8 +16,6 @@ type WekaManualOperationSpec struct {
 
 // WekaManualOperationStatus defines the observed state of WekaManualOperation
 type WekaManualOperationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	Result      string      `json:"result"`
 	Status      string      `json:"status"`
 	CompletedAt metav1.Time `json:"completedAt"`
@@ -51,13 +49,6 @@ type ManualOperatorPayload struct {
 	SignDrives     *SignDrivesPayload     `json:"signDrivesPayload,omitempty"`
 	BlockDrives    *BlockDrivesPayload    `json:"blockDrivesPayload,omitempty"`
 	DiscoverDrives *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
-}
-
-type NamespacedOwnerWekaObject struct {
-	Image           string          `json:"image"`
-	ImagePullSecret string          `json:"imagePullSecrets"`
-	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
-	Namespace       string          `json:"namespace"`
 }
 
 type SignDrivesPayload struct {

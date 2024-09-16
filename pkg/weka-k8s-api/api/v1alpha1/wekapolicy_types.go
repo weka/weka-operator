@@ -17,9 +17,6 @@ type WekaPolicyStatus struct {
 	Status      string      `json:"status"`
 	LastResult  string      `json:"result"`
 	LastRunTime metav1.Time `json:"lastRunTime"`
-
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true
@@ -51,7 +48,6 @@ type PolicyPayload struct {
 }
 
 type SchedulingConfigPayload struct {
-	AllowNoFds bool `json:"allowNoFds"`
 }
 
 func init() {

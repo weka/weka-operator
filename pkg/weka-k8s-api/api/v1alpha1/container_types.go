@@ -178,18 +178,8 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 	return w.Spec.Mode == WekaContainerModeDriversLoader
 }
 
-func (w *WekaContainer) SupportsEnsureDriversCondition() bool {
+func (w *WekaContainer) RequiresDrivers() bool {
 	return w.IsWekaContainer()
-}
-
-func (w *WekaContainer) InitEnsureDriversCondition() {
-	if !w.DriversReady() && w.SupportsEnsureDriversCondition() {
-		meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
-			Type:    condition.CondEnsureDrivers,
-			Status:  metav1.ConditionFalse,
-			Message: "Init",
-		})
-	}
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {

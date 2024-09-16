@@ -55,11 +55,6 @@ spec:
                   interval:
                     type: string
                   schedulingConfigPayload:
-                    properties:
-                      allowNoFds:
-                        type: boolean
-                    required:
-                    - allowNoFds
                     type: object
                   signDrivesPayload:
                     properties:

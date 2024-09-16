@@ -17,10 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
-	"fmt"
-	"strings"
-
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -172,8 +168,6 @@ type WekaClusterList struct {
 	Items           []WekaCluster `json:"items"`
 }
 
-const DefaultOrg = "Root"
-
 func (c *WekaCluster) GetOperatorSecretName() string {
 	if c.Spec.OperatorSecretRef != "" {
 		return c.Spec.OperatorSecretRef
@@ -215,83 +209,9 @@ func (c *WekaCluster) GetCSISecretName() string {
 	return "weka-csi-" + c.Name
 }
 
-func (c *WekaCluster) NewUserLoginSecret() *v1.Secret {
-	return &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.GetUserSecretName(),
-			Namespace: c.Namespace,
-		},
-		StringData: map[string]string{
-			"username": c.GetUserClusterUsername(),
-			"password": util.GeneratePassword(32),
-			"org":      DefaultOrg,
-		},
-	}
-}
-
-func (c *WekaCluster) NewOperatorLoginSecret() *v1.Secret {
-	return &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.GetOperatorSecretName(),
-			Namespace: c.Namespace,
-		},
-		StringData: map[string]string{
-			"username":    c.GetOperatorClusterUsername(),
-			"password":    util.GeneratePassword(32),
-			"join-secret": util.GeneratePassword(64),
-			"org":         DefaultOrg,
-		},
-	}
-}
-
-func (c *WekaCluster) NewClientSecret() *v1.Secret {
-	return &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.GetClientSecretName(),
-			Namespace: c.Namespace,
-		},
-		StringData: map[string]string{
-			"username": c.GetClusterClientUsername(),
-			"password": util.GeneratePassword(32),
-			"org":      DefaultOrg,
-		},
-	}
-}
-
-func (c *WekaCluster) NewCsiSecret(endpoints []string) *v1.Secret {
-	return &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.GetCSISecretName(),
-			Namespace: c.Namespace,
-		},
-		StringData: map[string]string{
-			"username":     c.GetClusterCSIUsername(),
-			"password":     util.GeneratePassword(32),
-			"organization": DefaultOrg,
-			"endpoints":    strings.Join(endpoints, ","),
-			"scheme":       "https",
-		},
-	}
-}
-
 func (status *WekaClusterStatus) InitStatus() {
 	status.Conditions = []metav1.Condition{}
 	status.Status = "Init"
-}
-
-func (r *WekaCluster) SelectActiveContainer(ctx context.Context, containers []*WekaContainer, role string) (*WekaContainer, error) {
-	for _, container := range containers {
-		if container.Spec.Mode != role {
-			continue
-		}
-		if container.Status.ClusterContainerID == nil {
-			continue
-		}
-		return container, nil
-	}
-
-	err := fmt.Errorf("no container with role %s found", role)
-	return nil, err
 }
 
 func (w *WekaCluster) ToOwnerObject() *WekaContainerDetails {

@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,9 +41,6 @@ type WekahomeClientConfig struct {
 
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// Used in new format
 	Image              string            `json:"image"`
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
@@ -70,20 +66,10 @@ type WekaClientSpec struct {
 
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// +operator-sdk:csv:customresourcedefinitions:type=status
 	Conditions      []metav1.Condition `json:"conditions,omitempty"`
 	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
 	Status          string             `json:"status,omitempty"` // Status is the status of the resource, may be either PROGRESSING, FAILED, or READY
-}
-
-func (s *WekaClientStatus) SetCondition(condition metav1.Condition) {
-	if s.Conditions == nil {
-		s.Conditions = []metav1.Condition{}
-	}
-	meta.SetStatusCondition(&s.Conditions, condition)
 }
 
 // +kubebuilder:object:root=true
