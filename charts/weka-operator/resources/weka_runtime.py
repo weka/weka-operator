@@ -1084,8 +1084,8 @@ async def ensure_stem_container(name="dist"):
             mount -o bind /driver-toolkit-shared/lib/modules /lib/modules
             mount -o bind /driver-toolkit-shared/usr/src /usr/src
         fi
-        weka local rm {name} --force || true
-        weka local setup container --name {name} --net udp --base-port {PORT} --no-start --disable
+
+        weka local ps | grep {name} || weka local setup container --name {name} --net udp --base-port {PORT} --no-start --disable
         """)
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
@@ -1529,7 +1529,7 @@ async def main():
             await install_gsutil()
             await cos_build_drivers()
 
-        else:  # default
+        elif DIST_LEGACY_MODE:  # default
             await agent.stop()
             await configure_agent(agent_handle_drivers=True)
             await agent.start()  # here the build happens
@@ -1554,6 +1554,7 @@ async def main():
                 "driver_built": True,
                 "err": "",
                 "weka_version": weka_version.decode().strip(),
+                "weka_pack_not_supported": DIST_LEGACY_MODE,
             })
         return
 

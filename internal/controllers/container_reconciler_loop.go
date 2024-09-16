@@ -1502,8 +1502,9 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 }
 
 type BuiltDriversResult struct {
-	WekaVersion string `json:"weka_version"`
-	Err         string `json:"err"`
+	WekaVersion          string `json:"weka_version"`
+	WekaPackNotSupported bool   `json:"weka_pack_not_supported"`
+	Err                  string `json:"err"`
 }
 
 func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
@@ -1542,16 +1543,19 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 
 	endpoint := fmt.Sprintf("%s:%d", builderIp, builderPort)
 
-	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
-		[]string{"bash", "-ce",
-			"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
-		},
-	)
-	if err != nil {
-		return errors.Wrap(err, stderr.String()+stdout.String())
+	// if weka pack is not supported, we don't need to download it
+	if !results.WekaPackNotSupported {
+		stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
+			[]string{"bash", "-ce",
+				"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
+			},
+		)
+		if err != nil {
+			return errors.Wrap(err, stderr.String()+stdout.String())
+		}
 	}
 
-	stdout, stderr, err = executor.ExecNamed(ctx, "DownloadDrivers",
+	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
 		[]string{"bash", "-ce",
 			"weka driver download --without-agent --version " + results.WekaVersion + " --from " + endpoint,
 		},
