@@ -23,3 +23,26 @@ func TestEnsureNoContainers(t *testing.T) {
 		t.Errorf("EnsureNoContainers() error = %v", err)
 	}
 }
+
+func TestFormCluster(t *testing.T) {
+	ctx := context.Background()
+	manager, err := testutil.TestingManager()
+	if err != nil {
+		t.Fatalf("TestingManager() error = %v, want nil", err)
+	}
+
+	clusterService := &wekaClusterService{}
+	clusterService.Cluster = &wekav1alpha1.WekaCluster{}
+	clusterService.Client = manager.GetClient()
+	clusterService.ExecService = testutil.NewTestingExecService()
+
+	containers := []*wekav1alpha1.WekaContainer{
+		{
+			Spec: wekav1alpha1.WekaContainerSpec{},
+		},
+	}
+
+	if err := clusterService.FormCluster(ctx, containers); err != nil {
+		t.Errorf("FormCluster() error = %v", err)
+	}
+}

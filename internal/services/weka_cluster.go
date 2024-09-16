@@ -34,6 +34,18 @@ func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) 
 	}
 }
 
+func NewTestingWekaClusterService(
+	mgr ctrl.Manager,
+	execService exec.ExecService,
+	cluster *wekav1alpha1.WekaCluster,
+) WekaClusterService {
+	return &wekaClusterService{
+		Client:      mgr.GetClient(),
+		ExecService: execService,
+		Cluster:     cluster,
+	}
+}
+
 type wekaClusterService struct {
 	Client      client.Client
 	ExecService exec.ExecService

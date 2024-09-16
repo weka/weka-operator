@@ -9,6 +9,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-operator/internal/pkg/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/testutil"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -266,5 +267,46 @@ func TestAllContainersReady(t *testing.T) {
 				t.Errorf("unexpected error - want: %v, got: %v", tt.expected, err)
 			}
 		})
+	}
+}
+
+func TestFormCluster(t *testing.T) {
+	os.Setenv("OPERATOR_DEV_MODE", "true")
+
+	ctx := context.Background()
+	manager, err := testingManager()
+	if err != nil {
+		t.Fatalf("TestingManager() error = %v, want nil", err)
+	}
+	key := types.NamespacedName{Name: "test-cluster", Namespace: "test-namespace"}
+	cluster := &wekav1alpha1.WekaCluster{}
+	if err := manager.GetClient().Get(ctx, key, cluster); err != nil {
+		t.Fatalf("failed to get cluster: %v", err)
+	}
+
+	execService := testutil.NewTestingExecService()
+	clusterService := services.NewTestingWekaClusterService(manager, execService, cluster)
+
+	loop := &wekaClusterReconcilerLoop{
+		Manager:        manager,
+		cluster:        cluster,
+		clusterService: clusterService,
+	}
+
+	if err := loop.EnsureWekaContainers(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := loop.FormCluster(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if loop.containers == nil {
+		t.Fatalf("expected containers to be set")
+	}
+	if len(loop.containers) == 0 {
+		t.Fatalf("expected containers to be non-empty")
+	}
+	for _, container := range loop.containers {
+		t.Logf("Container: %+v", container)
 	}
 }
