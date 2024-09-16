@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -10,14 +11,77 @@ import (
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/weka-operator/pkg/util"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const DefaultOrg = "Root"
+
+func NewUserLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.GetUserSecretName(),
+			Namespace: cluster.Namespace,
+		},
+		StringData: map[string]string{
+			"username": cluster.GetUserClusterUsername(),
+			"password": util.GeneratePassword(32),
+			"org":      DefaultOrg,
+		},
+	}
+}
+
+func NewOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.GetOperatorSecretName(),
+			Namespace: cluster.Namespace,
+		},
+		StringData: map[string]string{
+			"username":    cluster.GetOperatorClusterUsername(),
+			"password":    util.GeneratePassword(32),
+			"join-secret": util.GeneratePassword(64),
+			"org":         DefaultOrg,
+		},
+	}
+}
+
+func NewClientSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.GetClientSecretName(),
+			Namespace: cluster.Namespace,
+		},
+		StringData: map[string]string{
+			"username": cluster.GetClusterClientUsername(),
+			"password": util.GeneratePassword(32),
+			"org":      DefaultOrg,
+		},
+	}
+}
+
+func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoints []string) *v1.Secret {
+	return &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.GetCSISecretName(),
+			Namespace: cluster.Namespace,
+		},
+		StringData: map[string]string{
+			"username":     cluster.GetClusterCSIUsername(),
+			"password":     util.GeneratePassword(32),
+			"organization": DefaultOrg,
+			"endpoints":    strings.Join(endpoints, ","),
+			"scheme":       "https",
+		},
+	}
+}
+
 type SecretsService interface {
 	EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
-	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error
+	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error
 	EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error
 	UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 }
@@ -80,7 +144,7 @@ func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterS
 	}
 
 	cluster := clusterService.GetCluster()
-	clientSecret := cluster.NewCsiSecret(endpoints)
+	clientSecret := NewCsiSecret(ctx, cluster, endpoints)
 
 	if err := kubeService.EnsureSecret(ctx, clientSecret, &kubernetes.K8sOwnerRef{
 		Scheme: r.Scheme,
@@ -98,11 +162,11 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	kubeService := kubernetes.NewKubeService(r.Client)
 
 	// generate random password
-	operatorLogin := cluster.NewOperatorLoginSecret()
+	operatorLogin := NewOperatorLoginSecret(ctx, cluster)
 	// Hacking it into initial (admin) username, and we will update later once new user is created
 	// Both admin and user have the same password
 	operatorLogin.StringData["username"] = cluster.GetInitialOperatorUsername()
-	userLogin := cluster.NewUserLoginSecret()
+	userLogin := NewUserLoginSecret(ctx, cluster)
 
 	if cluster.Spec.OperatorSecretRef != "" {
 		return nil
@@ -125,14 +189,9 @@ func (r *secretsService) EnsureLoginCredentials(ctx context.Context, cluster *we
 	return nil
 }
 
-func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, containers []*wekav1alpha1.WekaContainer) error {
+func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientLoginCredentials")
 	defer end()
-
-	container, err := cluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
-	if err != nil {
-		return err
-	}
 
 	kubeService := kubernetes.NewKubeService(r.Client)
 	wekaService := NewWekaService(r.ExecService, container)
@@ -141,7 +200,7 @@ func (r *secretsService) EnsureClientLoginCredentials(ctx context.Context, clust
 		return err
 	}
 
-	clientSecret := cluster.NewClientSecret()
+	clientSecret := NewClientSecret(ctx, cluster)
 	clientSecret.StringData["join-secret"] = joinSecret
 
 	if err := kubeService.EnsureSecret(ctx, clientSecret, &kubernetes.K8sOwnerRef{

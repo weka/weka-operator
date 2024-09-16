@@ -189,9 +189,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondClusterClientSecretsCreated,
-				Run: func(ctx context.Context) error {
-					return r.SecretsService.EnsureClientLoginCredentials(ctx, loop.cluster, loop.containers)
-				},
+				Run:       loop.ensureClientLoginCredentials,
 			},
 			{
 				Condition: condition.CondClusterClientSecretsApplied,
