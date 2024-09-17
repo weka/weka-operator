@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/weka/weka-k8s-api/compare/v1.0.1...v1.0.2) (2024-09-17)
+
+
+### Bug Fixes
+
+* IsDriversBuilder container mode condition ([959e2ee](https://github.com/weka/weka-k8s-api/commit/959e2eed8cb03235e0f08f7136d3b2ca1e89c6f9))
+
 ## [1.0.1](https://github.com/weka/weka-k8s-api/compare/v1.0.0...v1.0.1) (2024-09-16)
 
 
