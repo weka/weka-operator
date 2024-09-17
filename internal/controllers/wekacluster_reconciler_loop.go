@@ -554,7 +554,7 @@ func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Con
 	cluster := r.cluster
 	containers := r.containers
 
-	activeContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeClient)
+	activeContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
 	if err != nil {
 		return err
 	}
