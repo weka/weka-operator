@@ -209,7 +209,7 @@ async def ensure_drivers():
             drivers.append("uio_pci_generic")
     driver_mode = await is_legacy_driver_cmd()
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
-    if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]:
+    if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
             stdout, stderr, ec = await run_command("weka driver ready")
             if ec != 0:
