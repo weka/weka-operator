@@ -195,7 +195,7 @@ func (w *WekaContainer) IsDriversContainer() bool {
 }
 
 func (w *WekaContainer) IsDriversBuilder() bool {
-	return w.Spec.Mode == WekaContainerModeDist
+	return w.Spec.Mode == WekaContainerModeDriversBuilder
 }
 
 func (w *WekaContainer) IsBackend() bool {
@@ -272,7 +272,7 @@ func (w *WekaContainer) ToContainerDetails() *WekaContainerDetails {
 }
 
 func (w *WekaContainer) IsOneOff() bool {
-	return slices.Contains([]string{WekaContainerModeAdhocOpWC, WekaContainerModeDiscovery, WekaContainerModeAdhocOp}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeAdhocOpWC, WekaContainerModeDiscovery, WekaContainerModeAdhocOp, WekaContainerModeDriversBuilder, WekaContainerModeDriversLoader}, w.Spec.Mode)
 
 }
 
