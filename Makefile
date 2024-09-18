@@ -91,6 +91,8 @@ $(CRD): controller-gen $(CRD_TYPES)
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	mkdir -p pkg/weka-k8s-api/crds/v1alpha1
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=pkg/weka-k8s-api/crds/v1alpha1
+	rm -f charts/weka-operator/crds/*
+	cp pkg/weka-k8s-api/crds/v1alpha1/* charts/weka-operator/crds/
 
 RBAC = charts/weka-operator/templates/role.yaml
 $(RBAC): controller-gen internal/controllers/client_controller.go

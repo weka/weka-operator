@@ -1,0 +1,364 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.3
+  name: wekaclusters.weka.weka.io
+spec:
+  group: weka.weka.io
+  names:
+    kind: WekaCluster
+    listKind: WekaClusterList
+    plural: wekaclusters
+    singular: wekacluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: Status of the cluster
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Weka cluster ID
+      jsonPath: .status.ClusterID
+      name: Cluster ID
+      priority: 2
+      type: string
+    - description: Number of compute containers
+      jsonPath: .spec.dynamicTemplate.computeContainers
+      name: Compute Containers
+      priority: 3
+      type: integer
+    - description: Number of drive containers
+      jsonPath: .spec.dynamicTemplate.driveContainers
+      name: Drive Containers
+      priority: 4
+      type: integer
+    - description: Number of S3 containers
+      jsonPath: .spec.dynamicTemplate.S3Containers
+      name: S3 Containers
+      priority: 5
+      type: integer
+    - description: Number of compute cores
+      jsonPath: .spec.dynamicTemplate.computeCores
+      name: Compute Cores
+      priority: 6
+      type: integer
+    - description: Number of drive cores
+      jsonPath: .spec.dynamicTemplate.driveCores
+      name: Drive Cores
+      priority: 7
+      type: integer
+    - description: Number of drives
+      jsonPath: .spec.dynamicTemplate.NumDrives
+      name: Drives
+      priority: 8
+      type: integer
+    - description: Number of S3 cores
+      jsonPath: .spec.dynamicTemplate.s3Cores
+      name: S3 Cores
+      priority: 9
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: WekaClusterSpec defines the desired state of WekaCluster
+            properties:
+              additionalMemory:
+                properties:
+                  compute:
+                    type: integer
+                  drive:
+                    type: integer
+                  s3:
+                    type: integer
+                type: object
+              cpuPolicy:
+                default: auto
+                enum:
+                - auto
+                - shared
+                - dedicated
+                - dedicated_ht
+                - manual
+                type: string
+              disregardRedundancy:
+                type: boolean
+              driversDistService:
+                type: string
+              dynamicTemplate:
+                properties:
+                  computeContainers:
+                    type: integer
+                  computeCores:
+                    type: integer
+                  computeHugepages:
+                    type: integer
+                  driveContainers:
+                    type: integer
+                  driveCores:
+                    type: integer
+                  driveHugepages:
+                    type: integer
+                  envoyCores:
+                    type: integer
+                  numDrives:
+                    type: integer
+                  s3Containers:
+                    type: integer
+                  s3Cores:
+                    type: integer
+                  s3ExtraCores:
+                    type: integer
+                  s3FrontendHugepages:
+                    type: integer
+                type: object
+              expandEndpoints:
+                items:
+                  type: string
+                type: array
+              image:
+                type: string
+              imagePullSecret:
+                type: string
+              ipv6:
+                type: boolean
+              network:
+                properties:
+                  ethDevice:
+                    type: string
+                  ethSlots:
+                    items:
+                      type: string
+                    type: array
+                  udpMode:
+                    type: boolean
+                type: object
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                type: object
+              operatorSecretRef:
+                type: string
+              ports:
+                properties:
+                  basePort:
+                    description: |-
+                      We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
+                      Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+                    type: integer
+                  lbAdminPort:
+                    type: integer
+                  lbPort:
+                    type: integer
+                  portRange:
+                    type: integer
+                  s3Port:
+                    type: integer
+                type: object
+              rawTolerations:
+                items:
+                  description: |-
+                    The pod this Toleration is attached to tolerates any taint that matches
+                    the triple <key,value,effect> using the matching operator <operator>.
+                  properties:
+                    effect:
+                      description: |-
+                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: |-
+                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      type: string
+                    operator:
+                      description: |-
+                        Operator represents a key's relationship to the value.
+                        Valid operators are Exists and Equal. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod can
+                        tolerate all taints of a particular category.
+                      type: string
+                    tolerationSeconds:
+                      description: |-
+                        TolerationSeconds represents the period of time the toleration (which must be
+                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                        negative values will be treated as 0 (evict immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: |-
+                        Value is the taint value the toleration matches to.
+                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+              roleNodeSelector:
+                properties:
+                  compute:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  drive:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  s3:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
+              size:
+                type: integer
+              template:
+                type: string
+              tolerations:
+                items:
+                  type: string
+                type: array
+              tracesConfiguration:
+                description: TraceConfiguration defines the configuration for the
+                  traces, accepts parameters in gigabytes
+                properties:
+                  ensureFreeSpace:
+                    default: 20
+                    type: integer
+                  maxCapacityPerIoNode:
+                    default: 10
+                    type: integer
+                type: object
+              wekaHomeEndpoint:
+                properties:
+                  allowInsecure:
+                    type: boolean
+                  cacertSecret:
+                    type: string
+                  enableStats:
+                    type: boolean
+                  endpoint:
+                    type: string
+                required:
+                - enableStats
+                type: object
+            required:
+            - image
+            - template
+            type: object
+          status:
+            description: WekaClusterStatus defines the observed state of WekaCluster
+            properties:
+              clusterID:
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastAppliedImage:
+                type: string
+              lastAppliedSpec:
+                type: string
+              ports:
+                properties:
+                  basePort:
+                    description: |-
+                      We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
+                      Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+                    type: integer
+                  lbAdminPort:
+                    type: integer
+                  lbPort:
+                    type: integer
+                  portRange:
+                    type: integer
+                  s3Port:
+                    type: integer
+                type: object
+              spanId:
+                type: string
+              status:
+                type: string
+              throughput:
+                type: string
+              traceId:
+                type: string
+            required:
+            - status
+            - throughput
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
