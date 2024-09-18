@@ -1084,8 +1084,8 @@ async def ensure_stem_container(name="dist"):
             mount -o bind /driver-toolkit-shared/lib/modules /lib/modules
             mount -o bind /driver-toolkit-shared/usr/src /usr/src
         fi
-        weka local rm {name} --force || true
-        weka local setup container --name {name} --net udp --base-port {PORT} --no-start --disable
+
+        weka local ps | grep {name} || weka local setup container --name {name} --net udp --base-port {PORT} --no-start --disable
         """)
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
@@ -1446,17 +1446,18 @@ async def main():
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
-        max_retries = 10
+        # 2 minutes timeout for driver loading
+        end_time = time.time() + 120
         await disable_driver_signing()
-        for i in range(max_retries):
+        while time.time() < end_time:
             try:
                 await load_drivers()
                 logging.info("Drivers loaded successfully")
                 return
             except:
-                if i == max_retries - 1:
+                if time.time() > end_time:
                     raise
-                logging.info("retrying drivers download")
+                logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
                 await asyncio.sleep(1)
         return
 
@@ -1529,7 +1530,7 @@ async def main():
             await install_gsutil()
             await cos_build_drivers()
 
-        else:  # default
+        elif DIST_LEGACY_MODE:  # default
             await agent.stop()
             await configure_agent(agent_handle_drivers=True)
             await agent.start()  # here the build happens
@@ -1539,10 +1540,11 @@ async def main():
         await configure_traces()
         if not DIST_LEGACY_MODE:
             await pack_drivers()  # explicit pack of drivers if supported, which is new method, that should become default with rest of code removed eventually
-        await agent.stop()
-        await configure_agent(agent_handle_drivers=False)
-        await agent.start()
-        await await_agent()
+        else:
+            await agent.stop()
+            await configure_agent(agent_handle_drivers=False)
+            await agent.start()
+            await await_agent()
 
         if DIST_LEGACY_MODE:
             await copy_drivers()
@@ -1554,6 +1556,7 @@ async def main():
                 "driver_built": True,
                 "err": "",
                 "weka_version": weka_version.decode().strip(),
+                "weka_pack_not_supported": DIST_LEGACY_MODE,
             })
         return
 

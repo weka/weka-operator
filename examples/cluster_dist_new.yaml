@@ -12,6 +12,8 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
   image: quay.io/weka.io/weka-in-container:4.4.1.2250-b944cbadf4302ba2947ccb4de82b5096-dev
   driversDistService: "https://weka-driver-dist.weka-operator-system.svc.cluster.local:60002"
+  nodeSelector:
+    weka.io/supports-backends: "true"
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaClient
@@ -29,3 +31,5 @@ spec:
     name: cluster-dev
     namespace: default
   coresNum: 1
+  nodeSelector:
+    weka.io/supports-clients: "true"

@@ -1502,8 +1502,9 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 }
 
 type BuiltDriversResult struct {
-	WekaVersion string `json:"weka_version"`
-	Err         string `json:"err"`
+	WekaVersion          string `json:"weka_version"`
+	WekaPackNotSupported bool   `json:"weka_pack_not_supported"`
+	Err                  string `json:"err"`
 }
 
 func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
@@ -1540,18 +1541,21 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		return err
 	}
 
-	endpoint := fmt.Sprintf("%s:%d", builderIp, builderPort)
+	endpoint := fmt.Sprintf("https://%s:%d", builderIp, builderPort)
 
-	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
-		[]string{"bash", "-ce",
-			"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
-		},
-	)
-	if err != nil {
-		return errors.Wrap(err, stderr.String()+stdout.String())
+	// if weka pack is not supported, we don't need to download it
+	if !results.WekaPackNotSupported {
+		stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
+			[]string{"bash", "-ce",
+				"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
+			},
+		)
+		if err != nil {
+			return errors.Wrap(err, stderr.String()+stdout.String())
+		}
 	}
 
-	stdout, stderr, err = executor.ExecNamed(ctx, "DownloadDrivers",
+	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
 		[]string{"bash", "-ce",
 			"weka driver download --without-agent --version " + results.WekaVersion + " --from " + endpoint,
 		},
@@ -1559,6 +1563,35 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 
 	if err != nil {
 		return errors.Wrap(err, stderr.String()+stdout.String())
+	}
+
+	if results.WekaPackNotSupported {
+		// weka driver kernel-sig
+		stdout, stderr, err := executor.ExecNamed(ctx, "KernelSig",
+			[]string{"bash", "-ce",
+				"weka driver kernel-sig 2>&1 >/dev/null | awk '{printf \"%s\", $NF}'",
+			},
+		)
+		if err != nil {
+			return errors.Wrap(err, stderr.String()+stdout.String())
+		}
+
+		kernelSig := stdout.String()
+		// Remove null character from the end
+		kernelSig = strings.TrimRight(kernelSig, "\x00")
+		if kernelSig == "" {
+			return errors.New("Kernel signature not found")
+		}
+
+		url := fmt.Sprintf("%s/dist/v1/drivers/%s-%s.tar.gz.sha256", endpoint, results.WekaVersion, kernelSig)
+		cmd := "cd /opt/weka/dist/drivers/ && curl -kO " + url
+		stdout, stderr, err = executor.ExecNamed(ctx, "Copy sha256 file",
+			[]string{"bash", "-ce", cmd},
+		)
+		if err != nil {
+			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
+			return err
+		}
 	}
 
 	// at this point we can suicide
