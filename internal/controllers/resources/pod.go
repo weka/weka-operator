@@ -489,7 +489,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		})
 	}
 
-	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() {
+	if f.container.IsDriversBuilder() || f.container.IsDriversLoaderMode() { // Dependencies for driver-loader probably can be reduced
 		if f.nodeInfo.IsCos() {
 			allowCosDisableDriverSigning := envvars.GetBoolEnv("EnvCosAllowSigningDisable", false)
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{

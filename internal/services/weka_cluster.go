@@ -133,11 +133,16 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	//	return errors.Wrapf(err, "Failed to disable hot spare: %s", stderr.String())
 	//}
 
+	cmd = fmt.Sprintf("wekaauthcli debug override add --key constraints.skip_validation")
+	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetSkipValidation", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to set skip validation: %s", stderr.String())
+	}
+
 	if err := r.Client.Status().Update(ctx, r.Cluster); err != nil {
 		return errors.Wrap(err, "Failed to update wekaCluster status")
 	}
 
-	logger.SetPhase("Cluster created")
 	return nil
 }
 

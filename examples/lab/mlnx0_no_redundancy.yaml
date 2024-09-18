@@ -10,7 +10,7 @@ spec:
       computeContainers: 6
       driveContainers: 6
   imagePullSecret: "quay-io-robot-secret"
-  image: kontrol-k8s.lan/weka-in-container:4.3.3.129-k8s.1-upgrade
+  image: kontrol-k8s.lan/weka-in-container:4.3.5.4348-ab2facba8059445b982a162d9ac833ec-dev
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
   disregardRedundancy: true
   ports:
@@ -18,6 +18,25 @@ spec:
     portRange: 3000
   network:
     ethDevice: "mlnx0"
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: kontrol-k8s.lan/weka-in-container:4.3.5.4348-ab2facba8059445b982a162d9ac833ec-dev
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  port: 45001
+  agentPort: 45000
+  wekaSecretRef: weka-client-cluster-dev
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  network:
+    ethDevice: "mlnx0"
+  coresNum: 1
 ---
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
@@ -28,7 +47,7 @@ metadata:
     app: weka-driver-builder
 spec:
   agentPort: 60001
-  image: kontrol-k8s.lan/weka-in-container:4.3.3.129-k8s.1-upgrade
+  image: kontrol-k8s.lan/weka-in-container:4.3.5.4348-ab2facba8059445b982a162d9ac833ec-dev
   imagePullSecret: "quay-io-robot-secret"
   mode: "dist"
   name: dist
