@@ -273,7 +273,7 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	}
 
 	changes := false
-	if !r.container.DriversReady() && r.container.SupportsEnsureDriversCondition() {
+	if !r.container.DriversReady() && r.container.RequiresDrivers() {
 		changes = true
 		meta.SetStatusCondition(&r.container.Status.Conditions,
 			metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init", Reason: "Init"},

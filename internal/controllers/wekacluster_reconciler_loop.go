@@ -532,6 +532,41 @@ func (r *wekaClusterReconcilerLoop) SelectActiveContainer(containers []*wekav1al
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alpha1.WekaContainer, role string) (*wekav1alpha1.WekaContainer, error) {
+	for _, container := range containers {
+		if container.Spec.Mode != role {
+			continue
+		}
+		if container.Status.ClusterContainerID == nil {
+			continue
+		}
+		return container, nil
+	}
+
+	err := fmt.Errorf("no container with role %s found", role)
+	return nil, err
+}
+
+func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	cluster := r.cluster
+	containers := r.containers
+
+	activeContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeClient)
+	if err != nil {
+		return err
+	}
+
+	err = r.SecretsService.EnsureClientLoginCredentials(ctx, cluster, activeContainer)
+	if err != nil {
+		logger.Error(err, "Failed to apply client login credentials")
+		return err
+	}
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) DeleteAdminUser(ctx context.Context) error {
 	container := r.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, container)
@@ -692,7 +727,7 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return nil // explicitly asked not to configure
 	}
 
-	driveContainer, err := wekaCluster.SelectActiveContainer(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	driveContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
 	if err != nil {
 		return err
 	}
