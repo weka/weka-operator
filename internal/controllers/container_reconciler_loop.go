@@ -1502,9 +1502,10 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 }
 
 type BuiltDriversResult struct {
-	WekaVersion          string `json:"weka_version"`
-	WekaPackNotSupported bool   `json:"weka_pack_not_supported"`
-	Err                  string `json:"err"`
+	WekaVersion           string `json:"weka_version"`
+	WekaPackNotSupported  bool   `json:"weka_pack_not_supported"`
+	NoWekaDriversHandling bool   `json:"no_weka_drivers_handling"`
+	Err                   string `json:"err"`
 }
 
 func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
@@ -1539,6 +1540,20 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	err = json.Unmarshal([]byte(*r.container.Status.ExecutionResult), results)
 	if err != nil {
 		return err
+	}
+
+	if results.NoWekaDriversHandling {
+		// for legacy drivers handling, we don't have support for weka driver command
+		// copy everything from builer's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
+		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
+		stdout, stderr, err := executor.ExecNamed(ctx, "CopyDrivers",
+			[]string{"bash", "-ce", cmd},
+		)
+		if err != nil {
+			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
+			return err
+		}
+		return r.Client.Delete(ctx, r.container)
 	}
 
 	endpoint := fmt.Sprintf("https://%s:%d", builderIp, builderPort)
