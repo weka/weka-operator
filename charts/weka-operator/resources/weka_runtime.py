@@ -336,6 +336,8 @@ if "4.2.7.64-s3multitenancy." in IMAGE_NAME:
     )
 assert version_params
 
+WEKA_DRIVERS_HANDLING = True if version_params.get("weka_drivers_handling") else False
+
 # Implement the rest of your logic here
 import asyncio
 import os
@@ -358,7 +360,7 @@ async def load_drivers():
         if os.path.isdir("/hostpath/lib/modules"):
             os.system("cp -r /hostpath/lib/modules/* /lib/modules/")
 
-    if not version_params.get("weka_drivers_handling"):
+    if not WEKA_DRIVERS_HANDLING:
         # LEGACY MODE
         weka_driver_version = version_params.get('wekafs')
         download_cmds = [
@@ -436,7 +438,7 @@ async def load_drivers():
 
 
 async def copy_drivers():
-    if version_params.get("weka_drivers_handling"):
+    if WEKA_DRIVERS_HANDLING:
         return
 
     weka_driver_version = version_params.get('wekafs')
@@ -1055,7 +1057,7 @@ async def override_dependencies_flag():
     logging.info("overriding dependencies flag")
     dep_version = version_params.get('dependencies', DEFAULT_DEPENDENCY_VERSION)
 
-    if version_params.get("weka_drivers_handling"):
+    if WEKA_DRIVERS_HANDLING:
         cmd = dedent("""
         mkdir -p /opt/weka/data/dependencies
         touch /opt/weka/data/dependencies/skip
@@ -1557,6 +1559,7 @@ async def main():
                 "err": "",
                 "weka_version": weka_version.decode().strip(),
                 "weka_pack_not_supported": DIST_LEGACY_MODE,
+                "no_weka_drivers_handling": not WEKA_DRIVERS_HANDLING,
             })
         return
 
