@@ -111,6 +111,15 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
 			{
+				Run: loop.Noop,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsOneOff,
+					loop.ResultsAreProcessed,
+				},
+				FinishOnSuccess:           true,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotSet,
@@ -186,9 +195,15 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
 				},
-				FinishOnSuccess:           true,
 				ContinueOnPredicatesFalse: true,
-				SkipOwnConditionCheck:     true,
+			},
+			{
+				Run: loop.cleanupFinishedOneOff,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsOneOff,
+				},
+				ContinueOnPredicatesFalse: true,
+				FinishOnSuccess:           true,
 			},
 			{
 				Run: loop.reconcileManagementIP, // TODO: #shouldRefresh?
@@ -1521,6 +1536,11 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		return err
 	}
 
+	complete := func() error {
+		r.container.Status.Status = "Completed"
+		return r.Status().Update(ctx, r.container)
+	}
+
 	// TODO: This is not a best solution, to download version, but, usable.
 	// Should replace this with ad-hocy downloader container, that will use newer version(as the one who built), to download using shared storage
 
@@ -1553,7 +1573,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 			return err
 		}
-		return r.Client.Delete(ctx, r.container)
+		return complete()
 	}
 
 	endpoint := fmt.Sprintf("https://%s:%d", builderIp, builderPort)
@@ -1609,6 +1629,31 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		}
 	}
 
-	// at this point we can suicide
-	return r.Client.Delete(ctx, r.container)
+	return complete()
+}
+
+func (r *containerReconcilerLoop) Noop(ctx context.Context) error {
+	return nil
+}
+
+func (r *containerReconcilerLoop) ResultsAreSet() bool {
+	return r.container.Status.ExecutionResult != nil
+}
+
+func (r *containerReconcilerLoop) ResultsAreProcessed() bool {
+	for _, c := range r.container.Status.Conditions {
+		if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) error {
+	if r.container.IsDriversBuilder() {
+		if r.pod != nil {
+			return r.Client.Delete(ctx, r.pod)
+		}
+	}
+	return nil
 }

@@ -10,7 +10,7 @@ spec:
     computeContainers: 6
     driveContainers: 6
   imagePullSecret: "quay-io-robot-secret"
-  image: quay.io/weka.io/weka-in-container:4.4.1.2250-b944cbadf4302ba2947ccb4de82b5096-dev
+  image: quay.io/weka.io/weka-in-container:4.4.1.2766-db9740cc0982aadf1e3da5b16461d650-dev
   driversDistService: "https://weka-driver-dist.weka-operator-system.svc.cluster.local:60002"
   nodeSelector:
     weka.io/supports-backends: "true"
@@ -21,7 +21,7 @@ metadata:
   name: cluster-dev-clients
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.1.2250-b944cbadf4302ba2947ccb4de82b5096-dev
+  image: quay.io/weka.io/weka-in-container:4.4.1.2766-db9740cc0982aadf1e3da5b16461d650-dev
   imagePullSecret: "quay-io-robot-secret"
   driversDistService: "https://weka-driver-dist.weka-operator-system.svc.cluster.local:60002"
   port: 45001

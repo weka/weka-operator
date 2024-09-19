@@ -911,6 +911,17 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			Values:   []string{string(f.container.GetNodeAffinity())},
 		})
 	}
+
+	if len(f.container.Spec.NodeSelector) != 0 {
+		for k, v := range f.container.Spec.NodeSelector {
+			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
+				Key:      k,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{v},
+			})
+		}
+	}
+
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	clusterId := f.container.GetParentClusterId()
