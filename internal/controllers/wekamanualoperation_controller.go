@@ -129,7 +129,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	steps = append(steps, loop.Op.AsStep())
 	switch wekaManualOperation.Spec.Action {
-	case "block-drive":
+	case "block-drives":
 		// block drive operation does not have a success callback, as it also does not have cleanup
 		steps = append(steps, lifecycle.Step{
 			Name: "UpdateSuccess",
