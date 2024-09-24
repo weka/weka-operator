@@ -532,6 +532,7 @@ async def get_containers():
 
 async def ensure_weka_container():
     current_containers = await get_containers()
+
     if len(current_containers) == 0:
         logging.info("no pre-existing containers, creating")
         # create container
@@ -540,19 +541,34 @@ async def ensure_weka_container():
         else:
             raise NotImplementedError(f"Unsupported mode: {MODE}")
 
+    full_cores = find_full_cores(NUM_CORES)
+
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
     resources, stderr, ec = await run_command("weka local resources --json")
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
+
+    #TODO: Normalize to have common logic between setup and reconfigure, including between clients and backends
+    if MODE == "client" and len(resources['nodes']) != (NUM_CORES+1):
+        stdout, stderr, ec = await run_command(f"weka local resources cores -C {NAME} --only-frontend-cores {NUM_CORES} --core-ids {','.join(map(str, full_cores[:NUM_CORES]))}")
+        if ec != 0:
+            raise Exception(f"Failed to get frontend cores: {stderr}")
+
+
+    # TODO: unite with above block as single getter
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json")
+    if ec != 0:
+        raise Exception(f"Failed to get resources: {stderr}")
+    resources = json.loads(resources)
+
     if MODE == "s3":
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
     resources['auto_discovery_enabled'] = False
 
-    full_cores = find_full_cores(NUM_CORES)
     cores_cursor = 0
     for node_id, node in resources['nodes'].items():
         if node['dedicate_core']:
