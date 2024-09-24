@@ -39,6 +39,18 @@ type WekahomeClientConfig struct {
 	CacertSecret string `json:"cacertSecret,omitempty"`
 }
 
+type UpgradePolicyType string
+
+const (
+	UpgradePolicyTypeManual    UpgradePolicyType = "manual"
+	UpgradePolicyTypeRolling   UpgradePolicyType = "rolling"
+	UpgradePolicyTypeAllAtOnce UpgradePolicyType = "all-at-once"
+)
+
+type UpgradePolicy struct {
+	Type UpgradePolicyType `json:"type,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// Used in new format
@@ -62,6 +74,7 @@ type WekaClientSpec struct {
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	WekaHomeConfig      WekahomeClientConfig `json:"wekaHomeConfig,omitempty"`
+	UpgradePolicy       UpgradePolicy        `json:"upgradePolicy,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
