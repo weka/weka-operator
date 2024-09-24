@@ -32,6 +32,7 @@ type WekaContainerMode string
 
 const (
 	WekaContainerModeDist           = "dist"
+	WekaContainerModeDriversDist    = "drivers-dist"
 	WekaContainerModeDriversLoader  = "drivers-loader"
 	WekaContainerModeDriversBuilder = "drivers-builder"
 	WekaContainerModeCompute        = "compute"
@@ -171,7 +172,7 @@ func (w *WekaContainer) DriversReady() bool {
 }
 
 func (w *WekaContainer) IsDistMode() bool {
-	return w.Spec.Mode == WekaContainerModeDist
+	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversDist}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDriversLoaderMode() bool {
@@ -183,7 +184,16 @@ func (w *WekaContainer) RequiresDrivers() bool {
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDiscovery, WekaContainerModeDriversBuilder, WekaContainerModeEnvoy, WekaContainerModeAdhocOpWC, WekaContainerModeAdhocOp}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeDist,
+		WekaContainerModeDriversDist,
+		WekaContainerModeDriversLoader,
+		WekaContainerModeDiscovery,
+		WekaContainerModeDriversBuilder,
+		WekaContainerModeEnvoy,
+		WekaContainerModeAdhocOpWC,
+		WekaContainerModeAdhocOp,
+	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
@@ -191,11 +201,16 @@ func (w *WekaContainer) IsHostNetwork() bool {
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDist, WekaContainerModeDriversLoader, WekaContainerModeDriversBuilder}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeDist,
+		WekaContainerModeDriversDist,
+		WekaContainerModeDriversLoader,
+		WekaContainerModeDriversBuilder,
+	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDriversBuilder() bool {
-	return w.Spec.Mode == WekaContainerModeDriversBuilder
+	return slices.Contains([]string{WekaContainerModeDriversBuilder, WekaContainerModeDist}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsBackend() bool {
@@ -218,6 +233,7 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeEnvoy,
 		WekaContainerModeClient,
 		WekaContainerModeDist,
+		WekaContainerModeDriversDist,
 	}, w.Spec.Mode)
 }
 
@@ -246,7 +262,15 @@ func (w *WekaContainer) IsAllocatable() bool {
 }
 
 func (w *WekaContainer) HasAgent() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeEnvoy, WekaContainerModeDist, WekaContainerModeAdhocOpWC}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeDrive,
+		WekaContainerModeCompute,
+		WekaContainerModeS3,
+		WekaContainerModeEnvoy,
+		WekaContainerModeDist,
+		WekaContainerModeDriversDist,
+		WekaContainerModeAdhocOpWC,
+	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
