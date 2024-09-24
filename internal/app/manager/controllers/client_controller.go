@@ -386,6 +386,15 @@ func (r *ClientReconciler) HandleSpecUpdates(ctx context.Context, wekaClient *we
 				changed = true
 			}
 
+			if container.Spec.NumCores != wekaClient.Spec.CoresNumber {
+				if wekaClient.Spec.CoresNumber < container.Spec.NumCores {
+					logger.Error(errors.New("CoresNumber cannot be decreased"), "CoresNumber cannot be decreased, ignoring the change")
+				} else {
+					container.Spec.NumCores = wekaClient.Spec.CoresNumber
+					changed = true
+				}
+			}
+
 			tolerations := resources.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
 				container.Spec.Tolerations = tolerations
