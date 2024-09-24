@@ -425,15 +425,7 @@ async def load_drivers():
         stdout, stderr, ec = await run_command(cmd)
         if ec != 0:
             logging.error(f"Failed to load drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
-            write_results(dict(
-                err=stderr.decode('utf-8'),
-                drivers_loaded=False,
-            ))
             raise Exception(f"Failed to load drivers: {stderr.decode('utf-8')}")
-    write_results(dict(
-        err=None,
-        drivers_loaded=True
-    ))
     logging.info("All drivers loaded successfully")
 
 
@@ -1454,11 +1446,19 @@ async def main():
         while time.time() < end_time:
             try:
                 await load_drivers()
+                write_results(dict(
+                    err=None,
+                    drivers_loaded=True
+                ))
                 logging.info("Drivers loaded successfully")
                 return
-            except:
+            except Exception as e:
                 if time.time() > end_time:
-                    raise
+                    write_results(dict(
+                        err=str(e),
+                        drivers_loaded=False,
+                    ))
+                    raise e
                 logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
                 await asyncio.sleep(1)
         return
