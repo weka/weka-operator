@@ -71,8 +71,10 @@ spec:
                     required:
                     - type
                     type: object
-                required:
-                - interval
+                  waitForPolicies:
+                    items:
+                      type: string
+                    type: array
                 type: object
               type:
                 type: string
