@@ -80,7 +80,6 @@ func (s RoleNodeSelector) ForRole(role string) map[string]string {
 
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
-	Size               int               `json:"size,omitempty"`
 	Template           string            `json:"template"`
 	Image              string            `json:"image"`
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
