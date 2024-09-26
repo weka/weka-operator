@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/weka/weka-k8s-api/compare/v1.2.0...v1.2.1) (2024-09-26)
+
+
+### Bug Fixes
+
+* drivers-dist in allowed values ([fd6ee7b](https://github.com/weka/weka-k8s-api/commit/fd6ee7b9ecd7f2c2f2b7e159bae3a9437f22bd39))
+
 # [1.2.0](https://github.com/weka/weka-k8s-api/compare/v1.1.1...v1.2.0) (2024-09-26)
 
 
