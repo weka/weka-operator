@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/weka/weka-k8s-api/compare/v1.1.0...v1.1.1) (2024-09-26)
+
+
+### Bug Fixes
+
+* rename new set of driver modes, keeping legacy intact ([5622d96](https://github.com/weka/weka-k8s-api/commit/5622d96a99ccfdf1a47893c1a498f5058cbd741d))
+
 # [1.1.0](https://github.com/weka/weka-k8s-api/compare/v1.0.2...v1.1.0) (2024-09-26)
 
 
