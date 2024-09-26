@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -42,7 +41,6 @@ func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
 	return &containerReconcilerLoop{
 		Client:      kClient,
 		Scheme:      mgr.GetScheme(),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
 		KubeService: kubernetes.NewKubeService(mgr.GetClient()),
 		ExecService: execService,
 		Manager:     mgr,
@@ -63,7 +61,6 @@ func (lm *LockMap) GetLock(id string) *sync.Mutex {
 type containerReconcilerLoop struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	Logger           logr.Logger
 	KubeService      kubernetes.KubeService
 	ExecService      exec.ExecService
 	Manager          ctrl.Manager
@@ -123,6 +120,13 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotSet,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.alignAppliedImage,
+				Predicates: lifecycle.Predicates{
+					loop.IsNotAlignedImage,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -254,7 +258,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{
 				Run: loop.handleImageUpdate,
 				Predicates: lifecycle.Predicates{
-					lifecycle.IsNotFunc(container.IsClientContainer),
 					func() bool {
 						return container.Spec.Image != container.Status.LastAppliedImage
 					},
@@ -893,7 +896,7 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 		logger.Info("Drivers not loaded, ensuring drivers dist service")
 		err2 := r.ensureDriversLoader(ctx)
 		if err2 != nil {
-			r.Logger.Error(err2, "Error ensuring drivers loader", "container", container.Name)
+			logger.Error(err2, "Error ensuring drivers loader", "container", container.Name)
 		}
 	}
 
@@ -1176,9 +1179,12 @@ func (r *containerReconcilerLoop) getDriveUUID(ctx context.Context, executor uti
 }
 
 func (r *containerReconcilerLoop) isDrivePresigned(ctx context.Context, executor util.Exec, drive string) (bool, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriveIsPresigned", []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
 	if err != nil {
-		r.Logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
+		logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
 		return false, errors.Wrap(err, stderr.String())
 	}
 	const WEKA_SIGNATURE = "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
@@ -1255,7 +1261,7 @@ func (r *containerReconcilerLoop) forceResignDrive(ctx context.Context, executor
 	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
 	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
 	if err != nil {
-		r.Logger.Error(err, "Error signing drive", "drive", drive, "stderr", stderr.String())
+		logger.Error(err, "Error signing drive", "drive", drive, "stderr", stderr.String())
 	}
 	return err
 }
@@ -1291,28 +1297,31 @@ func (r *containerReconcilerLoop) JoinS3Cluster(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImageUpdate")
+	defer end()
+
 	container := r.container
 	pod := r.pod
 
-	if container.Spec.Mode == "client" {
-		// leaving client operation to user
+	upgradeType := container.Spec.UpgradePolicyType
+	if upgradeType == "" {
+		upgradeType = weka.UpgradePolicyTypeManual
+	}
+	if container.Spec.Mode == "client" && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
+		// leaving client operation to user and we will apply lastappliedimage if pod got restarted
+		logger.Info("Skipping client ugprade")
 		return nil
 	}
 
 	if container.Spec.Image != container.Status.LastAppliedImage {
 		var wekaPodContainer v1.Container
-		found := false
-		for _, podContainer := range pod.Spec.Containers {
-			if podContainer.Name == "weka-container" {
-				wekaPodContainer = podContainer
-				found = true
-			}
-		}
-		if !found {
-			return errors.New("Weka container not found in pod")
+		wekaPodContainer, err := r.getWekaPodContainer(pod)
+		if err != nil {
+			return err
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
+			logger.Info("Deleting pod to apply new image")
 			// delete pod
 			err := r.Delete(ctx, pod)
 			if err != nil {
@@ -1322,10 +1331,12 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		}
 
 		if pod.GetDeletionTimestamp() != nil {
-			return errors.New("Podis being deleted, waiting")
+			logger.Info("Pod is being deleted, waiting")
+			return errors.New("Pod is being deleted, waiting")
 		}
 
 		if pod.Status.Phase != v1.PodRunning {
+			logger.Info("Pod is not running yet")
 			return errors.New("Pod is not running yet")
 		}
 
@@ -1333,6 +1344,15 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		return r.Status().Update(ctx, container)
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) getWekaPodContainer(pod *v1.Pod) (v1.Container, error) {
+	for _, podContainer := range pod.Spec.Containers {
+		if podContainer.Name == "weka-container" {
+			return podContainer, nil
+		}
+	}
+	return v1.Container{}, errors.New("Weka container not found in pod")
 }
 
 func (r *containerReconcilerLoop) PodNotSet() bool {
@@ -1654,6 +1674,25 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 		if r.pod != nil {
 			return r.Client.Delete(ctx, r.pod)
 		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
+	return r.container.Status.LastAppliedImage != r.container.Spec.Image
+}
+
+func (r *containerReconcilerLoop) alignAppliedImage(ctx context.Context) error {
+	// this should be needed only in case of manual upgrade of pods(clients)
+	// if we already started pod with new image, lets fix applied image
+	wekaPodContainer, err := r.getWekaPodContainer(r.pod)
+	if err != nil {
+		return err
+	}
+
+	if r.container.Status.LastAppliedImage != wekaPodContainer.Image {
+		r.container.Status.LastAppliedImage = wekaPodContainer.Image
+		return r.Status().Update(ctx, r.container)
 	}
 	return nil
 }

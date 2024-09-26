@@ -172,6 +172,11 @@ spec:
               upgradePolicy:
                 properties:
                   type:
+                    default: rolling
+                    enum:
+                    - manual
+                    - all-at-once
+                    - rolling
                     type: string
                 type: object
               wekaHomeConfig:

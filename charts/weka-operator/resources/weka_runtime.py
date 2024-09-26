@@ -1459,6 +1459,7 @@ async def main():
         # 2 minutes timeout for driver loading
         end_time = time.time() + 120
         await disable_driver_signing()
+        loaded = False
         while time.time() < end_time:
             try:
                 await load_drivers()
@@ -1467,8 +1468,10 @@ async def main():
                     drivers_loaded=True
                 ))
                 logging.info("Drivers loaded successfully")
+                loaded = True
                 return
             except Exception as e:
+                await asyncio.sleep(1)
                 if time.time() > end_time:
                     write_results(dict(
                         err=str(e),
@@ -1476,7 +1479,8 @@ async def main():
                     ))
                     raise e
                 logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
-                await asyncio.sleep(1)
+        if not loaded:
+            raise Exception("Failed to load drivers")
         return
 
     if MODE == "discovery":
