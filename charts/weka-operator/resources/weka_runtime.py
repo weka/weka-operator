@@ -1504,10 +1504,10 @@ async def main():
     await ensure_weka_version()
     await override_dependencies_flag()
 
-    if MODE not in ["dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
+    if MODE not in ["dist","drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
         await ensure_drivers()
 
-    if MODE == "dist":
+    if MODE == "drivers-dist":
         # Dist is only serving, we will invoke downloads on it, probably in stand-alone ad-hoc container, but never actually build
         # if DIST_LEGACY_MODE:
         logging.info("dist-service flow")
@@ -1542,7 +1542,8 @@ async def main():
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return
 
-    if MODE == "drivers-builder":
+    # de-facto, both drivers-builder and dist right now are doing "build and serve"
+    if MODE in ["dist", "drivers-builder"]:
         logging.info("dist-service flow")
         if is_google_cos():
             await install_gsutil()

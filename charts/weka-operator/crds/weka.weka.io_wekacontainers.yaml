@@ -120,6 +120,7 @@ spec:
                 - compute
                 - client
                 - dist
+                - drivers-dist
                 - drivers-loader
                 - drivers-builder
                 - discovery

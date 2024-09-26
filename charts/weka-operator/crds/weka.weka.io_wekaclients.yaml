@@ -169,6 +169,11 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              upgradePolicy:
+                properties:
+                  type:
+                    type: string
+                type: object
               wekaHomeConfig:
                 properties:
                   cacertSecret:

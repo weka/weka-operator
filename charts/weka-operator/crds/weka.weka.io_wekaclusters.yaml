@@ -228,8 +228,6 @@ spec:
                       type: string
                     type: object
                 type: object
-              size:
-                type: integer
               template:
                 type: string
               tolerations:
