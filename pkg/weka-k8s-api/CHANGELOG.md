@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/weka/weka-k8s-api/compare/v1.0.2...v1.1.0) (2024-09-26)
+
+
+### Features
+
+* upgrade policies for clients ([7c3371f](https://github.com/weka/weka-k8s-api/commit/7c3371f77f91fa86a24310f507b247c2b7d56a07))
+
 ## [1.0.2](https://github.com/weka/weka-k8s-api/compare/v1.0.1...v1.0.2) (2024-09-17)
 
 
