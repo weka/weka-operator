@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/weka/weka-k8s-api/compare/v1.1.1...v1.2.0) (2024-09-26)
+
+
+### Features
+
+* policies should run only if pre-requisite policies have completed ([1a26f1c](https://github.com/weka/weka-k8s-api/commit/1a26f1c34d21a51cd9ae476376e2b227b7e89326))
+
 ## [1.1.1](https://github.com/weka/weka-k8s-api/compare/v1.1.0...v1.1.1) (2024-09-26)
 
 
