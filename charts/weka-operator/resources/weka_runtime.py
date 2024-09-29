@@ -1650,7 +1650,8 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
-    if MODE in ["client"] and "4.2.7.64" in IMAGE_NAME:
+    if MODE in ["client", "s3"]:
+        #TODO: Might be not needed in 4.4.1
         stdout, stderr, ec = await run_command("echo prepare-upgrade > /proc/wekafs/interface", capture_stdout=False)
         if ec != 0:
             logging.error(f"Failed to prepare for upgrade: {stderr}")
@@ -1668,11 +1669,6 @@ async def shutdown():
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
         logging.info("finished stopping weka container")
-
-    if MODE in ["client"] and "4.2.7.64" in IMAGE_NAME:
-        stdout, stderr, ec = await run_command("rmmod wekafsio", capture_stdout=False)
-        if ec != 0:
-            logging.error(f"Failed to rmmod wekafs: {stderr}")
 
     for key, process in dict(processes.items()).items():
         logging.info(f"stopping process {process.pid}, {key}")
