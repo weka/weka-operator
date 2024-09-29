@@ -95,6 +95,9 @@ type WekaContainerSpec struct {
 	Instructions          string               `json:"instructions,omitempty"`
 	NoAffinityConstraints bool                 `json:"dropAffinityConstraints,omitempty"`
 	UploadResultsTo       string               `json:"uploadResultsTo,omitempty"`
+	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
+	// +kubebuilder:default=manual
+	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
 }
 
 type Network struct {

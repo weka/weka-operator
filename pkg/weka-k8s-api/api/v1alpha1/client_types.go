@@ -48,6 +48,8 @@ const (
 )
 
 type UpgradePolicy struct {
+	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
+	// +kubebuilder:default=rolling
 	Type UpgradePolicyType `json:"type,omitempty"`
 }
 

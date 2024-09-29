@@ -227,6 +227,13 @@ spec:
                     default: 10
                     type: integer
                 type: object
+              upgradePolicyType:
+                default: manual
+                enum:
+                - manual
+                - all-at-once
+                - rolling
+                type: string
               uploadResultsTo:
                 type: string
               wekaSecretRef:
