@@ -747,58 +747,6 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	cluster := r.cluster
 	clusterService := r.clusterService
 
-	updateContainer := func(container *wekav1alpha1.WekaContainer) error {
-		if container.Status.LastAppliedImage != cluster.Spec.Image {
-			if container.Spec.Image != cluster.Spec.Image {
-				container.Spec.Image = cluster.Spec.Image
-				if err := r.getClient().Update(ctx, container); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	areUpgraded := func(containers []*wekav1alpha1.WekaContainer) bool {
-		for _, container := range containers {
-			if container.Status.LastAppliedImage != container.Spec.Image {
-				return false
-			}
-		}
-		return true
-	}
-
-	allAtOnceUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
-		for _, container := range containers {
-			if err := updateContainer(container); err != nil {
-				return err
-			}
-		}
-		if !areUpgraded(containers) {
-			return errors.New("containers upgrade not finished yet")
-		}
-		return nil
-	}
-	_ = allAtOnceUpgrade // preserving function to return later, so weka will manage the order
-
-	rollingUpgrade := func(containers []*wekav1alpha1.WekaContainer) error {
-		for _, container := range containers {
-			if container.Status.LastAppliedImage != container.Spec.Image {
-				return errors.New("container upgrade not finished yet")
-			}
-		}
-
-		for _, container := range containers {
-			if container.Spec.Image != cluster.Spec.Image {
-				err := updateContainer(container)
-				if err != nil {
-					return err
-				}
-				return errors.New("container upgrade not finished yet")
-			}
-		}
-		return nil
-	}
-
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
 		driveContainers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
@@ -820,7 +768,17 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = rollingUpgrade(driveContainers)
+		wekaService := services.NewWekaService(r.ExecService, r.SelectActiveContainer(r.containers))
+		status, err := wekaService.GetWekaStatus(ctx)
+		if err != nil {
+			return err
+		}
+		if status.Status != "OK" {
+			return lifecycle.NewWaitError(errors.New("Weka status is not OK, waiting to stabilize. status:" + status.Status))
+		}
+
+		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
+		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
 		}
@@ -844,7 +802,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		err = rollingUpgrade(computeContainers)
+		uController = NewUpgradeController(r.getClient(), computeContainers, cluster.Spec.Image)
+		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
 		}
@@ -866,7 +825,9 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 				return err
 			}
 		}
-		err = rollingUpgrade(s3Containers)
+
+		uController = NewUpgradeController(r.getClient(), s3Containers, cluster.Spec.Image)
+		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
 		}

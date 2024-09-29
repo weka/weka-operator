@@ -70,6 +70,7 @@ func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *weka.WekaClient) lifecyc
 			{Run: loop.ensureFinalizer},
 			{Run: loop.EnsureClientsWekaContainers},
 			{Run: loop.HandleSpecUpdates},
+			{Run: loop.HandleUpgrade},
 		},
 	}
 }
@@ -253,6 +254,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Tolerations:         tolerations,
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 			AdditionalSecrets:   additionalSecrets,
+			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
 		},
 	}
 	return container, nil
@@ -347,11 +349,6 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
-	if container.Spec.Image != wekaClient.Spec.Image {
-		container.Spec.Image = wekaClient.Spec.Image
-		changed = true
-	}
-
 	if container.Spec.ImagePullSecret != wekaClient.Spec.ImagePullSecret {
 		container.Spec.ImagePullSecret = wekaClient.Spec.ImagePullSecret
 		changed = true
@@ -362,9 +359,14 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.UpgradePolicyType != wekaClient.Spec.UpgradePolicy.Type {
+		container.Spec.UpgradePolicyType = wekaClient.Spec.UpgradePolicy.Type
+		changed = true
+	}
+
 	if container.Spec.NumCores != wekaClient.Spec.CoresNumber {
 		if wekaClient.Spec.CoresNumber < container.Spec.NumCores {
-			logger.Error(errors.New("CoresNumber cannot be decreased"), "CoresNumber cannot be decreased, ignoring the change")
+			logger.Error(errors.New("coresNum cannot be decreased"), "coresNum cannot be decreased, ignoring the change")
 		} else {
 			container.Spec.NumCores = wekaClient.Spec.CoresNumber
 			changed = true
@@ -393,4 +395,22 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
 	}
 	return nodes, nil
+}
+
+func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
+	uController := NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
+	if uController.AreUpgraded() {
+		return nil
+	}
+
+	switch c.wekaClient.Spec.UpgradePolicy.Type {
+	case wekav1alpha1.UpgradePolicyTypeAllAtOnce:
+		return uController.AllAtOnceUpgrade(ctx)
+	case wekav1alpha1.UpgradePolicyTypeRolling:
+		return uController.RollingUpgrade(ctx)
+	default:
+		// we are relying on container to treat self-upgrade as manual(i.e not replacing pod) by propagating mode into it
+		return uController.AllAtOnceUpgrade(ctx)
+	}
+
 }
