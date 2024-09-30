@@ -192,6 +192,9 @@ runcontroller: ## Run a controller from your host.
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
+	VERSION=${VERSION} \
+	LOG_LEVEL=0 \
+	LOG_TIME_ONLY=true \
 	go run ./cmd/manager/main.go \
 	--enable-cluster-api=$(ENABLE_CLUSTER_API) \
 	--tombstone-expiration=$(TOMBSTONE_EXPIRATION)

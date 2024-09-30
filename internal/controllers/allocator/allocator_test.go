@@ -5,10 +5,15 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zerologr"
+	"github.com/rs/zerolog"
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -98,9 +103,38 @@ func buildTestClusters(numClusters int) []*weka.WekaCluster {
 	return clusters
 }
 
+func setupLogging(ctx context.Context) (context.Context, func(context.Context) error, error) {
+	var logger logr.Logger
+	if os.Getenv("DEBUG") == "true" {
+		// Debug logger
+		writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
+		zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
+		logger = zerologr.New(&zeroLogger)
+	} else {
+		// Logger that drops/silences messages for unit testing
+		zeroLogger := zerolog.Nop()
+		logger = zerologr.New(&zeroLogger)
+	}
+
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "test-weka-operator", "", logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Failed to set up OTel SDK: %v", err)
+	}
+
+	ctx, _ = instrumentation.GetLoggerForContext(ctx, &logger, "")
+	return ctx, shutdown, nil
+}
+
 func TestAllocatePort(t *testing.T) {
 	//TODO: Test commented out as it is using factory creating cyclic import that needs to be broken. Fix this test it is important
 	ctx := context.Background()
+
+	ctx, shutdown, err := setupLogging(ctx)
+	if err != nil {
+		t.Fatalf("Failed to setup test environment: %v", err)
+	}
+	defer shutdown(ctx)
+
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TestAllocatePort")
 	defer end()
 

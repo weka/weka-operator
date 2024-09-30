@@ -3,7 +3,7 @@ package allocator
 import (
 	"context"
 
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"

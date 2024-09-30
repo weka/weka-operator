@@ -21,8 +21,8 @@ import (
 
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,6 +35,8 @@ type ClientController struct {
 func NewClientController(mgr ctrl.Manager) *ClientController {
 	return &ClientController{Manager: mgr}
 }
+
+func (c *ClientController) RunGC(ctx context.Context) {}
 
 // Run is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

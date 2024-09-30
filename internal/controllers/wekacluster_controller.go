@@ -9,9 +9,9 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/services"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,9 +51,11 @@ func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
 		Recorder:       mgr.GetEventRecorderFor("wekaCluster-controller"),
 		SecretsService: services.NewSecretsService(client, scheme, execService),
 	}
-
-	go ret.GCLoop()
 	return ret
+}
+
+func (r *WekaClusterReconciler) RunGC(ctx context.Context) {
+	go r.GCLoop(ctx)
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -264,13 +266,12 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 		Complete(wrappedReconcile)
 }
 
-func (r *WekaClusterReconciler) GCLoop() {
-	ctx := context.Background()
-	for {
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
-		//getlogspan
-		defer end()
+func (r *WekaClusterReconciler) GCLoop(ctx context.Context) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
+	//getlogspan
+	defer end()
 
+	for {
 		err := r.GC(ctx)
 		if err != nil {
 			logger.Error(err, "gc failed")

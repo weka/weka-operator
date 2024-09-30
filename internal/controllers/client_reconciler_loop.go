@@ -8,11 +8,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -46,11 +45,11 @@ type clientReconcilerLoop struct {
 	KubeService kubernetes.KubeService
 	Manager     ctrl.Manager
 	Recorder    record.EventRecorder
-	containers  []*wekav1alpha1.WekaContainer
-	wekaClient  *weka.WekaClient
+	containers  []*v1alpha1.WekaContainer
+	wekaClient  *v1alpha1.WekaClient
 }
 
-func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
+func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *v1alpha1.WekaClient) lifecycle.ReconciliationSteps {
 	loop := NewClientReconcileLoop(mgr)
 	loop.wekaClient = wekaClient
 
@@ -141,7 +140,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		return err
 	}
 
-	foundContainers := []*wekav1alpha1.WekaContainer{}
+	foundContainers := []*v1alpha1.WekaContainer{}
 	size := len(nodes)
 	if size == 0 {
 		return nil
@@ -157,7 +156,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 			return errors.Wrap(err, "failed to set controller reference")
 		}
 
-		found := &wekav1alpha1.WekaContainer{}
+		found := &v1alpha1.WekaContainer{}
 		err = c.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
 		if err != nil && apierrors.IsNotFound(err) {
 			// TODO: Wasteful approach right now, each client fetches separately
@@ -184,7 +183,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 	return nil
 }
 
-func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nodeName string) (*wekav1alpha1.WekaContainer, error) {
+func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nodeName string) (*v1alpha1.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", nodeName)
 	defer end()
 
@@ -223,7 +222,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		return nil, err
 	}
 
-	container := &wekav1alpha1.WekaContainer{
+	container := &v1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
 			Kind:       "WekaContainer",
@@ -233,8 +232,8 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Namespace: wekaClient.Namespace,
 			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
 		},
-		Spec: wekav1alpha1.WekaContainerSpec{
-			NodeAffinity:        wekav1alpha1.NodeName(nodeName),
+		Spec: v1alpha1.WekaContainerSpec{
+			NodeAffinity:        v1alpha1.NodeName(nodeName),
 			Port:                wekaClient.Spec.Port,
 			AgentPort:           wekaClient.Spec.AgentPort,
 			Image:               wekaClient.Spec.Image,
@@ -286,7 +285,7 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	emptyTarget := wekav1alpha1.ObjectReference{}
+	emptyTarget := v1alpha1.ObjectReference{}
 	if c.wekaClient.Spec.TargetCluster == emptyTarget {
 		return nil
 	}
@@ -337,7 +336,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *v1alpha1.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"

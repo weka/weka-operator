@@ -6,9 +6,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +38,8 @@ type policyLoop struct {
 	Client client.Client
 	Op     operations.Operation
 }
+
+func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}
 
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/status,verbs=get;update;patch

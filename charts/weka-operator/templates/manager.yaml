@@ -82,6 +82,8 @@ spec:
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"
+            - name: VERSION
+              value: "{{ .Values.Version }}"
             - name: WEKA_OPERATOR_WEKA_HOME_ENDPOINT
               value: "{{ .Values.wekahome.endpoint }}"
             - name: WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET
@@ -112,6 +114,10 @@ spec:
               value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}"
             - name: WEKA_COS_SERVICE_ACCOUNT_SECRET
               value: "{{ .Values.gkeCompatibility.gkeServiceAccountSecret }}"
+            - name: LOG_LEVEL
+              value: "{{ .Values.logging.level }}"
+            - name: LOG_TIME_ONLY
+              value: "{{ .Values.logging.timeOnly }}"
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
           imagePullPolicy: Always
