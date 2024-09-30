@@ -403,9 +403,9 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	}
 
 	switch c.wekaClient.Spec.UpgradePolicy.Type {
-	case wekav1alpha1.UpgradePolicyTypeAllAtOnce:
+	case v1alpha1.UpgradePolicyTypeAllAtOnce:
 		return uController.AllAtOnceUpgrade(ctx)
-	case wekav1alpha1.UpgradePolicyTypeRolling:
+	case v1alpha1.UpgradePolicyTypeRolling:
 		return uController.RollingUpgrade(ctx)
 	default:
 		// we are relying on container to treat self-upgrade as manual(i.e not replacing pod) by propagating mode into it
