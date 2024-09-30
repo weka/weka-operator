@@ -201,12 +201,15 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 
 	additionalSecrets := map[string]string{}
 
-	whCaCert := wekaClient.Spec.WekaHomeConfig.CacertSecret
-	if whCaCert == "" {
-		wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
-		if isSet {
-			if wekaHomeCacertSecret != "" {
-				whCaCert = wekaHomeCacertSecret
+	whCaCert := ""
+	if wekaClient.Spec.WekaHome != nil {
+		whCaCert = wekaClient.Spec.WekaHome.CacertSecret
+		if whCaCert == "" {
+			wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
+			if isSet {
+				if wekaHomeCacertSecret != "" {
+					whCaCert = wekaHomeCacertSecret
+				}
 			}
 		}
 	}
