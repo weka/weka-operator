@@ -662,6 +662,11 @@ func (in *WekaClientSpec) DeepCopyInto(out *WekaClientSpec) {
 		}
 	}
 	out.WekaHomeConfig = in.WekaHomeConfig
+	if in.WekaHome != nil {
+		in, out := &in.WekaHome, &out.WekaHome
+		*out = new(WekahomeClientConfig)
+		**out = **in
+	}
 	out.UpgradePolicy = in.UpgradePolicy
 }
 
@@ -784,8 +789,8 @@ func (in *WekaClusterSpec) DeepCopyInto(out *WekaClusterSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.WekaHomeConfig != nil {
-		in, out := &in.WekaHomeConfig, &out.WekaHomeConfig
+	if in.WekaHome != nil {
+		in, out := &in.WekaHome, &out.WekaHome
 		*out = new(WekaHomeConfig)
 		(*in).DeepCopyInto(*out)
 	}

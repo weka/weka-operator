@@ -56,7 +56,7 @@ type WekaHomeConfig struct {
 	Endpoint      string `json:"endpoint,omitempty"`
 	AllowInsecure bool   `json:"allowInsecure,omitempty"`
 	CacertSecret  string `json:"cacertSecret,omitempty"`
-	EnableStats   *bool  `json:"enableStats"`
+	EnableStats   *bool  `json:"enableStats,omitempty"`
 }
 
 type RoleNodeSelector struct {
@@ -92,7 +92,7 @@ type WekaClusterSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
-	WekaHomeConfig      *WekaHomeConfig      `json:"wekaHomeEndpoint,omitempty"`
+	WekaHome            *WekaHomeConfig      `json:"wekaHome,omitempty"`
 	Ipv6                bool                 `json:"ipv6,omitempty"`
 	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
 	Ports               ClusterPorts         `json:"ports,omitempty"`

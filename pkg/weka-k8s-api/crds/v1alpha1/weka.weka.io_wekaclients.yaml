@@ -179,7 +179,14 @@ spec:
                     - rolling
                     type: string
                 type: object
+              wekaHome:
+                properties:
+                  cacertSecret:
+                    type: string
+                type: object
               wekaHomeConfig:
+                description: DEPRECATED, kept for compatibility with old API clients,
+                  not taking any action, to be removed on new API version
                 properties:
                   cacertSecret:
                     type: string

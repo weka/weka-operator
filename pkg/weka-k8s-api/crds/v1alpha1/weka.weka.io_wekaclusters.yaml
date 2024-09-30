@@ -245,7 +245,7 @@ spec:
                     default: 10
                     type: integer
                 type: object
-              wekaHomeEndpoint:
+              wekaHome:
                 properties:
                   allowInsecure:
                     type: boolean
@@ -255,8 +255,6 @@ spec:
                     type: boolean
                   endpoint:
                     type: string
-                required:
-                - enableStats
                 type: object
             required:
             - image
