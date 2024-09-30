@@ -127,8 +127,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
-github.com/weka/go-weka-observability v0.0.0-20240926164621-f02e6062827c h1:FINUpq4eHBCmsWP10cGk3AwYAZEb4WxchzTQqvV5q3k=
-github.com/weka/go-weka-observability v0.0.0-20240926164621-f02e6062827c/go.mod h1:kjA4Lij9vLauDwKo+3/n32gTHa7n6YyIVD/IzAOnRHA=
+github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c h1:oJqUAJdXXOWLTHuVxJRGypIUxEhndEK18NfQnR4LZ2c=
+github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c/go.mod h1:kjA4Lij9vLauDwKo+3/n32gTHa7n6YyIVD/IzAOnRHA=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

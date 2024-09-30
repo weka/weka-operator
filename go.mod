@@ -12,7 +12,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-password v0.3.1
-	github.com/weka/go-weka-observability v0.0.0-20240926164621-f02e6062827c
+	github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c
 	github.com/weka/weka-k8s-api v0.0.0
 	go.opentelemetry.io/otel v1.28.0
 	go.opentelemetry.io/otel/trace v1.28.0

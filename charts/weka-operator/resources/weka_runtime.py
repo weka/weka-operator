@@ -960,10 +960,18 @@ async def configure_persistency():
 
     command = dedent(f"""
         mkdir -p /opt/weka-preinstalled
+        # --- save weka image data separately
         mount -o bind /opt/weka /opt/weka-preinstalled
+        # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
+        # --- put existing drivers from persistent dir to weka-preinstalled
+        mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
+        mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka-preinstalled/dist/drivers
         mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
         mkdir -p /opt/weka/dist
+        # --- put weka dist back on top
         mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
+        # --- make drivers dir persistent
+        mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
 
         if [ -d /opt/k8s-weka/boot-level ]; then
             BOOT_DIR=/opt/k8s-weka/boot-level/$(cat /proc/sys/kernel/random/boot_id)
