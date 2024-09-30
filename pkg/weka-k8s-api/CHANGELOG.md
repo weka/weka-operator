@@ -1,3 +1,11 @@
+## [1.2.2](https://github.com/weka/weka-k8s-api/compare/v1.2.1...v1.2.2) (2024-09-30)
+
+
+### Bug Fixes
+
+* upgradePolicyType on container, to propagate desired behaviour ([9b60151](https://github.com/weka/weka-k8s-api/commit/9b601514f83115226f0dcf982a5653ba687ae97d))
+* upgradePolicyType on container, to propagate desired behaviour ([#11](https://github.com/weka/weka-k8s-api/issues/11)) ([af75b24](https://github.com/weka/weka-k8s-api/commit/af75b24eb4f41584f1694f55ad6679e02da2a628))
+
 ## [1.2.1](https://github.com/weka/weka-k8s-api/compare/v1.2.0...v1.2.1) (2024-09-26)
 
 
