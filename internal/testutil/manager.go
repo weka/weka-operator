@@ -12,6 +12,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,6 +40,9 @@ func TestingManager() (*stubManager, error) {
 	scheme := runtime.NewScheme()
 	if err := wekav1alpha1.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("failed to add wekav1alpha1 to scheme: %w", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add corev1 to scheme: %w", err)
 	}
 	manager := &stubManager{
 		client: &stubClient{
@@ -109,7 +113,7 @@ type stubClient struct {
 
 // Reader
 func (c *stubClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	_, logger, done := instrumentation.GetLogSpan(ctx, "WekaClusterReconcile", "namespace", key.Namespace, "cluster_name", key.Name)
+	_, logger, done := instrumentation.GetLogSpan(ctx, "StubClient.Get", "namespace", key.Namespace, "cluster_name", key.Name)
 	defer done()
 
 	logger.Info("stubClient.Get")
@@ -151,7 +155,7 @@ func (c *stubClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 }
 
 func (c *stubClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	_, logger, done := instrumentation.GetLogSpan(ctx, "WekaClusterReconcile")
+	_, logger, done := instrumentation.GetLogSpan(ctx, "StubClient.List")
 	defer done()
 	logger.V(1).Info("stubClient.List")
 
@@ -183,6 +187,46 @@ func (c *stubClient) List(ctx context.Context, list client.ObjectList, opts ...c
 	}
 
 	itemsField.Set(reflect.MakeSlice(itemsField.Type(), 0, 0))
+
+	// Apply list options
+	for _, opt := range opts {
+		switch o := opt.(type) {
+		case client.InNamespace:
+			filteredObjects := make(map[types.NamespacedName]client.Object)
+			for key, obj := range objects {
+				if key.Namespace == string(o) {
+					filteredObjects[key] = obj
+				}
+			}
+			objects = filteredObjects
+
+		case client.MatchingFields:
+			filteredObjects := make(map[types.NamespacedName]client.Object)
+			for key, obj := range objects {
+				match := true
+				for field, value := range o {
+					if !matchField(obj, field, value) {
+						match = false
+						break
+					}
+				}
+				if match {
+					filteredObjects[key] = obj
+				}
+			}
+			objects = filteredObjects
+
+		case client.MatchingLabels:
+			filteredObjects := make(map[types.NamespacedName]client.Object)
+			for key, obj := range objects {
+				if matchLabels(obj.GetLabels(), o) {
+					filteredObjects[key] = obj
+				}
+			}
+			objects = filteredObjects
+		}
+	}
+
 	for _, object := range objects {
 		objectValue := reflect.ValueOf(object)
 		if objectValue.Kind() == reflect.Ptr {
@@ -194,9 +238,31 @@ func (c *stubClient) List(ctx context.Context, list client.ObjectList, opts ...c
 	return nil
 }
 
+// Helper functions
+func matchField(obj client.Object, field, value string) bool {
+	if field == "metadata.ownerReferences.uid" {
+		for _, owner := range obj.GetOwnerReferences() {
+			if owner.UID == types.UID(value) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+func matchLabels(objLabels, filterLabels map[string]string) bool {
+	for k, v := range filterLabels {
+		if objLabels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // Writer
 func (c *stubClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-	_, logger, done := instrumentation.GetLogSpan(ctx, "WekaClusterReconcile")
+	_, logger, done := instrumentation.GetLogSpan(ctx, "StubClient.Create")
 	defer done()
 	logger.V(1).Info("stubClient.Create")
 
@@ -225,7 +291,7 @@ func (c *stubClient) Delete(ctx context.Context, obj client.Object, opts ...clie
 func (c *stubClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 	_, logger, done := instrumentation.GetLogSpan(
 		ctx,
-		"WekaClusterReconcile",
+		"StubClient.Update",
 		"namespace", obj.GetNamespace(),
 		"cluster_name", obj.GetName(),
 	)

@@ -56,7 +56,9 @@ func NewExecWithConfig(config *rest.Config, pod NamespacedObject) (Exec, error) 
 	}, nil
 }
 
-func NewExecInPod(pod *v1.Pod) (Exec, error) {
+var NewExecInPod = newExecInPod
+
+func newExecInPod(pod *v1.Pod) (Exec, error) {
 	config, err := KubernetesConfiguration()
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
@@ -68,6 +70,10 @@ func NewExecInPod(pod *v1.Pod) (Exec, error) {
 	}
 
 	return NewExecWithConfig(config, namespacedObject)
+}
+
+func NullExecInPod(pod *v1.Pod) (Exec, error) {
+	return NewNullExec(), nil
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {

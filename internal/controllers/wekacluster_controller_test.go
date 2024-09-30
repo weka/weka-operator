@@ -20,7 +20,7 @@ import (
 // Each test represents a lifecycle stage of the WekaCluster
 
 // Test from new cluster to pods ready
-func TestReconcile(t *testing.T) {
+func TestReconcile_WekaClusterController(t *testing.T) {
 	ctx := pkgCtx
 
 	exec.NewExecService = exec.NullExecService

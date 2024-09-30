@@ -12,6 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var testingPodNamespace string = "weka-operator-system"
+
 func testingManager() (testutil.Manager, error) {
 	testingCluster := &wekav1alpha1.WekaCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -27,7 +29,7 @@ func testingManager() (testutil.Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	manager.SetState(map[string]map[types.NamespacedName]client.Object{
+	state := map[string]map[types.NamespacedName]client.Object{
 		"*v1alpha1.WekaCluster": {
 			types.NamespacedName{
 				Name:      "test-cluster",
@@ -39,6 +41,10 @@ func testingManager() (testutil.Manager, error) {
 				Name:      "weka-operator-allocmap",
 				Namespace: util.DevModeNamespace,
 			}: newAllocMap(),
+			types.NamespacedName{
+				Namespace: testingPodNamespace,
+				Name:      bootScriptConfigName,
+			}: bootScriptConfigMap(),
 		},
 		"*v1.Secret": {
 			types.NamespacedName{
@@ -52,8 +58,14 @@ func testingManager() (testutil.Manager, error) {
 				Data: map[string][]byte{},
 			},
 		},
-	})
+		"*v1.Node": {},
+	}
 
+	for _, nodeName := range []string{"node-1", "node-2", "node-3"} {
+		state["*v1.Node"][types.NamespacedName{Name: nodeName}] = newWorkerNode(nodeName)
+	}
+
+	manager.SetState(state)
 	return manager, nil
 }
 
@@ -74,6 +86,32 @@ func newAllocMap() *v1.ConfigMap {
 		},
 		BinaryData: map[string][]byte{
 			"allocmap.yaml": compressedYamlData,
+		},
+	}
+}
+
+// bootScriptConfigMap returns a config map with the boot scripts
+func bootScriptConfigMap() *v1.ConfigMap {
+	return &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bootScriptConfigName,
+			Namespace: testingPodNamespace,
+		},
+	}
+}
+
+func newWorkerNode(nodeName string) *v1.Node {
+	return &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: nodeName,
+			Labels: map[string]string{
+				"node-type": "backend",
+			},
+		},
+		Status: v1.NodeStatus{
+			NodeInfo: v1.NodeSystemInfo{
+				BootID: "boot-id",
+			},
 		},
 	}
 }
