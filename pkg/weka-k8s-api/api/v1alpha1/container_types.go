@@ -82,6 +82,7 @@ type WekaContainerSpec struct {
 	RemovePotentialDrives []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistent handler for drives
 	NumDrives             int                  `json:"numDrives,omitempty"`
 	DriversDistService    string               `json:"driversDistService,omitempty"`
+	DriversLoaderImage    string               `json:"driversLoaderImage,omitempty"`
 	WekaSecretRef         v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
 	JoinIps               []string             `json:"joinIpPorts,omitempty"`
 	TracesConfiguration   *TracesConfiguration `json:"tracesConfiguration,omitempty"`

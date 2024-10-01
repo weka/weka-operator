@@ -90,6 +90,8 @@ spec:
                 type: array
               driversDistService:
                 type: string
+              driversLoaderImage:
+                type: string
               dropAffinityConstraints:
                 type: boolean
               extraCores:

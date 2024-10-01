@@ -64,6 +64,7 @@ type WekaClientSpec struct {
 	WekaSecretRef      string            `json:"wekaSecretRef,omitempty"`
 	NetworkSelector    NetworkSelector   `json:"network,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
+	DriversLoaderImage string            `json:"driversLoaderImage,omitempty"`
 	JoinIps            []string          `json:"joinIpPorts,omitempty"`
 	TargetCluster      ObjectReference   `json:"targetCluster,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
