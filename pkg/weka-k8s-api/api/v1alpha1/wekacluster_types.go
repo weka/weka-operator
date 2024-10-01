@@ -17,13 +17,20 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type WekaClusterStatusEnum string
+
+const (
+	WekaClusterStatusInit        WekaClusterStatusEnum = "Init"
+	WekaClusterStatusReady       WekaClusterStatusEnum = "Ready"
+	WekaClusterStatusGracePeriod WekaClusterStatusEnum = "GracePeriod"
+)
 
 type NetworkSelector struct {
 	EthSlots  []string `json:"ethSlots,omitempty"`
@@ -101,6 +108,15 @@ type WekaClusterSpec struct {
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
 	NetworkSelector     NetworkSelector      `json:"network,omitempty"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:default="24h"
+	// During this period the cluster will not be destroyed (protection from accidental deletion)
+	// Note: due to discrepancies in validation vs parsing, we use a Pattern instead of `Format=duration`. See
+	// https://bugzilla.redhat.com/show_bug.cgi?id=2050332
+	// https://github.com/kubernetes/apimachinery/issues/131
+	// https://github.com/kubernetes/apiextensions-apiserver/issues/56
+	GracefulDestroyDuration metav1.Duration `json:"gracefulDestroyDuration,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
@@ -128,15 +144,19 @@ type ClusterPorts struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status           string             `json:"status"`
-	Conditions       []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	Throughput       string             `json:"throughput"`
-	ClusterID        string             `json:"clusterID,omitempty"`
-	TraceId          string             `json:"traceId,omitempty"`
-	SpanID           string             `json:"spanId,omitempty"`
-	LastAppliedImage string             `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec  string             `json:"lastAppliedSpec,omitempty"`
-	Ports            ClusterPorts       `json:"ports,omitempty"`
+	Status           WekaClusterStatusEnum `json:"status"`
+	Conditions       []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	Throughput       string                `json:"throughput"`
+	ClusterID        string                `json:"clusterID,omitempty"`
+	TraceId          string                `json:"traceId,omitempty"`
+	SpanID           string                `json:"spanId,omitempty"`
+	LastAppliedImage string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec  string                `json:"lastAppliedSpec,omitempty"`
+	Ports            ClusterPorts          `json:"ports,omitempty"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// has priority over the spec `gracefulDestroyDuration` value (if set)
+	OverrideGracefulDestroyDuration *metav1.Duration `json:"overrideGracefulDestroyDuration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -210,7 +230,7 @@ func (c *WekaCluster) GetCSISecretName() string {
 
 func (status *WekaClusterStatus) InitStatus() {
 	status.Conditions = []metav1.Condition{}
-	status.Status = "Init"
+	status.Status = WekaClusterStatusInit
 }
 
 func (w *WekaCluster) ToOwnerObject() *WekaContainerDetails {
@@ -231,7 +251,16 @@ func (c *WekaCluster) IsMarkedForDeletion() bool {
 
 func (c *WekaCluster) IsExpand() bool {
 	return len(c.Spec.ExpandEndpoints) != 0
+}
 
+func (c *WekaCluster) GetGracefulDestroyDuration() time.Duration {
+	gracefulDestroyDuration := c.Spec.GracefulDestroyDuration.Duration
+
+	if c.Status.OverrideGracefulDestroyDuration != nil {
+		overrideDuration := c.Status.OverrideGracefulDestroyDuration.Duration
+		return overrideDuration
+	}
+	return gracefulDestroyDuration
 }
 
 func init() {

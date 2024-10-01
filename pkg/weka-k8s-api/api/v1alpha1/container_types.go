@@ -59,6 +59,13 @@ type S3Params struct {
 	S3Port         int `json:"s3Port,omitempty"`
 }
 
+type ContainerState string
+
+const (
+	ContainerStateActive ContainerState = "active"
+	ContainerStatePaused ContainerState = "paused"
+)
+
 type WekaContainerSpec struct {
 	NodeAffinity      NodeName          `json:"nodeAffinity,omitempty"`
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
@@ -99,6 +106,9 @@ type WekaContainerSpec struct {
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
 	// +kubebuilder:default=manual
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
+	// +kubebuilder:validation:Enum=active;paused
+	// +kubebuilder:default=active
+	State ContainerState `json:"state,omitempty"`
 }
 
 type Network struct {
@@ -356,6 +366,10 @@ func (w *WekaContainer) GetAgentPort() int {
 
 func (c *WekaContainer) IsMarkedForDeletion() bool {
 	return !c.GetDeletionTimestamp().IsZero()
+}
+
+func (c *WekaContainer) IsPaused() bool {
+	return c.Spec.State == ContainerStatePaused
 }
 
 type WekaContainerDetails struct {

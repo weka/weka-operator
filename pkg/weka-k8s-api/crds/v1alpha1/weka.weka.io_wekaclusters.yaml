@@ -136,6 +136,16 @@ spec:
                 items:
                   type: string
                 type: array
+              gracefulDestroyDuration:
+                default: 24h
+                description: |-
+                  During this period the cluster will not be destroyed (protection from accidental deletion)
+                  Note: due to discrepancies in validation vs parsing, we use a Pattern instead of `Format=duration`. See
+                  https://bugzilla.redhat.com/show_bug.cgi?id=2050332
+                  https://github.com/kubernetes/apimachinery/issues/131
+                  https://github.com/kubernetes/apiextensions-apiserver/issues/56
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                type: string
               image:
                 type: string
               imagePullSecret:
@@ -324,6 +334,11 @@ spec:
               lastAppliedImage:
                 type: string
               lastAppliedSpec:
+                type: string
+              overrideGracefulDestroyDuration:
+                description: has priority over the spec `gracefulDestroyDuration`
+                  value (if set)
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
                 type: string
               ports:
                 properties:
