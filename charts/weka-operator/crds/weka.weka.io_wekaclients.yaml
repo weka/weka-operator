@@ -80,6 +80,8 @@ spec:
                 type: string
               driversDistService:
                 type: string
+              driversLoaderImage:
+                type: string
               image:
                 description: Used in new format
                 type: string

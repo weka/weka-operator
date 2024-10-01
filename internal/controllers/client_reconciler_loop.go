@@ -257,6 +257,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 			AdditionalSecrets:   additionalSecrets,
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
+			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
 		},
 	}
 	return container, nil
@@ -363,6 +364,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.UpgradePolicyType != wekaClient.Spec.UpgradePolicy.Type {
 		container.Spec.UpgradePolicyType = wekaClient.Spec.UpgradePolicy.Type
+		changed = true
+	}
+
+	if container.Spec.DriversLoaderImage != wekaClient.Spec.DriversLoaderImage {
+		container.Spec.DriversLoaderImage = wekaClient.Spec.DriversLoaderImage
 		changed = true
 	}
 
