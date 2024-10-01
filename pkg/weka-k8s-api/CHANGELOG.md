@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/weka/weka-k8s-api/compare/v1.2.2...v1.3.0) (2024-10-01)
+
+
+### Features
+
+* wekahome config api improvements ([f92633f](https://github.com/weka/weka-k8s-api/commit/f92633f10ace4ceba01d2346dfee84ec37459bed))
+
 ## [1.2.2](https://github.com/weka/weka-k8s-api/compare/v1.2.1...v1.2.2) (2024-09-30)
 
 
