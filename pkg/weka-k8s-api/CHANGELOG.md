@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/weka/weka-k8s-api/compare/v1.3.0...v1.4.0) (2024-10-01)
+
+
+### Features
+
+* ability to specify custom image for drivers loader ([e09bdcb](https://github.com/weka/weka-k8s-api/commit/e09bdcb42ca0d3bf6dfdc8184e9f093d9cde778d))
+
 # [1.3.0](https://github.com/weka/weka-k8s-api/compare/v1.2.2...v1.3.0) (2024-10-01)
 
 
