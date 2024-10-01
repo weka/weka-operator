@@ -1,4 +1,4 @@
-package controllers
+package discovery
 
 import (
 	"context"
@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 	internalLogger := zapr.NewLogger(prettyconsole.NewLogger(uzap.DebugLevel))
 	ctx, _ = instrumentation.GetLoggerForContext(ctx, &internalLogger, "TestReconcile")
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "internal/controllers", "0.0.1", internalLogger)
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "internal/services/discovery", "0.0.1", internalLogger)
 	if err != nil {
 		panic(err)
 	}

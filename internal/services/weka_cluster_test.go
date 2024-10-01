@@ -1,15 +1,17 @@
 package services
 
 import (
-	"context"
 	"testing"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/testutil"
 )
 
 func TestEnsureNoContainers(t *testing.T) {
-	ctx := context.Background()
+	ctx, _, done := instrumentation.GetLogSpan(pkgCtx, "TestEnsureNoContainers")
+	defer done()
+
 	manager, err := testutil.TestingManager()
 	if err != nil {
 		t.Fatalf("TestingManager() error = %v, want nil", err)
