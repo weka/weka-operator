@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -285,6 +286,35 @@ func (c *stubClient) Create(ctx context.Context, obj client.Object, opts ...clie
 }
 
 func (c *stubClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	_, logger, done := instrumentation.GetLogSpan(ctx, "StubClient.Delete")
+	defer done()
+	logger.V(1).Info("stubClient.Delete")
+
+	objectType := reflect.TypeOf(obj).String()
+	logger.V(1).Info("objectType", "objectType", objectType)
+
+	objects, ok := c.state[objectType]
+	if !ok {
+		return apierrors.NewNotFound(schema.GroupResource{}, obj.GetName())
+	}
+
+	key := types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}
+	existingObj, exists := objects[key]
+	if !exists {
+		return apierrors.NewNotFound(schema.GroupResource{}, obj.GetName())
+	}
+
+	// Check for finalizers
+	if len(existingObj.GetFinalizers()) > 0 {
+		if existingObj.GetDeletionTimestamp().IsZero() {
+			now := metav1.Now()
+			existingObj.SetDeletionTimestamp(&now)
+			objects[key] = existingObj
+		}
+		return nil
+	}
+
+	delete(objects, key)
 	return nil
 }
 
