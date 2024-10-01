@@ -83,7 +83,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return err
 	}
 
-	currentContainers := discovery.GetClusterContainers(ctx, r.getClient(), cluster, "")
+	currentContainers := r.containers
 	missingContainers, err := BuildMissingContainers(ctx, cluster, template, currentContainers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
@@ -96,7 +96,6 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 	}
 
-	r.containers = currentContainers
 	if len(missingContainers) == 0 {
 		return nil
 	}
@@ -168,6 +167,12 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) error {
+	currentContainers := discovery.GetClusterContainers(ctx, r.getClient(), r.cluster, "")
+	r.containers = currentContainers
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) allocateContainersResources() {
 	//nodeInfoGetter := func(ctx context.Context, nodeName wekav1alpha1.NodeName) (*discovery.DiscoveryNodeInfo, error) {
 	//	discoverNodeOp := operations.NewDiscoverNodeOperation(
@@ -192,6 +197,17 @@ func (r *wekaClusterReconcilerLoop) allocateContainersResources() {
 
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {
 	return r.Manager.GetClient()
+}
+
+func (r *wekaClusterReconcilerLoop) ClusterIsInGracefulDeletion() bool {
+	if !r.cluster.IsMarkedForDeletion() {
+		return false
+	}
+
+	deletionTime := r.cluster.GetDeletionTimestamp().Time
+	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
+	hitTimeout := deletionTime.Add(gracefulDestroyDuration)
+	return hitTimeout.After(time.Now())
 }
 
 func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
@@ -227,9 +243,49 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	cluster := r.cluster
+	containers := r.containers
+
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusGracePeriod {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusGracePeriod
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
+	}
+
+	for _, container := range containers {
+		if container.Spec.State == wekav1alpha1.ContainerStatePaused {
+			continue
+		}
+		container.Spec.State = wekav1alpha1.ContainerStatePaused
+		err := r.getClient().Update(ctx, container)
+		if err != nil {
+			logger.Error(err, "Failed to update container state")
+			return err
+		}
+	}
+
+	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
+	deletionTime := cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
+
+	logger.Info("Cluster is in graceful deletion", "deletionTime", deletionTime)
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
+	deletionTime := r.cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
+	logger.Debug("Not graceful deletion", "deletionTime", deletionTime, "now", time.Now(), "gracefulDestroyDuration", gracefulDestroyDuration)
+
 	if controllerutil.ContainsFinalizer(r.cluster, WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
@@ -1021,8 +1077,8 @@ func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
 func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	wekaCluster := r.cluster
 
-	if wekaCluster.Status.Status != "Ready" {
-		wekaCluster.Status.Status = "Ready"
+	if wekaCluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
+		wekaCluster.Status.Status = wekav1alpha1.WekaClusterStatusReady
 		wekaCluster.Status.TraceId = ""
 		wekaCluster.Status.SpanID = ""
 		return r.getClient().Status().Update(ctx, wekaCluster)

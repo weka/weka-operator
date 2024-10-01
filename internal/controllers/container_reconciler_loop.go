@@ -111,6 +111,14 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
 			},
+			{
+				Run: loop.handleStatePaused,
+				Predicates: lifecycle.Predicates{
+					container.IsPaused,
+				},
+				ContinueOnPredicatesFalse: true,
+				FinishOnSuccess:           true,
+			},
 			{Run: loop.initState},
 			{Run: loop.deleteIfNoNode},
 			{Run: loop.ensureFinalizer},
@@ -314,6 +322,30 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		logger.Error(err, "Error removing finalizer")
 		return errors.Wrap(err, "Failed to remove finalizer")
 	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	newStatus := strings.ToUpper(string(weka.ContainerStatePaused))
+	if r.container.Status.Status != newStatus {
+		err := r.ensureNoPod(ctx)
+		if err != nil {
+			return err
+		}
+
+		logger.Info("Updating status", "from", r.container.Status.Status, "to", newStatus)
+		r.container.Status.Status = newStatus
+
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			err = errors.Wrap(err, "Failed to update status")
+			return err
+		}
+	}
+
+	logger.Info("Container is paused, skipping reconciliation")
 	return nil
 }
 
