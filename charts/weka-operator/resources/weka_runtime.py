@@ -148,8 +148,13 @@ async def find_weka_drives():
     devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
     logging.info(f"Found block devices devices: {devices}")
     for block_device in devices:
-        type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
-                                          shell=True).decode().strip()
+        try:
+            type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
+                                              shell=True).decode().strip()
+        except subprocess.CalledProcessError:
+            logging.error(f"Failed to get PART_ENTRY_TYPE for {block_device}")
+            continue
+
         if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
             # TODO: Read and populate actual weka guid here
             weka_guid = ""
