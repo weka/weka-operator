@@ -8,8 +8,8 @@ import (
 
 func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, error) {
 	wekaHomeEndpoint := ""
-	if cluster.Spec.WekaHomeConfig != nil {
-		wekaHomeEndpoint = cluster.Spec.WekaHomeConfig.Endpoint
+	if cluster.Spec.WekaHome != nil {
+		wekaHomeEndpoint = cluster.Spec.WekaHome.Endpoint
 	}
 
 	if wekaHomeEndpoint == "" {
@@ -27,9 +27,9 @@ func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, 
 		CacertSecret:  "",
 	}
 
-	if cluster.Spec.WekaHomeConfig != nil {
-		config.AllowInsecure = cluster.Spec.WekaHomeConfig.AllowInsecure
-		config.CacertSecret = cluster.Spec.WekaHomeConfig.CacertSecret
+	if cluster.Spec.WekaHome != nil {
+		config.AllowInsecure = cluster.Spec.WekaHome.AllowInsecure
+		config.CacertSecret = cluster.Spec.WekaHome.CacertSecret
 	}
 
 	if !config.AllowInsecure {

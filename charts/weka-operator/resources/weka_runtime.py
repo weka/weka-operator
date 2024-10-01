@@ -980,6 +980,13 @@ async def configure_persistency():
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
         
+        if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
+            rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
+            mkdir -p /opt/weka/k8s-runtime/vars/wh-cacert/
+            cp /var/run/secrets/weka-operator/wekahome-cacert/cert.pem /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+            chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
+        fi
+        
         if [ -d /opt/k8s-weka/node-cluster ]; then
             ENVOY_DIR=/opt/weka/envoy
             EXT_ENVOY_DIR=/opt/k8s-weka/node-cluster/envoy
