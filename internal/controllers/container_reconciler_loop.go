@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const PodStatePodNotRunning = "PodNotRunning"
+
 func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
@@ -124,10 +126,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.alignAppliedImageForManualUpgrade,
+				Run: loop.ensureNotRunningState,
 				Predicates: lifecycle.Predicates{
-					loop.IsNotAlignedImage,
-					loop.IsManualUpgradeMode,
+					loop.PodNotRunning,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -313,7 +314,7 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	return nil
 }
 
-// Implement the remaining methods (createPod, reconcileDriversStatus, reconcileManagementIP, etc.)
+// Implement the remaining methods (ensurePod, reconcileDriversStatus, reconcileManagementIP, etc.)
 // by adapting the logic from the original container_controller.go file.
 
 func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx context.Context) error {
@@ -1342,11 +1343,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return err
 			}
 
-			// explicitly update container status to make sure it is not "Running"
-			container.Status.Status = "PodNotRunning"
-			if err = r.Status().Update(ctx, container); err != nil {
-				return err
-			}
 			return nil
 		}
 
@@ -1360,7 +1356,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			return errors.New("Pod is not running yet")
 		}
 
-		if container.Status.Status != string(v1.PodRunning) {
+		if container.Status.Status != "Running" {
 			logger.Info("Container is not running yet")
 			return errors.New("Container is not running yet")
 		}
@@ -1711,17 +1707,17 @@ func (r *containerReconcilerLoop) IsManualUpgradeMode() bool {
 	return r.container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual
 }
 
-func (r *containerReconcilerLoop) alignAppliedImageForManualUpgrade(ctx context.Context) error {
-	// this should be needed only in case of manual upgrade of pods(clients)
-	// if we already started pod with new image, lets fix applied image
-	wekaPodContainer, err := r.getWekaPodContainer(r.pod)
-	if err != nil {
-		return err
-	}
-
-	if r.container.Status.LastAppliedImage != wekaPodContainer.Image {
-		r.container.Status.LastAppliedImage = wekaPodContainer.Image
-		return r.Status().Update(ctx, r.container)
+func (r *containerReconcilerLoop) ensureNotRunningState(ctx context.Context) error {
+	if r.container.Status.Status != PodStatePodNotRunning {
+		r.container.Status.Status = PodStatePodNotRunning
+		err := r.Status().Update(ctx, r.container)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) PodNotRunning() bool {
+	return r.pod.Status.Phase != v1.PodRunning
 }
