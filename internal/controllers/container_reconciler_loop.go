@@ -1311,11 +1311,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	if upgradeType == "" {
 		upgradeType = weka.UpgradePolicyTypeManual
 	}
-	if container.Spec.Mode == "client" && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
-		// leaving client operation to user and we will apply lastappliedimage if pod got restarted
-		logger.Info("Skipping client ugprade")
-		return nil
-	}
 
 	if container.Spec.Image != container.Status.LastAppliedImage {
 		var wekaPodContainer v1.Container
@@ -1326,8 +1321,22 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 
 		if wekaPodContainer.Image != container.Spec.Image {
 			logger.Info("Deleting pod to apply new image")
+
+			executor, err := util.NewExecInPod(pod)
+			if err != nil {
+				return err
+			}
+			stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+			if err != nil {
+				logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
+				return err
+			}
+			if container.Spec.Mode == "client" && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
+				// leaving client delete operation to user and we will apply lastappliedimage if pod got restarted
+				return nil
+			}
 			// delete pod
-			err := r.Delete(ctx, pod)
+			err = r.Delete(ctx, pod)
 			if err != nil {
 				return err
 			}
