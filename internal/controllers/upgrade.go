@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -55,6 +56,7 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 	return nil
 }
 
+// Upgrades one container at a time
 func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	for _, container := range u.Containers {
 		if container.Status.LastAppliedImage != container.Spec.Image {

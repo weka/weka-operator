@@ -124,9 +124,10 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.alignAppliedImage,
+				Run: loop.alignAppliedImageForManualUpgrade,
 				Predicates: lifecycle.Predicates{
 					loop.IsNotAlignedImage,
+					loop.IsManualUpgradeMode,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1340,6 +1341,12 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+
+			// explicitly update container status to make sure it is not "Running"
+			container.Status.Status = "PodNotRunning"
+			if err = r.Status().Update(ctx, container); err != nil {
+				return err
+			}
 			return nil
 		}
 
@@ -1351,6 +1358,11 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		if pod.Status.Phase != v1.PodRunning {
 			logger.Info("Pod is not running yet")
 			return errors.New("Pod is not running yet")
+		}
+
+		if container.Status.Status != string(v1.PodRunning) {
+			logger.Info("Container is not running yet")
+			return errors.New("Container is not running yet")
 		}
 
 		container.Status.LastAppliedImage = container.Spec.Image
@@ -1695,7 +1707,11 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 	return r.container.Status.LastAppliedImage != r.container.Spec.Image
 }
 
-func (r *containerReconcilerLoop) alignAppliedImage(ctx context.Context) error {
+func (r *containerReconcilerLoop) IsManualUpgradeMode() bool {
+	return r.container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual
+}
+
+func (r *containerReconcilerLoop) alignAppliedImageForManualUpgrade(ctx context.Context) error {
 	// this should be needed only in case of manual upgrade of pods(clients)
 	// if we already started pod with new image, lets fix applied image
 	wekaPodContainer, err := r.getWekaPodContainer(r.pod)
