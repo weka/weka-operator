@@ -806,13 +806,13 @@ async def create_container():
     logging.info(f"Creating container with cores: {core_str}")
 
     # read join secret from if file exists /var/run/secrets/weka-operator/operator-user/password
-    join_secret = ""
+    join_secret_cmd = ""
+    join_secret_flag = ""
     if os.path.exists("/var/run/secrets/weka-operator/operator-user/join-secret"):
-        with open("/var/run/secrets/weka-operator/operator-user/join-secret") as f:
-            join_secret_flag = "--join-secret"
-            if MODE == "client":
-                join_secret_flag = "--join-token"
-            join_secret = f.read().strip()
+        join_secret_flag = "--join-secret"
+        if MODE == "client":
+            join_secret_flag = "--join-token"
+        join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
 
     net_str = f"--net {NETWORK_DEVICE}"
     if "aws_" in NETWORK_DEVICE:
@@ -832,7 +832,7 @@ async def create_container():
         weka local setup container --name {NAME} --no-start --disable\
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
         {net_str}  --base-port {PORT} --memory {MEMORY} \
-        {f"{join_secret_flag} {join_secret}" if join_secret else ""} \
+        {f"{join_secret_flag} {join_secret_cmd}" if join_secret_cmd else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""}
     """)
@@ -899,7 +899,7 @@ async def ensure_weka_container():
 
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json")
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json | jq '.join_secret = [\"***HIDDEN***\"]'")
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
@@ -912,7 +912,7 @@ async def ensure_weka_container():
 
 
     # TODO: unite with above block as single getter
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json")
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json | jq '.join_secret = [\"***HIDDEN***\"]'")
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
