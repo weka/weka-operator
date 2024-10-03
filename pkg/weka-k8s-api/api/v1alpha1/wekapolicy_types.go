@@ -1,15 +1,17 @@
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // WekaPolicySpec defines the desired state of WekaPolicy
 type WekaPolicySpec struct {
-	Type            string        `json:"type"`
-	Payload         PolicyPayload `json:"payload"`
-	Image           string        `json:"image"`
-	ImagePullSecret string        `json:"imagePullSecret"`
+	Type            string          `json:"type"`
+	Payload         PolicyPayload   `json:"payload"`
+	Image           string          `json:"image"`
+	ImagePullSecret string          `json:"imagePullSecret"`
+	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
 }
 
 // WekaPolicyStatus defines the observed state of WekaPolicy
