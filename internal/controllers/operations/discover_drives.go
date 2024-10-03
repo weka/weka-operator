@@ -37,6 +37,7 @@ type DiscoverDrivesOperation struct {
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
 	force           bool
+	tolerations     []corev1.Toleration
 }
 
 type DriveInfo struct {
@@ -69,6 +70,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 		result:          make(map[string]nodeResult),
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
+		tolerations:     ownerDetails.Tolerations,
 		successCallback: successCallback,
 		namespace:       ownerRef.GetNamespace(),
 		force:           force,
@@ -150,6 +152,7 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Image:           o.image,
 				ImagePullSecret: o.pullSecret,
 				Instructions:    instructions,
+				Tolerations:     o.tolerations,
 			},
 		}
 

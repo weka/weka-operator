@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -32,6 +33,7 @@ type SignDrivesOperation struct {
 	ownerStatus     string
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
+	tolerations     []v1.Toleration
 }
 
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
@@ -64,6 +66,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		result:          make(map[string]nodeResult),
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
+		tolerations:     ownerDetails.Tolerations,
 		successCallback: successCallback,
 	}
 }
@@ -134,6 +137,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Image:           o.image,
 				ImagePullSecret: o.pullSecret,
 				Instructions:    instructions,
+				Tolerations:     o.tolerations,
 			},
 		}
 
