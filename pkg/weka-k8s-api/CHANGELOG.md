@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/weka/weka-k8s-api/compare/v1.4.0...v1.5.0) (2024-10-03)
+
+
+### Features
+
+* support tolerations for WekaPolicy ([781457f](https://github.com/weka/weka-k8s-api/commit/781457f880bbc4e447aa9b267459001a8f9582c7))
+
 # [1.4.0](https://github.com/weka/weka-k8s-api/compare/v1.3.0...v1.4.0) (2024-10-01)
 
 
