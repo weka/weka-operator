@@ -26,6 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const defaultPortRangeBase = 45000
+
 func NewClientReconcileLoop(mgr ctrl.Manager) *clientReconcilerLoop {
 	kClient := mgr.GetClient()
 	return &clientReconcilerLoop{
@@ -225,6 +227,17 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		return nil, err
 	}
 
+	portRange := wekaClient.Spec.PortRange
+
+	// make sure that PortRange is set if one of the ports is 0
+	if wekaClient.Spec.AgentPort == 0 || wekaClient.Spec.Port == 0 {
+		if portRange == nil {
+			portRange = &v1alpha1.PortRange{
+				BasePort: defaultPortRangeBase,
+			}
+		}
+	}
+
 	container := &v1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -239,6 +252,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			NodeAffinity:        v1alpha1.NodeName(nodeName),
 			Port:                wekaClient.Spec.Port,
 			AgentPort:           wekaClient.Spec.AgentPort,
+			PortRange:           portRange,
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
@@ -372,6 +386,32 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.Port != wekaClient.Spec.Port {
+		container.Spec.Port = wekaClient.Spec.Port
+		changed = true
+	}
+
+	if container.Spec.AgentPort != wekaClient.Spec.AgentPort {
+		container.Spec.AgentPort = wekaClient.Spec.AgentPort
+		changed = true
+	}
+
+	if container.Spec.PortRange == nil && wekaClient.Spec.PortRange != nil {
+		container.Spec.PortRange = wekaClient.Spec.PortRange
+		changed = true
+	}
+
+	if container.Spec.PortRange != nil && wekaClient.Spec.PortRange == nil {
+		container.Spec.PortRange = nil
+		changed = true
+	}
+
+	if container.Spec.PortRange != nil && wekaClient.Spec.PortRange != nil && !isPortRangeEqual(*container.Spec.PortRange, *wekaClient.Spec.PortRange) {
+		container.Spec.PortRange.BasePort = wekaClient.Spec.PortRange.BasePort
+		container.Spec.PortRange.PortRange = wekaClient.Spec.PortRange.PortRange
+		changed = true
+	}
+
 	if container.Spec.NumCores != wekaClient.Spec.CoresNumber {
 		if wekaClient.Spec.CoresNumber < container.Spec.NumCores {
 			logger.Error(errors.New("coresNum cannot be decreased"), "coresNum cannot be decreased, ignoring the change")
@@ -420,5 +460,8 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 		// we are relying on container to treat self-upgrade as manual(i.e not replacing pod) by propagating mode into it
 		return uController.AllAtOnceUpgrade(ctx)
 	}
+}
 
+func isPortRangeEqual(a, b v1alpha1.PortRange) bool {
+	return a.BasePort == b.BasePort && a.PortRange == b.PortRange
 }

@@ -201,6 +201,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run: loop.updateDriversBuilderStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsDriversBuilder,
+					lifecycle.IsNotFunc(container.IsDistMode), // TODO: legacy "dist" mode is currently used both for building drivers and for distribution
 					lifecycle.IsNotFunc(loop.ResultsAreProcessed),
 				},
 				ContinueOnPredicatesFalse: true,
@@ -505,9 +506,10 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 
 	containerName := container.Spec.WekaContainerName
 
-	cmd := fmt.Sprintf("weka local run wapi -H localhost:%d/jrpc -W container-get-identity --container-name %s --json", container.GetAgentPort(), containerName)
+	showAgentPortCmd := `cat /opt/weka/k8s-runtime/vars/agent_port`
+	cmd := fmt.Sprintf("weka local run wapi -H localhost:$(%s)/jrpc -W container-get-identity --container-name %s --json", showAgentPortCmd, containerName)
 	if container.Spec.JoinIps != nil {
-		cmd = fmt.Sprintf("wekaauthcli local run wapi -H 127.0.0.1:%d/jrpc -W container-get-identity --container-name %s --json", container.GetAgentPort(), containerName)
+		cmd = fmt.Sprintf("wekaauthcli local run wapi -H 127.0.0.1:$(%s)/jrpc -W container-get-identity --container-name %s --json", showAgentPortCmd, containerName)
 	}
 
 	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalContainerGetIdentity", []string{"bash", "-ce", cmd})

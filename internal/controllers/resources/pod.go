@@ -318,6 +318,21 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		},
 	}
 
+	if f.container.Spec.PortRange != nil {
+		// vars needed for clients to dinamically set ports
+		envVars := []corev1.EnvVar{
+			{
+				Name:  "BASE_PORT",
+				Value: strconv.Itoa(f.container.Spec.PortRange.BasePort),
+			},
+			{
+				Name:  "PORT_RANGE",
+				Value: strconv.Itoa(f.container.Spec.PortRange.PortRange),
+			},
+		}
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, envVars...)
+	}
+
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",

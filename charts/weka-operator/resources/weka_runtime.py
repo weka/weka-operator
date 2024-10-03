@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache, partial
 from os.path import exists
 from textwrap import dedent
-from uuid import uuid4
+from typing import List, Optional, Tuple
 
 MODE = os.environ.get("MODE")
 assert MODE != ""
@@ -46,6 +46,12 @@ WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("WEKA_COS_ALLOW_D
                                                                "false") == "true" else False
 WEKA_COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
 WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_COUNT", 4000))
+
+# for client dynamic port allocation
+BASE_PORT = os.environ.get("BASE_PORT", "")
+PORT_RANGE = os.environ.get("PORT_RANGE", "0")
+WEKA_CONTAINER_PORT_SUBRANGE = 100
+MAX_PORT = 65535
 
 # Define global variables
 exiting = 0
@@ -884,6 +890,13 @@ async def get_containers():
     return current_containers
 
 
+async def get_weka_local_resources() -> dict:
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json", log_output=False)
+    if ec != 0:
+        raise Exception(f"Failed to get resources: {stderr}")
+    return json.loads(resources)
+
+
 async def ensure_weka_container():
     current_containers = await get_containers()
 
@@ -899,10 +912,14 @@ async def ensure_weka_container():
 
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json", log_output=False)
-    if ec != 0:
-        raise Exception(f"Failed to get resources: {stderr}")
-    resources = json.loads(resources)
+    resources = await get_weka_local_resources()
+
+    if MODE == "client" and resources['base_port'] != PORT:
+        await run_command("weka local stop --force", capture_stdout=False)
+        await run_command(f"weka local rm --all --force", capture_stdout=False)
+        await create_container()
+        resources = await get_weka_local_resources()
+
 
     #TODO: Normalize to have common logic between setup and reconfigure, including between clients and backends
     if MODE == "client" and len(resources['nodes']) != (NUM_CORES+1):
@@ -912,10 +929,7 @@ async def ensure_weka_container():
 
 
     # TODO: unite with above block as single getter
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json", log_output=False)
-    if ec != 0:
-        raise Exception(f"Failed to get resources: {stderr}")
-    resources = json.loads(resources)
+    resources = await get_weka_local_resources()
 
     if MODE == "s3":
         resources['allow_protocols'] = True
@@ -1384,7 +1398,117 @@ def write_file(path, content):
         f.write(content)
 
 
+async def is_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('localhost', port))
+            return True
+        except OSError as e:
+            if e.errno == 98: # Address already in use
+                logging.debug(f"Port {port} is already in use")
+                return False
+
+            logging.error(f"Failed to bind to port {port}: {e}")
+            return False
+    
+
+async def get_free_subrange_in_port_range(
+    base_port: int, 
+    max_port: int, 
+    subrange_size: int,
+    exclude_ports: Optional[List[int]] = None
+) -> Tuple[int, int]:
+    """Get a subrange of free ports of size subrange_size in the specified port range."""
+    exclude_ports = sorted(exclude_ports or [])
+    free_ports = set()
+    not_free_ports = set()
+
+    port = base_port
+    while port <= max_port - subrange_size:
+        # Skip any subranges that intersect with exclude_ports
+        for exclude_port in exclude_ports:
+            if port <= exclude_port < port + subrange_size:
+                port = exclude_port + 1
+                break
+        else:
+            subrange_start = port
+            consecutive_free_count = 0
+
+            for check_port in range(port, port + subrange_size):
+                if check_port in free_ports:
+                    consecutive_free_count += 1
+                elif check_port in not_free_ports:
+                    break
+                else:
+                    if await is_port_free(check_port):
+                        free_ports.add(check_port)
+                        consecutive_free_count += 1
+                    else:
+                        not_free_ports.add(check_port)
+                        break
+
+            if consecutive_free_count == subrange_size:
+                logging.info(f"Found free subrange: {subrange_start}-{subrange_start + subrange_size - 1}")
+                return subrange_start, subrange_start + subrange_size - 1
+
+            # If not all ports in the subrange were free, move to the next port
+            port += 1
+
+    raise RuntimeError(f"Could not find a subrange of {subrange_size} free ports in the specified range.")
+
+
+async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[List[int]] = None) -> int:
+    for port in range(base_port, max_port):
+        if exclude_ports and port in exclude_ports:
+            continue
+
+        if await is_port_free(port):
+            logging.info(f"Found free port: {port}")
+            return port
+        
+    raise RuntimeError(f"Failed to find free port in range {base_port}-{max_port}")
+
+
+async def ensure_client_ports():
+    logging.info("Ensuring client ports")
+
+    def parse_port(port_str: str) -> int:
+        try:
+            return int(port_str)
+        except ValueError:
+            return 0
+
+    global PORT, AGENT_PORT
+    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:
+        await save_weka_ports_data()
+        return
+    
+    base_port = parse_port(BASE_PORT)
+    port_range = parse_port(PORT_RANGE)
+    assert base_port > 0, "BASE_PORT is not set"
+    max_port = base_port + port_range if port_range > 0 else MAX_PORT
+
+    try:
+        if not parse_port(AGENT_PORT):
+            p = await get_free_port(base_port, max_port)
+            AGENT_PORT = f'{p}'
+        if not parse_port(PORT):
+            p1, _ = await get_free_subrange_in_port_range(base_port, max_port, WEKA_CONTAINER_PORT_SUBRANGE, exclude_ports=[int(AGENT_PORT)])
+            PORT = f'{p1}'
+    except RuntimeError as e:
+        raise Exception(f"Failed to find free ports: {e}")
+    else:
+        await save_weka_ports_data()
+
+async def save_weka_ports_data():
+    write_file("/opt/weka/k8s-runtime/vars/port", str(PORT))
+    write_file("/opt/weka/k8s-runtime/vars/agent_port", str(AGENT_PORT))
+    logging.info(f"PORT={PORT}, AGENT_PORT={AGENT_PORT}")
+
 async def wait_for_resources():
+    if MODE == 'client':
+        await ensure_client_ports()
+
     logging.info("waiting for controller to set resources")
     if MODE not in ['drive', 's3', 'compute']:
         return
@@ -1400,9 +1524,7 @@ async def wait_for_resources():
     PORT = data["wekaPort"]
     AGENT_PORT = data["agentPort"]
     RESOURCES = data
-    write_file("/opt/weka/k8s-runtime/vars/port", str(PORT))
-    write_file("/opt/weka/k8s-runtime/vars/agent_port", str(AGENT_PORT))
-    logging.info(f"PORT={PORT}, AGENT_PORT={AGENT_PORT}")
+    await save_weka_ports_data()
 
 
 async def ensure_drives():
