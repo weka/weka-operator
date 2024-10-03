@@ -101,6 +101,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			weka.WekaContainerDetails{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
+				Tolerations:     wekaPolicy.Spec.Tolerations,
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
@@ -114,6 +115,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			weka.WekaContainerDetails{
 				Image:           wekaPolicy.Spec.Image,
 				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
+				Tolerations:     wekaPolicy.Spec.Tolerations,
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
