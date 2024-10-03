@@ -53,13 +53,27 @@ type UpgradePolicy struct {
 	Type UpgradePolicyType `json:"type,omitempty"`
 }
 
+type PortRange struct {
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=45000
+	BasePort int `json:"basePort"`
+	// +kubebuilder:default=0
+	// number of ports to check for availability
+	// if 0 - will check all ports from basePort to 65535
+	PortRange int `json:"portRange,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// Used in new format
-	Image              string            `json:"image"`
-	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
-	Port               int               `json:"port,omitempty"`
-	AgentPort          int               `json:"agentPort,omitempty"`
+	Image           string `json:"image"`
+	ImagePullSecret string `json:"imagePullSecret,omitempty"`
+	// if not set (0), weka will find a free port from the portRange
+	Port int `json:"port,omitempty"`
+	// if not set (0), weka will find a free port from the portRange
+	AgentPort int `json:"agentPort,omitempty"`
+	// used for dynamic port allocation
+	PortRange          *PortRange        `json:"portRange,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	WekaSecretRef      string            `json:"wekaSecretRef,omitempty"`
 	NetworkSelector    NetworkSelector   `json:"network,omitempty"`

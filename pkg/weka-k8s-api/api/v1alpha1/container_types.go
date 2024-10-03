@@ -71,6 +71,7 @@ type WekaContainerSpec struct {
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
 	Port              int               `json:"port,omitempty"`
 	AgentPort         int               `json:"agentPort,omitempty"`
+	PortRange         *PortRange        `json:"portRange,omitempty"`
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
