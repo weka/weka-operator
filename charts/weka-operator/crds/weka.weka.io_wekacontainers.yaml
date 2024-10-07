@@ -129,6 +129,7 @@ spec:
                 - s3
                 - adhoc-op-with-container
                 - adhoc-op
+                - envoy
                 type: string
               name:
                 type: string
