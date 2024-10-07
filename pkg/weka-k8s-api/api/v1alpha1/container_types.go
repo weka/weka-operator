@@ -184,7 +184,7 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
-	return w.IsWekaContainer()
+	return w.IsWekaContainer() && !w.IsDistMode()
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
@@ -201,7 +201,11 @@ func (w *WekaContainer) IsServiceContainer() bool {
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
-	return w.IsWekaContainer()
+	return w.IsWekaContainer() && !w.IsDistMode()
+}
+
+func (w *WekaContainer) ShouldJoinCluster() bool {
+	return w.IsWekaContainer() && !w.IsDistMode()
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
@@ -258,7 +262,14 @@ func (w *WekaContainer) IsDriveContainer() bool {
 }
 
 func (w *WekaContainer) IsWekaContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeClient}, w.Spec.Mode)
+	return slices.Contains([]string{
+		WekaContainerModeDrive,
+		WekaContainerModeCompute,
+		WekaContainerModeS3,
+		WekaContainerModeClient,
+		WekaContainerModeDist,
+		WekaContainerModeDriversDist,
+	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
