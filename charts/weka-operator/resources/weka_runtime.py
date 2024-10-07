@@ -677,7 +677,7 @@ async def start_process(command, alias=""):
     return process
 
 
-async def run_command(command, capture_stdout=True, log_execution=True, env: dict = None):
+async def run_command(command, capture_stdout=True, log_execution=True, env: dict = None, log_output=True):
     # TODO: Wrap stdout of commands via INFO via logging
     if log_execution:
         logging.info("Running command: " + command)
@@ -691,9 +691,9 @@ async def run_command(command, capture_stdout=True, log_execution=True, env: dic
     stdout, stderr = await process.communicate()
     if log_execution:
         logging.info(f"Command {command} finished with code {process.returncode}")
-    if stdout:
+    if stdout and log_output:
         logging.info(f"Command {command} stdout: {stdout.decode('utf-8')}")
-    if stderr:
+    if stderr and log_output:
         logging.info(f"Command {command} stderr: {stderr.decode('utf-8')}")
     return stdout, stderr, process.returncode
 
@@ -899,7 +899,7 @@ async def ensure_weka_container():
 
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json | jq '.join_secret = [\"***HIDDEN***\"]'")
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json", log_output=False)
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
@@ -912,7 +912,7 @@ async def ensure_weka_container():
 
 
     # TODO: unite with above block as single getter
-    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json | jq '.join_secret = [\"***HIDDEN***\"]'")
+    resources, stderr, ec = await run_command(f"weka local resources --container {NAME} --json", log_output=False)
     if ec != 0:
         raise Exception(f"Failed to get resources: {stderr}")
     resources = json.loads(resources)
