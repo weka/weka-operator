@@ -67,7 +67,7 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -184,7 +184,7 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
-	return w.IsWekaContainer() && !w.IsDistMode()
+	return w.IsWekaContainer() && !w.IsDistMode() && !w.IsEnvoy()
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
@@ -205,7 +205,7 @@ func (w *WekaContainer) IsHostNetwork() bool {
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
-	return w.IsWekaContainer() && !w.IsDistMode()
+	return w.IsWekaContainer() && !w.IsDistMode() && !w.IsEnvoy()
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
@@ -267,6 +267,7 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeCompute,
 		WekaContainerModeS3,
 		WekaContainerModeClient,
+		WekaContainerModeEnvoy,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 	}, w.Spec.Mode)
