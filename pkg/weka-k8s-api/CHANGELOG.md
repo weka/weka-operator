@@ -1,3 +1,10 @@
+## [1.5.1](https://github.com/weka/weka-k8s-api/compare/v1.5.0...v1.5.1) (2024-10-07)
+
+
+### Bug Fixes
+
+* IsWekaContainer condition - include dist containers ([2bce35c](https://github.com/weka/weka-k8s-api/commit/2bce35cbc9f6c5e30e93f7c03b7b2f7480305d1b))
+
 # [1.5.0](https://github.com/weka/weka-k8s-api/compare/v1.4.0...v1.5.0) (2024-10-03)
 
 
