@@ -227,6 +227,8 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 	failedAllocations := FailedAllocations{}
 
 	for _, container := range containers {
+		logger.Debug("Allocating container", "name", container.ObjectMeta.Name)
+
 		if container.Status.Allocations != nil {
 			logger.Info("Container already allocated", "name", container.ObjectMeta.Name)
 			continue
@@ -301,7 +303,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		}
 
 		baseWekaPort := 0
-		if container.IsWekaContainer() {
+		if container.IsHostNetwork() && !container.IsEnvoy() {
 			if currentRanges, ok := nodeAlloc.AllocatedRanges[owner]; !ok || currentRanges["weka"].Base == 0 {
 				basePortRange, err := allocations.FindNodeRange(owner, nodeName, 100)
 				if err != nil {

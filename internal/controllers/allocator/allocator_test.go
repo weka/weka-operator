@@ -182,7 +182,7 @@ func TestAllocatePort(t *testing.T) {
 		// validating that no two containers have the same agent port on the same node
 		agentNodePorts := map[string]bool{}
 		for _, container := range containers {
-			if !container.IsWekaContainer() {
+			if !container.IsHostNetwork() || container.IsEnvoy() {
 				continue
 			}
 			found := agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)]

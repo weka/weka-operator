@@ -84,13 +84,14 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 
 	currentContainers := discovery.GetClusterContainers(ctx, r.getClient(), cluster, "")
-	missingContainers, err := BuildMissingContainers(cluster, template, currentContainers)
+	missingContainers, err := BuildMissingContainers(ctx, cluster, template, currentContainers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
 		return err
 	}
 	for _, container := range missingContainers {
 		if err := ctrl.SetControllerReference(cluster, container, r.Manager.GetScheme()); err != nil {
+			logger.Error(err, "Failed to set controller reference")
 			return err
 		}
 	}
@@ -102,6 +103,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 
 	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
 	if err != nil {
+		logger.Error(err, "Failed to create resources allocator")
 		return err
 	}
 
@@ -150,6 +152,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 		err = r.getClient().Create(ctx, container)
 		if err != nil {
+			logger.Error(err, "Failed to create container", "name", container.Name)
 			errs = append(errs, err)
 			continue
 		}
@@ -157,6 +160,11 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 	allContainers = append(currentContainers, allContainers...)
 	r.containers = allContainers
+
+	if len(errs) != 0 {
+		err := fmt.Errorf("failed to create containers: %v", errs)
+		return err
+	}
 	return nil
 }
 
@@ -390,7 +398,7 @@ func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) e
 	logger.Debug("Ensuring all containers are up in the cluster")
 	joinedContainers := 0
 	for _, container := range containers {
-		if !container.IsWekaContainer() {
+		if !container.ShouldJoinCluster() {
 			continue
 		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
@@ -1022,7 +1030,10 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	return nil
 }
 
-func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
+func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
+	defer end()
+
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
 	for _, role := range []string{"drive", "compute", "s3", "envoy"} {
@@ -1047,8 +1058,12 @@ func BuildMissingContainers(cluster *wekav1alpha1.WekaCluster, template allocato
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, allocator.NewContainerName(role))
+			name := allocator.NewContainerName(role)
+			logger.Info("Building missing container", "role", role, "name", name)
+
+			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, name)
 			if err != nil {
+				logger.Error(err, "Failed to build container", "role", role, "name", name)
 				return nil, err
 			}
 			containers = append(containers, container)

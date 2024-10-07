@@ -939,14 +939,6 @@ async def ensure_weka_container():
         ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.staging
     """)
 
-    # setup machine identifier if not set yet
-    if not os.path.exists("/opt/weka/data/agent/machine-identifier"):
-        # generate and write guid
-        new_guid = uuid4()
-        with open("/opt/weka/data/agent/machine-identifier-tmp", "w") as f:
-            f.write(str(new_guid))
-        await run_command("mv /opt/weka/data/agent/machine-identifier-tmp /opt/weka/data/agent/machine-identifier")
-
     if ec != 0:
         raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 

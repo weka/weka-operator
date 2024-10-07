@@ -34,7 +34,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const PodStatePodNotRunning = "PodNotRunning"
+const (
+	PodStatePodNotRunning = "PodNotRunning"
+	PodStatePodRunning    = "PodRunning"
+	WaitForDrivers        = "WaitForDrivers"
+	// for drivers-build container
+	Completed = "Completed"
+	Building  = "Building"
+)
 
 func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
 	config := mgr.GetConfig()
@@ -126,7 +133,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.ensureNotRunningState,
+				Run: loop.ensurePodNotRunningState,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotRunning,
 				},
@@ -138,7 +145,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Condition: condition.CondContainerAffinitySet,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return loop.container.IsAllocatable() && loop.container.IsBackend()
+						return loop.container.IsAllocatable() && loop.container.IsBackend() || loop.container.IsEnvoy()
 					},
 				},
 				ContinueOnPredicatesFalse: true,
@@ -175,10 +182,33 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.updateStatusWaitForDrivers,
+				Predicates: lifecycle.Predicates{
+					container.RequiresDrivers,
+					loop.CondEnsureDriversNotSet,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.updateDriversBuilderStatus,
+				Predicates: lifecycle.Predicates{
+					container.IsDriversBuilder,
+					lifecycle.IsNotFunc(loop.ResultsAreProcessed),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.updateAdhocOpStatus,
+				Predicates: lifecycle.Predicates{
+					container.IsAdhocOpContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition: condition.CondEnsureDrivers,
 				Run:       loop.EnsureDrivers,
 				Predicates: lifecycle.Predicates{
-					container.IsWekaContainer,
+					container.RequiresDrivers,
 					// TODO: We are basing on condition, so entering operation per container
 					// TODO: While we have multiple containers on the same host, so they are doing redundant work
 					// If we base logic on what pod reports(not our logic here anymore) - it wont help, as all of them will report
@@ -230,7 +260,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Condition: condition.CondJoinedCluster,
 				Run:       loop.reconcileClusterStatus,
 				Predicates: lifecycle.Predicates{
-					container.IsWekaContainer,
+					container.ShouldJoinCluster,
 				},
 				ContinueOnPredicatesFalse: true,
 				CondMessage:               "Container joined cluster",
@@ -868,6 +898,17 @@ func (r *containerReconcilerLoop) resetEnsureDriversForNewPod(ctx context.Contex
 	return nil
 }
 
+func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context) error {
+	if r.container.Status.Status != WaitForDrivers {
+		r.container.Status.Status = WaitForDrivers
+		err := r.Status().Update(ctx, r.container)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	details := r.container.ToContainerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
@@ -1420,11 +1461,6 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		return lifecycle.NewWaitError(errors.New("Node is not set yet"))
 	}
 
-	if !(r.container.IsAllocatable() && r.container.IsBackend()) {
-		logger.Info("not binding container to node, as it is ephemeral", "container_name", r.container.Name)
-		return nil // no need to enforce FDs/uniqueness
-	}
-
 	if !r.container.Spec.NoAffinityConstraints {
 		lockname := fmt.Sprintf("%s-%s", node, r.container.Spec.Mode)
 		lock := r.nodeAffinityLock.GetLock(lockname)
@@ -1496,6 +1532,9 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	found := false
 	for _, c := range response {
 		if c.Name == container.Spec.WekaContainerName {
+			found = true
+			break
+		} else if c.Name == "envoy" && container.IsEnvoy() {
 			found = true
 			break
 		}
@@ -1578,7 +1617,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	}
 
 	complete := func() error {
-		r.container.Status.Status = "Completed"
+		r.container.Status.Status = Completed
 		return r.Status().Update(ctx, r.container)
 	}
 
@@ -1699,6 +1738,17 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 	return nil
 }
 
+func (r *containerReconcilerLoop) updateDriversBuilderStatus(ctx context.Context) error {
+	if r.container.Status.Status != Building {
+		r.container.Status.Status = Building
+		err := r.Status().Update(ctx, r.container)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 	return r.container.Status.LastAppliedImage != r.container.Spec.Image
 }
@@ -1707,7 +1757,7 @@ func (r *containerReconcilerLoop) IsManualUpgradeMode() bool {
 	return r.container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual
 }
 
-func (r *containerReconcilerLoop) ensureNotRunningState(ctx context.Context) error {
+func (r *containerReconcilerLoop) ensurePodNotRunningState(ctx context.Context) error {
 	if r.container.Status.Status != PodStatePodNotRunning {
 		r.container.Status.Status = PodStatePodNotRunning
 		err := r.Status().Update(ctx, r.container)
@@ -1718,6 +1768,21 @@ func (r *containerReconcilerLoop) ensureNotRunningState(ctx context.Context) err
 	return nil
 }
 
+func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error {
+	if r.pod.Status.Phase == v1.PodRunning && r.container.Status.Status != PodStatePodRunning {
+		r.container.Status.Status = PodStatePodRunning
+		err := r.Status().Update(ctx, r.container)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) PodNotRunning() bool {
 	return r.pod.Status.Phase != v1.PodRunning
+}
+
+func (r *containerReconcilerLoop) CondEnsureDriversNotSet() bool {
+	return !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondEnsureDrivers)
 }
