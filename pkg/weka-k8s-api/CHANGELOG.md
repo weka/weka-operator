@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/weka/weka-k8s-api/compare/v1.5.2...v1.6.0) (2024-10-08)
+
+
+### Features
+
+* add min length validation for tombstone CrId ([8d01ef9](https://github.com/weka/weka-k8s-api/commit/8d01ef99b1aba50fc8d0d98788704b0ee9125e77))
+
 ## [1.5.2](https://github.com/weka/weka-k8s-api/compare/v1.5.1...v1.5.2) (2024-10-07)
 
 
