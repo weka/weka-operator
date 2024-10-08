@@ -92,9 +92,21 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		Conditions:       &loop.cluster.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{
+				Run: loop.getCurrentContainers,
+			},
+			{
+				Run: loop.HandleGracefulDeletion,
+				Predicates: lifecycle.Predicates{
+					loop.ClusterIsInGracefulDeletion,
+				},
+				ContinueOnPredicatesFalse: true,
+				FinishOnSuccess:           true,
+			},
+			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
 					loop.cluster.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.ClusterIsInGracefulDeletion),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
