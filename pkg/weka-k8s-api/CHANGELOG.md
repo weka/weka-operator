@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/weka/weka-k8s-api/compare/v1.6.0...v1.7.0) (2024-10-08)
+
+
+### Features
+
+* add gracefulDestroyTimeout field on WekaCluster ([69bb1f5](https://github.com/weka/weka-k8s-api/commit/69bb1f5408ff222c8b94d03acabeb4e415ceb0a6))
+
 # [1.6.0](https://github.com/weka/weka-k8s-api/compare/v1.5.2...v1.6.0) (2024-10-08)
 
 
