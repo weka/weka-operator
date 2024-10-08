@@ -235,6 +235,10 @@ func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone)
 		maintenanceImage = "busybox"
 	}
 
+	if tombstone.Spec.CrId == "" {
+		return nil, fmt.Errorf("tombstone CR ID is empty, refusing removal")
+	}
+
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
