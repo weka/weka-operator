@@ -40,6 +40,7 @@ spec:
               container_name:
                 type: string
               cr_id:
+                minLength: 1
                 type: string
               cr_type:
                 type: string
