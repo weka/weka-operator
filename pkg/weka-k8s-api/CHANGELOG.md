@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/weka/weka-k8s-api/compare/v1.8.0...v1.9.0) (2024-10-09)
+
+
+### Features
+
+* add GetForMode func on AdditionalMemory ([c049681](https://github.com/weka/weka-k8s-api/commit/c04968124a61296d51600ff080f2037ade720767))
+
 # [1.8.0](https://github.com/weka/weka-k8s-api/compare/v1.7.0...v1.8.0) (2024-10-09)
 
 
