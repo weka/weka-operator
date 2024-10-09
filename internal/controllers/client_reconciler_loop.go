@@ -329,7 +329,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	updatableSpec := c.getWekaClientSpecWithUpdatableFields()
+	updatableSpec := NewUpdatableClientSpec(&c.wekaClient.Spec)
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
@@ -338,7 +338,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	if specHash != c.wekaClient.Status.LastAppliedSpec {
 		logger.Info("Client spec has changed, updating containers")
 		for _, container := range c.containers {
-			err := c.updateContainerIfChanged(ctx, container)
+			err := c.updateContainerIfChanged(ctx, container, updatableSpec)
 			if err != nil {
 				return err
 			}
@@ -355,90 +355,73 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) getWekaClientSpecWithUpdatableFields() v1alpha1.WekaClientSpec {
-	spec := c.wekaClient.Spec
-	return v1alpha1.WekaClientSpec{
-		DriversDistService: spec.DriversDistService,
-		ImagePullSecret:    spec.ImagePullSecret,
-		AdditionalMemory:   spec.AdditionalMemory,
-		UpgradePolicy:      spec.UpgradePolicy,
-		DriversLoaderImage: spec.DriversLoaderImage,
-		Port:               spec.Port,
-		AgentPort:          spec.AgentPort,
-		PortRange:          spec.PortRange,
-		CoresNumber:        spec.CoresNumber,
-		Tolerations:        spec.Tolerations,
-	}
-}
-
-func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *v1alpha1.WekaContainer) error {
+func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *v1alpha1.WekaContainer, newClientSpec *UpdatableClientSpec) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	wekaClient := c.wekaClient
 	changed := false
 
-	if container.Spec.DriversDistService != wekaClient.Spec.DriversDistService {
-		container.Spec.DriversDistService = wekaClient.Spec.DriversDistService
+	if container.Spec.DriversDistService != newClientSpec.DriversDistService {
+		container.Spec.DriversDistService = newClientSpec.DriversDistService
 		changed = true
 	}
 
-	if container.Spec.ImagePullSecret != wekaClient.Spec.ImagePullSecret {
-		container.Spec.ImagePullSecret = wekaClient.Spec.ImagePullSecret
+	if container.Spec.ImagePullSecret != newClientSpec.ImagePullSecret {
+		container.Spec.ImagePullSecret = newClientSpec.ImagePullSecret
 		changed = true
 	}
 
-	if container.Spec.AdditionalMemory != wekaClient.Spec.AdditionalMemory {
-		container.Spec.AdditionalMemory = wekaClient.Spec.AdditionalMemory
+	if container.Spec.AdditionalMemory != newClientSpec.AdditionalMemory {
+		container.Spec.AdditionalMemory = newClientSpec.AdditionalMemory
 		changed = true
 	}
 
-	if container.Spec.UpgradePolicyType != wekaClient.Spec.UpgradePolicy.Type {
-		container.Spec.UpgradePolicyType = wekaClient.Spec.UpgradePolicy.Type
+	if container.Spec.UpgradePolicyType != newClientSpec.UpgradePolicy.Type {
+		container.Spec.UpgradePolicyType = newClientSpec.UpgradePolicy.Type
 		changed = true
 	}
 
-	if container.Spec.DriversLoaderImage != wekaClient.Spec.DriversLoaderImage {
-		container.Spec.DriversLoaderImage = wekaClient.Spec.DriversLoaderImage
+	if container.Spec.DriversLoaderImage != newClientSpec.DriversLoaderImage {
+		container.Spec.DriversLoaderImage = newClientSpec.DriversLoaderImage
 		changed = true
 	}
 
-	if container.Spec.Port != wekaClient.Spec.Port {
-		container.Spec.Port = wekaClient.Spec.Port
+	if container.Spec.Port != newClientSpec.Port {
+		container.Spec.Port = newClientSpec.Port
 		changed = true
 	}
 
-	if container.Spec.AgentPort != wekaClient.Spec.AgentPort {
-		container.Spec.AgentPort = wekaClient.Spec.AgentPort
+	if container.Spec.AgentPort != newClientSpec.AgentPort {
+		container.Spec.AgentPort = newClientSpec.AgentPort
 		changed = true
 	}
 
-	if container.Spec.PortRange == nil && wekaClient.Spec.PortRange != nil {
-		container.Spec.PortRange = wekaClient.Spec.PortRange
+	if container.Spec.PortRange == nil && newClientSpec.PortRange != nil {
+		container.Spec.PortRange = newClientSpec.PortRange
 		changed = true
 	}
 
-	if container.Spec.PortRange != nil && wekaClient.Spec.PortRange == nil {
+	if container.Spec.PortRange != nil && newClientSpec.PortRange == nil {
 		container.Spec.PortRange = nil
 		changed = true
 	}
 
-	if container.Spec.PortRange != nil && wekaClient.Spec.PortRange != nil && !isPortRangeEqual(*container.Spec.PortRange, *wekaClient.Spec.PortRange) {
-		container.Spec.PortRange.BasePort = wekaClient.Spec.PortRange.BasePort
-		container.Spec.PortRange.PortRange = wekaClient.Spec.PortRange.PortRange
+	if container.Spec.PortRange != nil && newClientSpec.PortRange != nil && !isPortRangeEqual(*container.Spec.PortRange, *newClientSpec.PortRange) {
+		container.Spec.PortRange.BasePort = newClientSpec.PortRange.BasePort
+		container.Spec.PortRange.PortRange = newClientSpec.PortRange.PortRange
 		changed = true
 	}
 
-	if container.Spec.NumCores != wekaClient.Spec.CoresNumber {
-		if wekaClient.Spec.CoresNumber < container.Spec.NumCores {
+	if container.Spec.NumCores != newClientSpec.CoresNumber {
+		if newClientSpec.CoresNumber < container.Spec.NumCores {
 			logger.Error(errors.New("coresNum cannot be decreased"), "coresNum cannot be decreased, ignoring the change")
 		} else {
-			container.Spec.NumCores = wekaClient.Spec.CoresNumber
+			container.Spec.NumCores = newClientSpec.CoresNumber
 			changed = true
 		}
 	}
 
-	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	tolerations := util.ExpandTolerations([]v1.Toleration{}, newClientSpec.Tolerations, newClientSpec.RawTolerations)
 	if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
 		container.Spec.Tolerations = tolerations
 		changed = true
@@ -481,4 +464,34 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 
 func isPortRangeEqual(a, b v1alpha1.PortRange) bool {
 	return a.BasePort == b.BasePort && a.PortRange == b.PortRange
+}
+
+type UpdatableClientSpec struct {
+	DriversDistService string
+	ImagePullSecret    string
+	AdditionalMemory   int
+	UpgradePolicy      v1alpha1.UpgradePolicy
+	DriversLoaderImage string
+	Port               int
+	AgentPort          int
+	PortRange          *v1alpha1.PortRange
+	CoresNumber        int
+	Tolerations        []string
+	RawTolerations     []v1.Toleration
+}
+
+func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec) *UpdatableClientSpec {
+	return &UpdatableClientSpec{
+		DriversDistService: spec.DriversDistService,
+		ImagePullSecret:    spec.ImagePullSecret,
+		AdditionalMemory:   spec.AdditionalMemory,
+		UpgradePolicy:      spec.UpgradePolicy,
+		DriversLoaderImage: spec.DriversLoaderImage,
+		Port:               spec.Port,
+		AgentPort:          spec.AgentPort,
+		PortRange:          spec.PortRange,
+		CoresNumber:        spec.CoresNumber,
+		Tolerations:        spec.Tolerations,
+		RawTolerations:     spec.RawTolerations,
+	}
 }
