@@ -238,6 +238,9 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		}
 	}
 
+	containerLabels := map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name}
+	labels := util2.MergeLabels(wekaClient.ObjectMeta.GetLabels(), containerLabels)
+
 	container := &v1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -246,7 +249,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clientName,
 			Namespace: wekaClient.Namespace,
-			Labels:    map[string]string{"app": "weka-client", "clientName": wekaClient.ObjectMeta.Name},
+			Labels:    labels,
 		},
 		Spec: v1alpha1.WekaContainerSpec{
 			NodeAffinity:        v1alpha1.NodeName(nodeName),

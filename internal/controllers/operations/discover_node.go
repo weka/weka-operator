@@ -12,6 +12,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -181,14 +182,17 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 		return nil
 	}
 
+	labels := map[string]string{
+		"weka.io/mode": weka.WekaContainerModeDiscovery,
+	}
+	labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+
 	containerName := fmt.Sprintf("weka-dsc-%s", o.node.Name)
 	discoveryContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      containerName,
 			Namespace: o.ownerRef.GetNamespace(), // this means, that discovery can be created multiple times in different namespaces. but, this way it has proper owner. need to ensure that discovery can sustain running in parallel
-			Labels: map[string]string{
-				"weka.io/mode": weka.WekaContainerModeDiscovery,
-			},
+			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
 			Mode:            weka.WekaContainerModeDiscovery,

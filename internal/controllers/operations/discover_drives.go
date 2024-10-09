@@ -10,6 +10,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -135,14 +136,17 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 			}
 		}
 
+		labels := map[string]string{
+			"weka.io/mode": v1alpha1.WekaContainerModeAdhocOp,
+		}
+		labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+
 		containerName := fmt.Sprintf("weka-discover-drives-%s-%s", o.ownerRef.GetUID(), node.GetUID())
 		newContainer := &v1alpha1.WekaContainer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      containerName,
 				Namespace: o.namespace,
-				Labels: map[string]string{
-					"weka.io/mode": v1alpha1.WekaContainerModeAdhocOp,
-				},
+				Labels:    labels,
 			},
 			Spec: v1alpha1.WekaContainerSpec{
 				Mode:            v1alpha1.WekaContainerModeAdhocOp,
