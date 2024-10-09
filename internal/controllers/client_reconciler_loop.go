@@ -329,13 +329,14 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	specHash, err := util2.HashStruct(c.wekaClient.Spec)
+	updatableSpec := c.getWekaClientSpecWithUpdatableFields()
+	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
 	}
 
 	if specHash != c.wekaClient.Status.LastAppliedSpec {
-		logger.Info("Spec has changed, updating status")
+		logger.Info("Client spec has changed, updating containers")
 		for _, container := range c.containers {
 			err := c.updateContainerIfChanged(ctx, container)
 			if err != nil {
@@ -352,6 +353,22 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *clientReconcilerLoop) getWekaClientSpecWithUpdatableFields() v1alpha1.WekaClientSpec {
+	spec := c.wekaClient.Spec
+	return v1alpha1.WekaClientSpec{
+		DriversDistService: spec.DriversDistService,
+		ImagePullSecret:    spec.ImagePullSecret,
+		AdditionalMemory:   spec.AdditionalMemory,
+		UpgradePolicy:      spec.UpgradePolicy,
+		DriversLoaderImage: spec.DriversLoaderImage,
+		Port:               spec.Port,
+		AgentPort:          spec.AgentPort,
+		PortRange:          spec.PortRange,
+		CoresNumber:        spec.CoresNumber,
+		Tolerations:        spec.Tolerations,
+	}
 }
 
 func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *v1alpha1.WekaContainer) error {

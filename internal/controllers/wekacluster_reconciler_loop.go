@@ -351,12 +351,14 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	cluster := r.cluster
 	containers := r.containers
 
+	updatableSpec := r.getWekaClusterSpecWithUpdatableFields()
 	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
-	specHash, err := util2.HashStruct(cluster.Spec)
+	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
 	}
 	if specHash != cluster.Status.LastAppliedSpec {
+		logger.Info("Cluster spec has changed, updating containers")
 		for _, container := range containers {
 			changed := false
 			additionalMemory := cluster.Spec.GetAdditionalMemory(container.Spec.Mode)
@@ -397,6 +399,16 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	}
 	return nil
 
+}
+
+func (r *wekaClusterReconcilerLoop) getWekaClusterSpecWithUpdatableFields() wekav1alpha1.WekaClusterSpec {
+	spec := r.cluster.Spec
+	return wekav1alpha1.WekaClusterSpec{
+		AdditionalMemory:   spec.AdditionalMemory,
+		Tolerations:        spec.Tolerations,
+		DriversDistService: spec.DriversDistService,
+		ImagePullSecret:    spec.ImagePullSecret,
+	}
 }
 
 func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) error {
