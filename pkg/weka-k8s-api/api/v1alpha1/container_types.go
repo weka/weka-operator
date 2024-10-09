@@ -319,6 +319,7 @@ func (w *WekaContainer) ToContainerDetails() *WekaContainerDetails {
 		Image:           w.Spec.Image,
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     w.Spec.Tolerations,
+		Labels:          w.ObjectMeta.GetLabels(),
 	}
 }
 
@@ -374,7 +375,8 @@ func (c *WekaContainer) IsPaused() bool {
 }
 
 type WekaContainerDetails struct {
-	Image           string          `json:"image"`
-	ImagePullSecret string          `json:"imagePullSecrets"`
-	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
+	Image           string            `json:"image"`
+	ImagePullSecret string            `json:"imagePullSecrets"`
+	Tolerations     []v1.Toleration   `json:"tolerations,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
 }
