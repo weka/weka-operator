@@ -179,6 +179,21 @@ spec:
                 type: integer
               port:
                 type: integer
+              portRange:
+                properties:
+                  basePort:
+                    default: 45000
+                    maximum: 65535
+                    type: integer
+                  portRange:
+                    default: 0
+                    description: |-
+                      number of ports to check for availability
+                      if 0 - will check all ports from basePort to 65535
+                    type: integer
+                required:
+                - basePort
+                type: object
               serviceAccountName:
                 type: string
               state:
