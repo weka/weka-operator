@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/weka/weka-k8s-api/compare/v1.7.0...v1.8.0) (2024-10-09)
+
+
+### Features
+
+* add portRange to wekaclient / wekacontainer spec ([bc5f508](https://github.com/weka/weka-k8s-api/commit/bc5f508fd06b54233863a2f58633dc21073d97a4))
+
 # [1.7.0](https://github.com/weka/weka-k8s-api/compare/v1.6.0...v1.7.0) (2024-10-08)
 
 
