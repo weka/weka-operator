@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/weka/weka-k8s-api/compare/v1.9.0...v1.10.0) (2024-10-09)
+
+
+### Features
+
+* add labels on WekaContainerDetails ([8cc5340](https://github.com/weka/weka-k8s-api/commit/8cc5340d6f8d19f57a53e33344c17657a5ec1233))
+
 # [1.9.0](https://github.com/weka/weka-k8s-api/compare/v1.8.0...v1.9.0) (2024-10-09)
 
 
