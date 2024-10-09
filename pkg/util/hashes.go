@@ -17,11 +17,3 @@ func HashStruct(s any) (string, error) {
 	hash := sha256.Sum256(buf.Bytes())
 	return fmt.Sprintf("%x", hash), nil
 }
-
-func HashStructShortUnsafe(s any) (string, error) {
-	h, err := HashStruct(s)
-	if err != nil {
-		return "", err
-	}
-	return h[:16], nil
-}
