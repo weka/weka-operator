@@ -351,7 +351,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	cluster := r.cluster
 	containers := r.containers
 
-	updatableSpec := r.getWekaClusterSpecWithUpdatableFields()
+	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec)
 	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
@@ -361,25 +361,25 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		logger.Info("Cluster spec has changed, updating containers")
 		for _, container := range containers {
 			changed := false
-			additionalMemory := cluster.Spec.GetAdditionalMemory(container.Spec.Mode)
+			additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
 			if container.Spec.AdditionalMemory != additionalMemory {
 				container.Spec.AdditionalMemory = additionalMemory
 				changed = true
 			}
 
-			tolerations := util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+			tolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
 			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
 				container.Spec.Tolerations = tolerations
 				changed = true
 			}
 
-			if container.Spec.DriversDistService != cluster.Spec.DriversDistService {
-				container.Spec.DriversDistService = cluster.Spec.DriversDistService
+			if container.Spec.DriversDistService != updatableSpec.DriversDistService {
+				container.Spec.DriversDistService = updatableSpec.DriversDistService
 				changed = true
 			}
 
-			if container.Spec.ImagePullSecret != cluster.Spec.ImagePullSecret {
-				container.Spec.ImagePullSecret = cluster.Spec.ImagePullSecret
+			if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
+				container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
 				changed = true
 			}
 
@@ -399,16 +399,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	}
 	return nil
 
-}
-
-func (r *wekaClusterReconcilerLoop) getWekaClusterSpecWithUpdatableFields() wekav1alpha1.WekaClusterSpec {
-	spec := r.cluster.Spec
-	return wekav1alpha1.WekaClusterSpec{
-		AdditionalMemory:   spec.AdditionalMemory,
-		Tolerations:        spec.Tolerations,
-		DriversDistService: spec.DriversDistService,
-		ImagePullSecret:    spec.ImagePullSecret,
-	}
 }
 
 func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) error {
@@ -1138,4 +1128,22 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 		}
 	}
 	return containers, nil
+}
+
+type UpdatableClusterSpec struct {
+	AdditionalMemory   wekav1alpha1.AdditionalMemory
+	Tolerations        []string
+	RawTolerations     []v1.Toleration
+	DriversDistService string
+	ImagePullSecret    string
+}
+
+func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec) *UpdatableClusterSpec {
+	return &UpdatableClusterSpec{
+		AdditionalMemory:   spec.AdditionalMemory,
+		Tolerations:        spec.Tolerations,
+		RawTolerations:     spec.RawTolerations,
+		DriversDistService: spec.DriversDistService,
+		ImagePullSecret:    spec.ImagePullSecret,
+	}
 }
