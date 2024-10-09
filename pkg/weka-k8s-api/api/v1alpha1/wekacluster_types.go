@@ -44,6 +44,19 @@ type AdditionalMemory struct {
 	S3      int `json:"s3,omitempty"`
 }
 
+func (a *AdditionalMemory) GetForMode(mode string) int {
+	additionalMemory := 0
+	switch mode {
+	case WekaContainerModeDrive:
+		additionalMemory = a.Drive
+	case WekaContainerModeCompute:
+		additionalMemory = a.Compute
+	case WekaContainerModeS3:
+		additionalMemory = a.S3
+	}
+	return additionalMemory
+}
+
 type WekaConfig struct {
 	ComputeContainers   *int `json:"computeContainers,omitempty"`
 	DriveContainers     *int `json:"driveContainers,omitempty"`
@@ -120,16 +133,7 @@ type WekaClusterSpec struct {
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
-	additionalMemory := 0
-	switch mode {
-	case WekaContainerModeDrive:
-		additionalMemory = c.AdditionalMemory.Drive
-	case WekaContainerModeCompute:
-		additionalMemory = c.AdditionalMemory.Compute
-	case WekaContainerModeS3:
-		additionalMemory = c.AdditionalMemory.S3
-	}
-	return additionalMemory
+	return c.AdditionalMemory.GetForMode(mode)
 }
 
 type ClusterPorts struct {
