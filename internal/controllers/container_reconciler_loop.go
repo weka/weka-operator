@@ -653,6 +653,7 @@ func (r *containerReconcilerLoop) ensureTombstone(ctx context.Context) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("wekacontainer-%s", container.GetUID()),
 			Namespace: container.Namespace,
+			Labels:    container.ObjectMeta.GetLabels(),
 		},
 		Spec: weka.TombstoneSpec{
 			CrType:          "WekaContainer",
@@ -1010,6 +1011,7 @@ func (r *containerReconcilerLoop) ensureDriversLoader(ctx context.Context) error
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			Labels:    container.ObjectMeta.GetLabels(),
 		},
 		Spec: weka.WekaContainerSpec{
 			Image:               container.Spec.Image,
@@ -1020,6 +1022,7 @@ func (r *containerReconcilerLoop) ensureDriversLoader(ctx context.Context) error
 			DriversDistService:  container.Spec.DriversDistService,
 			TracesConfiguration: container.Spec.TracesConfiguration,
 			Tolerations:         container.Spec.Tolerations,
+			NodeSelector:        container.Spec.NodeSelector,
 			ServiceAccountName:  serviceAccountName,
 		},
 	}
@@ -1289,6 +1292,7 @@ func (r *containerReconcilerLoop) claimDrive(ctx context.Context, container *wek
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: container.Namespace,
 			Name:      fmt.Sprintf("%s", driveUuid),
+			Labels:    container.ObjectMeta.GetLabels(),
 		},
 		Spec: weka.DriveClaimSpec{
 			DriveUuid: driveUuid,

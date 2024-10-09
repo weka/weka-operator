@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/pkg/errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -120,14 +122,17 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			continue
 		}
 
+		labels := map[string]string{
+			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
+		}
+		labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+
 		containerName := fmt.Sprintf("weka-adhoc-%s-%s", o.ownerRef.GetName(), node.GetUID())
 		newContainer := &weka.WekaContainer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      containerName,
 				Namespace: o.ownerRef.GetNamespace(),
-				Labels: map[string]string{
-					"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
-				},
+				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
 				Mode:            weka.WekaContainerModeAdhocOpWC,

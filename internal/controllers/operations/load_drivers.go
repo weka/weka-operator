@@ -12,6 +12,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -123,13 +124,16 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 		return fmt.Errorf("cannot create driver loader container, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
 	}
 
+	labels := map[string]string{
+		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
+	}
+	labels = util2.MergeLabels(o.containerDetails.Labels, labels)
+
 	loaderContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("weka-drivers-loader-%s", o.node.UID),
 			Namespace: o.namespace,
-			Labels: map[string]string{
-				"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
-			},
+			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
 			Image:               o.containerDetails.Image,

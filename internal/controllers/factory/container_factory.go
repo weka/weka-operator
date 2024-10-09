@@ -10,6 +10,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -22,6 +23,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		"weka.io/cluster-id": string(cluster.UID),
 		"weka.io/mode":       role, // in addition to spec for indexing on k8s side for filtering by mode
 	}
+	labels = util2.MergeLabels(cluster.ObjectMeta.GetLabels(), labels)
 
 	var hugePagesNum int
 	var numCores int

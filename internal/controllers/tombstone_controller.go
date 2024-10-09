@@ -243,6 +243,7 @@ func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone)
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: namespace, // since we access all containers, must put this into the same namespace from access sharing perspective
+			Labels:    tombstone.ObjectMeta.GetLabels(),
 		},
 		Spec: v1.JobSpec{
 			TTLSecondsAfterFinished: &ttl,
