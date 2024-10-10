@@ -1713,6 +1713,7 @@ async def main():
                 "driver_built": True,
                 "err": "",
                 "weka_version": weka_version.decode().strip(),
+                "kernel_signature": await get_kernel_signature(weka_pack_supported=not DIST_LEGACY_MODE, weka_drivers_handling=WEKA_DRIVERS_HANDLING),
                 "weka_pack_not_supported": DIST_LEGACY_MODE,
                 "no_weka_drivers_handling": not WEKA_DRIVERS_HANDLING,
             })
@@ -1729,6 +1730,26 @@ async def main():
     logging.info("Container is UP and running")
     if MODE == "drive":
         await ensure_drives()
+
+
+async def get_kernel_signature(weka_pack_supported=False, weka_drivers_handling=False):
+    if not weka_drivers_handling:
+        return ""
+    
+    cmd = ""
+    if weka_pack_supported:
+        cmd = "weka driver kernel 2>&1 | awk '{printf \"%s\", $NF}'"
+    else:
+        # tr -d '\0' is needed to remove null character from the end of output
+        cmd = "weka driver kernel-sig 2>&1 | awk '{printf \"%s\", $NF}' | tr -d '\\0'"
+    
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to get kernel signature: {stderr}")
+    
+    res = stdout.decode().strip()
+    assert res, "Kernel signature not found"
+    return res
 
 
 async def stop_process(process):

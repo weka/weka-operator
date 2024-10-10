@@ -1636,6 +1636,7 @@ func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 
 type BuiltDriversResult struct {
 	WekaVersion           string `json:"weka_version"`
+	KernelSignature       string `json:"kernel_signature"`
 	WekaPackNotSupported  bool   `json:"weka_pack_not_supported"`
 	NoWekaDriversHandling bool   `json:"no_weka_drivers_handling"`
 	Err                   string `json:"err"`
@@ -1708,35 +1709,20 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		}
 	}
 
-	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
-		[]string{"bash", "-ce",
-			"weka driver download --without-agent --version " + results.WekaVersion + " --from " + endpoint,
-		},
-	)
+	downloadCmd := "weka driver download --without-agent --version " + results.WekaVersion + " --from " + endpoint
+	if !results.WekaPackNotSupported {
+		downloadCmd += " --kernel-signature " + results.KernelSignature
+	}
 
+	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
+		[]string{"bash", "-ce", downloadCmd},
+	)
 	if err != nil {
 		return errors.Wrap(err, stderr.String()+stdout.String())
 	}
 
 	if results.WekaPackNotSupported {
-		// weka driver kernel-sig
-		stdout, stderr, err := executor.ExecNamed(ctx, "KernelSig",
-			[]string{"bash", "-ce",
-				"weka driver kernel-sig 2>&1 >/dev/null | awk '{printf \"%s\", $NF}'",
-			},
-		)
-		if err != nil {
-			return errors.Wrap(err, stderr.String()+stdout.String())
-		}
-
-		kernelSig := stdout.String()
-		// Remove null character from the end
-		kernelSig = strings.TrimRight(kernelSig, "\x00")
-		if kernelSig == "" {
-			return errors.New("Kernel signature not found")
-		}
-
-		url := fmt.Sprintf("%s/dist/v1/drivers/%s-%s.tar.gz.sha256", endpoint, results.WekaVersion, kernelSig)
+		url := fmt.Sprintf("%s/dist/v1/drivers/%s-%s.tar.gz.sha256", endpoint, results.WekaVersion, results.KernelSignature)
 		cmd := "cd /opt/weka/dist/drivers/ && curl -kO " + url
 		stdout, stderr, err = executor.ExecNamed(ctx, "Copy sha256 file",
 			[]string{"bash", "-ce", cmd},
