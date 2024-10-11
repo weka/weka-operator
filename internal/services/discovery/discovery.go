@@ -17,8 +17,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const DiscoveryTargetSchema = 2
-const ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
+const (
+	DiscoveryAnnotation     = "weka.io/discovery.json"
+	DiscoveryTargetSchema   = 2
+	ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
+)
 
 type DiscoveryNodeInfo struct {
 	IsHt               bool   `json:"is_ht"`

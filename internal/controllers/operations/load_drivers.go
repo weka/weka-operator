@@ -12,13 +12,14 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const driversLoadedAnnotation = "weka.io/drivers-loaded"
 
 type LoadDrivers struct {
 	mgr                 ctrl.Manager
@@ -30,7 +31,6 @@ type LoadDrivers struct {
 	distServiceEndpoint string
 	container           *weka.WekaContainer
 	namespace           string
-	results             *string
 	isFrontend          bool // defines whether we should enforce latest version, or suffice with any version
 }
 
@@ -60,6 +60,7 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		{Name: "GetCurrentContainer", Run: o.GetCurrentContainers},
+		{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}, ContinueOnPredicatesFalse: true},
 		{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
 		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
 		{Name: "CreateContainer", Run: o.CreateContainer, Predicates: lifecycle.Predicates{o.HasNotContainer}, ContinueOnPredicatesFalse: true},
@@ -73,9 +74,43 @@ func (o *LoadDrivers) GetJsonResult() string {
 	panic("not implemented due to no interfaced use")
 }
 
+func (o *LoadDrivers) HandleNodeReboot(ctx context.Context) error {
+	annotations := o.node.Annotations
+	if annotations == nil {
+		return nil
+	}
+	if _, ok := annotations[driversLoadedAnnotation]; ok {
+		delete(annotations, driversLoadedAnnotation)
+		o.node.Annotations = annotations
+		err := o.client.Update(ctx, o.node)
+		if err != nil {
+			err = errors.Wrap(err, "failed to update node annotations")
+			return lifecycle.NewWaitError(err)
+		}
+	}
+	return nil
+}
+
+func (o *LoadDrivers) NodeRebooted() bool {
+	annotations := o.node.Annotations
+	// compare boot id of the node with the boot id in annotation:
+	// weka.io/discovery.json: '{"boot_id":"589e6771-6d16-47d3-be1c-d879812bb09f","schema":2,"num_cpus":11, ...}'
+	discoveryRes, ok := annotations[discovery.DiscoveryAnnotation]
+	if !ok {
+		return false
+	}
+	discoveryNodeInfo := &discovery.DiscoveryNodeInfo{}
+	err := json.Unmarshal([]byte(discoveryRes), discoveryNodeInfo)
+	if err != nil {
+		// if we cannot unmarshal the discovery json, assume the node just booted
+		return true
+	}
+	return discoveryNodeInfo.BootID != o.node.Status.NodeInfo.BootID
+}
+
 func (o *LoadDrivers) IsLoaded() bool {
 	annotations := o.node.Annotations
-	current, ok := annotations["weka.io/drivers-loaded"]
+	current, ok := annotations[driversLoadedAnnotation]
 	if ok && !o.isFrontend {
 		return true
 	}
@@ -127,7 +162,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
 	}
-	labels = util2.MergeLabels(o.containerDetails.Labels, labels)
+	labels = util.MergeLabels(o.containerDetails.Labels, labels)
 
 	loaderContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
@@ -197,7 +232,7 @@ func (o *LoadDrivers) ProcessResult(ctx context.Context) error {
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations["weka.io/drivers-loaded"] = o.GetExpectedDriversVersion()
+	annotations[driversLoadedAnnotation] = o.GetExpectedDriversVersion()
 	o.node.Annotations = annotations
 	err = o.client.Update(ctx, o.node)
 	if err != nil {
