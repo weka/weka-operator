@@ -22,11 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	discoveryAnnotation   = "weka.io/discovery.json"
-	DiscoveryTargetSchema = 2
-)
-
 type DiscoverNodeOperation struct {
 	client          client.Client
 	kubeService     kubernetes.KubeService
@@ -102,10 +97,10 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 	o.node = node
 
 	// Check if node already has the discovery.json annotation
-	if annotation, ok := node.Annotations[discoveryAnnotation]; ok {
+	if annotation, ok := node.Annotations[discovery.DiscoveryAnnotation]; ok {
 		discoveryNodeInfo := &discovery.DiscoveryNodeInfo{}
 		err = json.Unmarshal([]byte(annotation), discoveryNodeInfo)
-		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Schema >= DiscoveryTargetSchema {
+		if err == nil && discoveryNodeInfo.BootID == node.Status.NodeInfo.BootID && discoveryNodeInfo.Schema >= discovery.DiscoveryTargetSchema {
 			o.result = discoveryNodeInfo
 			enrichErr := o.Enrich(ctx)
 			if enrichErr != nil {
@@ -233,7 +228,7 @@ func (o *DiscoverNodeOperation) ProcessResult(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to unmarshal discovery.json")
 	}
 
-	discoveryNodeInfo.Schema = DiscoveryTargetSchema
+	discoveryNodeInfo.Schema = discovery.DiscoveryTargetSchema
 	o.result = discoveryNodeInfo
 	err = o.Enrich(ctx)
 	if err != nil {
@@ -259,7 +254,7 @@ func (o *DiscoverNodeOperation) UpdateNodes(ctx context.Context) error {
 	if o.node.Annotations == nil {
 		o.node.Annotations = make(map[string]string)
 	}
-	o.node.Annotations[discoveryAnnotation] = string(discoveryString)
+	o.node.Annotations[discovery.DiscoveryAnnotation] = string(discoveryString)
 	err = o.client.Update(ctx, o.node)
 	if err != nil {
 		return err
