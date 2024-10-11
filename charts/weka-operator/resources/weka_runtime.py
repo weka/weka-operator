@@ -840,7 +840,8 @@ async def create_container():
         {net_str}  --base-port {PORT} --memory {MEMORY} \
         {f"{join_secret_flag} {join_secret_cmd}" if join_secret_cmd else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
-        {f"--client" if MODE == 'client' else ""}
+        {f"--client" if MODE == 'client' else ""} \
+        {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""}
     """)
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
@@ -897,6 +898,14 @@ async def get_weka_local_resources() -> dict:
     return json.loads(resources)
 
 
+def should_recreate_client_container(resources: dict) -> bool:
+    if resources["base_port"] != PORT:
+        return True
+    if resources.get("restricted_client") is not True:
+        return True
+    return False
+
+
 async def ensure_weka_container():
     current_containers = await get_containers()
 
@@ -914,7 +923,8 @@ async def ensure_weka_container():
     logging.info("Container already exists, reconfiguring")
     resources = await get_weka_local_resources()
 
-    if MODE == "client" and resources['base_port'] != PORT:
+    if MODE == "client" and should_recreate_client_container(resources):
+        logging.info("Recreating client container")
         await run_command("weka local stop --force", capture_stdout=False)
         await run_command(f"weka local rm --all --force", capture_stdout=False)
         await create_container()
@@ -1642,7 +1652,7 @@ async def main():
     await ensure_weka_version()
     await override_dependencies_flag()
 
-    if MODE not in ["dist","drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
+    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
         await ensure_drivers()
 
     if MODE == "drivers-dist":
