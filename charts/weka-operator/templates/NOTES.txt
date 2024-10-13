@@ -1,34 +1,5 @@
 Chart: {{ .Chart.Name }}
 Release: {{ .Release.Name }}
-
-Notes:
-- This has been tested with the CSI plugin.  Please ensure that the operator is
-  installed before the plugin.  When uninstalling, please ensure that the plugin
-  is removed before this chart.  Otherwise, uninstallation may hang when removing
-  Weka kernel modules.
-
-- Operator startup may fail if correct image pull credentials are not provided.
-  Please ensure that the imagePullSecret field in Values.yaml is set to a valid
-  secret containing credentials for the Weka container image.
-
-Next steps:
-Please create a client.yaml file to configure the operator.
-
-Example:
-```yaml
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaCluster
-metadata:
-  name: cluster-dev
-  namespace: default
-spec:
-  size: 1
-  template: small
-  topology: discover_aws_i3en6x # to be removed in the future towards true discovery
-  image: quay.io/weka.io/weka-in-container:4.2.10-k8so.0
-  driversDistService: "http://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
-  nodeSelector:
-    weka.io/role: backend
 ```
 {{- if .Values.gkeCompatibility.hugepageConfiguration.enabled}}
 WARNING: Automatic setup of hugepages on GKE nodes is enabled. This will
