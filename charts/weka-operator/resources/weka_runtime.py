@@ -20,6 +20,8 @@ NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
 NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
+UDP_MODE = os.environ.get("UDP_MODE", "")
+UDP_MODE = True if (UDP_MODE == "true" or NETWORK_DEVICE=="" or NETWORK_DEVICE=="UDP") else False
 PORT = os.environ.get("PORT", "")
 AGENT_PORT = os.environ.get("AGENT_PORT", "")
 RESOURCES = {}  # to be populated at later stage
@@ -820,19 +822,27 @@ async def create_container():
             join_secret_flag = "--join-token"
         join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
 
-    net_str = f"--net {NETWORK_DEVICE}"
+    network_device = NETWORK_DEVICE
+    if UDP_MODE:
+        network_device = "udp"
+
+    net_str = f"--net {network_device}"
+
     if "aws_" in NETWORK_DEVICE:
         devices = NETWORK_DEVICE.split(",")
         devices = [await resolve_aws_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
 
-    elif is_rhcos():
-        # Weka does not know how to resolve the network device when address is assigned via DHCP etc.
-        # and we want to limit this behavior only to RHCOS now.
-        # TODO: either allow this for all OSes or replace this logic to be inside Weka...
-        devices = NETWORK_DEVICE.split(",")
-        devices = [await resolve_dhcp_net(dev) for dev in devices]
-        net_str = " ".join([f"--net {d}" for d in devices])
+    # TODO: Review-this. we do need separate setting of device name(choose appropriate subnet?), This is not rhcos specific, and rhcos does not mean that DHCP is used
+    # Moreoever, in UDP mode we dont want to specify device name, as that mean weka will try to use it(for example, taking out from kernel single AWS nic)
+    # TODO: figure out how to speicify NETWORK_DEVICE and yet preserve UDP
+    # elif is_rhcos():
+    #     # Weka does not know how to resolve the network device when address is assigned via DHCP etc.
+    #     # and we want to limit this behavior only to RHCOS now.
+    #     # TODO: either allow this for all OSes or replace this logic to be inside Weka...
+    #     devices = NETWORK_DEVICE.split(",")
+    #     devices = [await resolve_dhcp_net(dev) for dev in devices]
+    #     net_str = " ".join([f"--net {d}" for d in devices])
 
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable\

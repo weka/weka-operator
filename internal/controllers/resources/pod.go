@@ -84,7 +84,6 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		netDevice = strings.Join(f.container.Spec.Network.EthDevices, ",")
 	}
 	if f.container.Spec.Network.UdpMode {
-		netDevice = "udp"
 		udpMode = "true"
 	}
 

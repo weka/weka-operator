@@ -461,9 +461,10 @@ func (r *containerReconcilerLoop) reconcileManagementIP(ctx context.Context) err
 	var getIpCmd string
 	if container.Spec.Network.EthDevice != "" {
 		if container.Spec.Ipv6 {
-			getIpCmd = fmt.Sprintf("ip -6 addr show dev %s | grep 'inet6 ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
+			//TODO Selecting first IP might not be correct way, but best we can do here unless getting more input
+			getIpCmd = fmt.Sprintf("ip -6 addr show dev %s | grep 'inet6 ' | awk '{print $2}' | cut -d/ -f1 | head -n 1", container.Spec.Network.EthDevice)
 		} else {
-			getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
+			getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -n1", container.Spec.Network.EthDevice)
 		}
 	} else {
 		if container.Spec.Ipv6 {
