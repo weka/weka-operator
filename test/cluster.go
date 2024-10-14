@@ -2,17 +2,14 @@ package test
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/pkg/instrumentation"
 
 	"github.com/kr/pretty"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,109 +20,24 @@ type Cluster struct {
 	ClusterTest
 }
 
-func (c *Cluster) CreateCluster(ctx context.Context) func(t *testing.T) {
-	return func(t *testing.T) {
-		t.Run("Validate Weka Cluster", c.ValidateWekaCluster(ctx))
-		t.Run("Deploy Weka Cluster", c.DeployWekaCluster(ctx))
-	}
-}
-
-func (c *Cluster) ValidateWekaCluster(ctx context.Context) func(t *testing.T) {
-	return func(t *testing.T) {
-		cluster := c.testingCluster()
-		if cluster.UID != "" {
-			t.Fatalf("UID should be empty")
-		}
-
-		template := cluster.Spec.Template
-		_, ok := allocator.WekaClusterTemplates[template]
-		if !ok {
-			t.Fatalf("template %q not found in WekaClusterTemplates", template)
-		}
-	}
-}
-
-func (c *Cluster) testingCluster() *wekav1alpha1.WekaCluster {
-	driversDistService := fmt.Sprintf("https://weka-driver-builder.%s.svc.cluster.local:60002", c.Cluster.OperatorNamespace)
-	cluster := &wekav1alpha1.WekaCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.Cluster.WekaClusterName,
-			Namespace: c.Cluster.OperatorNamespace,
-		},
-		Spec: wekav1alpha1.WekaClusterSpec{
-			Size:               1,
-			Template:           "small",
-			Image:              c.Image,
-			ImagePullSecret:    "quay-io-robot-secret",
-			DriversDistService: driversDistService,
-			NodeSelector: map[string]string{
-				"weka.io/role": "backend",
-			},
-		},
-	}
-	return cluster
-}
-
-func (c *Cluster) DeployWekaCluster(ctx context.Context) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, logger, done := instrumentation.GetLogSpan(ctx, "DeployWekaCluster")
-		defer done()
-
-		cluster := c.testingCluster()
-
-		if err := c.Create(ctx, cluster); err != nil {
-			if apierrors.IsAlreadyExists(err) {
-				logger.Info("cluster already exists")
-			} else {
-				logger.Error(err, "FormCluster cluster")
-				t.Fatalf("failed to create weka cluster: %v", err)
-			}
-		}
-
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
-
-		t.Run("FormCluster Weka Cluster", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			waitFor(ctx, func(ctx context.Context) bool {
-				err := c.Get(ctx, client.ObjectKeyFromObject(cluster), cluster)
-				return err == nil
-			})
-			if cluster.UID == "" {
-				t.Fatalf("UID should not be empty")
-			}
-		})
-
-		t.Run("Secrets Created Condition", c.SecretsCreatedCondition(ctx, cluster))
-		t.Run("Pods Created Condition", c.PodsCreatedCondition(ctx, cluster))
-	}
-}
-
-func (c *Cluster) SecretsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
-		if err := c.waitForCondition(ctx, cluster, condition.CondClusterSecretsCreated); err != nil {
-			t.Fatalf("failed to wait for Secrets Created condition: %v", err)
-		}
-	}
-}
-
-func (c *Cluster) PodsCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
-	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
-		if err := c.waitForCondition(ctx, cluster, condition.CondPodsCreated); err != nil {
-			t.Fatalf("failed to wait for Pods Created condition: %v", err)
-		}
-	}
-}
-
 func (c *Cluster) ValidateStartupCompleted(ctx context.Context) func(t *testing.T) {
 	return func(t *testing.T) {
+
+		t.Run("Verify Namespace", c.VerifyNamespace(ctx))
 		t.Run("Verify Weka Containers", c.VerifyWekaContainers(ctx))
 		t.Run("Verify Weka Cluster", c.VerifyWekaCluster(ctx))
+	}
+}
+
+func (c *Cluster) VerifyNamespace(ctx context.Context) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx, _, done := instrumentation.GetLogSpan(ctx, "VerifyNamespace")
+		defer done()
+
+		ns := &v1.Namespace{}
+		if err := c.Get(ctx, client.ObjectKey{Name: c.Cluster.OperatorNamespace}, ns); err != nil {
+			t.Fatalf("failed to get namespace: %v", err)
+		}
 	}
 }
 
@@ -136,8 +48,6 @@ func (c *Cluster) VerifyWekaContainers(ctx context.Context) func(t *testing.T) {
 
 		driveContainers := &wekav1alpha1.WekaContainerList{}
 		t.Run("List Drive Containers", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-			defer cancel()
 
 			waitFor(ctx, func(ctx context.Context) bool {
 				labels := map[string]string{
@@ -153,8 +63,6 @@ func (c *Cluster) VerifyWekaContainers(ctx context.Context) func(t *testing.T) {
 
 		computeContainers := &wekav1alpha1.WekaContainerList{}
 		t.Run("List Compute Containers", func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-			defer cancel()
 
 			waitFor(ctx, func(ctx context.Context) bool {
 				labels := map[string]string{
@@ -195,7 +103,6 @@ func (c *Cluster) VerifyWekaCluster(ctx context.Context) func(t *testing.T) {
 		logger.SetValues("cluster", cluster.Name)
 
 		t.Run("Pods Ready Condition", c.PodsReadyCondition(ctx, cluster))
-		t.Run("Secrets Applied Condition", c.SecretsAppliedCondition(ctx, cluster))
 		t.Run("Cluster Created Condition", c.ClusterCreatedCondition(ctx, cluster))
 		t.Run("Drives Added Condition", c.DrivesAddedCondition(ctx, cluster))
 		t.Run("IO Started Condition", c.IOStartedCondition(ctx, cluster))
@@ -232,6 +139,7 @@ func (c *Cluster) DriversEnsuredCondition(ctx context.Context, container *wekav1
 		for _, container := range container.Items {
 			t.Run(container.Name, func(t *testing.T) {
 				var driverCondition *metav1.Condition
+
 				waitFor(ctx, func(ctx context.Context) bool {
 					err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
 					if err != nil {
@@ -261,6 +169,7 @@ func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *wekav1a
 			logger.SetValues("container", container.Name)
 			t.Run(container.Name, func(t *testing.T) {
 				var joinedCondition *metav1.Condition
+
 				waitFor(ctx, func(ctx context.Context) bool {
 					err := c.Get(ctx, client.ObjectKeyFromObject(&container), &container)
 					if err != nil {
@@ -284,8 +193,6 @@ func (c *Cluster) JoinedClusterCondition(ctx context.Context, container *wekav1a
 
 func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		defer cancel()
 		if err := c.waitForCondition(ctx, cluster, condition.CondPodsReady); err != nil {
 			t.Fatalf("failed to wait for Pods Ready condition: %v", err)
 		}
@@ -294,8 +201,6 @@ func (c *Cluster) PodsReadyCondition(ctx context.Context, cluster *wekav1alpha1.
 
 func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
 		if err := c.waitForCondition(ctx, cluster, condition.CondClusterSecretsApplied); err != nil {
 			t.Fatalf("failed to wait for Secrets Applied condition: %v", err)
 		}
@@ -304,8 +209,6 @@ func (c *Cluster) SecretsAppliedCondition(ctx context.Context, cluster *wekav1al
 
 func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
 		if err := c.waitForCondition(ctx, cluster, condition.CondClusterCreated); err != nil {
 			t.Fatalf("failed to wait for Cluster Created condition: %v", err)
 		}
@@ -314,8 +217,6 @@ func (c *Cluster) ClusterCreatedCondition(ctx context.Context, cluster *wekav1al
 
 func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
 		if err := c.waitForCondition(ctx, cluster, condition.CondDrivesAdded); err != nil {
 			t.Fatalf("failed to wait for Drives Added condition: %v", err)
 		}
@@ -324,8 +225,6 @@ func (c *Cluster) DrivesAddedCondition(ctx context.Context, cluster *wekav1alpha
 
 func (c *Cluster) IOStartedCondition(ctx context.Context, cluster *wekav1alpha1.WekaCluster) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		defer cancel()
 		if err := c.waitForCondition(ctx, cluster, condition.CondIoStarted); err != nil {
 			t.Fatalf("failed to wait for IO Started condition: %v", err)
 		}

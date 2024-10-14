@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,28 +25,24 @@ type Kubernetes interface {
 	TearDown(ctx context.Context) error
 }
 
-func NewKubernetes(jobless Jobless, clusterName string, kubeConfig string) Kubernetes {
+func NewKubernetes(clusterName string) Kubernetes {
 	environment := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "pkg", "weka-k8s-api", "crds")},
 		ErrorIfCRDPathMissing: true,
 		UseExistingCluster:    func(b bool) *bool { return &b }(true),
 	}
 	return &kubernetes{
-		Jobless:     jobless,
 		ClusterName: clusterName,
-		KubeConfig:  kubeConfig,
 		Environment: environment,
 	}
 }
 
 type kubernetes struct {
 	Environment *envtest.Environment
-	Jobless     Jobless
 	ClusterName string
 
 	Client     client.Client
 	RestConfig *rest.Config
-	KubeConfig string
 }
 
 type EnvironmentError struct {
@@ -178,10 +173,9 @@ func (k *kubernetes) GetServerResourcesForGroupVersion(groupVersion string) (*me
 
 func (k *kubernetes) StartEnvTest(ctx context.Context) (*rest.Config, error) {
 	if k.RestConfig == nil {
-		if err := k.ExportKubeConfig(ctx); err != nil {
+		if os.Getenv("KUBECONFIG") == "" {
 			return nil, &KubernetesError{
-				Message: "StartEnvTest > ExportKubeConfig failed",
-				Err:     err,
+				Message: "StartEnvTest failed: KUBECONFIG is not set",
 			}
 		}
 
@@ -195,43 +189,4 @@ func (k *kubernetes) StartEnvTest(ctx context.Context) (*rest.Config, error) {
 		k.RestConfig = cfg
 	}
 	return k.RestConfig, nil
-}
-
-func (k *kubernetes) ExportKubeConfig(ctx context.Context) error {
-	path, err := k.GetKubeConfigPath(ctx)
-	if err != nil {
-		return &KubernetesError{
-			Message: "ExportKubeConfig failed while getting kubeconfig path",
-			Err:     err,
-		}
-	}
-	if path == "" {
-		return &KubernetesError{
-			Message: "ExportKubeConfig failed",
-			Err:     fmt.Errorf("kubeconfig path is empty"),
-		}
-	}
-
-	os.Setenv("KUBECONFIG", path)
-	return nil
-}
-
-func (k *kubernetes) GetKubeConfigPath(ctx context.Context) (string, error) {
-	if k.KubeConfig == "" {
-
-		if k.Jobless == nil {
-			return "", errors.New("GetKubeConfigPath failed: Jobless is nil")
-		}
-
-		clusterName := k.ClusterName
-		path, err := k.Jobless.GetKubeConfig(clusterName)
-		if err != nil {
-			return "", &KubernetesError{
-				Message: "GetKubeConfigPath failed",
-				Err:     err,
-			}
-		}
-		k.KubeConfig = path
-	}
-	return k.KubeConfig, nil
 }

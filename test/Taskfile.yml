@@ -1,0 +1,257 @@
+---
+version: "3"
+
+vars:
+  ClusterName: e2e-test
+  Namespace: weka-operator-system
+
+tasks:
+
+  dev:
+    cmds:
+      - task: provision
+      - task: install
+      - task: start-controller
+
+  e2e:
+    cmds:
+      - task: provision
+      - task: install-{{.OperatorVersion}}
+      - task: test
+      - task: destroy
+
+  test:
+    cmds:
+      - echo "KUBECONFIG=${KUBECONFIG}"
+      - KUBECONFIG=${KUBECONFIG} go test -v ./ -run TestHappyPath -cluster-name {{.ClusterName}} -debug -timeout 30m
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  # -- Provisioning
+  provision:
+    cmds:
+      # - go run github.com/weka/bliss@latest provision --template {{.Template}} --subnet-id {{.SubnetId}} --region {{.Region}} --security-groups {{.SecurityGroups}} --ami-id {{.AmiId}} --key-pair-name {{.KeyPairName}} --cluster-name {{.ClusterName}}
+      - "{{.ProvisionCmd}}"
+    status:
+      - go run github.com/weka/bliss@latest info --cluster-name {{.ClusterName}}
+    vars:
+      Template: aws_small
+      SubnetId: subnet-0f150b5aaadcd8505
+      Region: eu-west-1
+      SecurityGroups: sg-03b539095aedf3ab9
+      AmiId: ami-027429546b1b42b5a
+      KeyPairName: dev-key
+      ProvisionCmd: |
+        go run github.com/weka/bliss@latest provision \
+          --template {{.Template}} \
+          --subnet-id {{.SubnetId}} \
+          --region {{.Region}} \
+          --security-groups {{.SecurityGroups}} \
+          --ami-id {{.AmiId}} \
+          --key-pair-name {{.KeyPairName}} \
+          --cluster-name {{.ClusterName}} \
+          {{.CLI_ARGS}}
+
+  # -- Install Kubernetes Cluster
+  install:
+    cmds:
+      - "{{.InstallCmd}}"
+    vars:
+      QuayUsername: "{{.QUAY_USERNAME}}"
+      QuayPassword: "{{.QUAY_PASSWORD}}"
+      WekaImage: "{{.WEKA_IMAGE}}"
+      InstallCmd: |
+        go run github.com/weka/bliss@latest install \
+          --cluster-name {{.ClusterName}} \
+          --quay-username {{.QuayUsername}} \
+          --quay-password {{.QuayPassword}} \
+          --weka-image="{{.WekaImage}}" \
+          --no-csi \
+          --no-operator \
+          --no-weka-client \
+          --no-weka-cluster \
+          {{.CLI_ARGS}}
+    status:
+      - ls -1tr ~/kube-* | tail -n1
+      - KUBECONFIG=$(ls -1tr ~/kube-* | tail -n1) kubectl get nodes
+
+  install-*:
+    cmds:
+      - "{{.InstallCmd}}"
+    vars:
+      QuayUsername: "{{.QUAY_USERNAME}}"
+      QuayPassword: "{{.QUAY_PASSWORD}}"
+      WekaImage: "{{.WEKA_IMAGE}}"
+      OperatorVersion: '{{index .MATCH 0}}'
+      InstallCmd: |
+        go run github.com/weka/bliss@latest install \
+          --cluster-name {{.ClusterName}} \
+          --quay-username {{.QuayUsername}} \
+          --quay-password {{.QuayPassword}} \
+          --weka-image="{{.WekaImage}}" \
+          --operator-version {{.OperatorVersion}} \
+          --no-weka-client \
+          --no-csi \
+          {{.CLI_ARGS}}
+    status:
+      - kubectl get nodes
+
+  destroy:
+    deps: [stop-controller]
+    cmds:
+      - go run github.com/weka/bliss@latest delete {{.ClusterName}}
+
+  # -- Start Controller
+  start-controller:
+    dir: ..
+    deps: [build-controller]
+    cmds:
+      - go run ./cmd/manager/main.go --enable-cluster-api={{.EnableClusterAPI}} --tombstone-expiration={{.TombstoneExpiration}} & 
+      - while ! curl -s http://localhost:8080/healthz > /dev/null; do echo "Waiting for controller to start..."; sleep 10; done
+      - echo "Controller started (pid=$(lsof -i :8080 -t))"
+    status:
+      - curl -s http://localhost:8080/healthz
+    vars:
+      EnableClusterAPI: false
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+      TombstoneExpiration: 10s
+      WekaHomeCACertSecret: ""
+      WekaHomeEndpoint: "https://api.home.rnd.weka.io"
+      WekaHomeEnableInsecure: false
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+      WEKA_OPERATOR_MAINTENANCE_SA_NAME: weka-operator-maintenance
+      WEKA_OPERATOR_WEKA_HOME_ENDPOINT: "https://api.home.rnd.weka.io"
+      WEKA_OPERATOR_WEKA_HOME_INSECURE: false
+      WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET: ""
+      WEKA_OCP_PULL_SECRET: ocp-buildkit-secret
+      WEKA_OCP_TOOLKIT_IMAGE_BASE_URL: quay.io/openshift-release-dev/ocp-v4.0-art-dev
+      WEKA_COS_SERVICE_ACCOUNT_SECRET: weka-builder
+      WEKA_COS_ALLOW_HUGEPAGE_CONFIG: true
+      WEKA_COS_GLOBAL_HUGEPAGE_SIZE: 2M
+      WEKA_COS_GLOBAL_HUGEPAGE_COUNT: 2000
+      OPERATOR_DEV_MODE: true
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://otelcollector.rnd.weka.io:4317"
+
+  sign-drives:
+    dir: ../examples
+    cmds:
+      - kubectl apply -f manual_op_sign_aws_drives.yaml
+      - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/sign-aws-drives
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+    status:
+      - kubectl -n {{.Namespace}} get wekamanualoperation sign-aws-drives -o jsonpath='{.status.status}' | grep Done
+
+  discover-drives:
+    dir: ../examples
+    cmds:
+      - kubectl apply -f manual_op_discover_drives.yaml
+      - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/discover-drives
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+    status:
+      - kubectl -n {{.Namespace}} get wekamanualoperation discover-drives -o jsonpath='{.status.status}' | grep Done
+
+  create-cluster:
+    cmds:
+      - task: sign-drives
+      - task: discover-drives
+      - kubectl -n {{.Namespace}} apply -f testdata/cluster.yaml
+      - kubectl -n {{.Namespace}} wait --for=condition=Ready --timeout=10m wekacluster/cluster-dev
+    status:
+      - kubectl -n {{.Namespace}} get wekacluster cluster-dev  # Skip task if cluster is already created, even if not ready
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  delete:
+    cmds:
+      - task: delete-manual-operations
+      - task: delete-cluster
+
+  delete-cluster:
+    cmds:
+      - kubectl -n {{.Namespace}} delete wekacluster --all --ignore-not-found
+      - kubectl -n {{.Namespace}} wait --for=delete wekacluster --all
+      - kubectl -n {{.Namespace}} delete wekacontainer --all --ignore-not-found
+      - kubectl -n {{.Namespace}} wait --for=delete wekacontainer --all
+      - kubectl -n {{.Namespace}} delete tombstone --all --ignore-not-found
+      - kubectl -n {{.Namespace}} wait --for=delete tombstone --all
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  delete-manual-operations:
+    cmds:
+      - task: delete-sign-drives
+      - task: delete-discover-drives
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  delete-sign-drives:
+    cmds:
+      - kubectl -n {{.Namespace}} delete wekamanualoperation sign-aws-drives
+    status:
+      - kubectl -n {{.Namespace}} get wekamanualoperation sign-aws-drives && exit 1 || exit 0
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  delete-discover-drives:
+    cmds:
+      - kubectl -n {{.Namespace}} delete wekamanualoperation discover-drives
+    status:
+      - kubectl -n {{.Namespace}} get wekamanualoperation discover-drives && exit 1 || exit 0
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+
+  stop-controller:
+    dir: ..
+    cmds:
+      - kill $(lsof -i :8080 -t)
+    status:
+      - kill -0 $(lsof -i :8080 -t) && exit 1 || exit 0
+
+  build-controller:
+    dir: ..
+    cmds:
+      - make generate manifests install fmt vet deploy
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"
+    status:
+      - helm get values --namespace {{.Namespace}} weka-operator
+
+  get-nodes:
+    cmds:
+      - kubectl get nodes
+    vars:
+      KubeConfig:
+        sh: ls -1tr ~/kube-* | tail -n1
+    env:
+      KUBECONFIG: "{{.KubeConfig}}"

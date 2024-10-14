@@ -50,3 +50,4 @@ prog.bin
 go.work*
 .envrc.private
 .vscode
+*.orig

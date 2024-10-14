@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/weka/weka-operator/test/e2e/services"
-	"github.com/weka/weka-operator/test/e2e/types"
 	ktypes "k8s.io/apimachinery/pkg/types"
 )
 
@@ -13,14 +12,6 @@ type Cluster struct {
 	Name              string
 	WekaClusterName   string
 	OperatorNamespace string
-	ProvisionTemplate string
-
-	Jobless         services.Jobless
-	ProvisionParams *types.ProvisionParams
-	InstallParams   *types.InstallParams
-
-	Deployment   *services.Deployment
-	Installation *services.Installation
 
 	Kubernetes services.Kubernetes
 }
@@ -36,9 +27,7 @@ func (e *ClusterError) Error() string {
 
 func (c *Cluster) SetupK8s(ctx context.Context) error {
 	clusterName := c.WekaClusterName
-	jobless := c.Jobless
-	kubeconfig := c.GetKubeConfig()
-	k8s := services.NewKubernetes(jobless, clusterName, kubeconfig)
+	k8s := services.NewKubernetes(clusterName)
 
 	c.Kubernetes = k8s
 
@@ -46,10 +35,6 @@ func (c *Cluster) SetupK8s(ctx context.Context) error {
 }
 
 func (c *Cluster) TeardownK8s(ctx context.Context) {
-}
-
-func (c *Cluster) GetKubeConfig() string {
-	return c.Installation.KubeConfigPath
 }
 
 func (c *Cluster) NamespacedName() ktypes.NamespacedName {

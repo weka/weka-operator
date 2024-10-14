@@ -121,6 +121,11 @@ vet: ## Run go vet against code.
 test: ## Run tests.
 	go test -v ./internal/... -coverprofile cover.out
 
+.PHONY: test-e2e
+test-e2e: ## Run e2e tests.
+	# WEKA_IMAGE and CLUSTER_NAME must be set in the environment.
+	go test -v ./test -run TestHappyPath -weka-image "${WEKA_IMAGE}" -cluster-name ${CLUSTER_NAME} -debug -timeout 30m -cleanup=false
+
 CLUSTER_SAMPLE=config/samples/weka_v1alpha1_cluster.yaml
 .PHONY: cluster-sample
 cluster-sample: ## Deploy sample cluster CRD

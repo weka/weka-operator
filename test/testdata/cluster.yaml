@@ -3,9 +3,8 @@ apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
   name: cluster-dev
-  namespace: default
+  namespace: weka-operator-system
 spec:
-  size: 1
   template: dynamic
   dynamicTemplate:
     computeContainers: 6
@@ -13,6 +12,7 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
   image: quay.io/weka.io/weka-in-container:4.3.3.129-k8s.1-upgrade
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"
+  gracefulDestroyDuration: 10s
   nodeSelector:
     weka.io/supports-backends: "true"
 ---

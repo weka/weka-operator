@@ -5,19 +5,16 @@ import (
 	"fmt"
 
 	"github.com/weka/weka-operator/test/e2e/fixtures"
-	"github.com/weka/weka-operator/test/e2e/services"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type E2ETest struct {
 	Ctx      context.Context
-	Jobless  services.Jobless
 	Clusters []*ClusterTest
 }
 
 type ClusterTest struct {
-	Ctx     context.Context
-	Jobless services.Jobless
+	Ctx context.Context
 
 	Image   string
 	Cluster *fixtures.Cluster
