@@ -36,6 +36,7 @@ type SignDrivesOperation struct {
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
 	tolerations     []v1.Toleration
+	affinity        *v1.Affinity
 }
 
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
@@ -69,6 +70,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
+		affinity:        ownerDetails.Affinity,
 		successCallback: successCallback,
 	}
 }
@@ -120,6 +122,12 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	for _, node := range matchingNodes {
 		if existingContainerNodes[node.Name] {
 			continue
+		}
+
+		if o.affinity != nil {
+			if !kubernetes.NodeSatisfiesAffinity(&node, o.affinity) {
+				continue
+			}
 		}
 
 		labels := map[string]string{

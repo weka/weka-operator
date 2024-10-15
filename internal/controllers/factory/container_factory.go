@@ -84,6 +84,17 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
 		nodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
 	}
+
+	affinity := cluster.Spec.Affinity
+	if cluster.Spec.RoleAffinity != nil && cluster.Spec.RoleAffinity.ForRole(role) != nil {
+		affinity = cluster.Spec.RoleAffinity.ForRole(role)
+	}
+
+	topologySpreadConstraints := cluster.Spec.TopologySpreadConstraints
+	if cluster.Spec.RoleTopologySpreadConstraints != nil && len(cluster.Spec.RoleTopologySpreadConstraints.ForRole(role)) > 0 {
+		topologySpreadConstraints = cluster.Spec.RoleTopologySpreadConstraints.ForRole(role)
+	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -95,28 +106,30 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			Labels:    labels,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
-			Image:                 cluster.Spec.Image,
-			ImagePullSecret:       cluster.Spec.ImagePullSecret,
-			WekaContainerName:     strings.Replace(name, "-", "x", -1),
-			Mode:                  role,
-			NumCores:              numCores,
-			ExtraCores:            extraCores,
-			Network:               network,
-			Hugepages:             hugePagesNum,
-			HugepagesSize:         template.HugePageSize,
-			HugepagesOverride:     template.HugePagesOverride,
-			NumDrives:             numDrives,
-			WekaSecretRef:         v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
-			DriversDistService:    cluster.Spec.DriversDistService,
-			CpuPolicy:             cluster.Spec.CpuPolicy,
-			TracesConfiguration:   cluster.Spec.TracesConfiguration,
-			Tolerations:           util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
-			Ipv6:                  cluster.Spec.Ipv6,
-			AdditionalMemory:      additionalMemory,
-			Group:                 containerGroup,
-			AdditionalSecrets:     additionalSecrets,
-			NoAffinityConstraints: cluster.Spec.DisregardRedundancy,
-			NodeSelector:          nodeSelector,
+			Image:                     cluster.Spec.Image,
+			ImagePullSecret:           cluster.Spec.ImagePullSecret,
+			WekaContainerName:         strings.Replace(name, "-", "x", -1),
+			Mode:                      role,
+			NumCores:                  numCores,
+			ExtraCores:                extraCores,
+			Network:                   network,
+			Hugepages:                 hugePagesNum,
+			HugepagesSize:             template.HugePageSize,
+			HugepagesOverride:         template.HugePagesOverride,
+			NumDrives:                 numDrives,
+			WekaSecretRef:             v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
+			DriversDistService:        cluster.Spec.DriversDistService,
+			CpuPolicy:                 cluster.Spec.CpuPolicy,
+			TracesConfiguration:       cluster.Spec.TracesConfiguration,
+			Tolerations:               util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
+			Ipv6:                      cluster.Spec.Ipv6,
+			AdditionalMemory:          additionalMemory,
+			Group:                     containerGroup,
+			AdditionalSecrets:         additionalSecrets,
+			NoAffinityConstraints:     cluster.Spec.DisregardRedundancy,
+			NodeSelector:              nodeSelector,
+			Affinity:                  affinity,
+			TopologySpreadConstraints: topologySpreadConstraints,
 		},
 	}
 

@@ -688,7 +688,22 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 		if len(nodes) == 0 {
 			return nil, errors.New("no matching nodes found")
 		}
-		nodeAffinity = weka.NodeName(nodes[0].Name)
+		nodeAffinity = ""
+		// if container has affinity, try to find node that satisfies it
+		if r.container.Spec.Affinity != nil {
+			for _, node := range nodes {
+				if kubernetes.NodeSatisfiesAffinity(&node, r.container.Spec.Affinity) {
+					nodeAffinity = weka.NodeName(node.Name)
+					break
+				}
+			}
+		} else {
+			nodeAffinity = weka.NodeName(nodes[0].Name)
+		}
+
+		if nodeAffinity == "" {
+			return nil, errors.New("no matching nodes found")
+		}
 	}
 	discoverNodeOp := operations.NewDiscoverNodeOperation(
 		r.Manager,

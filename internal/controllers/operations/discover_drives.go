@@ -39,6 +39,7 @@ type DiscoverDrivesOperation struct {
 	successCallback lifecycle.StepFunc
 	force           bool
 	tolerations     []corev1.Toleration
+	affinity        *corev1.Affinity
 }
 
 type DriveInfo struct {
@@ -72,6 +73,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
+		affinity:        ownerDetails.Affinity,
 		successCallback: successCallback,
 		namespace:       ownerRef.GetNamespace(),
 		force:           force,
@@ -127,6 +129,12 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 	for _, node := range matchingNodes {
 		if existingContainerNodes[node.Name] {
 			continue
+		}
+
+		if o.affinity != nil {
+			if !kubernetes.NodeSatisfiesAffinity(&node, o.affinity) {
+				continue
+			}
 		}
 
 		//if data exists and not force - skip
