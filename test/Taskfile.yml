@@ -4,7 +4,7 @@ version: "3"
 vars:
   ClusterName: e2e-test
   Namespace: weka-operator-system
-
+  TestCase: TestHappyPath
 tasks:
 
   dev:
@@ -25,7 +25,7 @@ tasks:
   test:
     cmds:
       - echo "KUBECONFIG=${KUBECONFIG}"
-      - KUBECONFIG=${KUBECONFIG} go test -v ./ -run TestHappyPath -timeout 30m {{.CLI_ARGS}}
+      - KUBECONFIG=${KUBECONFIG} go test -v ./ -run {{.TestCase}} -timeout 30m {{.CLI_ARGS}}
     vars:
       KubeConfig:
         sh: ls -1tr ~/kube-* | tail -n1
