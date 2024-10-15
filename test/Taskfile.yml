@@ -11,19 +11,26 @@ vars:
 
 tasks:
 
+  magic:
+    cmds:
+      - task: dev
+      - task: e2e
+
   dev:
     cmds:
-      - task: provision
-      - task: install
+      - task: test
+    status:
+      # Skip task if operator version is set
+      - echo "{{.OperatorVersion}}" | grep -q .
 
   e2e:
     cmds:
       - task: provision
       - task: install-{{.OperatorVersion}}
       - task: test
-      - task: destroy
-    vars:
-      OperatorVersion: v1.1.0-39
+    status:
+      # Skip task if operator version is not set
+      - echo "{{.OperatorVersion}}" | grep -q '^$'
 
   test:
     cmds:
@@ -41,7 +48,7 @@ tasks:
       # - go run github.com/weka/bliss@latest provision --template {{.Template}} --subnet-id {{.SubnetId}} --region {{.Region}} --security-groups {{.SecurityGroups}} --ami-id {{.AmiId}} --key-pair-name {{.KeyPairName}} --cluster-name {{.ClusterName}}
       - "{{.ProvisionCmd}}"
     status:
-      - go run github.com/weka/bliss@latest info --cluster-name {{.ClusterName}}
+      - test -n "${KUBECONFIG}" || go run github.com/weka/bliss@latest info --cluster-name {{.ClusterName}}
     vars:
       Template: aws_small
       SubnetId: subnet-0f150b5aaadcd8505
@@ -80,8 +87,12 @@ tasks:
           --no-weka-cluster \
           {{.CLI_ARGS}}
     status:
-      - KUBECONFIG=$(./kubeconfig.sh) kubectl get nodes
-      - echo "{{.CLI_ARGS}}" | grep -- '--reinstall' && exit 1 || exit 0
+      - test -n "${KUBECONFIG}" 
+      - test -n "${KUBECONFIG}" || KUBECONFIG=$(./kubeconfig.sh) kubectl get nodes
+      - test -n "${KUBECONFIG}" || (echo "{{.CLI_ARGS}}" | grep -- '--reinstall' && exit 1 || exit 0)
+    preconditions:
+      - sh: test -n "{{.WekaImage}}"
+        msg: "Weka image is not set"
 
   install-*:
     cmds:
@@ -102,10 +113,14 @@ tasks:
           --no-csi \
           {{.CLI_ARGS}}
     status:
-      - kubectl get nodes
+      # Check for provisioned nodes
+      - test -n "${KUBECONFIG}" || kubectl get nodes
+      # Check for deployed operator
+      - test -n "${KUBECONFIG}" || kubectl -n {{.Namespace}} get deployment weka-operator-controller-manager
+      # Check for deployed WekaCluster
+      - test -n "${KUBECONFIG}" || kubectl -n {{.Namespace}} get wekacluster cluster-dev
 
   destroy:
-    deps: [stop-controller]
     cmds:
       - go run github.com/weka/bliss@latest delete {{.ClusterName}}
 
@@ -153,6 +168,9 @@ tasks:
     cmds:
       - task: delete-manual-operations
       - task: delete-cluster
+    preconditions:
+      - sh: curl -s http://localhost:{{.HealthProbeBindAddress}}/healthz
+        msg: "Controller is not running"
 
   delete-cluster:
     cmds:
