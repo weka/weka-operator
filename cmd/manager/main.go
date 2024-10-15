@@ -76,6 +76,8 @@ func main() {
 	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
 	flag.BoolVar(&tombstoneConfig.DeleteOnNodeMissing, "allow-tombstone-delete-on-node-missing", false, "Allow deletion of tombstones when node is not anymore a part of the cluster")
 
+	flag.Parse()
+
 	ctx := ctrl.SetupSignalHandler()
 	ctx = context.WithValue(ctx, "is_root", true)
 
@@ -85,6 +87,8 @@ func main() {
 	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "")
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
+
+	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi, "tombstoneConfig", tombstoneConfig)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,

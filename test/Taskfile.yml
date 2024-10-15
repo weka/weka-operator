@@ -3,15 +3,18 @@ version: "3"
 
 vars:
   ClusterName: e2e-test
+  ControllerPort: 8080
+  HealthProbeBindAddress: "{{add .ControllerPort 1}}"
+  MetricsBindAddress: "{{.ControllerPort}}"
   Namespace: weka-operator-system
   TestCase: TestHappyPath
+
 tasks:
 
   dev:
     cmds:
       - task: provision
       - task: install
-      - task: start-controller
 
   e2e:
     cmds:
@@ -77,8 +80,7 @@ tasks:
           --no-weka-cluster \
           {{.CLI_ARGS}}
     status:
-      - ls -1tr ~/kube-* | tail -n1
-      - KUBECONFIG=$(ls -1tr ~/kube-* | tail -n1) kubectl get nodes
+      - KUBECONFIG=$(./kubeconfig.sh) kubectl get nodes
 
   install-*:
     cmds:
@@ -106,39 +108,6 @@ tasks:
     cmds:
       - go run github.com/weka/bliss@latest delete {{.ClusterName}}
 
-  # -- Start Controller
-  start-controller:
-    dir: ..
-    deps: [build-controller]
-    cmds:
-      - go run ./cmd/manager/main.go --enable-cluster-api={{.EnableClusterAPI}} --tombstone-expiration={{.TombstoneExpiration}} & 
-      - while ! curl -s http://localhost:8080/healthz > /dev/null; do echo "Waiting for controller to start..."; sleep 10; done
-      - echo "Controller started (pid=$(lsof -i :8080 -t))"
-    status:
-      - curl -s http://localhost:8080/healthz
-    vars:
-      EnableClusterAPI: false
-      KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
-      TombstoneExpiration: 10s
-      WekaHomeCACertSecret: ""
-      WekaHomeEndpoint: "https://api.home.rnd.weka.io"
-      WekaHomeEnableInsecure: false
-    env:
-      KUBECONFIG: "{{.KubeConfig}}"
-      WEKA_OPERATOR_MAINTENANCE_SA_NAME: weka-operator-maintenance
-      WEKA_OPERATOR_WEKA_HOME_ENDPOINT: "https://api.home.rnd.weka.io"
-      WEKA_OPERATOR_WEKA_HOME_INSECURE: false
-      WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET: ""
-      WEKA_OCP_PULL_SECRET: ocp-buildkit-secret
-      WEKA_OCP_TOOLKIT_IMAGE_BASE_URL: quay.io/openshift-release-dev/ocp-v4.0-art-dev
-      WEKA_COS_SERVICE_ACCOUNT_SECRET: weka-builder
-      WEKA_COS_ALLOW_HUGEPAGE_CONFIG: true
-      WEKA_COS_GLOBAL_HUGEPAGE_SIZE: 2M
-      WEKA_COS_GLOBAL_HUGEPAGE_COUNT: 2000
-      OPERATOR_DEV_MODE: true
-      OTEL_EXPORTER_OTLP_ENDPOINT: "https://otelcollector.rnd.weka.io:4317"
-
   sign-drives:
     dir: ../examples
     cmds:
@@ -146,7 +115,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/sign-aws-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ../test/kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
     status:
@@ -159,7 +128,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/discover-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ../test/kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
     status:
@@ -175,7 +144,7 @@ tasks:
       - kubectl -n {{.Namespace}} get wekacluster cluster-dev  # Skip task if cluster is already created, even if not ready
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -194,7 +163,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=delete tombstone --all
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -204,7 +173,7 @@ tasks:
       - task: delete-discover-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -215,7 +184,7 @@ tasks:
       - kubectl -n {{.Namespace}} get wekamanualoperation sign-aws-drives && exit 1 || exit 0
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -226,34 +195,6 @@ tasks:
       - kubectl -n {{.Namespace}} get wekamanualoperation discover-drives && exit 1 || exit 0
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
-    env:
-      KUBECONFIG: "{{.KubeConfig}}"
-
-  stop-controller:
-    dir: ..
-    cmds:
-      - kill $(lsof -i :8080 -t)
-    status:
-      - kill -0 $(lsof -i :8080 -t) && exit 1 || exit 0
-
-  build-controller:
-    dir: ..
-    cmds:
-      - make generate manifests install fmt vet deploy
-    vars:
-      KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
-    env:
-      KUBECONFIG: "{{.KubeConfig}}"
-    status:
-      - helm get values --namespace {{.Namespace}} weka-operator
-
-  get-nodes:
-    cmds:
-      - kubectl get nodes
-    vars:
-      KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
