@@ -81,6 +81,7 @@ tasks:
           {{.CLI_ARGS}}
     status:
       - KUBECONFIG=$(./kubeconfig.sh) kubectl get nodes
+      - echo "{{.CLI_ARGS}}" | grep -- '--reinstall' && exit 1 || exit 0
 
   install-*:
     cmds:
