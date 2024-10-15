@@ -3,8 +3,12 @@ version: "3"
 
 vars:
   ClusterName: e2e-test
+  ControllerPort: 8080
+  HealthProbeBindAddress: "{{add .ControllerPort 1}}"
+  MetricsBindAddress: "{{.ControllerPort}}"
   Namespace: weka-operator-system
   TestCase: TestHappyPath
+
 tasks:
 
   dev:
@@ -77,8 +81,7 @@ tasks:
           --no-weka-cluster \
           {{.CLI_ARGS}}
     status:
-      - ls -1tr ~/kube-* | tail -n1
-      - KUBECONFIG=$(ls -1tr ~/kube-* | tail -n1) kubectl get nodes
+      - KUBECONFIG=$(./kubeconfig.sh) kubectl get nodes
 
   install-*:
     cmds:
@@ -111,19 +114,22 @@ tasks:
     dir: ..
     deps: [build-controller]
     cmds:
-      - go run ./cmd/manager/main.go --enable-cluster-api={{.EnableClusterAPI}} --tombstone-expiration={{.TombstoneExpiration}} & 
-      - while ! curl -s http://localhost:8080/healthz > /dev/null; do echo "Waiting for controller to start..."; sleep 10; done
-      - echo "Controller started (pid=$(lsof -i :8080 -t))"
+      - go run ./cmd/manager/main.go {{.ManagerArgs}} &
+      - while ! curl -s http://localhost:{{.HealthProbeBindAddress}}/healthz > /dev/null; do echo "Waiting for controller to start..."; sleep 10; done
+      - echo "Controller started (pid=$(lsof -i :{{.HealthProbeBindAddress}} -t))"
     status:
-      - curl -s http://localhost:8080/healthz
+      - curl -s http://localhost:{{.HealthProbeBindAddress}}/healthz
     vars:
-      EnableClusterAPI: false
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./test/kubeconfig.sh
       TombstoneExpiration: 10s
       WekaHomeCACertSecret: ""
       WekaHomeEndpoint: "https://api.home.rnd.weka.io"
       WekaHomeEnableInsecure: false
+      ManagerArgs: |
+        -tombstone-expiration={{.TombstoneExpiration}} \
+        -health-probe-bind-address=:{{.HealthProbeBindAddress}} \
+        -metrics-bind-address=:{{.MetricsBindAddress}} \
     env:
       KUBECONFIG: "{{.KubeConfig}}"
       WEKA_OPERATOR_MAINTENANCE_SA_NAME: weka-operator-maintenance
@@ -146,7 +152,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/sign-aws-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ../test/kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
     status:
@@ -159,7 +165,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=jsonpath='{.status.status}'=Done --timeout=10m wekamanualoperation/discover-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ../test/kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
     status:
@@ -175,7 +181,7 @@ tasks:
       - kubectl -n {{.Namespace}} get wekacluster cluster-dev  # Skip task if cluster is already created, even if not ready
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -194,7 +200,7 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=delete tombstone --all
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -204,7 +210,7 @@ tasks:
       - task: delete-discover-drives
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -215,7 +221,7 @@ tasks:
       - kubectl -n {{.Namespace}} get wekamanualoperation sign-aws-drives && exit 1 || exit 0
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
@@ -226,16 +232,16 @@ tasks:
       - kubectl -n {{.Namespace}} get wekamanualoperation discover-drives && exit 1 || exit 0
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
 
   stop-controller:
     dir: ..
     cmds:
-      - kill $(lsof -i :8080 -t)
+      - kill $(lsof -i :{{.HealthProbeBindAddress}} -t)
     status:
-      - kill -0 $(lsof -i :8080 -t) && exit 1 || exit 0
+      - kill -0 $(lsof -i :{{.HealthProbeBindAddress}} -t) && exit 1 || exit 0
 
   build-controller:
     dir: ..
@@ -243,7 +249,7 @@ tasks:
       - make generate manifests install fmt vet deploy
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./test/kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
     status:
@@ -254,6 +260,6 @@ tasks:
       - kubectl get nodes
     vars:
       KubeConfig:
-        sh: ls -1tr ~/kube-* | tail -n1
+        sh: ./kubeconfig.sh
     env:
       KUBECONFIG: "{{.KubeConfig}}"
