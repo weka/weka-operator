@@ -52,7 +52,7 @@ func TestHappyPath(t *testing.T) {
 	})
 
 	logger.Info("Creating discover drives operation")
-	discoverDrivesOp := discoverDrivesOp(*ClusterName, *WekaImage)
+	discoverDrivesOp := discoverDrivesOp(*WekaImage)
 	if err := k8sClient.Create(ctx, &discoverDrivesOp); err != nil {
 		if client.IgnoreAlreadyExists(err) != nil {
 			t.Fatalf("Create: %v", err)
@@ -204,7 +204,7 @@ func signDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
 	}
 }
 
-func discoverDrivesOp(clusterName string, wekaImage string) wekav1alpha1.WekaManualOperation {
+func discoverDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
 	return wekav1alpha1.WekaManualOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "discover-drives",

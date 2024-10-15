@@ -19,11 +19,13 @@ tasks:
       - task: install-{{.OperatorVersion}}
       - task: test
       - task: destroy
+    vars:
+      OperatorVersion: v1.1.0-39
 
   test:
     cmds:
       - echo "KUBECONFIG=${KUBECONFIG}"
-      - KUBECONFIG=${KUBECONFIG} go test -v ./ -run TestHappyPath -cluster-name {{.ClusterName}} -debug -timeout 30m
+      - KUBECONFIG=${KUBECONFIG} go test -v ./ -run TestHappyPath -timeout 30m {{.CLI_ARGS}}
     vars:
       KubeConfig:
         sh: ls -1tr ~/kube-* | tail -n1

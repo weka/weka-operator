@@ -16,19 +16,13 @@ import (
 )
 
 var (
-	Verbose         = flag.Bool("verbose", false, "verbose output")
-	Debug           = flag.Bool("debug", false, "debug output")
-	BlissVersion    = flag.String("bliss-version", "latest", "Bliss version")
-	ClusterName     = flag.String("cluster-name", "mbp5", "Cluster name")
-	OperatorVersion = flag.String("operator-version", "", "Operator version, leave empty to use local build")
-	WekaImage       = flag.String(
+	Verbose   = flag.Bool("verbose", false, "verbose output")
+	Debug     = flag.Bool("debug", false, "debug output")
+	WekaImage = flag.String(
 		"weka-image",
 		"quay.io/weka.io/weka-in-container:4.3.5.105",
 		"Weka image",
 	)
-	QuayUsername = flag.String("quay-username", "", "Quay username")
-	QuayPassword = flag.String("quay-password", "", "Quay password")
-	Cleanup      = flag.Bool("cleanup", true, "Cleanup cluster")
 )
 
 var pkgCtx context.Context
