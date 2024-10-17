@@ -67,7 +67,14 @@ const (
 )
 
 type WekaContainerSpec struct {
-	NodeAffinity      NodeName          `json:"nodeAffinity,omitempty"`
+	// name of the node where the container should run on
+	NodeAffinity NodeName `json:"nodeAffinity,omitempty"`
+	// label used for spreading the weka containers across different failure domains (if set)
+	FailureDomainLabel *string `json:"failureDomainLabel,omitempty"`
+	// controls the distribution of weka containers across the failure domains
+	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	// advanced scheduling constraints
+	Affinity          *v1.Affinity      `json:"affinity,omitempty"`
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
 	Port              int               `json:"port,omitempty"`
 	AgentPort         int               `json:"agentPort,omitempty"`
@@ -133,7 +140,7 @@ type WekaContainerStatus struct {
 	ClusterID          string                `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	LastAppliedImage   string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	NodeAffinity       NodeName              `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if ondeSelector was used instead of direct nodeAffinity
+	NodeAffinity       NodeName              `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
 	ExecutionResult    *string               `json:"result,omitempty"`
 	Allocations        *ContainerAllocations `json:"allocations,omitempty"`
 }
@@ -320,6 +327,7 @@ func (w *WekaContainer) ToContainerDetails() *WekaContainerDetails {
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     w.Spec.Tolerations,
 		Labels:          w.ObjectMeta.GetLabels(),
+		Affinity:        w.Spec.Affinity,
 	}
 }
 
@@ -379,4 +387,5 @@ type WekaContainerDetails struct {
 	ImagePullSecret string            `json:"imagePullSecrets"`
 	Tolerations     []v1.Toleration   `json:"tolerations,omitempty"`
 	Labels          map[string]string `json:"labels,omitempty"`
+	Affinity        *v1.Affinity      `json:"affinity,omitempty"`
 }
