@@ -30,6 +30,8 @@ OS_DISTRO = ""
 OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
+NODE_NAME = os.environ["NODE_NAME"]
+FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -834,6 +836,8 @@ async def create_container():
         devices = [await resolve_dhcp_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
 
+    failure_domain = await get_failure_domain()
+
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable\
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
@@ -841,7 +845,8 @@ async def create_container():
         {f"{join_secret_flag} {join_secret_cmd}" if join_secret_cmd else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
-        {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""}
+        {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
+        {f"--failure-domain {failure_domain}" if failure_domain else ""}
     """)
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
@@ -849,6 +854,34 @@ async def create_container():
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
 
+
+async def get_failure_domain() -> str:
+    if not FAILURE_DOMAIN_LABEL:
+        return ""
+
+    node_name = os.environ.get("NODE_NAME")
+    if not node_name:
+        raise Exception("NODE_NAME not set")
+    
+    # get the node labels from the k8s api (https://kubernetes.io/docs/tasks/run-application/access-api-from-pod/#without-using-a-proxy)
+    command = (
+        "curl --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt "
+        "--header \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" "
+        f"-X GET \"https://$KUBERNETES_SERVICE_HOST/api/v1/nodes/{node_name}\""
+    )
+
+    stdout, stderr, ec = await run_command(command)
+    if ec != 0:
+        raise Exception(f"Failed to get node labels: {stderr}")
+    
+    node_info = json.loads(stdout)
+
+    failure_domain = node_info.get("metadata", {}).get("labels", {}).get(FAILURE_DOMAIN_LABEL)
+    if not failure_domain:
+        raise Exception(f"Node label {FAILURE_DOMAIN_LABEL} not found")
+    
+    return failure_domain
+    
 
 async def configure_traces():
     # {

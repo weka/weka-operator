@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -80,6 +81,11 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		}
 	}
 
+	serviceAccountName := os.Getenv("WEKA_OPERATOR_BACKEND_POD_SA_NAME")
+	if serviceAccountName == "" {
+		return nil, fmt.Errorf("cannot create %s container, WEKA_OPERATOR_BACKEND_POD_SA_NAME is not defined", role)
+	}
+
 	nodeSelector := cluster.Spec.NodeSelector
 	if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
 		nodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
@@ -117,8 +123,87 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			AdditionalSecrets:     additionalSecrets,
 			NoAffinityConstraints: cluster.Spec.DisregardRedundancy,
 			NodeSelector:          nodeSelector,
+			ServiceAccountName:    serviceAccountName,
+			FailureDomainLabel:    cluster.Spec.FailureDomainLabel,
 		},
 	}
 
+	topologySpreadConstraints := preparePodTopologySpreadConstraints(cluster, role)
+	container.Spec.TopologySpreadConstraints = topologySpreadConstraints
+
+	var affinity *v1.Affinity
+
+	if cluster.Spec.PodConfig != nil {
+		affinity = cluster.Spec.PodConfig.Affinity
+		// if role specific affinity is set, we don't need to set general affinity
+		if cluster.Spec.PodConfig.RoleAffinity != nil && cluster.Spec.PodConfig.RoleAffinity.ForRole(role) != nil {
+			affinity = cluster.Spec.PodConfig.RoleAffinity.ForRole(role)
+		}
+	}
+
+	if affinity != nil {
+		container.Spec.Affinity = affinity
+	}
+
 	return container, nil
+}
+
+func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) []v1.TopologySpreadConstraint {
+	defaultConstraints := getDefaultRoleTopologySpreadConstraints(cluster, role)
+	podConstraints := make([]v1.TopologySpreadConstraint, 0)
+	podConstraints = append(podConstraints, defaultConstraints.ForRole(role)...)
+
+	if cluster.Spec.PodConfig == nil {
+		return podConstraints
+	}
+
+	if cluster.Spec.PodConfig.RoleTopologySpreadConstraints == nil && cluster.Spec.PodConfig.TopologySpreadConstraints == nil {
+		return podConstraints
+	}
+
+	if cluster.Spec.PodConfig.RoleTopologySpreadConstraints != nil && cluster.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role) != nil {
+		podConstraints = append(podConstraints, cluster.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role)...)
+		// if role specific constraints are set, we don't need to add general constraints
+		return podConstraints
+	}
+
+	if cluster.Spec.PodConfig.TopologySpreadConstraints != nil {
+		podConstraints = append(podConstraints, cluster.Spec.PodConfig.TopologySpreadConstraints...)
+	}
+
+	return podConstraints
+}
+
+func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) *wekav1alpha1.RoleTopologySpreadConstraints {
+	constraints := &wekav1alpha1.RoleTopologySpreadConstraints{}
+
+	if cluster.Spec.FailureDomainLabel == nil {
+		return constraints
+	}
+
+	if !slices.Contains([]string{"compute", "drive", "s3"}, role) {
+		return constraints
+	}
+
+	constraint := v1.TopologySpreadConstraint{
+		MaxSkew:           1,
+		TopologyKey:       *cluster.Spec.FailureDomainLabel,
+		WhenUnsatisfiable: v1.DoNotSchedule,
+		LabelSelector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"weka.io/cluster-id": string(cluster.UID),
+				"weka.io/mode":       role,
+			},
+		},
+	}
+
+	switch role {
+	case "compute":
+		constraints.Compute = append(constraints.Compute, constraint)
+	case "drive":
+		constraints.Drive = append(constraints.Drive, constraint)
+	case "s3":
+		constraints.S3 = append(constraints.S3, constraint)
+	}
+	return constraints
 }
