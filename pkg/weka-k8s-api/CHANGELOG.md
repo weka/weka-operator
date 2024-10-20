@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/weka/weka-k8s-api/compare/v1.10.0...v1.11.0) (2024-10-20)
+
+
+### Features
+
+* add failure domain label and pod config (scheduling) for cluster ([70e01bc](https://github.com/weka/weka-k8s-api/commit/70e01bcd9b529f12646991aa4b91b22691577378))
+
 # [1.10.0](https://github.com/weka/weka-k8s-api/compare/v1.9.0...v1.10.0) (2024-10-09)
 
 
