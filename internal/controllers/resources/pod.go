@@ -121,6 +121,11 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
+	failureDomainLabel := ""
+	if f.container.Spec.FailureDomainLabel != nil {
+		failureDomainLabel = *f.container.Spec.FailureDomainLabel
+	}
+
 	serviceAccountName := f.container.Spec.ServiceAccountName
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -129,24 +134,9 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			Labels:    labels,
 		},
 		Spec: corev1.PodSpec{
-			Tolerations: tolerations,
-			Affinity: &corev1.Affinity{
-				NodeAffinity: &corev1.NodeAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "kubernetes.io/os",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"linux"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			Tolerations:                   tolerations,
+			TopologySpreadConstraints:     f.container.Spec.TopologySpreadConstraints,
+			Affinity:                      f.initAffinities(ctx, f.container.Spec.Affinity),
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
 			Containers: []corev1.Container{
@@ -256,6 +246,19 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
 							Value: debugSleep,
+						},
+						// use Downward API to get the name of the node where the Pod is executing
+						{
+							Name: "NODE_NAME",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "spec.nodeName",
+								},
+							},
+						},
+						{
+							Name:  "FAILURE_DOMAIN_LABEL",
+							Value: failureDomainLabel,
 						},
 					},
 				},
@@ -709,9 +712,7 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 		},
 	}
 	// expand with custom tolerations
-	for _, t := range f.container.Spec.Tolerations {
-		tolerations = append(tolerations, t)
-	}
+	tolerations = append(tolerations, f.container.Spec.Tolerations...)
 	return tolerations
 }
 
@@ -916,6 +917,41 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	return nil
 }
 
+func (f *PodFactory) initAffinities(ctx context.Context, affinity *corev1.Affinity) *corev1.Affinity {
+	var result *corev1.Affinity
+	if affinity != nil {
+		result = affinity.DeepCopy()
+	} else {
+		result = &corev1.Affinity{}
+	}
+
+	osRequired := corev1.NodeSelectorRequirement{
+		Key:      "kubernetes.io/os",
+		Operator: corev1.NodeSelectorOpIn,
+		Values:   []string{"linux"},
+	}
+
+	if result.NodeAffinity == nil {
+		result.NodeAffinity = &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							osRequired,
+						},
+					},
+				},
+			},
+		}
+	} else {
+		matchExpression := result.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+		matchExpression = append(matchExpression, osRequired)
+		result.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
+	}
+
+	return result
+}
+
 func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	//TODO: Set high priority class for node-bound containers
 	matchExpression := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
@@ -941,42 +977,51 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 
 	clusterId := f.container.GetParentClusterId()
 	if f.container.IsAllocatable() && !f.container.Spec.NoAffinityConstraints {
-		// generalize above code using mode
-		pod.Spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
-			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-				{
-					LabelSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{
-							"weka.io/cluster-id": clusterId,
-							"weka.io/mode":       f.container.Spec.Mode,
-						},
-					},
-					TopologyKey: "kubernetes.io/hostname",
+		term := corev1.PodAffinityTerm{
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"weka.io/cluster-id": clusterId,
+					"weka.io/mode":       f.container.Spec.Mode,
 				},
 			},
+			TopologyKey: "kubernetes.io/hostname",
+		}
+
+		// generalize above code using mode
+		if pod.Spec.Affinity.PodAntiAffinity == nil {
+			pod.Spec.Affinity.PodAntiAffinity = &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{term},
+			}
+		} else {
+			terms := pod.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+			terms = append(terms, term)
+			pod.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = terms
 		}
 
 		if f.container.IsEnvoy() {
 			// schedule together with s3, required during scheduling
-			// pay attention that affinity already set and need to expand it
-			pod.Spec.Affinity.PodAffinity = &corev1.PodAffinity{
-				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-					{
-						LabelSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"weka.io/mode":       wekav1alpha1.WekaContainerModeS3,
-								"weka.io/cluster-id": clusterId,
-							},
-						},
-						TopologyKey: "kubernetes.io/hostname",
+			term := corev1.PodAffinityTerm{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"weka.io/mode":       wekav1alpha1.WekaContainerModeS3,
+						"weka.io/cluster-id": clusterId,
 					},
 				},
+				TopologyKey: "kubernetes.io/hostname",
+			}
+			if pod.Spec.Affinity.PodAffinity == nil {
+				pod.Spec.Affinity.PodAffinity = &corev1.PodAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{term},
+				}
+			} else {
+				terms := pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+				terms = append(terms, term)
+				pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = terms
 			}
 		}
 	}
 
 	return nil
-
 }
 
 func labelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
