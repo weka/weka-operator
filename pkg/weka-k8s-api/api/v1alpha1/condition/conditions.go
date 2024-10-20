@@ -14,6 +14,7 @@ const (
 	CondS3ClusterCreated            = "CondS3ClusterCreated" // not pre-set on purpose, as optional
 	CondPodsReady                   = "PodsReady"
 	CondClusterCreated              = "ClusterCreated"
+	CondJoinIpsSet                  = "JoinIpsSet"
 	CondDrivesAdded                 = "DrivesAdded"
 	CondIoStarted                   = "IoStarted"
 	CondJoinedCluster               = "JoinedCluster"
