@@ -142,6 +142,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			//TODO: Very fat function, that will prevent us from continuing on any bad container
 			{
+				Run: loop.updateContainersJoinIps,
+			},
+			{
 				Condition: condition.CondJoinedCluster,
 				Run:       loop.WaitForContainersJoin,
 			},

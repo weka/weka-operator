@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -1084,6 +1085,42 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 		wekaCluster.Status.TraceId = ""
 		wekaCluster.Status.SpanID = ""
 		return r.getClient().Status().Update(ctx, wekaCluster)
+	}
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context) error {
+	containers := r.containers
+	//TODO: Parallelize
+	for _, c := range containers {
+		//check if was updated in last 30 minutes, and if not - re-update
+		for _, c := range c.Status.Conditions {
+			if c.Type != condition.CondJoinIpsSet {
+				continue
+			}
+			if c.Status != metav1.ConditionTrue {
+				break
+			}
+			if time.Since(c.LastTransitionTime.Time) < 30*time.Minute {
+				continue
+			}
+		}
+		newJoinIps, err := discovery.SelectJoinIps(r.containers, r.cluster.Spec.FailureDomainLabel)
+		if err != nil {
+			return err
+		}
+		c.Spec.JoinIps = newJoinIps
+		if err := r.getClient().Update(ctx, c); err != nil {
+			return err
+		}
+		// update status with new condition
+		_ = meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+			Type:   condition.CondJoinIpsSet,
+			Status: metav1.ConditionTrue,
+		})
+		if err := r.getClient().Status().Update(ctx, c); err != nil {
+			return err
+		}
 	}
 	return nil
 }

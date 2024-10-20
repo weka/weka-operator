@@ -1555,6 +1555,10 @@ async def wait_for_resources():
     logging.info("waiting for controller to set resources")
     if MODE not in ['drive', 's3', 'compute']:
         return
+
+    global PORT, AGENT_PORT, RESOURCES
+    if PORT and AGENT_PORT: # we got resources via env, so no need to wait here
+        return
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         logging.info("waiting for /opt/weka/k8s-runtime/resources.json")
         await asyncio.sleep(3)
@@ -1563,7 +1567,7 @@ async def wait_for_resources():
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
         data = json.load(f)
 
-    global PORT, AGENT_PORT, RESOURCES
+
     PORT = data["wekaPort"]
     AGENT_PORT = data["agentPort"]
     RESOURCES = data
