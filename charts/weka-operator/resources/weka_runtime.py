@@ -49,6 +49,9 @@ WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("WEKA_COS_ALLOW_D
 WEKA_COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
 WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_COUNT", 4000))
 
+AWS_VENDOR_ID = "1d0f"
+AWS_DEVICE_ID = "cd01"
+
 # for client dynamic port allocation
 BASE_PORT = os.environ.get("BASE_PORT", "")
 PORT_RANGE = os.environ.get("PORT_RANGE", "0")
@@ -75,9 +78,14 @@ logging.basicConfig(
 )
 
 
-async def sign_aws_drives():
-    logging.info("Signing AWS drives")
-    stdout, stderr, ec = await run_command("lspci -d 1d0f:cd01 | sort | awk '{print $1}'")
+async def sign_drives_by_pci_info(vendor_id: str, device_id: str):
+    logging.info("Signing drives. Vendor ID: %s, Device ID: %s", vendor_id, device_id)
+
+    if not vendor_id or not device_id:
+        raise ValueError("Vendor ID and Device ID are required")
+    
+    cmd = f"lspci -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
+    stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         return
 
@@ -87,7 +95,7 @@ async def sign_aws_drives():
         device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
         stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
         if ec != 0:
-            logging.error(f"Failed to sign AWS drive {pci_device}: {stderr}")
+            logging.error(f"Failed to sign drive {pci_device}: {stderr}")
             continue
         signed_drives.append(device)
         # TODO: Find serial id already here? it is adhocy non mandatory operation, so does not make sense to populate some db at this point, despite us having info
@@ -1711,7 +1719,15 @@ async def main():
         await ensure_container_exec()
         instruction = json.loads(INSTRUCTIONS)
         if instruction['type'] == "aws-all":
-            await sign_aws_drives()
+            await sign_drives_by_pci_info(
+                vendor_id=AWS_VENDOR_ID,
+                device_id=AWS_DEVICE_ID,
+            )
+        elif instruction['type'] == "device-identifiers":
+            await sign_drives_by_pci_info(
+                vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
+                device_id=instruction.get('pciDevices', {}).get('deviceId'),
+            )
         elif instruction['type'] == "all-not-root":
             await sign_not_mounted()
         elif instruction['type'] == "device-paths":

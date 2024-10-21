@@ -93,6 +93,37 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      pciDevices:
+                        description: |-
+                          PCI vendor and device IDs of the drives to sign.
+                          To get the values for VendorId and DeviceId:
+                          1. Run the following command to list all PCI devices on your system:
+                             ```bash
+                             lspci -nn
+                             ```
+                          2. Find the relevant PCI device in the output, which will display both the
+                             vendor and device IDs in square brackets in the format [vendorId:deviceId].
+                             For example:
+                             ```
+                             00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]
+                             ```
+                        properties:
+                          deviceId:
+                            description: |-
+                              DeviceId is the 4-digit hexadecimal device ID
+                              default for AWS: `cd01` (NVMe SSD)
+                            pattern: ^[0-9a-fA-F]{4}$
+                            type: string
+                          vendorId:
+                            description: |-
+                              VendorId is the 4-digit hexadecimal vendor ID
+                              default for AWS: `1d0f` (Amazon.com, Inc.)
+                            pattern: ^[0-9a-fA-F]{4}$
+                            type: string
+                        required:
+                        - deviceId
+                        - vendorId
+                        type: object
                       type:
                         type: string
                     required:
