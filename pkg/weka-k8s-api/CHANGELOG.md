@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/weka/weka-k8s-api/compare/v1.14.0...v1.15.0) (2024-10-21)
+
+
+### Features
+
+* support iommuEnabled option for weka cluster ([db01869](https://github.com/weka/weka-k8s-api/commit/db0186964838baa57481bf01268f59ebfb54707a))
+
 # [1.14.0](https://github.com/weka/weka-k8s-api/compare/v1.13.0...v1.14.0) (2024-10-21)
 
 
