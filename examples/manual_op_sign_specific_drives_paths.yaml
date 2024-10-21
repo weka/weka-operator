@@ -1,7 +1,7 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaManualOperation
 metadata:
-  name: sign-specific-drives
+  name: sign-specific-drives-paths
   namespace: weka-operator-system
 spec:
   action: "sign-drives"
