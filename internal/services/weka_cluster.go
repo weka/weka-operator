@@ -133,6 +133,14 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
 	}
 
+	if r.Cluster.Spec.IommuEnabled {
+		iommuEnabledCmd := "weka debug config assign clusterInfo iommuEnabled=true"
+		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetIommuEnabled", []string{"bash", "-ce", iommuEnabledCmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to set iommuEnabled: %s", stderr.String())
+		}
+	}
+
 	cmd = "wekaauthcli debug override add --key constraints.skip_validation"
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetSkipValidation", []string{"bash", "-ce", cmd})
 	if err != nil {

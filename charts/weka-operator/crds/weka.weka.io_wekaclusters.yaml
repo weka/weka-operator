@@ -161,6 +161,8 @@ spec:
                 type: string
               imagePullSecret:
                 type: string
+              iommuEnabled:
+                type: boolean
               ipv6:
                 type: boolean
               network:
