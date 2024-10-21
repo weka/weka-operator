@@ -51,10 +51,34 @@ type ManualOperatorPayload struct {
 	DiscoverDrives *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
 }
 
+type PCIDevices struct {
+	// VendorId is the 4-digit hexadecimal vendor ID
+	// default for AWS: `1d0f` (Amazon.com, Inc.)
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{4}$`
+	VendorId string `json:"vendorId"`
+	// DeviceId is the 4-digit hexadecimal device ID
+	// default for AWS: `cd01` (NVMe SSD)
+	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{4}$`
+	DeviceId string `json:"deviceId"`
+}
+
 type SignDrivesPayload struct {
 	Type         string            `json:"type"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	DevicePaths  []string          `json:"devicePaths,omitempty"`
+	// PCI vendor and device IDs of the drives to sign.
+	// To get the values for VendorId and DeviceId:
+	// 1. Run the following command to list all PCI devices on your system:
+	//    ```bash
+	//    lspci -nn
+	//    ```
+	// 2. Find the relevant PCI device in the output, which will display both the
+	//    vendor and device IDs in square brackets in the format [vendorId:deviceId].
+	//    For example:
+	//    ```
+	//    00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]
+	//    ```
+	PCIDevices *PCIDevices `json:"pciDevices,omitempty"`
 }
 
 type BlockDrivesPayload struct {
