@@ -1513,18 +1513,8 @@ async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[L
 
 
 async def ensure_client_ports():
-    logging.info("Ensuring client ports")
-
-    def parse_port(port_str: str) -> int:
-        try:
-            return int(port_str)
-        except ValueError:
-            return 0
-
     global PORT, AGENT_PORT
-    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:
-        await save_weka_ports_data()
-        return
+    logging.info("Ensuring client ports")
     
     base_port = parse_port(BASE_PORT)
     port_range = parse_port(PORT_RANGE)
@@ -1548,7 +1538,20 @@ async def save_weka_ports_data():
     write_file("/opt/weka/k8s-runtime/vars/agent_port", str(AGENT_PORT))
     logging.info(f"PORT={PORT}, AGENT_PORT={AGENT_PORT}")
 
+
+def parse_port(port_str: str) -> int:
+        try:
+            return int(port_str)
+        except ValueError:
+            return 0
+
+
 async def wait_for_resources():
+    global PORT, AGENT_PORT, RESOURCES
+    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:  # we got resources via env, so no need to wait here
+        await save_weka_ports_data()
+        return
+
     if MODE == 'client':
         await ensure_client_ports()
 
@@ -1556,9 +1559,6 @@ async def wait_for_resources():
     if MODE not in ['drive', 's3', 'compute']:
         return
 
-    global PORT, AGENT_PORT, RESOURCES
-    if PORT and AGENT_PORT: # we got resources via env, so no need to wait here
-        return
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         logging.info("waiting for /opt/weka/k8s-runtime/resources.json")
         await asyncio.sleep(3)

@@ -1117,6 +1117,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context)
 		_ = meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
 			Type:   condition.CondJoinIpsSet,
 			Status: metav1.ConditionTrue,
+			Reason: "PeriodicUpdate",
 		})
 		if err := r.getClient().Status().Update(ctx, c); err != nil {
 			return err

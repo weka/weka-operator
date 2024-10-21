@@ -151,6 +151,12 @@ spec:
                   https://github.com/kubernetes/apiextensions-apiserver/issues/56
                 pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
                 type: string
+              hotSpare:
+                default: 0
+                description: |-
+                  A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
+                  See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
+                type: integer
               image:
                 type: string
               imagePullSecret:
