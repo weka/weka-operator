@@ -175,6 +175,10 @@ type WekaClusterSpec struct {
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
 	NetworkSelector     NetworkSelector      `json:"network,omitempty"`
+	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
+	// See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
+	// +kubebuilder:default=0
+	HotSpare int `json:"hotSpare,omitempty"`
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +kubebuilder:default="24h"
