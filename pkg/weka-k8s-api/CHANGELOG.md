@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/weka/weka-k8s-api/compare/v1.13.0...v1.14.0) (2024-10-21)
+
+
+### Features
+
+* add PCI devices filtering option for signDrivesPayload ([4097a5f](https://github.com/weka/weka-k8s-api/commit/4097a5ffe86b1fc10c1782e10882fbd9b01f227b))
+
 # [1.13.0](https://github.com/weka/weka-k8s-api/compare/v1.12.0...v1.13.0) (2024-10-21)
 
 
