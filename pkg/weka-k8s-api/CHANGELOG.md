@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/weka/weka-k8s-api/compare/v1.12.0...v1.13.0) (2024-10-21)
+
+
+### Features
+
+* support hotSpare setting for weka cluster (default 0) ([e4fac51](https://github.com/weka/weka-k8s-api/commit/e4fac512ee9ba66948801cd6ce567eb81a279c2e))
+
 # [1.12.0](https://github.com/weka/weka-k8s-api/compare/v1.11.0...v1.12.0) (2024-10-21)
 
 
