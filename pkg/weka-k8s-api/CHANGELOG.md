@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/weka/weka-k8s-api/compare/v1.11.0...v1.12.0) (2024-10-21)
+
+
+### Features
+
+* add condition for JoinIpsSet ([d34d587](https://github.com/weka/weka-k8s-api/commit/d34d587d1aaf7bbcf7520d7a02c666d688cab5d8))
+
 # [1.11.0](https://github.com/weka/weka-k8s-api/compare/v1.10.0...v1.11.0) (2024-10-20)
 
 
