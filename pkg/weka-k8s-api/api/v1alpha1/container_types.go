@@ -131,6 +131,8 @@ type ContainerAllocations struct {
 	LbPort    int      `json:"lbPort,omitempty"`
 	WekaPort  int      `json:"wekaPort,omitempty"`
 	AgentPort int      `json:"agentPort,omitempty"`
+	// value of the failure domain label of the node where the container is running
+	FailureDomain *string `json:"failureDomain,omitempty"`
 }
 
 type WekaContainerStatus struct {

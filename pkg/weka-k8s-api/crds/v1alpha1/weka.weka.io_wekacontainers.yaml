@@ -1454,6 +1454,10 @@ spec:
                     items:
                       type: string
                     type: array
+                  failureDomain:
+                    description: value of the failure domain label of the node where
+                      the container is running
+                    type: string
                   lbPort:
                     type: integer
                   wekaPort:
