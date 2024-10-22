@@ -1,3 +1,15 @@
+# [1.16.0](https://github.com/weka/weka-k8s-api/compare/v1.15.0...v1.16.0) (2024-10-22)
+
+
+### Features
+
+* add forceAio setting for weka cluster (disabled by default) ([0bf9c4e](https://github.com/weka/weka-k8s-api/commit/0bf9c4ea94167c31f76b7407d2e9de31c9901f05))
+
+
+### Reverts
+
+* support iommuEnabled option for weka cluster ([9dcec57](https://github.com/weka/weka-k8s-api/commit/9dcec57f619bf5bbe863ce99989768e0bcb59c9b))
+
 # [1.15.0](https://github.com/weka/weka-k8s-api/compare/v1.14.0...v1.15.0) (2024-10-21)
 
 
