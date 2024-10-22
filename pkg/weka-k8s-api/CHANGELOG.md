@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/weka/weka-k8s-api/compare/v1.16.0...v1.17.0) (2024-10-22)
+
+
+### Features
+
+* add failureDomain to container allocations ([76d4527](https://github.com/weka/weka-k8s-api/commit/76d4527162697057058e49bb3487b88f522645f0))
+
 # [1.16.0](https://github.com/weka/weka-k8s-api/compare/v1.15.0...v1.16.0) (2024-10-22)
 
 
