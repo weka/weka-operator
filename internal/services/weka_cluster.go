@@ -133,6 +133,14 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
 	}
 
+	if r.Cluster.Spec.ForceAio {
+		cmd = "weka debug config override clusterInfo.nvmeEnabled false"
+		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetForceAio", []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to set force aio: %s", stderr.String())
+		}
+	}
+
 	cmd = "wekaauthcli debug override add --key constraints.skip_validation"
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetSkipValidation", []string{"bash", "-ce", cmd})
 	if err != nil {
