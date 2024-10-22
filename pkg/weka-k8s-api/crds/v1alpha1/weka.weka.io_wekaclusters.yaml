@@ -141,6 +141,8 @@ spec:
                   label used for spreading the weka containers across different failure domains (if set)
                   nodes that have the same value for this label will be considered as a single failure domain
                 type: string
+              forceAio:
+                type: boolean
               gracefulDestroyDuration:
                 default: 24h
                 description: |-
