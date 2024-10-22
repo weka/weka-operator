@@ -32,9 +32,10 @@ type Allocator interface {
 
 type AllocatorNodeInfo struct {
 	AvailableDrives []string
+	FailureDomain   *string
 }
 
-type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
+type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (*AllocatorNodeInfo, error)
 
 type ResourcesAllocator struct {
 	configStore    AllocationsStore
@@ -43,7 +44,7 @@ type ResourcesAllocator struct {
 }
 
 func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
-	return func(ctx context.Context, nodeName weka.NodeName) (nodeInfo *AllocatorNodeInfo, err error) {
+	return func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (nodeInfo *AllocatorNodeInfo, err error) {
 		node := &v1.Node{}
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node)
 		if err != nil {
@@ -51,6 +52,15 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 
 		nodeInfo = &AllocatorNodeInfo{}
+
+		if cluster != nil && cluster.Spec.FailureDomainLabel != nil {
+			fdLabel := *cluster.Spec.FailureDomainLabel
+			if fdLabel != "" {
+				if fd, ok := node.Labels[fdLabel]; ok {
+					nodeInfo.FailureDomain = &fd
+				}
+			}
+		}
 
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]
@@ -248,7 +258,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: role}
 
 		nodeName := container.GetNodeAffinity()
-		nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
+		nodeInfo, err := t.nodeInfoGetter(ctx, nodeName, cluster)
 		if err != nil {
 			logger.Info("Failed to get node", "error", err)
 			revert(err, container)
@@ -270,6 +280,10 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		}
 		if nodeAlloc.AllocatedRanges[owner] == nil {
 			nodeAlloc.AllocatedRanges[owner] = make(map[string]Range)
+		}
+
+		if nodeInfo.FailureDomain != nil {
+			container.Status.Allocations.FailureDomain = nodeInfo.FailureDomain
 		}
 
 		if container.Spec.NumDrives > 0 {

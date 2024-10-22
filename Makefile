@@ -190,7 +190,6 @@ runcontroller: ## Run a controller from your host.
 	WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
-	WEKA_OPERATOR_BACKEND_POD_SA_NAME=weka-operator-backend-pod-sa \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
 	VERSION=${VERSION} \
@@ -212,7 +211,6 @@ debugcontroller: ## Run a controller from your host.
 	WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
-	WEKA_OPERATOR_BACKEND_POD_SA_NAME=weka-operator-backend-pod-sa \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
 	dlv debug \

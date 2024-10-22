@@ -20,7 +20,7 @@ import (
 )
 
 func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {
-	return func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error) {
+	return func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (*AllocatorNodeInfo, error) {
 		drives := []string{}
 		for i := 0; i < numDrives; i++ {
 			drives = append(drives, fmt.Sprintf("some-longer-drive-%d", i))
