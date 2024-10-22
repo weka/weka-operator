@@ -1,14 +1,18 @@
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 type TombstoneSpec struct {
 	CrType string `json:"cr_type"`
 	// +kubebuilder:validation:MinLength=1
-	CrId            string   `json:"cr_id"`
-	NodeAffinity    NodeName `json:"node_affinity"`
-	PersistencePath string   `json:"persistence_path,omitempty"`
-	ContainerName   string   `json:"container_name,omitempty"`
+	CrId            string          `json:"cr_id"`
+	NodeAffinity    NodeName        `json:"node_affinity"`
+	PersistencePath string          `json:"persistence_path,omitempty"`
+	ContainerName   string          `json:"container_name,omitempty"`
+	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
 }
 
 type TombstoneStatus struct {
