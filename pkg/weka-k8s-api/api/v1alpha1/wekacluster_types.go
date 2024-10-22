@@ -175,7 +175,6 @@ type WekaClusterSpec struct {
 	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
 	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
 	NetworkSelector     NetworkSelector      `json:"network,omitempty"`
-	IommuEnabled        bool                 `json:"iommuEnabled,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
 	// See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
 	// +kubebuilder:default=0
