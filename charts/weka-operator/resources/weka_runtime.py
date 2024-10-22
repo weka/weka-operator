@@ -32,6 +32,7 @@ DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
 FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
+FAILURE_DOMAIN = None
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -844,7 +845,7 @@ async def create_container():
         devices = [await resolve_dhcp_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
 
-    failure_domain = await get_failure_domain()
+    failure_domain = FAILURE_DOMAIN
 
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable\
@@ -861,34 +862,6 @@ async def create_container():
     if ec != 0:
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
-
-
-async def get_failure_domain() -> str:
-    if not FAILURE_DOMAIN_LABEL:
-        return ""
-
-    node_name = os.environ.get("NODE_NAME")
-    if not node_name:
-        raise Exception("NODE_NAME not set")
-    
-    # get the node labels from the k8s api (https://kubernetes.io/docs/tasks/run-application/access-api-from-pod/#without-using-a-proxy)
-    command = (
-        "curl --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt "
-        "--header \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" "
-        f"-X GET \"https://$KUBERNETES_SERVICE_HOST/api/v1/nodes/{node_name}\""
-    )
-
-    stdout, stderr, ec = await run_command(command)
-    if ec != 0:
-        raise Exception(f"Failed to get node labels: {stderr}")
-    
-    node_info = json.loads(stdout)
-
-    failure_domain = node_info.get("metadata", {}).get("labels", {}).get(FAILURE_DOMAIN_LABEL)
-    if not failure_domain:
-        raise Exception(f"Node label {FAILURE_DOMAIN_LABEL} not found")
-    
-    return failure_domain
     
 
 async def configure_traces():
@@ -1555,17 +1528,18 @@ def parse_port(port_str: str) -> int:
 
 
 async def wait_for_resources():
-    global PORT, AGENT_PORT, RESOURCES
-    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:  # we got resources via env, so no need to wait here
+    global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN
+    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0 and not FAILURE_DOMAIN_LABEL:  # we got resources via env, so no need to wait here
         await save_weka_ports_data()
         return
 
     if MODE == 'client':
         await ensure_client_ports()
 
-    logging.info("waiting for controller to set resources")
     if MODE not in ['drive', 's3', 'compute']:
         return
+    
+    logging.info("waiting for controller to set resources")
 
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         logging.info("waiting for /opt/weka/k8s-runtime/resources.json")
@@ -1576,9 +1550,15 @@ async def wait_for_resources():
         data = json.load(f)
 
 
-    PORT = data["wekaPort"]
-    AGENT_PORT = data["agentPort"]
     RESOURCES = data
+    if FAILURE_DOMAIN_LABEL:
+        FAILURE_DOMAIN = data.get("failureDomain")
+        logging.info("Failure Domain: %s", FAILURE_DOMAIN)
+    if parse_port(PORT) == 0:
+        PORT = data["wekaPort"]
+    if parse_port(AGENT_PORT) == 0:
+        AGENT_PORT = data["agentPort"]
+    
     await save_weka_ports_data()
 
 

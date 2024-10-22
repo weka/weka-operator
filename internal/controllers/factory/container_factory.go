@@ -2,7 +2,6 @@ package factory
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -81,11 +80,6 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		}
 	}
 
-	serviceAccountName := os.Getenv("WEKA_OPERATOR_BACKEND_POD_SA_NAME")
-	if serviceAccountName == "" {
-		return nil, fmt.Errorf("cannot create %s container, WEKA_OPERATOR_BACKEND_POD_SA_NAME is not defined", role)
-	}
-
 	nodeSelector := cluster.Spec.NodeSelector
 	if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
 		nodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
@@ -123,7 +117,6 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			AdditionalSecrets:     additionalSecrets,
 			NoAffinityConstraints: cluster.Spec.DisregardRedundancy,
 			NodeSelector:          nodeSelector,
-			ServiceAccountName:    serviceAccountName,
 			FailureDomainLabel:    cluster.Spec.FailureDomainLabel,
 		},
 	}
