@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/weka/weka-k8s-api/compare/v1.17.0...v1.18.0) (2024-10-22)
+
+
+### Features
+
+* add tolerations to tombstone spec ([94a2253](https://github.com/weka/weka-k8s-api/commit/94a22538d55c8326c9e9e052dec980f8a41f4bcf))
+
 # [1.17.0](https://github.com/weka/weka-k8s-api/compare/v1.16.0...v1.17.0) (2024-10-22)
 
 
