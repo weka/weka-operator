@@ -249,6 +249,7 @@ func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone)
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					Tolerations:        tombstone.Spec.Tolerations,
 					ServiceAccountName: serviceAccountName,
 					Containers: []corev1.Container{
 						{

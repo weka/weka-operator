@@ -661,6 +661,7 @@ func (r *containerReconcilerLoop) ensureTombstone(ctx context.Context) error {
 			NodeAffinity:    nodeAffinity,
 			PersistencePath: nodeInfo.GetHostsideContainerPersistence(),
 			ContainerName:   container.Name,
+			Tolerations:     container.Spec.Tolerations,
 		},
 	}
 
