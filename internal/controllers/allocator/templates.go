@@ -6,20 +6,23 @@ import (
 )
 
 type ClusterTemplate struct {
-	DriveCores          int
-	ComputeCores        int
-	EnvoyCores          int
-	S3Cores             int
-	S3ExtraCores        int
-	ComputeContainers   int
-	DriveContainers     int
-	S3Containers        int
-	NumDrives           int
-	DriveHugepages      int
-	ComputeHugepages    int
-	HugePageSize        string
-	HugePagesOverride   string
-	S3FrontendHugepages int
+	DriveCores                int
+	ComputeCores              int
+	EnvoyCores                int
+	S3Cores                   int
+	S3ExtraCores              int
+	ComputeContainers         int
+	DriveContainers           int
+	S3Containers              int
+	NumDrives                 int
+	DriveHugepages            int
+	DriveHugepagesOffset      int
+	ComputeHugepages          int
+	ComputeHugepagesOffset    int
+	HugePageSize              string
+	HugePagesOverride         string
+	S3FrontendHugepages       int
+	S3FrontendHugepagesOffset int
 }
 
 func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
@@ -57,12 +60,24 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.DriveHugepages = 1500 * config.DriveCores
 	}
 
+	if config.DriveHugepagesOffset == 0 {
+		config.DriveHugepagesOffset = 200 * config.NumDrives
+	}
+
 	if config.ComputeHugepages == 0 {
 		config.ComputeHugepages = 3000 * config.ComputeCores
 	}
 
+	if config.ComputeHugepagesOffset == 0 {
+		config.ComputeHugepagesOffset = 200
+	}
+
 	if config.S3FrontendHugepages == 0 {
 		config.S3FrontendHugepages = 1400 * config.S3Cores
+	}
+
+	if config.S3FrontendHugepagesOffset == 0 {
+		config.S3FrontendHugepagesOffset = 200
 	}
 
 	if config.EnvoyCores == 0 {
@@ -70,19 +85,22 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	}
 
 	return ClusterTemplate{
-		DriveCores:          config.DriveCores,
-		ComputeCores:        config.ComputeCores,
-		ComputeContainers:   *config.ComputeContainers,
-		DriveContainers:     *config.DriveContainers,
-		S3Containers:        config.S3Containers,
-		S3Cores:             config.S3Cores,
-		S3ExtraCores:        config.S3ExtraCores,
-		NumDrives:           config.NumDrives,
-		DriveHugepages:      config.DriveHugepages,
-		ComputeHugepages:    config.ComputeHugepages,
-		S3FrontendHugepages: config.S3FrontendHugepages,
-		HugePageSize:        hgSize,
-		EnvoyCores:          config.EnvoyCores,
+		DriveCores:                config.DriveCores,
+		ComputeCores:              config.ComputeCores,
+		ComputeContainers:         *config.ComputeContainers,
+		DriveContainers:           *config.DriveContainers,
+		S3Containers:              config.S3Containers,
+		S3Cores:                   config.S3Cores,
+		S3ExtraCores:              config.S3ExtraCores,
+		NumDrives:                 config.NumDrives,
+		DriveHugepages:            config.DriveHugepages,
+		DriveHugepagesOffset:      config.DriveHugepagesOffset,
+		ComputeHugepages:          config.ComputeHugepages,
+		ComputeHugepagesOffset:    config.ComputeHugepagesOffset,
+		S3FrontendHugepages:       config.S3FrontendHugepages,
+		S3FrontendHugepagesOffset: config.S3FrontendHugepagesOffset,
+		HugePageSize:              hgSize,
+		EnvoyCores:                config.EnvoyCores,
 	}
 
 }

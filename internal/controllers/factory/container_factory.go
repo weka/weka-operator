@@ -26,15 +26,19 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	labels = util2.MergeLabels(cluster.ObjectMeta.GetLabels(), labels)
 
 	var hugePagesNum int
+	var hugePagesOffset int
 	var numCores int
 	if role == "drive" {
 		hugePagesNum = template.DriveHugepages
+		hugePagesOffset = template.DriveHugepagesOffset
 		numCores = template.DriveCores
 	} else if role == "compute" {
 		hugePagesNum = template.ComputeHugepages
+		hugePagesOffset = template.ComputeHugepagesOffset
 		numCores = template.ComputeCores
 	} else if role == "s3" {
 		hugePagesNum = template.S3FrontendHugepages
+		hugePagesOffset = template.S3FrontendHugepagesOffset
 		numCores = template.S3Cores
 	} else if role == "envoy" {
 		numCores = template.EnvoyCores
@@ -103,6 +107,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			ExtraCores:            extraCores,
 			Network:               network,
 			Hugepages:             hugePagesNum,
+			HugepagesOffset:       hugePagesOffset,
 			HugepagesSize:         template.HugePageSize,
 			HugepagesOverride:     template.HugePagesOverride,
 			NumDrives:             numDrives,
