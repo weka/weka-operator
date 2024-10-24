@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import re
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from os.path import exists
@@ -920,6 +921,33 @@ def should_recreate_client_container(resources: dict) -> bool:
     return False
 
 
+def convert_to_bytes(memory: str) -> int:
+    size_str = memory.upper()
+    match = re.match(r"(\d+)([KMGTPE]I?B)", size_str)
+    if not match:
+        raise ValueError(f"Invalid size format: {size_str}")
+
+    size = int(match.group(1))
+    unit = match.group(2)
+
+    multipliers = {
+        'B': 1,
+        'KB': 10**3,
+        'MB': 10**6,
+        'GB': 10**9,
+        'TB': 10**12,
+        'PB': 10**15,
+        'EB': 10**18,
+        'KIB': 2**10,
+        'MIB': 2**20,
+        'GIB': 2**30,
+        'TIB': 2**40,
+        'PIB': 2**50,
+        'EIB': 2**60
+    }
+    return size * multipliers[unit]
+
+
 async def ensure_weka_container():
     current_containers = await get_containers()
 
@@ -951,6 +979,12 @@ async def ensure_weka_container():
         if ec != 0:
             raise Exception(f"Failed to get frontend cores: {stderr}")
 
+    memory_bytes = convert_to_bytes(MEMORY)
+    if resources['memory'] != memory_bytes:
+        logging.info(f"Reconfiguring memory from {resources['memory']} to {memory_bytes} ({MEMORY})")
+        stdout, stderr, ec = await run_command(f"weka local resources memory -C {NAME} {MEMORY}")
+        if ec != 0:
+            raise Exception(f"Failed to reconfigure memory: {stderr}")
 
     # TODO: unite with above block as single getter
     resources = await get_weka_local_resources()

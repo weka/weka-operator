@@ -735,7 +735,8 @@ func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
 	} else {
 		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
-		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-200)
+		offset := f.getHugePagesOffset()
+		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-offset)
 	}
 
 	if f.container.Spec.HugepagesOverride != "" {
@@ -754,6 +755,19 @@ func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
 		HugePagesResourceName: hugePagesName,
 		HugePagesMb:           f.container.Spec.Hugepages,
 	}
+}
+
+func (f *PodFactory) getHugePagesOffset() int {
+	offset := f.container.Spec.HugepagesOffset
+	// get default if not set
+	if offset == 0 {
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+			offset = 200 * f.container.Spec.NumDrives
+		} else {
+			offset = 200
+		}
+	}
+	return offset
 }
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
