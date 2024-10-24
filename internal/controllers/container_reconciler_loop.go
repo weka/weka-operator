@@ -1171,6 +1171,13 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			}
 		}
 
+		if kDrives[drive].Partition == "" {
+			err := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
+			l.Error(err, "Error configuring drive")
+			return err
+		}
+
+		l = l.WithValues("partition", kDrives[drive].Partition)
 		l.Info("Verifying drive signature")
 		cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", kDrives[drive].Partition)
 		stdout, stderr, err := executor.ExecNamed(ctx, "GetPartitionSignature", []string{"bash", "-ce", cmd})
@@ -1189,23 +1196,13 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				return errors.New("Drive belongs to existing cluster")
 			} else {
 				l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster, resigning")
-				err2 := r.claimDrive(ctx, container, executor, kDrives[drive].Partition)
-				if err2 != nil {
-					return err2
-				}
-				err2 = r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
+				err2 := r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
 				if err2 != nil {
 					return err2
 				}
 			}
 		}
 
-		l.Info("Claiming drive")
-
-		err = r.claimDrive(ctx, container, executor, kDrives[drive].Partition)
-		if err != nil {
-			return err
-		}
 		l.Info("Adding drive into system")
 		// TODO: We need to login here. Maybe handle it on wekaauthcli level?
 		cmd = fmt.Sprintf("weka cluster drive add %d %s", *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
@@ -1259,25 +1256,6 @@ func (r *containerReconcilerLoop) initialDriveSign(ctx context.Context, executor
 	return nil
 }
 
-func (r *containerReconcilerLoop) getDriveUUID(ctx context.Context, executor util.Exec, drive string) (string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getDriveUUID")
-	defer end()
-
-	cmd := fmt.Sprintf("blkid -o value -s PARTUUID %s", drive)
-	stdout, stderr, err := executor.ExecNamed(ctx, "GetDriveUUID", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.WithValues("stderr", stderr.String()).Error(err, "Error getting drive UUID")
-		return "", errors.Wrap(err, stderr.String())
-	}
-	serial := strings.TrimSpace(stdout.String())
-	if serial == "" {
-		logger.Error(err, "UUID not found for drive")
-		return "", errors.New("uuid not found")
-	}
-	logger.InfoWithStatus(codes.Ok, "UUID found for drive")
-	return serial, nil
-}
-
 func (r *containerReconcilerLoop) isDrivePresigned(ctx context.Context, executor util.Exec, drive string) (bool, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -1289,58 +1267,6 @@ func (r *containerReconcilerLoop) isDrivePresigned(ctx context.Context, executor
 	}
 	const WEKA_SIGNATURE = "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
 	return strings.TrimSpace(stdout.String()) == WEKA_SIGNATURE, nil
-}
-
-func (r *containerReconcilerLoop) claimDrive(ctx context.Context, container *weka.WekaContainer, executor util.Exec, drive string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "claimDrive", "drive", drive)
-	defer end()
-
-	logger.Info("Claiming drive")
-	driveUuid, err := r.getDriveUUID(ctx, executor, drive)
-	if err != nil {
-		logger.Error(err, "Error getting drive UUID")
-		return err
-	}
-	logger.SetValues("drive_uuid", driveUuid)
-	logger.Info("Claimed drive by UUID")
-
-	claim := weka.DriveClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: container.Namespace,
-			Name:      fmt.Sprintf("%s", driveUuid),
-			Labels:    container.ObjectMeta.GetLabels(),
-		},
-		Spec: weka.DriveClaimSpec{
-			DriveUuid: driveUuid,
-			Device:    drive,
-		},
-		Status: weka.DriveClaimStatus{},
-	}
-
-	err = ctrl.SetControllerReference(container, &claim, r.Scheme)
-	if err != nil {
-		logger.SetError(err, "Error setting owner reference")
-		return err
-	}
-	logger.Info("Drive was set with owner, creating drive claim")
-
-	err = r.Create(ctx, &claim)
-	if err != nil {
-		// get eixsting
-		existingClaim := weka.DriveClaim{}
-		err = r.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: fmt.Sprintf("%s", driveUuid)}, &existingClaim)
-		if err != nil {
-			logger.SetError(err, "Error getting existing claim")
-			return err
-		}
-		if existingClaim.OwnerReferences[0].UID != container.UID {
-			err = errors.New("drive already claimed by another container")
-			logger.SetError(err, "drive already claimed")
-			return err
-		}
-		return nil
-	}
-	return nil
 }
 
 func getSignatureDevice(drive string) string {
