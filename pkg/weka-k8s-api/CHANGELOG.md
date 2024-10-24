@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/weka/weka-k8s-api/compare/v1.18.0...v1.19.0) (2024-10-24)
+
+
+### Features
+
+* add hugepages offset setting by container role to weka config ([0d7b64f](https://github.com/weka/weka-k8s-api/commit/0d7b64fc8a9e88d6211f4fc30a858e62d6991f48))
+
 # [1.18.0](https://github.com/weka/weka-k8s-api/compare/v1.17.0...v1.18.0) (2024-10-22)
 
 
