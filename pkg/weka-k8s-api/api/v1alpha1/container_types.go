@@ -92,6 +92,7 @@ type WekaContainerSpec struct {
 	CpuPolicy             CpuPolicy            `json:"cpuPolicy,omitempty"`
 	Network               Network              `json:"network,omitempty"`
 	Hugepages             int                  `json:"hugepages,omitempty"`
+	HugepagesOffset       int                  `json:"hugepagesOffset,omitempty"`
 	HugepagesSize         string               `json:"hugepagesSize,omitempty"`
 	HugepagesOverride     string               `json:"hugepagesSizeOverride,omitempty"`
 	RemovePotentialDrives []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistent handler for drives

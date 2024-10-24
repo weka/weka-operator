@@ -58,18 +58,21 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 }
 
 type WekaConfig struct {
-	ComputeContainers   *int `json:"computeContainers,omitempty"`
-	DriveContainers     *int `json:"driveContainers,omitempty"`
-	S3Containers        int  `json:"s3Containers,omitempty"`
-	ComputeCores        int  `json:"computeCores,omitempty"`
-	DriveCores          int  `json:"driveCores,omitempty"`
-	S3Cores             int  `json:"s3Cores,omitempty"`
-	NumDrives           int  `json:"numDrives,omitempty"`
-	S3ExtraCores        int  `json:"s3ExtraCores,omitempty"`
-	DriveHugepages      int  `json:"driveHugepages,omitempty"`
-	ComputeHugepages    int  `json:"computeHugepages,omitempty"`
-	S3FrontendHugepages int  `json:"s3FrontendHugepages,omitempty"`
-	EnvoyCores          int  `json:"envoyCores,omitempty"`
+	ComputeContainers         *int `json:"computeContainers,omitempty"`
+	DriveContainers           *int `json:"driveContainers,omitempty"`
+	S3Containers              int  `json:"s3Containers,omitempty"`
+	ComputeCores              int  `json:"computeCores,omitempty"`
+	DriveCores                int  `json:"driveCores,omitempty"`
+	S3Cores                   int  `json:"s3Cores,omitempty"`
+	NumDrives                 int  `json:"numDrives,omitempty"`
+	S3ExtraCores              int  `json:"s3ExtraCores,omitempty"`
+	DriveHugepages            int  `json:"driveHugepages,omitempty"`
+	DriveHugepagesOffset      int  `json:"driveHugepagesOffset,omitempty"`
+	ComputeHugepages          int  `json:"computeHugepages,omitempty"`
+	ComputeHugepagesOffset    int  `json:"computeHugepagesOffset,omitempty"`
+	S3FrontendHugepages       int  `json:"s3FrontendHugepages,omitempty"`
+	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
+	EnvoyCores                int  `json:"envoyCores,omitempty"`
 }
 
 type WekaHomeConfig struct {

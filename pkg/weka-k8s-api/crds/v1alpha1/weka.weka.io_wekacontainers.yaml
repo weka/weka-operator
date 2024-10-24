@@ -1024,6 +1024,8 @@ spec:
                 type: string
               hugepages:
                 type: integer
+              hugepagesOffset:
+                type: integer
               hugepagesSize:
                 type: string
               hugepagesSizeOverride:

@@ -113,11 +113,15 @@ spec:
                     type: integer
                   computeHugepages:
                     type: integer
+                  computeHugepagesOffset:
+                    type: integer
                   driveContainers:
                     type: integer
                   driveCores:
                     type: integer
                   driveHugepages:
+                    type: integer
+                  driveHugepagesOffset:
                     type: integer
                   envoyCores:
                     type: integer
@@ -130,6 +134,8 @@ spec:
                   s3ExtraCores:
                     type: integer
                   s3FrontendHugepages:
+                    type: integer
+                  s3FrontendHugepagesOffset:
                     type: integer
                 type: object
               expandEndpoints:
