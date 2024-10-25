@@ -72,7 +72,7 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		if !ok {
 			blockedDrivesStr = "[]"
 		}
-		//blockedDrivesStr  is json list, unwrap it
+		// blockedDrivesStr is json list, unwrap it
 		blockedDrives := []string{}
 		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
 
