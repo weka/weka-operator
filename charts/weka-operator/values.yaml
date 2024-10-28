@@ -76,3 +76,5 @@ gkeCompatibility:
   disableDriverSigning: false
 
 debugSleep: 3
+
+tolerations: []
