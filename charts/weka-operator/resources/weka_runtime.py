@@ -442,6 +442,13 @@ async def load_drivers():
             f"lsmod | grep -w uio_pci_generic || insmod /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko",
             "loading uio_pci_generic driver"))
 
+    # load vfio-pci if not loaded and iommu groups are present
+    cmd = '[ "$(ls -A /sys/kernel/iommu_groups/)" ] && lsmod | grep -w vfio_pci || modprobe vfio-pci'
+    _, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        logging.error(f"Failed to load vfio-pci {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
+        raise Exception(f"Failed to load vfio-pci: {stderr}")
+
     logging.info("Downloading and loading drivers")
     for cmd, desc in download_cmds + load_cmds:
         logging.info(f"Driver loading step: {desc}")
