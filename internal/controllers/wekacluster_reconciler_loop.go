@@ -655,7 +655,9 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 
 	err = wekaService.CreateFilesystemGroup(ctx, "default")
 	if err != nil {
-		if !errors.As(err, &services.FilesystemGroupExists{}) {
+		var fsGroupExists *services.FilesystemGroupExists
+		if !errors.As(err, &fsGroupExists) {
+			logger.Error(err, "DID NOT detect FS as already exists")
 			return err
 		}
 	}
@@ -679,7 +681,8 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		ThinProvisioningEnabled:   true,
 	})
 	if err != nil {
-		if !errors.As(err, &services.FilesystemExists{}) {
+		var fsExists *services.FilesystemExists
+		if !errors.As(err, &fsExists) {
 			return err
 		}
 	}
@@ -690,7 +693,8 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		ThinProvisioningEnabled:   true,
 	})
 	if err != nil {
-		if !errors.As(err, &services.FilesystemExists{}) {
+		var fsExists *services.FilesystemExists
+		if !errors.As(err, &fsExists) {
 			return err
 		}
 	}
