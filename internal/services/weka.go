@@ -320,18 +320,22 @@ func commaSeparatedInts(ids []int) string {
 }
 
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
 		return err
 	}
 	cmd := []string{
-		"wekaauthcli", "fs", "group", "create", name,
+		"weka", "fs", "group", "create", name,
 	}
-	_, stderr, err := executor.ExecNamed(ctx, "CreateFilesystemGroup", cmd)
+	stdout, stderr, err := executor.ExecNamed(ctx, "CreateFilesystemGroup", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
+			logger.Info("fs group already exists", "name", name)
 			return &FilesystemGroupExists{err}
 		}
+		logger.Error(err, "failed to create fs group", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
 	return nil
