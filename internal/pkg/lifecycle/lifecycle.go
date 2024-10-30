@@ -91,7 +91,8 @@ type AbortedByPredicate struct {
 }
 
 type WaitError struct {
-	Err error
+	Duration time.Duration
+	Err      error
 }
 
 func (w WaitError) Error() string {
@@ -100,6 +101,10 @@ func (w WaitError) Error() string {
 
 func NewWaitError(err error) error {
 	return &WaitError{Err: err}
+}
+
+func NewWaitErrorWithDuration(err error, duration time.Duration) error {
+	return &WaitError{Err: err, Duration: duration}
 }
 
 type ReconciliationError struct {
@@ -301,9 +306,13 @@ func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl
 				if lastUnpacked == nil {
 					break
 				}
-				if _, ok := lastUnpacked.Err.(*WaitError); ok {
+				if waitError, ok := lastUnpacked.Err.(*WaitError); ok {
 					logger.Info("waiting for conditions to be met", "error", err)
-					return ctrl.Result{RequeueAfter: 3 * time.Second}, nil
+					sleepDuration := 3 * time.Second
+					if waitError.Duration > 0 {
+						sleepDuration = waitError.Duration
+					}
+					return ctrl.Result{RequeueAfter: sleepDuration}, nil
 				}
 				if _, ok := lastUnpacked.Err.(*AbortedByPredicate); ok {
 					logger.Info("aborted by predicate", "error", err)

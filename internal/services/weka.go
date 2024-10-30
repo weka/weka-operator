@@ -99,9 +99,16 @@ type WekaUserResponse struct {
 }
 
 type Process struct {
-	Status string   `json:"status"`
-	NodeId string   `json:"node_id"`
-	Roles  []string `json:"roles"`
+	Status   string   `json:"status"`
+	NodeId   string   `json:"node_id"`
+	Roles    []string `json:"roles"`
+	NodeInfo struct {
+		HostId         string   `json:"host_id"`
+		ContainerName  string   `json:"container_name"`
+		Slot           int      `json:"slot"`
+		ManagementIps  []string `json:"mgmt_ips"`
+		ManagementPort int      `json:"mgmt_port"`
+	}
 }
 
 func (p Process) GetProcessId() int {
