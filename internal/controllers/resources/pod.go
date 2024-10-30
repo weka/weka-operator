@@ -882,8 +882,8 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 		managementMemory := 3000
-		perDriveMemory := 2100
-		buffer := 1800
+		perDriveMemory := 2400
+		buffer := 1500
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perDriveMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
