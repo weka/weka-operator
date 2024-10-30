@@ -374,6 +374,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.WekaSecretRef.SecretKeyRef.Key != newClientSpec.WekaSecretRef {
+		container.Spec.WekaSecretRef = v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: newClientSpec.WekaSecretRef}}
+		changed = true
+	}
+
 	if container.Spec.AdditionalMemory != newClientSpec.AdditionalMemory {
 		container.Spec.AdditionalMemory = newClientSpec.AdditionalMemory
 		changed = true
@@ -472,6 +477,7 @@ func isPortRangeEqual(a, b v1alpha1.PortRange) bool {
 type UpdatableClientSpec struct {
 	DriversDistService string
 	ImagePullSecret    string
+	WekaSecretRef      string
 	AdditionalMemory   int
 	UpgradePolicy      v1alpha1.UpgradePolicy
 	DriversLoaderImage string
@@ -487,6 +493,7 @@ func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec) *UpdatableClientSpec 
 	return &UpdatableClientSpec{
 		DriversDistService: spec.DriversDistService,
 		ImagePullSecret:    spec.ImagePullSecret,
+		WekaSecretRef:      spec.WekaSecretRef,
 		AdditionalMemory:   spec.AdditionalMemory,
 		UpgradePolicy:      spec.UpgradePolicy,
 		DriversLoaderImage: spec.DriversLoaderImage,
