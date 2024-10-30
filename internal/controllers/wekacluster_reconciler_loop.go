@@ -174,28 +174,6 @@ func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) er
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) allocateContainersResources() {
-	//nodeInfoGetter := func(ctx context.Context, nodeName wekav1alpha1.NodeName) (*discovery.DiscoveryNodeInfo, error) {
-	//	discoverNodeOp := operations.NewDiscoverNodeOperation(
-	//		r.Manager,
-	//		nodeName,
-	//		r.cluster,
-	//		r.cluster.ToOwnerObject(),
-	//	)
-	//	err := operations.ExecuteOperation(ctx, discoverNodeOp)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	return discoverNodeOp.GetResult(), nil
-	//}
-	//
-	//newPortAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
-	//if err != nil {
-	//	logger.Error(err, "Failed to create topology allocator")
-	//	return err
-	//}
-}
-
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {
 	return r.Manager.GetClient()
 }
