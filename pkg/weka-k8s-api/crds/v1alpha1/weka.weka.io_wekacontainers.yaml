@@ -18,7 +18,6 @@ spec:
     - description: Weka container status
       jsonPath: .status.status
       name: Status
-      priority: 1
       type: string
     - description: Weka container mode
       jsonPath: .spec.mode
@@ -28,7 +27,6 @@ spec:
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
-      priority: 3
       type: date
     - description: Number of drives attached to container
       jsonPath: .spec.numDrives
@@ -38,7 +36,6 @@ spec:
     - description: Weka container ID
       jsonPath: .status.containerID
       name: Weka cID
-      priority: 6
       type: string
     name: v1alpha1
     schema:
