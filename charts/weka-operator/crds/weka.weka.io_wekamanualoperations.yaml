@@ -83,6 +83,27 @@ spec:
                           type: string
                         type: object
                     type: object
+                  remoteTracesSessionPayload:
+                    properties:
+                      cluster:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      duration:
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      wekahomeEndpointOverride:
+                        type: string
+                    type: object
                   signDrivesPayload:
                     properties:
                       devicePaths:

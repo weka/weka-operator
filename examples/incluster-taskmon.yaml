@@ -1,0 +1,16 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: remote-traces-session
+  namespace: weka-operator-system
+spec:
+  action: "remote-traces-session"
+  image: quay.io/weka.io/taskmon:0.0.9-6d3eb658e900b4d9_x86_64
+  imagePullSecret: "quay-io-robot-secret"
+  payload:
+    remoteTracesSessionPayload:
+      cluster:
+        name: cluster-dev
+        namespace: weka-operator-system
+      duration: 5m
+      wekahomeEndpointOverride: 10.0.30.81:30052 # direct port of nodeport service, TBD to wrap via envoy and then ALB ingress

@@ -107,6 +107,19 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			true,
 		)
 		loop.Op = discoverDrivesOp
+	case "remote-traces-session":
+		remoteTracesOp := operations.NewMaintainTraceSession(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig,
+			wekaManualOperation,
+			weka.WekaContainerDetails{
+				Image:           wekaManualOperation.Spec.Image,
+				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Tolerations:     wekaManualOperation.Spec.Tolerations,
+				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
+			},
+		)
+		loop.Op = remoteTracesOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}

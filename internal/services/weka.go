@@ -60,6 +60,17 @@ type DriveListOptions struct {
 	ContainerId *int `json:"container_id"`
 }
 
+type Process struct {
+	NodeId   string `json:"node_id"`
+	NodeInfo struct {
+		HostId         string   `json:"host_id"`
+		ContainerName  string   `json:"container_name"`
+		Slot           int      `json:"slot"`
+		ManagementIps  []string `json:"mgmt_ips"`
+		ManagementPort int      `json:"mgmt_port"`
+	}
+}
+
 type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
@@ -72,6 +83,7 @@ type WekaService interface {
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
+	GetProcesses(ctx context.Context) ([]Process, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -97,6 +109,17 @@ type S3ClusterExists struct {
 type CliWekaService struct {
 	ExecService exec.ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) GetProcesses(ctx context.Context) ([]Process, error) {
+	var processes []Process
+	err := c.RunJsonCmd(ctx, []string{
+		"weka", "cluster", "process", "--json",
+	}, "GetProcesses", &processes)
+	if err != nil {
+		return nil, err
+	}
+	return processes, nil
 }
 
 func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error) {
