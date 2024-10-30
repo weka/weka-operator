@@ -746,7 +746,7 @@ func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
 
 		}
 		// setting for forceful termination ,as we are in container delete flow
-		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
+		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop && kill 1"})
 		if err != nil {
 			if !strings.Contains(err.Error(), "container not found") {
 				return err
