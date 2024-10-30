@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/weka/weka-k8s-api/compare/v1.19.0...v1.20.0) (2024-10-30)
+
+
+### Features
+
+* mark fields on container with p0 ([d416ed8](https://github.com/weka/weka-k8s-api/commit/d416ed85474587995f659bc97f3ffd70dc1ec8d1))
+
 # [1.19.0](https://github.com/weka/weka-k8s-api/compare/v1.18.0...v1.19.0) (2024-10-24)
 
 
