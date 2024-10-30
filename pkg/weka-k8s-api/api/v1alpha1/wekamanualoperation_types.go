@@ -7,7 +7,7 @@ import (
 
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
-	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;ensure-nics
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;ensure-nics;remote-traces-session
 	Action          string                `json:"action"`
 	Payload         ManualOperatorPayload `json:"payload"`
 	Image           string                `json:"image"`
@@ -48,11 +48,12 @@ type WekaManualOperationList struct {
 }
 
 type ManualOperatorPayload struct {
-	SignDrives        *SignDrivesPayload        `json:"signDrivesPayload,omitempty"`
-	BlockDrives       *BlockDrivesPayload       `json:"blockDrivesPayload,omitempty"`
-	DiscoverDrives    *DiscoverDrivesPayload    `json:"discoverDrivesPayload,omitempty"`
-	EnsureNICs        *EnsureNICsPayload        `json:"ensureNICsPayload,omitempty"`
-	ForceResignDrives *ForceResignDrivesPayload `json:"forceResignDrivesPayload,omitempty"`
+	SignDrives                *SignDrivesPayload         `json:"signDrivesPayload,omitempty"`
+	BlockDrives               *BlockDrivesPayload        `json:"blockDrivesPayload,omitempty"`
+	DiscoverDrives            *DiscoverDrivesPayload     `json:"discoverDrivesPayload,omitempty"`
+	EnsureNICs                *EnsureNICsPayload         `json:"ensureNICsPayload,omitempty"`
+	ForceResignDrives         *ForceResignDrivesPayload  `json:"forceResignDrivesPayload,omitempty"`
+	RemoteTracesSessionConfig *RemoteTracesSessionConfig `json:"remoteTracesSessionPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -110,6 +111,13 @@ type BlockDrivesPayload struct {
 
 type DiscoverDrivesPayload struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+}
+
+type RemoteTracesSessionConfig struct {
+	Cluster                  ObjectReference   `json:"cluster,omitempty"`
+	NodeSelector             map[string]string `json:"nodeSelector,omitempty"`
+	Duration                 metav1.Duration   `json:"duration,omitempty"`
+	WekahomeEndpointOverride string            `json:"wekahomeEndpointOverride,omitempty"`
 }
 
 func init() {

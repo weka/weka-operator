@@ -65,6 +65,7 @@ spec:
                 - force-resign-drives
                 - block-drives
                 - ensure-nics
+                - remote-traces-session
                 type: string
               image:
                 type: string
@@ -142,6 +143,27 @@ spec:
                         type: string
                     required:
                     - node_name
+                    type: object
+                  remoteTracesSessionPayload:
+                    properties:
+                      cluster:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      duration:
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      wekahomeEndpointOverride:
+                        type: string
                     type: object
                   signDrivesPayload:
                     properties:
