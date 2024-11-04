@@ -102,7 +102,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
-	cmd := fmt.Sprintf("wekaauthcli status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password`", strings.Join(hostnamesList, " "), hostIpsStr)
+	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password`", strings.Join(hostnamesList, " "), hostIpsStr)
 	logger.Info("Creating cluster", "cmd", cmd)
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
@@ -119,7 +119,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 
 	// update cluster name
 	clusterName := r.Cluster.ObjectMeta.Name
-	cmd = fmt.Sprintf("wekaauthcli cluster update --cluster-name %s", clusterName)
+	cmd = fmt.Sprintf("weka cluster update --cluster-name %s", clusterName)
 	logger.Debug("Updating cluster name")
 	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetName", []string{"bash", "-ce", cmd})
 	if err != nil {
@@ -139,6 +139,12 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		if err != nil {
 			return errors.Wrapf(err, "Failed to set force aio: %s", stderr.String())
 		}
+	}
+
+	cmd = "weka debug override list | grep authenticate_client_join || weka debug override add --key authenticate_client_join || weka debug override add --key authenticate_client_join --force" //
+	_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetAuthenticateClientJoin", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to set authenticate client join: %s", stderr.String())
 	}
 
 	//skip validation used to bypass memory system constriants, that we dont want bypassing. but might come handy for various dev flows, so keeping as reference
