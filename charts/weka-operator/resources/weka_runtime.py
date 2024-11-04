@@ -232,7 +232,7 @@ async def ensure_drivers():
             drivers.append("uio_pci_generic")
     driver_mode = await is_legacy_driver_cmd()
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
-    if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
+    if not await is_legacy_driver_cmd() and MODE in ["client", "s3", "nfs-gateway"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
             stdout, stderr, ec = await run_command("weka driver ready")
             if ec != 0:
@@ -826,6 +826,8 @@ async def create_container():
         mode_part = "--only-frontend-cores"
     elif MODE == "s3":
         mode_part = "--only-frontend-cores"
+    elif MODE == "nfs-gateway":
+        mode_part = "--only-frontend-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -961,7 +963,7 @@ async def ensure_weka_container():
     if len(current_containers) == 0:
         logging.info("no pre-existing containers, creating")
         # create container
-        if MODE in ["compute", "drive", "client", "s3"]:
+        if MODE in ["compute", "drive", "client", "s3", "nfs-gateway"]:
             await create_container()
         else:
             raise NotImplementedError(f"Unsupported mode: {MODE}")
@@ -996,7 +998,7 @@ async def ensure_weka_container():
     # TODO: unite with above block as single getter
     resources = await get_weka_local_resources()
 
-    if MODE == "s3":
+    if MODE in ["s3", "nfs-gateway"]:
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
@@ -1096,6 +1098,9 @@ async def configure_agent(agent_handle_drivers=False):
 
     skip_envoy_setup = ""
     if MODE == "s3":
+        skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
+
+    if MODE == "nfs-gateway":
         skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
 
     if MODE == "envoy":
@@ -1577,7 +1582,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'envoy']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs-gateway', 'envoy']:
         return
     
     logging.info("waiting for controller to set resources")
@@ -1889,7 +1894,7 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
-    if MODE in ["client", "s3"]:
+    if MODE in ["client", "s3", "nfs-gateway"]:
         #TODO: Might be not needed in 4.4.1
         stdout, stderr, ec = await run_command("echo prepare-upgrade > /proc/wekafs/interface", capture_stdout=False)
         if ec != 0:
@@ -1903,7 +1908,7 @@ async def shutdown():
             force_stop = True
         if "4.2.7.64" in IMAGE_NAME:
             force_stop = True
-        if MODE not in ["s3", "drive", "compute"]:
+        if MODE not in ["s3", "drive", "compute", "nfs-gateway"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)

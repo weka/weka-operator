@@ -776,6 +776,10 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfsGateway {
+		totalNumCores += f.container.Spec.ExtraCores
+	}
+
 	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
 		"cores", totalNumCores,
 		"mode", f.container.Spec.Mode,
@@ -822,6 +826,9 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 			// i.e: both for envoy and 3, extraCores(envoy is hard coded to 1 now), means "ht if possible", otherwise full core
+		}
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfsGateway {
+			totalCores = totalCores - f.container.Spec.ExtraCores
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
@@ -908,6 +915,15 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		perFrontendMemory := 2050
 		buffer := 450
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfsGateway {
+		nfsMemory := 16000
+		managementMemory := 1965 + nfsMemory // 8000 per NFS
+		perFrontendMemory := 2050
+		buffer := 450
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
