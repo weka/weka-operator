@@ -160,9 +160,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
 				Predicates: lifecycle.Predicates{
-					func() bool {
-						return loop.container.IsAllocatable() && loop.container.IsBackend() || loop.container.IsEnvoy()
-					},
+					loop.container.MustHaveNodeAffinity,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -300,6 +298,16 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				CondMessage: "Joined s3 cluster",
 				Predicates: lifecycle.Predicates{
 					container.IsS3Container,
+					container.HasJoinIps,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:   condition.CondNfsInterfaceGroupsConfigured,
+				Run:         loop.JoinNfsInterfaceGroups,
+				CondMessage: "NFS interface groups configured",
+				Predicates: lifecycle.Predicates{
+					container.IsNfsGatewayContainer,
 					container.HasJoinIps,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -1349,6 +1357,15 @@ func (r *containerReconcilerLoop) isExistingCluster(ctx context.Context, guid st
 func (r *containerReconcilerLoop) JoinS3Cluster(ctx context.Context) error {
 	wekaService := services.NewWekaService(r.ExecService, r.container)
 	return wekaService.JoinS3Cluster(ctx, *r.container.Status.ClusterContainerID)
+}
+
+func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) error {
+	wekaService := services.NewWekaService(r.ExecService, r.container)
+	err := wekaService.JoinNfsInterfaceGroups(ctx, *r.container.Status.ClusterContainerID)
+	if !errors.As(err, &services.NfsInterfaceGroupAlreadyJoined{}) {
+		return err
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {

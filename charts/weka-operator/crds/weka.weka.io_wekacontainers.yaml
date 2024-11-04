@@ -1053,6 +1053,7 @@ spec:
                 - adhoc-op-with-container
                 - adhoc-op
                 - envoy
+                - nfs-gateway
                 type: string
               name:
                 type: string
