@@ -210,6 +210,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Condition: condition.ConfNfsGatewayConfigured,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.cluster.IsExpand),
+					loop.HasNfsGatewayContainers,
+				},
+				Run:                       loop.EnsureNfsGateway,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition: condition.CondClusterClientSecretsCreated,
 				Run:       loop.ensureClientLoginCredentials,
 			},

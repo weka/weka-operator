@@ -40,6 +40,11 @@ type S3Params struct {
 	ContainerIds   []int
 }
 
+type NFSParams struct {
+	ConfigFilesystem  string
+	SupportedVersions []string
+}
+
 type WekaUserResponse struct {
 	//OrgId    int    `json:"org_id"`
 	//PosixGid string `json:"posix_gid"`
@@ -68,8 +73,10 @@ type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
+	ConfigureNfsGateway(ctx context.Context, nfsParams NFSParams) error
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
+	JoinNfsInterfaceGroups(ctx context.Context, containerId int) error
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
@@ -100,6 +107,14 @@ type FilesystemExists struct {
 }
 
 type S3ClusterExists struct {
+	error
+}
+
+type NfsInterfaceGroupExists struct {
+	error
+}
+
+type NfsInterfaceGroupAlreadyJoined struct {
 	error
 }
 
@@ -259,6 +274,23 @@ func (c *CliWekaService) EnsureUser(ctx context.Context, username, password, rol
 	return nil
 }
 
+func (c *CliWekaService) GetInterfaceNameByIpAddress(ctx context.Context, ip string) (string, error) {
+	if ip == "" {
+		return "", errors.New("ip address is empty")
+	}
+	executor, err := c.GetExecutor(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	cmd := fmt.Sprintf("ip route show | grep -w %s | head -1 | awk '{print $5}'", ip)
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetInterfaceNameByIpAddress", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return "", errors.Wrapf(err, "Failed to get interface name: %s", stderr.String())
+	}
+	return stdout.String(), nil
+}
+
 func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error) {
 	var data string
 	err := c.RunJsonCmd(ctx, []string{
@@ -297,6 +329,47 @@ func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) err
 	return nil
 }
 
+func (c *CliWekaService) JoinNfsInterfaceGroups(ctx context.Context, containerId int) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "JoinNfsInterfaceGroups")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	containerIdStr := strconv.Itoa(containerId)
+	interfaceName := c.Container.Spec.Network.EthDevice
+	interfaceGroupName := "MgmtInterfaceGroup"
+	if interfaceName == "" {
+		if c.Container.Status.ManagementIP == "" {
+			return errors.New("No management IP address found")
+		}
+		interfaceName, err = c.GetInterfaceNameByIpAddress(ctx, c.Container.Status.ManagementIP)
+		if err != nil {
+			logger.SetError(err, "Failed to get interface name by IP address", "ip", c.Container.Status.ManagementIP)
+			return err
+		}
+	}
+
+	cmd := []string{
+		//weka nfs interface-group port add mgmt 11 ens5
+		"wekaauthcli", "nfs", "interface-group", "port", "add", interfaceGroupName, containerIdStr, interfaceName,
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "JoinNfsInterfaceGroup", cmd)
+	if err != nil {
+
+		if strings.Contains(stderr.String(), "is already part of group") {
+			return NfsInterfaceGroupAlreadyJoined{err}
+		} else {
+			logger.SetError(err, "Failed to join NFS interface group", "interfaceGroup", interfaceName, "stderr", stderr.String())
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "CreateS3Cluster")
 	defer end()
@@ -324,6 +397,52 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 		return err
 	}
 
+	return nil
+}
+
+func (c *CliWekaService) ConfigureNfsGateway(ctx context.Context, nfsParams NFSParams) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfsGateway")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "nfs", "global-config", "set", "--config-fs", nfsParams.ConfigFilesystem,
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "ConfigureNfsConfigFilesystem", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to configure NFS gateway config filesystem", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+
+	if len(nfsParams.SupportedVersions) > 0 {
+		cmd = []string{
+			"wekaauthcli", "nfs", "global-config", "set", "--supported-versions", strings.Join(nfsParams.SupportedVersions, ","),
+		}
+		stdout, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsSupportedVersions", cmd)
+		if err != nil {
+			logger.SetError(err, "Failed to configure NFS gateway supported versions", "stderr", stderr.String(), "stdout", stdout.String())
+			return err
+		}
+	}
+	// create interface group if it doesn't exist
+	interfaceGroupName := "MgmtInterfaceGroup"
+	cmd = []string{
+		"wekaauthcli", "nfs", "interface-group", "add", interfaceGroupName, "NFS",
+	}
+	_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroup", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "already exists") {
+			return NfsInterfaceGroupExists{err}
+		} else {
+			logger.SetError(err, "Failed to configure NFS gateway interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+			return err
+		}
+	}
 	return nil
 }
 

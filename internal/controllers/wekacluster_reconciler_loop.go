@@ -673,6 +673,16 @@ func (r *wekaClusterReconcilerLoop) SelectS3Containers(containers []*wekav1alpha
 	return s3Containers
 }
 
+func (r *wekaClusterReconcilerLoop) SelectNfsGatewayContainers(containers []*wekav1alpha1.WekaContainer) []*wekav1alpha1.WekaContainer {
+	var nfsContainers []*wekav1alpha1.WekaContainer
+	for _, container := range containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeNfsGateway {
+			nfsContainers = append(nfsContainers, container)
+		}
+	}
+	return nfsContainers
+}
+
 func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureS3Cluster")
 	defer end()
@@ -700,6 +710,33 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	}
 
 	logger.SetStatus(codes.Ok, "S3 cluster ensured")
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) EnsureNfsGateway(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfsGateway")
+	defer end()
+
+	containers := r.SelectNfsGatewayContainers(r.containers)
+
+	container := containers[0]
+	wekaService := services.NewWekaService(r.ExecService, container)
+	containerIds := []int{}
+	for _, c := range containers {
+		containerIds = append(containerIds, *c.Status.ClusterContainerID)
+	}
+
+	err := wekaService.ConfigureNfsGateway(ctx, services.NFSParams{
+		ConfigFilesystem: ".config_fs",
+	})
+
+	if err != nil {
+		if !errors.As(err, &services.NfsInterfaceGroupExists{}) {
+			return err
+		}
+	}
+
+	logger.SetStatus(codes.Ok, "NFS Gateway ensured")
 	return nil
 }
 
@@ -1041,6 +1078,10 @@ func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
 	return len(r.SelectS3Containers(r.containers)) > 0
 }
 
+func (r *wekaClusterReconcilerLoop) HasNfsGatewayContainers() bool {
+	return len(r.SelectNfsGatewayContainers(r.containers)) > 0
+}
+
 func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	wekaCluster := r.cluster
 
@@ -1131,7 +1172,7 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
-	for _, role := range []string{"drive", "compute", "s3", "envoy"} {
+	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs-gateway"} {
 		var numContainers int
 
 		switch role {
@@ -1143,6 +1184,8 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 			numContainers = template.S3Containers
 		case "envoy":
 			numContainers = template.S3Containers
+		case "nfs-gateway":
+			numContainers = template.NfsGatewayContainers
 		}
 
 		currentCount := 0

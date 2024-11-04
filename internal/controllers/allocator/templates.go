@@ -6,23 +6,28 @@ import (
 )
 
 type ClusterTemplate struct {
-	DriveCores                int
-	ComputeCores              int
-	EnvoyCores                int
-	S3Cores                   int
-	S3ExtraCores              int
-	ComputeContainers         int
-	DriveContainers           int
-	S3Containers              int
-	NumDrives                 int
-	DriveHugepages            int
-	DriveHugepagesOffset      int
-	ComputeHugepages          int
-	ComputeHugepagesOffset    int
-	HugePageSize              string
-	HugePagesOverride         string
-	S3FrontendHugepages       int
-	S3FrontendHugepagesOffset int
+	DriveCores                        int
+	ComputeCores                      int
+	EnvoyCores                        int
+	S3Cores                           int
+	S3ExtraCores                      int
+	NfsGatewayCores                   int
+	NfsGatewayExtraCores              int
+	ComputeContainers                 int
+	DriveContainers                   int
+	S3Containers                      int
+	NfsGatewayContainers              int
+	NumDrives                         int
+	DriveHugepages                    int
+	DriveHugepagesOffset              int
+	ComputeHugepages                  int
+	ComputeHugepagesOffset            int
+	HugePageSize                      string
+	HugePagesOverride                 string
+	S3FrontendHugepages               int
+	S3FrontendHugepagesOffset         int
+	NfsGatewayFrontendHugepages       int
+	NfsGatewayFrontendHugepagesOffset int
 }
 
 func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
@@ -48,8 +53,16 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.S3Cores = 1
 	}
 
+	if config.NfsGatewayCores == 0 {
+		config.NfsGatewayCores = 1
+	}
+
 	if config.S3ExtraCores == 0 {
 		config.S3ExtraCores = 1
+	}
+
+	if config.NfsGatewayExtraCores == 0 {
+		config.NfsGatewayExtraCores = 1
 	}
 
 	if config.NumDrives == 0 {
@@ -76,8 +89,16 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.S3FrontendHugepages = 1400 * config.S3Cores
 	}
 
+	if config.NfsGatewayFrontendHugepages == 0 {
+		config.NfsGatewayFrontendHugepages = 1000 * config.NfsGatewayCores
+	}
+
 	if config.S3FrontendHugepagesOffset == 0 {
 		config.S3FrontendHugepagesOffset = 200
+	}
+
+	if config.NfsGatewayFrontendHugepagesOffset == 0 {
+		config.NfsGatewayFrontendHugepagesOffset = 200
 	}
 
 	if config.EnvoyCores == 0 {
@@ -85,22 +106,27 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	}
 
 	return ClusterTemplate{
-		DriveCores:                config.DriveCores,
-		ComputeCores:              config.ComputeCores,
-		ComputeContainers:         *config.ComputeContainers,
-		DriveContainers:           *config.DriveContainers,
-		S3Containers:              config.S3Containers,
-		S3Cores:                   config.S3Cores,
-		S3ExtraCores:              config.S3ExtraCores,
-		NumDrives:                 config.NumDrives,
-		DriveHugepages:            config.DriveHugepages,
-		DriveHugepagesOffset:      config.DriveHugepagesOffset,
-		ComputeHugepages:          config.ComputeHugepages,
-		ComputeHugepagesOffset:    config.ComputeHugepagesOffset,
-		S3FrontendHugepages:       config.S3FrontendHugepages,
-		S3FrontendHugepagesOffset: config.S3FrontendHugepagesOffset,
-		HugePageSize:              hgSize,
-		EnvoyCores:                config.EnvoyCores,
+		DriveCores:                        config.DriveCores,
+		ComputeCores:                      config.ComputeCores,
+		ComputeContainers:                 *config.ComputeContainers,
+		DriveContainers:                   *config.DriveContainers,
+		S3Containers:                      config.S3Containers,
+		S3Cores:                           config.S3Cores,
+		S3ExtraCores:                      config.S3ExtraCores,
+		NfsGatewayContainers:              config.NfsGatewayContainers,
+		NumDrives:                         config.NumDrives,
+		DriveHugepages:                    config.DriveHugepages,
+		DriveHugepagesOffset:              config.DriveHugepagesOffset,
+		ComputeHugepages:                  config.ComputeHugepages,
+		ComputeHugepagesOffset:            config.ComputeHugepagesOffset,
+		S3FrontendHugepages:               config.S3FrontendHugepages,
+		S3FrontendHugepagesOffset:         config.S3FrontendHugepagesOffset,
+		HugePageSize:                      hgSize,
+		EnvoyCores:                        config.EnvoyCores,
+		NfsGatewayCores:                   config.NfsGatewayCores,
+		NfsGatewayExtraCores:              config.NfsGatewayExtraCores,
+		NfsGatewayFrontendHugepages:       config.NfsGatewayFrontendHugepages,
+		NfsGatewayFrontendHugepagesOffset: config.NfsGatewayFrontendHugepagesOffset,
 	}
 
 }
@@ -154,5 +180,18 @@ var WekaClusterTemplates = map[string]ClusterTemplate{
 		S3Containers:      5,
 		S3Cores:           1,
 		S3ExtraCores:      2,
+	},
+	"small_nfs": {
+		DriveCores:                  1,
+		ComputeCores:                1,
+		ComputeContainers:           6,
+		DriveContainers:             6,
+		NfsGatewayContainers:        2,
+		NumDrives:                   1,
+		DriveHugepages:              1500,
+		ComputeHugepages:            3000,
+		NfsGatewayFrontendHugepages: 1200,
+		HugePageSize:                "2Mi",
+		EnvoyCores:                  1,
 	},
 }

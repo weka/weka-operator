@@ -197,3 +197,7 @@ func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string
 func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
 	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 }
+
+func (r *wekaClusterService) EnsureNoNfsGatewayContainers(ctx context.Context) error {
+	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfsGateway)
+}
