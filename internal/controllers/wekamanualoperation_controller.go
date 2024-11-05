@@ -90,6 +90,21 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onSuccess,
 		)
 		loop.Op = signDrivesOp
+	case "force-resign-drives":
+		resignDrivesOp := operations.NewResignDrivesOperation(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.ForceResignDrives,
+			wekaManualOperation,
+			weka.WekaContainerDetails{
+				Image:           wekaManualOperation.Spec.Image,
+				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Tolerations:     wekaManualOperation.Spec.Tolerations,
+				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
+			},
+			&wekaManualOperation.Status.Status,
+			onSuccess,
+		)
+		loop.Op = resignDrivesOp
 	case "block-drives":
 		blockDrivesOp := operations.NewBlockDrivesOperation(
 			r.Mgr,

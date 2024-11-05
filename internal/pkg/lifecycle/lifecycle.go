@@ -316,16 +316,10 @@ func (r *ReconciliationSteps) RunAsReconcilerResponse(ctx context.Context) (ctrl
 			}
 		}
 		logger.Error(err, "Error processing reconciliation steps")
-		return ctrl.Result{
-			Requeue:      true,
-			RequeueAfter: 10 * time.Second,
-		}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 	logger.Info("Reconciliation steps completed successfully")
-	return ctrl.Result{
-		Requeue:      true,
-		RequeueAfter: time.Second * 30,
-	}, nil // Never fully abort
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil // Never fully abort
 }
 
 func IsNotNil(obj any) PredicateFunc {

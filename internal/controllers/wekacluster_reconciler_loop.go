@@ -218,7 +218,6 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 			}
 			logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
 		}
-
 	}
 	return nil
 }
@@ -378,7 +377,6 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 	}
 	return nil
-
 }
 
 func (r *wekaClusterReconcilerLoop) AllContainersReady(ctx context.Context) error {
@@ -515,7 +513,9 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 	defer end()
 	cluster := r.cluster
 	containers := r.containers
-	wekaService := services.NewWekaService(r.ExecService, containers[0])
+
+	container := discovery.SelectActiveContainer(containers)
+	wekaService := services.NewWekaService(r.ExecService, container)
 
 	ensureUser := func(secretName string) error {
 		// fetch secret from k8s
@@ -575,30 +575,6 @@ func (r *wekaClusterReconcilerLoop) getUsernameAndPassword(ctx context.Context, 
 	return string(username), string(password), nil
 }
 
-func (r *wekaClusterReconcilerLoop) SelectActiveContainer(containers []*wekav1alpha1.WekaContainer) *wekav1alpha1.WekaContainer {
-	for _, container := range containers {
-		if container.Status.ClusterContainerID != nil {
-			return container
-		}
-	}
-	return nil
-}
-
-func (r *wekaClusterReconcilerLoop) SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alpha1.WekaContainer, role string) (*wekav1alpha1.WekaContainer, error) {
-	for _, container := range containers {
-		if container.Spec.Mode != role {
-			continue
-		}
-		if container.Status.ClusterContainerID == nil {
-			continue
-		}
-		return container, nil
-	}
-
-	err := fmt.Errorf("no container with role %s found", role)
-	return nil, err
-}
-
 func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -606,7 +582,7 @@ func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Con
 	cluster := r.cluster
 	containers := r.containers
 
-	activeContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	activeContainer, err := discovery.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
 	if err != nil {
 		return err
 	}
@@ -620,7 +596,7 @@ func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Con
 }
 
 func (r *wekaClusterReconcilerLoop) DeleteAdminUser(ctx context.Context) error {
-	container := r.SelectActiveContainer(r.containers)
+	container := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, container)
 	return wekaService.EnsureNoUser(ctx, "admin")
 }
@@ -629,7 +605,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDefaultFs")
 	defer end()
 
-	container := r.SelectActiveContainer(r.containers)
+	container := discovery.SelectActiveContainer(r.containers)
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 	status, err := wekaService.GetWekaStatus(ctx)
@@ -704,7 +680,7 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	cluster := r.cluster
 	containers := r.SelectS3Containers(r.containers)
 
-	container := containers[0]
+	container := discovery.SelectActiveContainer(containers)
 	wekaService := services.NewWekaService(r.ExecService, container)
 	containerIds := []int{}
 	for _, c := range containers {
@@ -734,7 +710,7 @@ func (r *wekaClusterReconcilerLoop) applyClientLoginCredentials(ctx context.Cont
 	cluster := r.cluster
 	containers := r.containers
 
-	container := r.SelectActiveContainer(containers)
+	container := discovery.SelectActiveContainer(containers)
 	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
 
 	wekaService := services.NewWekaService(r.ExecService, container)
@@ -754,7 +730,7 @@ func (r *wekaClusterReconcilerLoop) applyCSILoginCredentials(ctx context.Context
 	cluster := r.cluster
 	containers := r.containers
 
-	container := r.SelectActiveContainer(containers)
+	container := discovery.SelectActiveContainer(containers)
 	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
 
 	wekaService := services.NewWekaService(r.ExecService, container)
@@ -783,7 +759,7 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return nil // explicitly asked not to configure
 	}
 
-	driveContainer, err := r.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
+	driveContainer, err := discovery.SelectActiveContainerWithRole(ctx, containers, wekav1alpha1.WekaContainerModeDrive)
 	if err != nil {
 		return err
 	}
@@ -824,7 +800,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		wekaService := services.NewWekaService(r.ExecService, r.SelectActiveContainer(r.containers))
+		wekaService := services.NewWekaService(r.ExecService, discovery.SelectActiveContainer(r.containers))
 		status, err := wekaService.GetWekaStatus(ctx)
 		if err != nil {
 			return err

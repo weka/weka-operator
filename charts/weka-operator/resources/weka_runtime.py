@@ -152,6 +152,41 @@ async def sign_device_paths(devices_paths):
     ))
 
 
+async def force_resign_drives_by_paths(devices_paths: List[str]):
+    logging.info("Force resigning drives by paths: %s", devices_paths)
+    signed_drives = []
+    for device_path in devices_paths:
+        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive --force {device_path}")
+        if ec != 0:
+            logging.error(f"Failed to sign drive {device_path}: {stderr}")
+            continue
+        signed_drives.append(device_path)
+    write_results(dict(
+        err=None,
+        drives=signed_drives
+    ))
+
+
+async def force_resign_drives_by_serials(serials: List[str]):
+    logging.info("Force resigning drives by serials: %s", serials)
+    device_paths = []
+    for serial in serials:
+        device_path = await get_block_device_path_by_serial(serial)
+        device_paths.append(device_path)
+
+    await force_resign_drives_by_paths(device_paths)
+
+
+async def get_block_device_path_by_serial(serial: str):
+    logging.info(f"Getting block device path by serial {serial}")
+    stdout, stderr, ec = await run_command("lsblk -no PATH | grep -m 1 $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
+    if ec != 0:
+        logging.error(f"Failed to get block device path by serial {serial}: {stderr}")
+        return
+    device_path = stdout.decode().strip()
+    return device_path
+
+
 async def discover_drives():
     drives = await find_weka_drives()
     write_results(dict(
@@ -1654,6 +1689,8 @@ async def ensure_drives():
     os.makedirs("/opt/weka/k8s-runtime", exist_ok=True)
     with open("/opt/weka/k8s-runtime/drives.json", "w") as f:
         json.dump([d for d in sys_drives if d['serial_id'] in requested_drives], f)
+    logging.info(f"sys_drives: {sys_drives}")
+    logging.info(f"requested_drives: {requested_drives}")
     logging.info(f"in-kernel drives are: {drives_to_setup}")
 
 
@@ -1774,7 +1811,14 @@ async def main():
         await start_stem_container()
         await ensure_container_exec()
         instruction = json.loads(INSTRUCTIONS)
-        if instruction['type'] == "aws-all":
+        if instruction.get('force-resign-drives'):
+            device_paths = instruction['force-resign-drives'].get('device_paths', [])
+            device_serials = instruction['force-resign-drives'].get('device_serials', [])
+            if device_paths:
+                await force_resign_drives_by_paths(device_paths)
+            elif device_serials:
+                await force_resign_drives_by_serials(device_serials)
+        elif instruction['type'] == "aws-all":
             await sign_drives_by_pci_info(
                 vendor_id=AWS_VENDOR_ID,
                 device_id=AWS_DEVICE_ID,

@@ -148,6 +148,30 @@ func WrapIpv6Brackets(ip string) string {
 	return ip
 }
 
+func GetAllClusters(ctx context.Context, c client.Client) ([]weka.WekaCluster, error) {
+	clustersList := weka.WekaClusterList{}
+	err := c.List(ctx, &clustersList)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to list clusters")
+		return nil, err
+	}
+	return clustersList.Items, nil
+}
+
+func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka.WekaCluster, error) {
+	clustersList := weka.WekaClusterList{}
+	err := c.List(ctx, &clustersList)
+	if err != nil {
+		return nil, err
+	}
+	for _, cluster := range clustersList.Items {
+		if cluster.UID == uid {
+			return &cluster, nil
+		}
+	}
+	return nil, errors.New("Cluster not found")
+}
+
 func GetAllContainers(ctx context.Context, c client.Client) []weka.WekaContainer {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAllContainers")
 	defer end()
@@ -181,6 +205,36 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.We
 		containers = append(containers, &containersList.Items[i])
 	}
 	return containers
+}
+
+func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {
+	for _, container := range containers {
+		if container.IsMarkedForDeletion() {
+			continue
+		}
+		if container.Status.ClusterContainerID != nil {
+			return container
+		}
+	}
+	return nil
+}
+
+func SelectActiveContainerWithRole(ctx context.Context, containers []*weka.WekaContainer, role string) (*weka.WekaContainer, error) {
+	for _, container := range containers {
+		if container.IsMarkedForDeletion() {
+			continue
+		}
+		if container.Spec.Mode != role {
+			continue
+		}
+		if container.Status.ClusterContainerID == nil {
+			continue
+		}
+		return container, nil
+	}
+
+	err := fmt.Errorf("no container with role %s found", role)
+	return nil, err
 }
 
 func enrichDiscoveryInfo(ctx context.Context, c client.Client, discoveryNodeInfo *DiscoveryNodeInfo, node *corev1.Node) (*DiscoveryNodeInfo, error) {
@@ -250,4 +304,16 @@ func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, n
 		containers = append(containers, &containersList.Items[i])
 	}
 	return containers, nil
+}
+
+func GetContainerByName(ctx context.Context, c client.Client, name weka.ObjectReference) (*weka.WekaContainer, error) {
+	container := &weka.WekaContainer{}
+	err := c.Get(ctx, types.NamespacedName{
+		Namespace: name.Namespace,
+		Name:      name.Name,
+	}, container)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to get weka container")
+	}
+	return container, nil
 }

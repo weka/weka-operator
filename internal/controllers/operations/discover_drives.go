@@ -30,7 +30,6 @@ type DiscoverDrivesOperation struct {
 	namespace       string
 	image           string
 	pullSecret      string
-	result          map[string]nodeResult
 	containers      []*v1alpha1.WekaContainer
 	ownerRef        client.Object
 	results         DiscoverDrivesResult
@@ -68,7 +67,6 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
-		result:          make(map[string]nodeResult),
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,

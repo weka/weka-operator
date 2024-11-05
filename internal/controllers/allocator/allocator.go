@@ -135,6 +135,9 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	if targetPort == 0 {
 		// if still 0 - lets find a free port
 		targetPort, err = allocations.Global.ClusterRanges.GetFreeRange(targetSize)
+		if err != nil {
+			return err
+		}
 	}
 
 	allocations.Global.ClusterRanges[owner] = Range{
@@ -289,11 +292,6 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		if container.Spec.NumDrives > 0 {
 			if nodeAlloc.Drives[owner] == nil || len(nodeAlloc.Drives[owner]) == 0 {
 				allDrives := nodeInfo.AvailableDrives
-				if err != nil {
-					logger.Info("Failed to get node", "error", err)
-					revert(err, container)
-					continue
-				}
 				if len(allDrives) < container.Spec.NumDrives {
 					logger.Info("Not enough drives to allocate request even on fully free node", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
 					revert(fmt.Errorf("Not enough drives to allocate request"), container)

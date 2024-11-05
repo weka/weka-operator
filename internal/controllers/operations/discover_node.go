@@ -160,9 +160,7 @@ func (o *DiscoverNodeOperation) GetContainers(ctx context.Context) error {
 	}
 	if len(existing) > 0 {
 		o.container = existing[0]
-	} else {
 	}
-
 	return nil
 }
 

@@ -52,12 +52,16 @@ type WekaUserResponse struct {
 }
 
 type Drive struct {
-	Uuid      string `json:"uuid"`
-	AddedTime string `json:"added_time"`
+	Uuid       string `json:"uuid"`
+	AddedTime  string `json:"added_time"`
+	DevicePath string `json:"device_path"`
+	Serial     string `json:"serial_number"`
+	Status     string `json:"status"`
 }
 
 type DriveListOptions struct {
-	ContainerId *int `json:"container_id"`
+	ContainerId *int    `json:"container_id"`
+	Status      *string `json:"status"`
 }
 
 type WekaService interface {
@@ -72,6 +76,11 @@ type WekaService interface {
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
+	ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error)
+	DeactivateContainer(ctx context.Context, containerId int) error
+	RemoveDrive(ctx context.Context, driveUuid string) error
+	RemoveContainer(ctx context.Context, containerId int) error
+	DeactivateDrive(ctx context.Context, driveUuid string) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -106,6 +115,9 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 	cmdParts := []string{wekacli, "cluster", "drive", "--json"}
 	if listOptions.ContainerId != nil {
 		filters = append(filters, fmt.Sprintf("host=%d", *listOptions.ContainerId))
+	}
+	if listOptions.Status != nil {
+		filters = append(filters, fmt.Sprintf("status=%s", *listOptions.Status))
 	}
 	if len(filters) != 0 {
 		cmdParts = append(cmdParts, "--filter")
@@ -395,5 +407,84 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 		return err
 	}
 
+	return nil
+}
+
+func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId int) error {
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+	cmd := []string{
+		"wekaauthcli", "cluster", "container", "deactivate", strconv.Itoa(containerId),
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "DeactivateContainer", cmd)
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to deactivate container %d: %s", containerId, stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) error {
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+	cmd := []string{
+		"wekaauthcli", "cluster", "drive", "remove", driveUuid, "-f",
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveDrive", cmd)
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to remove drive %s: %s", driveUuid, stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int) error {
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+	cmd := []string{
+		"wekaauthcli", "cluster", "container", "remove", strconv.Itoa(containerId),
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveContainer", cmd)
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to remove container %d: %s", containerId, stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error) {
+	cmd := []string{
+		"wekaauthcli", "cluster", "drive", "--container", strconv.Itoa(containerId), "--json",
+	}
+
+	var drives []Drive
+	err := c.RunJsonCmd(ctx, cmd, "ListListContainerDrivesDrives", &drives)
+	if err != nil {
+		return nil, err
+	}
+	return drives, nil
+}
+
+func (c *CliWekaService) DeactivateDrive(ctx context.Context, driveUuid string) error {
+	// weka cluster drive deactivate 44ac08c1-8b5e-4b64-a900-08da0d4dcd35 -f
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "cluster", "drive", "deactivate", driveUuid, "-f",
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "DeactivateDrive", cmd)
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to deactivate drive %s: %s", driveUuid, stderr.String())
+		return err
+	}
 	return nil
 }

@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -85,6 +86,9 @@ type containerReconcilerLoop struct {
 	nodeAffinityLock LockMap
 	node             *v1.Node
 	MetricsService   kubernetes.KubeMetricsService
+	// field used in cases when we can assume current container
+	// is in deletion process or its node is not available
+	clusterContainers []*weka.WekaContainer
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -111,10 +115,66 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 		ConditionsObject: loop.container,
 		Conditions:       &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
+			{Run: loop.GetNode},
+			{
+				Condition:  condition.CondContainerDrivesDeactivated,
+				CondReason: "Deletion",
+				Run:        loop.DeactivateDrives,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					container.IsDriveContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:  condition.CondContainerDeactivated,
+				CondReason: "Deletion",
+				Run:        loop.DeactivateWekaContainer,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:  condition.CondContainerDrivesRemoved,
+				CondReason: "Deletion",
+				Run:        loop.RemoveDeactivatedContainersDrives,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					container.IsDriveContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:  condition.CondContainerRemoved,
+				CondReason: "Deletion",
+				Run:        loop.RemoveDeactivatedContainers,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:  condition.CondContainerDrivesResigned,
+				CondReason: "Deletion",
+				Run:        loop.ResignDrives,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					lifecycle.IsNotFunc(loop.CanSkipDrivesForceResign),
+					container.IsDriveContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
+					loop.CanProceedDeletion,
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
@@ -164,7 +224,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.GetNode},
 			{
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
@@ -329,6 +388,175 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to remove finalizer")
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		return errors.New("Container ID is not set")
+	}
+
+	executeInContainer := r.container
+
+	if !r.ContainerNodeIsAlive() {
+		containers, err := r.getClusterContainers(ctx)
+		if err != nil {
+			return err
+		}
+		executeInContainer = discovery.SelectActiveContainer(containers)
+	}
+
+	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
+	statusActive := "ACTIVE"
+	statusInactive := "INACTIVE"
+
+	drives, err := wekaService.ListContainerDrives(ctx, *containerId)
+	if err != nil {
+		return err
+	}
+
+	for _, drive := range drives {
+		switch drive.Status {
+		case statusActive:
+			logger.Info("Deactivating drive", "drive_id", drive.Uuid)
+			err = wekaService.DeactivateDrive(ctx, drive.Uuid)
+			if err != nil {
+				return err
+			}
+		case statusInactive:
+			continue
+		default:
+			err := fmt.Errorf("drive has status '%s', wait for it to become 'INACTIVE'", drive.Status)
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		return errors.New("Container ID is not set")
+	}
+
+	executeInContainer := r.container
+
+	if !r.ContainerNodeIsAlive() {
+		containers, err := r.getClusterContainers(ctx)
+		if err != nil {
+			return err
+		}
+		executeInContainer = discovery.SelectActiveContainer(containers)
+	}
+
+	logger.Info("Deactivating container", "container_id", *containerId)
+
+	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
+	return wekaService.DeactivateContainer(ctx, *containerId)
+}
+
+func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		err := errors.New("Container ID is not set")
+		return err
+	}
+
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	execInContainer := discovery.SelectActiveContainer(containers)
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+
+	drives, err := wekaService.ListContainerDrives(ctx, *containerId)
+	if err != nil {
+		return err
+	}
+	logger.Info("Removing drives for container", "container_id", *containerId, "drives", drives)
+
+	var errs []error
+	for _, drive := range drives {
+		err := wekaService.RemoveDrive(ctx, drive.Uuid)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			logger.Info("Drive removed", "drive_uuid", drive.Uuid, "container_id", *containerId)
+		}
+	}
+	if len(errs) > 0 {
+		err = fmt.Errorf("failed to remove drives for container %d: %v", *containerId, errs)
+		return err
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Removing container", "container_id", *containerId)
+
+	execInContainer := discovery.SelectActiveContainer(containers)
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+
+	err = wekaService.RemoveContainer(ctx, *containerId)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to remove container")
+		return err
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	if !r.ContainerNodeIsAlive() {
+		err := fmt.Errorf("container node is not ready, cannot perform resign drives operation")
+		return err
+	}
+
+	deactivatedContainer := r.container
+
+	if deactivatedContainer.Status.Allocations == nil || len(deactivatedContainer.Status.Allocations.Drives) == 0 {
+		logger.Info("No drives to force resign for container", "container_name", deactivatedContainer.Name)
+		return nil
+	}
+
+	payload := weka.ForceResignDrivesPayload{
+		NodeName:      deactivatedContainer.GetNodeAffinity(),
+		DeviceSerials: deactivatedContainer.Status.Allocations.Drives,
+	}
+	emptyCallback := func(ctx context.Context) error { return nil }
+	op := operations.NewResignDrivesOperation(
+		r.Manager,
+		&payload,
+		deactivatedContainer,
+		*deactivatedContainer.ToContainerDetails(),
+		nil,
+		emptyCallback,
+	)
+
+	err := operations.ExecuteOperation(ctx, op)
+	return err
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
@@ -736,6 +964,78 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 	return discoverNodeOp.GetResult(), nil
 }
 
+func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return nil
+	}
+
+	node, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Node not found", "node", nodeName)
+			return nil
+		}
+		err = errors.Wrap(err, "failed to get node")
+		return err
+	}
+	r.node = node
+	return nil
+}
+
+func (r *containerReconcilerLoop) ContainerNodeIsAlive() bool {
+	node := r.node
+	if node == nil {
+		return false
+	}
+	// check if the node has a NodeReady condition set to True
+	isNodeReady := false
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == v1.NodeReady && condition.Status == v1.ConditionTrue {
+			isNodeReady = true
+			break
+		}
+	}
+	return isNodeReady
+}
+
+func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getActiveContainers")
+	defer end()
+
+	if r.clusterContainers != nil {
+		return r.clusterContainers, nil
+	}
+
+	ownerRefs := r.container.GetOwnerReferences()
+	if len(ownerRefs) == 0 {
+		return nil, errors.New("no owner references found")
+	} else if len(ownerRefs) > 1 {
+		return nil, errors.New("more than one owner reference found")
+	}
+
+	ownerUid := ownerRefs[0].UID
+	logger.Debug("Owner UID", "uid", ownerUid)
+
+	cluster, err := discovery.GetClusterByUID(ctx, r.Client, ownerUid)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterContainers := discovery.GetClusterContainers(ctx, r.Manager.GetClient(), cluster, "")
+	if len(clusterContainers) == 0 {
+		err := fmt.Errorf("no containers found in cluster %s", cluster.Name)
+		return nil, err
+	}
+
+	logger.Debug("Found %d containers in cluster", len(clusterContainers), "cluster", cluster.Name)
+	r.clusterContainers = clusterContainers
+	return clusterContainers, nil
+}
+
 func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
 	//TODO: Can we search pods by ownership?
 
@@ -754,7 +1054,7 @@ func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
 		return err
 	}
 
-	if pod.Status.Phase == v1.PodRunning {
+	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
 		executor, err := util.NewExecInPod(pod)
 		if err != nil {
 			logger.Error(err, "Error creating executor")
@@ -948,6 +1248,10 @@ func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
+	if r.node == nil {
+		return errors.New("node not found")
+	}
+
 	details := r.container.ToContainerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
 		details.Image = r.container.Spec.DriversLoaderImage
@@ -1044,21 +1348,29 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	driveListoptions := services.DriveListOptions{
 		ContainerId: container.Status.ClusterContainerID,
 	}
-	numAdded, err := wekaService.ListDrives(ctx, driveListoptions)
+	drivesAdded, err := wekaService.ListDrives(ctx, driveListoptions)
 	if err != nil {
 		return err
 	}
-	if len(numAdded) == container.Spec.NumDrives {
+	if len(drivesAdded) == container.Spec.NumDrives {
 		logger.InfoWithStatus(codes.Ok, "All drives are already added")
 		return nil
 	}
 
-	allowedMisses := r.container.Spec.NumDrives - len(numAdded)
+	allowedMisses := r.container.Spec.NumDrives - len(drivesAdded)
 
 	kDrives, err := r.getKernelDrives(ctx, executor)
 	if err != nil {
 		return err
 	}
+
+	logger.Debug("Kernel drives", "drives", kDrives)
+
+	drivesAddedBySerial := make(map[string]bool)
+	for _, drive := range drivesAdded {
+		drivesAddedBySerial[drive.Serial] = true
+	}
+
 	// TODO: Not validating part of added drives and trying all over
 	for _, drive := range container.Status.Allocations.Drives {
 		//for driveCursor < len(container.Spec.RemovePotentialDrives) {
@@ -1070,6 +1382,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			if allowedMisses < 0 {
 				return errors.New("Not enough drives found")
 			}
+		}
+
+		if _, ok := drivesAddedBySerial[drive]; ok {
+			err := fmt.Errorf("drive %s is already added", drive)
+			l.Error(err, "")
+			return err
 		}
 
 		if kDrives[drive].Partition == "" {
@@ -1089,18 +1407,27 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 		if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
 			l.Info("Drive has Weka signature on it, verifying ownership")
+			isCurrentCluster, err := r.driveIsOwnedByCurrentCluster(ctx, stdout.String())
+			if err != nil {
+				return err
+			}
+
 			exists, err := r.isExistingCluster(ctx, stdout.String())
 			if err != nil {
 				return err
 			}
-			if exists {
-				return errors.New("Drive belongs to existing cluster")
+			if exists && !isCurrentCluster {
+				return errors.New("Drive belongs to existing cluster (not current)")
+			} else if isCurrentCluster {
+				l.Info("Drive belongs to current cluster")
 			} else {
-				l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster, resigning")
-				err2 := r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
-				if err2 != nil {
-					return err2
-				}
+				l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster")
+			}
+
+			l.Info("Resigning drive")
+			err = r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
+			if err != nil {
+				return err
 			}
 		}
 
@@ -1119,6 +1446,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			l.Info("Drive added into system", "drive", drive)
 		}
 	}
+
 	logger.InfoWithStatus(codes.Ok, "Drives added")
 	return nil
 }
@@ -1194,6 +1522,16 @@ func (r *containerReconcilerLoop) forceResignDrive(ctx context.Context, executor
 	return err
 }
 
+func (r *containerReconcilerLoop) driveIsOwnedByCurrentCluster(ctx context.Context, guid string) (bool, error) {
+	currentClusterId := r.container.Status.ClusterID
+	if currentClusterId == "" {
+		return false, errors.New("cluster id not set")
+	}
+
+	stripped := strings.ReplaceAll(currentClusterId, "-", "")
+	return stripped == guid, nil
+}
+
 func (r *containerReconcilerLoop) isExistingCluster(ctx context.Context, guid string) (bool, error) {
 	// TODO: Query by status?
 	// TODO: Cache?
@@ -1201,13 +1539,12 @@ func (r *containerReconcilerLoop) isExistingCluster(ctx context.Context, guid st
 	defer end()
 
 	logger.WithValues("cluster_guid", guid).Info("Verifying for existing cluster")
-	clusterList := weka.WekaClusterList{}
-	err := r.List(ctx, &clusterList)
+
+	clusters, err := discovery.GetAllClusters(ctx, r.Client)
 	if err != nil {
-		logger.Error(err, "Error listing clusters")
 		return false, err
 	}
-	for _, cluster := range clusterList.Items {
+	for _, cluster := range clusters {
 		// strip `-` from saved cluster name
 		stripped := strings.ReplaceAll(cluster.Status.ClusterID, "-", "")
 		if stripped == guid {
@@ -1347,7 +1684,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 	node := r.pod.Spec.NodeName
 
 	if node == "" {
-		return lifecycle.NewWaitError(errors.New("Node is not set yet"))
+		return lifecycle.NewWaitError(errors.New("pod is not assigned to node"))
 	}
 
 	if !r.container.Spec.NoAffinityConstraints {
@@ -1498,6 +1835,9 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, err error)
 }
 
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
+	if r.container.IsMarkedForDeletion() {
+		return nil
+	}
 	affinity := r.container.GetNodeAffinity()
 	if affinity != "" {
 		_, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
@@ -1511,18 +1851,6 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
-}
-
-func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
-	if r.pod.Spec.NodeName == "" {
-		return lifecycle.NewWaitError(errors.New("pod is not assigned to node"))
-	}
-	node, err := r.KubeService.GetNode(ctx, types.NodeName(r.pod.Spec.NodeName))
-	if err != nil {
-		return err
-	}
-	r.node = node
 	return nil
 }
 
@@ -1741,4 +2069,37 @@ func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
 	)
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
+	return meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerDrivesRemoved)
+}
+
+func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
+	if !r.container.IsBackend() {
+		return true
+	}
+	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedCluster) {
+		return true
+	}
+	return r.container.Status.SkipDeactivate
+}
+
+func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
+	return r.container.Status.SkipDrivesForceResign
+}
+
+func (r *containerReconcilerLoop) CanProceedDeletion() bool {
+	if r.CanSkipDeactivate() {
+		return true
+	}
+	if !r.container.IsRemoved() {
+		return false
+	}
+	// drives removal is wekacluster reconciler responsibility
+	// (after continer deactivation there's no access to weka commands on cluster level)
+	if r.container.IsDriveContainer() && !r.container.DrivesRemoved() {
+		return false
+	}
+	return true
 }
