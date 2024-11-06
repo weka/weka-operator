@@ -479,6 +479,23 @@ func (r *containerReconcilerLoop) reconcileManagementIP(ctx context.Context) err
 		return err
 	}
 	ipAddress := strings.TrimSpace(stdout.String())
+	if container.Spec.Network.EthDevice == "" && ipAddress == "" {
+		//TODO: support ipv6 in this case
+		if container.Spec.Ipv6 {
+			return fmt.Errorf("failed to get management IP, no fallback for ipv6")
+		}
+		// Compatible with Amazon Linux 2
+		getIpCmd = "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
+		stdout, stderr, err = executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
+		if err != nil {
+			logger.Error(err, "Error executing command", "stderr", stderr.String())
+			return err
+		}
+		ipAddress = strings.TrimSpace(stdout.String())
+	}
+	if ipAddress == "" {
+		return fmt.Errorf("failed to get management IP")
+	}
 	logger.WithValues("management_ip", ipAddress).Info("Got management IP")
 	if container.Status.ManagementIP != ipAddress {
 		container.Status.ManagementIP = ipAddress
