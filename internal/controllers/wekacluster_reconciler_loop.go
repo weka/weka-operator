@@ -1071,26 +1071,61 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	return nil
 }
 
+func getJoinIpsCondition(container *wekav1alpha1.WekaContainer) *metav1.Condition {
+	for _, cond := range container.Status.Conditions {
+		if cond.Type == condition.CondJoinIpsSet {
+			return &cond
+		}
+	}
+	return nil
+}
+
+func joinIpsUpdated(joinIpsCondition *metav1.Condition) bool {
+	if joinIpsCondition == nil {
+		return false
+	}
+	if joinIpsCondition.Status == metav1.ConditionTrue {
+		if time.Since(joinIpsCondition.LastTransitionTime.Time) > 30*time.Minute {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersJoinIps")
+	defer end()
+
 	containers := r.containers
 	//TODO: Parallelize
 	for _, c := range containers {
-		//check if was updated in last 30 minutes, and if not - re-update
-		for _, c := range c.Status.Conditions {
-			if c.Type != condition.CondJoinIpsSet {
-				continue
-			}
-			if c.Status != metav1.ConditionTrue {
-				break
-			}
-			if time.Since(c.LastTransitionTime.Time) < 30*time.Minute {
-				continue
-			}
+		// check if was updated in last 30 minutes, and if not - re-update
+		joinIpsCondition := getJoinIpsCondition(c)
+		if joinIpsUpdated(joinIpsCondition) {
+			continue
 		}
+
 		newJoinIps, err := discovery.SelectJoinIps(r.containers, r.cluster.Spec.FailureDomainLabel)
 		if err != nil {
 			return err
 		}
+
+		logger.Info("Updating container join ips", "container", c.Name, "newJoinIps", newJoinIps, "oldJoinIps", c.Spec.JoinIps)
+
+		if joinIpsCondition != nil && joinIpsCondition.Status == metav1.ConditionTrue {
+			// set condition status to false, as otherwise LastTransitionTime will not be updated
+			// and we need this separate update, because we cannot manually update LastTransitionTime
+			_ = meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+				Type:   condition.CondJoinIpsSet,
+				Status: metav1.ConditionFalse,
+				Reason: "PeriodicUpdate",
+			})
+			if err := r.getClient().Status().Update(ctx, c); err != nil {
+				return err
+			}
+		}
+
+		// separate update for spec
 		c.Spec.JoinIps = newJoinIps
 		if err := r.getClient().Update(ctx, c); err != nil {
 			return err
