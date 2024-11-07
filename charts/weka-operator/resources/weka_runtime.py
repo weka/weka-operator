@@ -1577,7 +1577,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute']:
+    if MODE not in ['drive', 's3', 'compute', 'envoy']:
         return
     
     logging.info("waiting for controller to set resources")
@@ -1595,7 +1595,7 @@ async def wait_for_resources():
     if FAILURE_DOMAIN_LABEL:
         FAILURE_DOMAIN = data.get("failureDomain")
         logging.info("Failure Domain: %s", FAILURE_DOMAIN)
-    if parse_port(PORT) == 0:
+    if parse_port(PORT) == 0 and MODE != 'envoy':
         PORT = data["wekaPort"]
     if parse_port(AGENT_PORT) == 0:
         AGENT_PORT = data["agentPort"]
