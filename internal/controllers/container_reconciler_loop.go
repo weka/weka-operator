@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.opentelemetry.io/otel/attribute"
 	"os"
 	"strings"
 	"sync"
@@ -1781,7 +1782,7 @@ func (r *containerReconcilerLoop) CondEnsureDriversNotSet() bool {
 }
 
 func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData", "pod_name", r.container.Name, "namespace", r.container.Namespace, "mode", r.container.Spec.Mode)
 	defer end()
 
 	if r.MetricsService == nil {
@@ -1794,11 +1795,14 @@ func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
 		logger.Warn("Error getting pod metrics", "error", err)
 		return nil // we ignore error, as this is not mandatory functionality
 	}
-
-	logger.SetValues("pod_name", r.container.Name, "namespace", r.container.Namespace,
-		"cpu_usage", metrics.CpuUsage, "memory_usage", metrics.MemoryUsage,
-		"cpu_request", metrics.CpuRequest, "memory_request", metrics.MemoryRequest,
-		"cpu_limit", metrics.CpuLimit, "memory_limit", metrics.MemoryLimit,
+	logger.SetAttributes(
+		attribute.Float64("cpu_usage", metrics.CpuUsage),
+		attribute.Int64("memory_usage", metrics.MemoryUsage),
+		attribute.Float64("cpu_request", metrics.CpuRequest),
+		attribute.Int64("memory_request", metrics.MemoryRequest),
+		attribute.Float64("cpu_limit", metrics.CpuLimit),
+		attribute.Int64("memory_limit", metrics.MemoryLimit),
 	)
+
 	return nil
 }

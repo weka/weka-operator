@@ -85,18 +85,18 @@ func main() {
 	logr := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
 
 	deploymentIdentifier := ""
-	deploymentIdentifier = os.Getenv("DEPLOYMENT_IDENTIFIER")
+	deploymentIdentifier = os.Getenv("OTEL_DEPLOYMENT_IDENTIFIER")
 	if deploymentIdentifier == "" {
 		deploymentIdentifier = os.Getenv("POD_UID")
 	}
 	if deploymentIdentifier == "" {
 		// local mode? Generating new one with dev- prefix
 		deploymentIdentifier = "dev-" + string(uuid.NewUUID())
-		fmt.Println("DEPLOYMENT_IDENTIFIER or POD_UID are not set, using generated one:", deploymentIdentifier)
+		fmt.Println("OTEL_DEPLOYMENT_IDENTIFIER or POD_UID are not set, using generated one:", deploymentIdentifier)
 	}
 	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
 
-	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "")
+	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "", "deployment_identifier", deploymentIdentifier)
 	// HACK: Need to expand go observability lib to support keyvaluelist  on SetupOTEL level
 	ctx = context.WithValue(ctx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
 	ctrl.SetLogger(logger)
