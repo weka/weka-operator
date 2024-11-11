@@ -170,6 +170,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.UpdateClusterCounters,
+			},
+			{
 				Condition: condition.CondAdminUserDeleted,
 				Run:       loop.DeleteAdminUser,
 				Predicates: lifecycle.Predicates{

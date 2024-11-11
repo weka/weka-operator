@@ -22,17 +22,33 @@ spec:
     - description: Weka container mode
       jsonPath: .spec.mode
       name: Mode
+      priority: 1
+      type: string
+    - description: Node where the container is running
+      jsonPath: .status.managementIP
+      name: Management IP
       priority: 2
+      type: string
+    - description: Number of drives attached to container
+      jsonPath: .spec.numDrives
+      name: Drives
+      priority: 3
+      type: integer
+    - description: Number of dedicated cores
+      jsonPath: .spec.numCores
+      name: Cores
+      priority: 4
+      type: integer
+    - description: Weka container name
+      jsonPath: .spec.name
+      name: InternalName
+      priority: 5
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
+      priority: 6
       type: date
-    - description: Number of drives attached to container
-      jsonPath: .spec.numDrives
-      name: Drives Count
-      priority: 5
-      type: integer
     - description: Weka container ID
       jsonPath: .status.containerID
       name: Weka cID

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -1180,6 +1181,77 @@ func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context)
 		if err := r.getClient().Status().Update(ctx, c); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func tickCounter(counters *sync.Map, key string, value int64) {
+	val, ok := counters.Load(key)
+	if ok {
+		ptr := val.(int64)
+		ptr += value
+		counters.Store(key, ptr)
+	} else {
+		counters.Store(key, value)
+	}
+}
+
+func getCounter(counters *sync.Map, key string) int64 {
+	val, ok := counters.Load(key)
+	if ok {
+		ptr := val.(int64)
+		return ptr
+	}
+	return 0
+}
+
+func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) error {
+	cluster := r.cluster
+	containers := r.containers
+
+	roleActiveCounts := &sync.Map{}
+	drivesCounts := &sync.Map{}
+	drivesActiveCounts := &sync.Map{}
+	coreCounts := &sync.Map{}
+	coreActiveCounts := &sync.Map{}
+
+	for _, container := range containers {
+		if !container.IsBackend() {
+			continue
+		}
+		tickCounter(coreCounts, container.Spec.Mode, int64(container.Spec.NumCores))
+		if container.Status.Status == "Running" {
+			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
+			tickCounter(coreActiveCounts, container.Spec.Mode, int64(container.Spec.NumCores))
+		}
+
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+			tickCounter(drivesCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
+			if container.Status.Status == "Running" {
+				tickCounter(drivesActiveCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
+				// TODO: more precise logic to fetch the number of drives that are active / faulty /etc
+			}
+		}
+	}
+
+	cluster.Status.Counters.Active.NumEnvoyContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
+
+	cluster.Status.Counters.Desired.NumDrives = getCounter(drivesCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Active.NumDrives = getCounter(drivesActiveCounts, wekav1alpha1.WekaContainerModeDrive)
+
+	cluster.Status.Counters.Desired.NumComputeCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Active.NumComputeCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Desired.NumDriveCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Active.NumDriveCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Desired.NumS3Cores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeS3)
+	cluster.Status.Counters.Active.NumS3Cores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeS3)
+	cluster.Status.Counters.Desired.NumNfsGatewayCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeNfsGateway)
+	cluster.Status.Counters.Active.NumNfsGatewayCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeNfsGateway)
+	cluster.Status.Counters.Desired.NumEnvoyCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeEnvoy)
+	cluster.Status.Counters.Active.NumEnvoyCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
+
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
 	}
 	return nil
 }
