@@ -24,6 +24,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/uuid"
 
+	"k8s.io/apimachinery/pkg/util/uuid"
+
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
