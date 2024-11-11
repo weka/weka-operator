@@ -5937,6 +5937,57 @@ spec:
                   - type
                   type: object
                 type: array
+              counters:
+                properties:
+                  current:
+                    properties:
+                      numComputeCores:
+                        format: int64
+                        type: integer
+                      numDriveCores:
+                        format: int64
+                        type: integer
+                      numDrives:
+                        format: int64
+                        type: integer
+                      numEnvoyContainers:
+                        format: int64
+                        type: integer
+                      numEnvoyCores:
+                        format: int64
+                        type: integer
+                      numNfsGatewayCores:
+                        format: int64
+                        type: integer
+                      numS3Cores:
+                        format: int64
+                        type: integer
+                    type: object
+                  desired:
+                    properties:
+                      numComputeCores:
+                        format: int64
+                        type: integer
+                      numDriveCores:
+                        format: int64
+                        type: integer
+                      numDrives:
+                        format: int64
+                        type: integer
+                      numEnvoyContainers:
+                        format: int64
+                        type: integer
+                      numEnvoyCores:
+                        format: int64
+                        type: integer
+                      numNfsGatewayCores:
+                        format: int64
+                        type: integer
+                      numS3Cores:
+                        format: int64
+                        type: integer
+                    type: object
+                type: object
               lastAppliedImage:
                 type: string
               lastAppliedSpec:
