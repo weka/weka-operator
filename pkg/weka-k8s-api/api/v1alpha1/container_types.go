@@ -16,11 +16,14 @@ type NodeName types.NodeName
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
-// +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=1
+// +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
+// +kubebuilder:printcolumn:name="Management IP",type="string",JSONPath=".status.managementIP",description="Node where the container is running",priority=0
+// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=1
+// +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.numCores",description="Number of dedicated cores",priority=1
+// +kubebuilder:printcolumn:name="InternalName",type="string",JSONPath=".spec.name",description="Weka container name",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
-// +kubebuilder:printcolumn:name="Drives Count",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=2
-// +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=0
-// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=3
+// +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=1
+// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=1
 type WekaContainer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -252,7 +255,7 @@ func (w *WekaContainer) IsDriversBuilder() bool {
 }
 
 func (w *WekaContainer) IsBackend() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfsGateway}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDiscoveryContainer() bool {
@@ -272,11 +275,12 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeClient,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
+		WekaContainerModeNfsGateway,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasFrontend() bool {
-	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfsGateway}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsS3Container() bool {
@@ -310,6 +314,10 @@ func (w *WekaContainer) IsWekaContainer() bool {
 
 func (w *WekaContainer) IsAllocatable() bool {
 	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfsGateway}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) MustHaveNodeAffinity() bool {
+	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy() || w.IsNfsGatewayContainer()
 }
 
 func (w *WekaContainer) HasAgent() bool {
