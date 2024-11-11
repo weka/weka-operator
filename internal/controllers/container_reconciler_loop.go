@@ -1742,26 +1742,3 @@ func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
 
 	return nil
 }
-
-func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData")
-	defer end()
-
-	if r.MetricsService == nil {
-		logger.Warn("Metrics service is not set")
-		return nil
-	}
-
-	metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod)
-	if err != nil {
-		logger.Warn("Error getting pod metrics", "error", err)
-		return nil // we ignore error, as this is not mandatory functionality
-	}
-
-	logger.SetValues("pod_name", r.container.Name, "namespace", r.container.Namespace,
-		"cpu_usage", metrics.CpuUsage, "memory_usage", metrics.MemoryUsage,
-		"cpu_request", metrics.CpuRequest, "memory_request", metrics.MemoryRequest,
-		"cpu_limit", metrics.CpuLimit, "memory_limit", metrics.MemoryLimit,
-	)
-	return nil
-}
