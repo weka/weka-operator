@@ -75,6 +75,15 @@ gkeCompatibility:
   # -- if enabled, the operator will disable driver signing enforcement on the GKE nodes (WARNING: will reboot nodes forcefully!)
   disableDriverSigning: false
 
+manager:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 250m
+      memory: 64Mi
+
 debugSleep: 3
 
 tolerations: []
