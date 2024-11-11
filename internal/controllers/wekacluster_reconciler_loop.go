@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -231,6 +232,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 
 	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusGracePeriod {
 		cluster.Status.Status = wekav1alpha1.WekaClusterStatusGracePeriod
+		resetWekaStatusCounters(cluster)
 		err := r.getClient().Status().Update(ctx, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to update cluster status")
@@ -265,6 +267,17 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	deletionTime := r.cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
 	logger.Debug("Not graceful deletion", "deletionTime", deletionTime, "now", time.Now(), "gracefulDestroyDuration", gracefulDestroyDuration)
 
+	cluster := r.cluster
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDestroying {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDestroying
+		resetWekaStatusCounters(cluster)
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
+	}
+
 	if controllerutil.ContainsFinalizer(r.cluster, WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
@@ -291,13 +304,18 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	cluster := r.cluster
 	clusterService := r.clusterService
 
-	err := clusterService.EnsureNoContainers(ctx, "s3")
+	err := clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
+	if err != nil {
+		return err
+	}
+
+	err = clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfsGateway)
 	if err != nil {
 		return err
 	}
@@ -305,6 +323,15 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
 		return err
+	}
+
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDeallocating {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDeallocating
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
 	}
 
 	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
@@ -1163,6 +1190,154 @@ func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context)
 			return err
 		}
 	}
+	return nil
+}
+
+func tickCounter(counters *sync.Map, key string, value int64) {
+	val, ok := counters.Load(key)
+	if ok {
+		ptr := val.(int64)
+		ptr += value
+		counters.Store(key, ptr)
+	} else {
+		counters.Store(key, value)
+	}
+}
+
+func getCounter(counters *sync.Map, key string) int64 {
+	val, ok := counters.Load(key)
+	if ok {
+		ptr := val.(int64)
+		return ptr
+	}
+	return 0
+}
+
+func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) error {
+	cluster := r.cluster
+	containers := r.containers
+	roleCreatedCounts := &sync.Map{}
+	roleActiveCounts := &sync.Map{}
+	driveCreatedCounts := &sync.Map{}
+
+	for _, container := range containers {
+		// count Active containers
+		if container.Status.Status == ContainerStatusRunning {
+			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
+		}
+		// count Created containers
+		if container.Status.Status != PodStatePodNotRunning {
+			tickCounter(roleCreatedCounts, container.Spec.Mode, 1)
+			if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))
+			}
+		}
+	}
+
+	// calculate desired counts
+	cluster.Status.Counters.Desired.NumComputeContainers = int64(*cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.Counters.Desired.NumDriveContainers = int64(*cluster.Spec.Dynamic.ComputeContainers)
+
+	cluster.Status.Counters.Desired.NumDrives = int64(max(cluster.Spec.Dynamic.NumDrives, 1) * *cluster.Spec.Dynamic.DriveContainers)
+
+	cluster.Status.Counters.Desired.NumComputeProcesses = int64(max(cluster.Spec.Dynamic.ComputeCores, 1) * *cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.Counters.Desired.NumDriveProcesses = int64(max(cluster.Spec.Dynamic.DriveCores, 1) * *cluster.Spec.Dynamic.DriveContainers)
+
+	// propagate "created" counters
+	cluster.Status.Counters.Created.NumComputeContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Created.NumDriveContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive)
+
+	// propagate "active" counters
+	cluster.Status.Counters.Active.NumComputeContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Active.NumDriveContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive)
+
+	// prepare printerColumns
+	cluster.Status.PrinterColumns.ComputeContainers = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumComputeContainers, cluster.Status.Counters.Created.NumComputeContainers, cluster.Status.Counters.Desired.NumComputeContainers)
+	cluster.Status.PrinterColumns.DriveContainers = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumDriveContainers, cluster.Status.Counters.Created.NumDriveContainers, cluster.Status.Counters.Desired.NumDriveContainers)
+	cluster.Status.PrinterColumns.Drives = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumDrives, cluster.Status.Counters.Created.NumDrives, cluster.Status.Counters.Desired.NumDrives)
+
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
+	}
+	return nil
+}
+
+func resetWekaStatusCounters(cluster *wekav1alpha1.WekaCluster) {
+	cluster.Status.Counters.Active.NumDrives = 0
+	cluster.Status.Counters.Active.NumComputeProcesses = 0
+	cluster.Status.Counters.Active.NumDriveProcesses = 0
+	cluster.Status.Counters.Created.NumComputeProcesses = 0
+	cluster.Status.Counters.Created.NumDriveProcesses = 0
+	cluster.Status.Counters.Created.NumDrives = 0
+	cluster.Status.Throughput.Read = 0
+	cluster.Status.Throughput.Write = 0
+	cluster.Status.Iops.Read = 0
+	cluster.Status.Iops.Write = 0
+	cluster.Status.Iops.Metadata = 0
+	cluster.Status.Iops.Total = 0
+	cluster.Status.PrinterColumns.Throughput = ""
+	cluster.Status.PrinterColumns.Iops = ""
+}
+
+func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Context) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaClusterCounters")
+	defer end()
+	cluster := r.cluster
+	defer func() {
+		_ = r.getClient().Status().Update(ctx, cluster)
+	}()
+
+	if cluster.IsTerminating() || r.cluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
+		resetWekaStatusCounters(cluster)
+		return nil
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, r.containers[0])
+	if err != nil || executor == nil {
+		resetWekaStatusCounters(cluster)
+		return errors.New("Failed to create executor")
+	}
+	cmd := "weka status -J"
+	stdout, stderr, err := executor.ExecNamed(ctx, "FetchWekaClusterStats", []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.SetError(err, "Failed to fetch weka status", "stderr", stderr.String())
+		resetWekaStatusCounters(cluster)
+		return errors.Wrapf(err, "Failed to fetch weka status: %s", stderr.String())
+	}
+
+	containers := r.containers
+	wekaService := services.NewWekaService(r.ExecService, containers[0])
+
+	wekaStatus, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		resetWekaStatusCounters(cluster)
+		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
+	}
+
+	cluster.Status.Counters.Active.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Active)
+	cluster.Status.Counters.Active.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Active)
+	cluster.Status.Counters.Active.NumDrives = int64(wekaStatus.Drives.Active)
+
+	cluster.Status.Counters.Created.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Total)
+	cluster.Status.Counters.Created.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Total)
+	cluster.Status.Counters.Created.NumDrives = int64(wekaStatus.Drives.Total)
+
+	cluster.Status.Throughput.Read = int64(wekaStatus.Activity.SumBytesRead)
+	cluster.Status.Throughput.Write = int64(wekaStatus.Activity.SumBytesWritten)
+	cluster.Status.Iops.Read = int64(wekaStatus.Activity.NumReads)
+	cluster.Status.Iops.Write = int64(wekaStatus.Activity.NumWrites)
+	cluster.Status.Iops.Metadata = int64(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
+	cluster.Status.Iops.Total = int64(wekaStatus.Activity.NumOps)
+
+	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
+	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)
+	cluster.Status.PrinterColumns.Throughput = fmt.Sprintf("%s/%s", tpsRead, tpsWrite)
+
+	iopsRead := util2.HumanReadableIops(wekaStatus.Activity.NumReads)
+	iopsWrite := util2.HumanReadableIops(wekaStatus.Activity.NumWrites)
+	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
+	cluster.Status.PrinterColumns.Iops = fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther)
+
 	return nil
 }
 

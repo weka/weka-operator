@@ -19,9 +19,50 @@ type WekaStatusCapacity struct {
 	TotalBytes         int64 `json:"total_bytes"`
 }
 
+type WekaStatusActivity struct {
+	NumOps                    float64 `json:"num_ops"`
+	NumReads                  float64 `json:"num_reads"`
+	NumWrites                 float64 `json:"num_writes"`
+	ObsDownloadBytesPerSecond float64 `json:"obs_download_bytes_per_second"`
+	ObsUploadBytesPerSecond   float64 `json:"obs_upload_bytes_per_second"`
+	SumBytesRead              float64 `json:"sum_bytes_read"`
+	SumBytesWritten           float64 `json:"sum_bytes_written"`
+}
+
+type WekaStatusCloud struct {
+	Enabled bool   `json:"enabled"`
+	Healthy bool   `json:"healthy"`
+	Proxy   string `json:"proxy"`
+	Url     string `json:"url"`
+}
+
+type WekaStatusObjectCounter struct {
+	Active int `json:"active"`
+	Total  int `json:"total"`
+}
+
+type WekaStatusContainers struct {
+	WekaStatusObjectCounter
+	Backends WekaStatusObjectCounter `json:"backends"`
+	Clients  WekaStatusObjectCounter `json:"clients"`
+	Computes WekaStatusObjectCounter `json:"computes"`
+	Drives   WekaStatusObjectCounter `json:"drives"`
+}
+
+type WekaStatusRebuild struct {
+	MovingData      bool `json:"movingData"`
+	ProgressPercent int  `json:"progressPercent"`
+}
+
 type WekaStatusResponse struct {
-	Status   string             `json:"status"`
-	Capacity WekaStatusCapacity `json:"capacity"`
+	ActiveAlertsCount int                     `json:"active_alerts_count"`
+	Activity          WekaStatusActivity      `json:"activity"`
+	Status            string                  `json:"status"`
+	Capacity          WekaStatusCapacity      `json:"capacity"`
+	Cloud             WekaStatusCloud         `json:"cloud"`
+	Containers        WekaStatusContainers    `json:"containers"`
+	Drives            WekaStatusObjectCounter `json:"drives"`
+	Rebuild           WekaStatusRebuild       `json:"rebuild"`
 }
 
 type WekaFilesystem struct {

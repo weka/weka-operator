@@ -36,9 +36,10 @@ import (
 )
 
 const (
-	PodStatePodNotRunning = "PodNotRunning"
-	PodStatePodRunning    = "PodRunning"
-	WaitForDrivers        = "WaitForDrivers"
+	PodStatePodNotRunning  = "PodNotRunning"
+	PodStatePodRunning     = "PodRunning"
+	WaitForDrivers         = "WaitForDrivers"
+	ContainerStatusRunning = "Running"
 	Error                 = "Error"
 	// for drivers-build container
 	Completed = "Completed"
@@ -1634,7 +1635,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			return errors.New("Pod is not running yet")
 		}
 
-		if container.Status.Status != "Running" {
+		if container.Status.Status != ContainerStatusRunning {
 			logger.Info("Container is not running yet")
 			return errors.New("Container is not running yet")
 		}

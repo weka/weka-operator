@@ -1148,9 +1148,6 @@ async def configure_agent(agent_handle_drivers=False):
     if MODE == "s3":
         skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
 
-    if MODE == "nfs-gateway":
-        skip_envoy_setup = "sed -i 's/skip_envoy_setup=.*/skip_envoy_setup=true/g' /etc/wekaio/service.conf || true"
-
     if MODE == "envoy":
         env_vars['RESTART_EPOCH_WANTED'] = str(int(os.environ.get("envoy_restart_epoch", time.time())))
         env_vars['BASE_ID'] = PORT
