@@ -84,6 +84,12 @@ spec:
             - --allow-tombstone-delete-on-node-missing
           {{- end }}
           env:
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: OTEL_DEPLOYMENT_IDENTIFIER
+              value: "{{ .Values.deploymentIdentifier }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"
             - name: VERSION

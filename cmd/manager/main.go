@@ -19,7 +19,9 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"os"
 	"time"
 
@@ -82,7 +84,21 @@ func main() {
 	// initialize root logger and put it into context
 	logr := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
 
+	deploymentIdentifier := ""
+	deploymentIdentifier = os.Getenv("DEPLOYMENT_IDENTIFIER")
+	if deploymentIdentifier == "" {
+		deploymentIdentifier = os.Getenv("POD_UID")
+	}
+	if deploymentIdentifier == "" {
+		// local mode? Generating new one with dev- prefix
+		deploymentIdentifier = "dev-" + string(uuid.NewUUID())
+		fmt.Println("DEPLOYMENT_IDENTIFIER or POD_UID are not set, using generated one:", deploymentIdentifier)
+	}
+	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
+
 	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "")
+	// HACK: Need to expand go observability lib to support keyvaluelist  on SetupOTEL level
+	ctx = context.WithValue(ctx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
 
@@ -138,8 +154,10 @@ func main() {
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
 		return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-			ctx, _ = instrumentation.GetLoggerForContext(ctx, &logger, "")
-			return next.Reconcile(ctx, req)
+			localCtx, _ := instrumentation.GetLoggerForContext(ctx, &logger, "")
+			// HACK: Need to expand go observability lib to support keyvaluelist  on SetupOTEL level
+			localCtx = context.WithValue(localCtx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
+			return next.Reconcile(localCtx, req)
 		})
 	}
 
