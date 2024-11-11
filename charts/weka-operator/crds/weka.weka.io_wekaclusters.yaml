@@ -4680,6 +4680,8 @@ spec:
                       type: string
                   type: object
                 type: array
+              redundancyLevel:
+                type: integer
               roleNodeSelector:
                 properties:
                   compute:
@@ -4695,6 +4697,8 @@ spec:
                       type: string
                     type: object
                 type: object
+              stripeWidth:
+                type: integer
               template:
                 type: string
               tolerations:
