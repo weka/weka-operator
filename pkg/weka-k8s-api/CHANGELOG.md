@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/weka/weka-k8s-api/compare/v1.20.0...v1.21.0) (2024-11-11)
+
+
+### Features
+
+* add stripe size and data protection level configs ([d9021af](https://github.com/weka/weka-k8s-api/commit/d9021afaf86f45e3fbb15ac78c741c4d0f4c7770))
+
 # [1.20.0](https://github.com/weka/weka-k8s-api/compare/v1.19.0...v1.20.0) (2024-10-30)
 
 
