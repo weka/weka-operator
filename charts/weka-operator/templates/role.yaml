@@ -73,6 +73,12 @@ rules:
   - list
   - update
 - apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
   - weka.weka.io
   resources:
   - driveclaims

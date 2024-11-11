@@ -74,6 +74,7 @@ func (c *ContainerController) RunGC(ctx context.Context) {}
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/finalizers,verbs=update
+//+kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
