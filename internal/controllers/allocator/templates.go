@@ -57,7 +57,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	}
 
 	if config.DriveHugepages == 0 {
-		config.DriveHugepages = 1600 * config.DriveCores
+		config.DriveHugepages = 1400*config.DriveCores + 200*config.NumDrives
 	}
 
 	if config.DriveHugepagesOffset == 0 {
