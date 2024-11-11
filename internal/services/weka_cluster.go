@@ -133,6 +133,24 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		return errors.Wrapf(err, "Failed to set hot spare: %s", stderr.String())
 	}
 
+	if r.Cluster.Spec.RedundancyLevel != 0 {
+		logger.Debug("Setting parity drives")
+		cmd = fmt.Sprintf("weka cluster update --parity-drives %d", r.Cluster.Spec.RedundancyLevel)
+		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetParityDrives", []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to set redundancy level (--parity-drives): %s", stderr.String())
+		}
+	}
+
+	if r.Cluster.Spec.StripeWidth != 0 {
+		logger.Debug("Setting data drives")
+		cmd = fmt.Sprintf("weka cluster update --data-drives %d", r.Cluster.Spec.StripeWidth)
+		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetDataDrives", []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to set stripe width (--data-drives): %s", stderr.String())
+		}
+	}
+
 	if r.Cluster.Spec.ForceAio {
 		cmd = "weka debug config override clusterInfo.nvmeEnabled false"
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetForceAio", []string{"bash", "-ce", cmd})
