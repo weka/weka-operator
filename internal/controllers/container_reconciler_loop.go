@@ -44,15 +44,21 @@ const (
 )
 
 func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
+	//TODO: We creating new client on every loop, we should reuse from reconciler, i.e pass it by reference
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
 	execService := exec.NewExecService(config)
+	metricsService, err := kubernetes.NewKubeMetricsServiceFromManager(mgr)
+	if err != nil {
+		mgr.GetLogger().Error(err, "Failed to create metrics service")
+	}
 	return &containerReconcilerLoop{
-		Client:      kClient,
-		Scheme:      mgr.GetScheme(),
-		KubeService: kubernetes.NewKubeService(mgr.GetClient()),
-		ExecService: execService,
-		Manager:     mgr,
+		Client:         kClient,
+		Scheme:         mgr.GetScheme(),
+		KubeService:    kubernetes.NewKubeService(mgr.GetClient()),
+		MetricsService: metricsService,
+		ExecService:    execService,
+		Manager:        mgr,
 	}
 }
 
@@ -77,6 +83,7 @@ type containerReconcilerLoop struct {
 	pod              *v1.Pod
 	nodeAffinityLock LockMap
 	node             *v1.Node
+	MetricsService   kubernetes.KubeMetricsService
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -304,6 +311,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					},
 				},
 				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.ReportMetrics,
 			},
 		},
 	}
@@ -1768,4 +1778,27 @@ func (r *containerReconcilerLoop) PodNotRunning() bool {
 
 func (r *containerReconcilerLoop) CondEnsureDriversNotSet() bool {
 	return !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondEnsureDrivers)
+}
+
+func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData")
+	defer end()
+
+	if r.MetricsService == nil {
+		logger.Warn("Metrics service is not set")
+		return nil
+	}
+
+	metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod)
+	if err != nil {
+		logger.Warn("Error getting pod metrics", "error", err)
+		return nil // we ignore error, as this is not mandatory functionality
+	}
+
+	logger.SetValues("pod_name", r.container.Name, "namespace", r.container.Namespace,
+		"cpu_usage", metrics.CpuUsage, "memory_usage", metrics.MemoryUsage,
+		"cpu_request", metrics.CpuRequest, "memory_request", metrics.MemoryRequest,
+		"cpu_limit", metrics.CpuLimit, "memory_limit", metrics.MemoryLimit,
+	)
+	return nil
 }
