@@ -28,25 +28,25 @@ spec:
       name: Drives
       type: integer
     - description: Number of compute containers
-      jsonPath: .spec.dynamicTemplate.computeContainers
+      jsonPath: .status.counters.current.numComputeContainers
       name: Compute Containers
       type: integer
     - description: Number of drive containers
-      jsonPath: .spec.dynamicTemplate.driveContainers
+      jsonPath: .status.counters.desired.numDriveContainers
       name: Drive Containers
       type: integer
     - description: Number of S3 containers
-      jsonPath: .spec.dynamicTemplate.s3Containers
+      jsonPath: .status.counters.desired.numS3Containers
       name: S3 Containers
       priority: 1
       type: integer
     - description: Number of NFS gateway containers
-      jsonPath: .spec.dynamicTemplate.nfsGatewayContainers
+      jsonPath: .status.counters.desired.numNfsGatewayContainers
       name: NFS Containers
       priority: 1
       type: integer
     - description: Number of NFS gateway containers
-      jsonPath: .spec.dynamicTemplate.envoyContainers
+      jsonPath: .status.counters.desired.numEnvoyContainers
       name: Envoy Containers
       priority: 1
       type: integer
@@ -5937,7 +5937,13 @@ spec:
                 properties:
                   current:
                     properties:
+                      numComputeContainers:
+                        format: int64
+                        type: integer
                       numComputeCores:
+                        format: int64
+                        type: integer
+                      numDriveContainers:
                         format: int64
                         type: integer
                       numDriveCores:
@@ -5952,7 +5958,13 @@ spec:
                       numEnvoyCores:
                         format: int64
                         type: integer
+                      numNfsGatewayContainers:
+                        format: int64
+                        type: integer
                       numNfsGatewayCores:
+                        format: int64
+                        type: integer
+                      numS3Containers:
                         format: int64
                         type: integer
                       numS3Cores:
@@ -5961,7 +5973,13 @@ spec:
                     type: object
                   desired:
                     properties:
+                      numComputeContainers:
+                        format: int64
+                        type: integer
                       numComputeCores:
+                        format: int64
+                        type: integer
+                      numDriveContainers:
                         format: int64
                         type: integer
                       numDriveCores:
@@ -5976,7 +5994,13 @@ spec:
                       numEnvoyCores:
                         format: int64
                         type: integer
+                      numNfsGatewayContainers:
+                        format: int64
+                        type: integer
                       numNfsGatewayCores:
+                        format: int64
+                        type: integer
+                      numS3Containers:
                         format: int64
                         type: integer
                       numS3Cores:

@@ -229,13 +229,17 @@ type ClusterPorts struct {
 }
 
 type Counter struct {
-	NumDrives          int64 `json:"numDrives,omitempty"`
-	NumComputeCores    int64 `json:"numComputeCores,omitempty"`
-	NumDriveCores      int64 `json:"numDriveCores,omitempty"`
-	NumS3Cores         int64 `json:"numS3Cores,omitempty"`
-	NumNfsGatewayCores int64 `json:"numNfsGatewayCores,omitempty"`
-	NumEnvoyContainers int64 `json:"numEnvoyContainers,omitempty"`
-	NumEnvoyCores      int64 `json:"numEnvoyCores,omitempty"`
+	NumComputeContainers    int64 `json:"numComputeContainers,omitempty"`
+	NumDriveContainers      int64 `json:"numDriveContainers,omitempty"`
+	NumS3Containers         int64 `json:"numS3Containers,omitempty"`
+	NumNfsGatewayContainers int64 `json:"numNfsGatewayContainers,omitempty"`
+	NumDrives               int64 `json:"numDrives,omitempty"`
+	NumComputeCores         int64 `json:"numComputeCores,omitempty"`
+	NumDriveCores           int64 `json:"numDriveCores,omitempty"`
+	NumS3Cores              int64 `json:"numS3Cores,omitempty"`
+	NumNfsGatewayCores      int64 `json:"numNfsGatewayCores,omitempty"`
+	NumEnvoyContainers      int64 `json:"numEnvoyContainers,omitempty"`
+	NumEnvoyCores           int64 `json:"numEnvoyCores,omitempty"`
 }
 
 type Counters struct {
@@ -268,11 +272,11 @@ type WekaClusterStatus struct {
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
 // +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster ID",priority=0
 // +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".status.counters.current.numDrives",description="Number of drives",priority=0
-// +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".spec.dynamicTemplate.computeContainers",description="Number of compute containers",priority=0
-// +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".spec.dynamicTemplate.driveContainers",description="Number of drive containers",priority=0
-// +kubebuilder:printcolumn:name="S3 Containers",type="integer",JSONPath=".spec.dynamicTemplate.s3Containers",description="Number of S3 containers",priority=1
-// +kubebuilder:printcolumn:name="NFS Containers",type="integer",JSONPath=".spec.dynamicTemplate.nfsGatewayContainers",description="Number of NFS gateway containers",priority=1
-// +kubebuilder:printcolumn:name="Envoy Containers",type="integer",JSONPath=".spec.dynamicTemplate.envoyContainers",description="Number of NFS gateway containers",priority=1
+// +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".status.counters.current.numComputeContainers",description="Number of compute containers",priority=0
+// +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".status.counters.desired.numDriveContainers",description="Number of drive containers",priority=0
+// +kubebuilder:printcolumn:name="S3 Containers",type="integer",JSONPath=".status.counters.desired.numS3Containers",description="Number of S3 containers",priority=1
+// +kubebuilder:printcolumn:name="NFS Containers",type="integer",JSONPath=".status.counters.desired.numNfsGatewayContainers",description="Number of NFS gateway containers",priority=1
+// +kubebuilder:printcolumn:name="Envoy Containers",type="integer",JSONPath=".status.counters.desired.numEnvoyContainers",description="Number of NFS gateway containers",priority=1
 // +kubebuilder:printcolumn:name="Compute Cores",type="integer",JSONPath=".status.counters.current.numComputeCores",description="Number of compute cores",priority=1
 // +kubebuilder:printcolumn:name="Drive Cores",type="integer",JSONPath=".status.counters.current.numDriveCores",description="Number of drive cores",priority=1
 // +kubebuilder:printcolumn:name="S3 Cores",type="integer",JSONPath=".status.counters.current.nums3Cores",description="Number of S3 cores",priority=1
