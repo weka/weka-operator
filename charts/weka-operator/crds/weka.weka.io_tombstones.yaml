@@ -14,7 +14,20 @@ spec:
     singular: tombstone
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Container name
+      jsonPath: .spec.container_name
+      name: Container
+      type: string
+    - description: Node
+      jsonPath: .spec.node_affinity
+      name: Node
+      type: string
+    - description: Creation time
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:

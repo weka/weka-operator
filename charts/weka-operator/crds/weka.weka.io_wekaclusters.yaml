@@ -22,62 +22,58 @@ spec:
     - description: Weka cluster ID
       jsonPath: .status.clusterID
       name: Cluster ID
-      priority: 1
       type: string
     - description: Number of drives
       jsonPath: .status.counters.current.numDrives
       name: Drives
-      priority: 2
       type: integer
     - description: Number of compute containers
       jsonPath: .spec.dynamicTemplate.computeContainers
       name: Compute Containers
-      priority: 3
       type: integer
     - description: Number of drive containers
       jsonPath: .spec.dynamicTemplate.driveContainers
       name: Drive Containers
-      priority: 4
       type: integer
     - description: Number of S3 containers
       jsonPath: .spec.dynamicTemplate.s3Containers
       name: S3 Containers
-      priority: 5
+      priority: 1
       type: integer
     - description: Number of NFS gateway containers
       jsonPath: .spec.dynamicTemplate.nfsGatewayContainers
       name: NFS Containers
-      priority: 6
+      priority: 1
       type: integer
     - description: Number of NFS gateway containers
       jsonPath: .spec.dynamicTemplate.envoyContainers
       name: Envoy Containers
-      priority: 7
+      priority: 1
       type: integer
     - description: Number of compute cores
       jsonPath: .status.counters.current.numComputeCores
       name: Compute Cores
-      priority: 8
+      priority: 1
       type: integer
     - description: Number of drive cores
       jsonPath: .status.counters.current.numDriveCores
       name: Drive Cores
-      priority: 9
+      priority: 1
       type: integer
     - description: Number of S3 cores
       jsonPath: .status.counters.current.nums3Cores
       name: S3 Cores
-      priority: 10
+      priority: 1
       type: integer
     - description: Number of NFS Gateway cores
       jsonPath: .status.counters.current.numNfsGatewayCores
       name: NFS Gateway Cores
-      priority: 11
+      priority: 1
       type: integer
     - description: Number of Envoy cores
       jsonPath: .status.counters.current.numEnvoyCores
       name: Envoy Cores
-      priority: 12
+      priority: 1
       type: integer
     name: v1alpha1
     schema:

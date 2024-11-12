@@ -15,21 +15,23 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - description: Action
+      jsonPath: .spec.action
+      name: Action
+      type: string
     - description: Status
       jsonPath: .status.status
       name: Status
+      type: string
+    - description: Result
+      jsonPath: .status.result
+      name: Result
       priority: 1
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
-      priority: 2
       type: date
-    - description: Result
-      jsonPath: .status.result
-      name: Result
-      priority: 3
-      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
