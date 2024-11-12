@@ -1208,25 +1208,26 @@ func getCounter(counters *sync.Map, key string) int64 {
 func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) error {
 	cluster := r.cluster
 	containers := r.containers
-
+	roleDesiredCounters := &sync.Map{}
 	roleActiveCounts := &sync.Map{}
-	drivesCounts := &sync.Map{}
+	drivesDesiredCounts := &sync.Map{}
 	drivesActiveCounts := &sync.Map{}
-	coreCounts := &sync.Map{}
+	coreDesiredCounts := &sync.Map{}
 	coreActiveCounts := &sync.Map{}
 
 	for _, container := range containers {
 		if !container.IsBackend() {
 			continue
 		}
-		tickCounter(coreCounts, container.Spec.Mode, int64(container.Spec.NumCores))
+		tickCounter(coreDesiredCounts, container.Spec.Mode, int64(container.Spec.NumCores))
+		tickCounter(roleDesiredCounters, container.Spec.Mode, 1)
 		if container.Status.Status == "Running" {
 			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
 			tickCounter(coreActiveCounts, container.Spec.Mode, int64(container.Spec.NumCores))
 		}
 
 		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
-			tickCounter(drivesCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
+			tickCounter(drivesDesiredCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
 			if container.Status.Status == "Running" {
 				tickCounter(drivesActiveCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
 				// TODO: more precise logic to fetch the number of drives that are active / faulty /etc
@@ -1234,20 +1235,29 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 		}
 	}
 
+	cluster.Status.Counters.Desired.NumComputeContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Active.NumComputeContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Desired.NumDriveContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Active.NumDriveContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Desired.NumS3Containers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeS3)
+	cluster.Status.Counters.Active.NumS3Containers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3)
+	cluster.Status.Counters.Desired.NumNfsGatewayContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeNfsGateway)
+	cluster.Status.Counters.Active.NumNfsGatewayContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeNfsGateway)
+	cluster.Status.Counters.Desired.NumEnvoyContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeEnvoy)
 	cluster.Status.Counters.Active.NumEnvoyContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
 
-	cluster.Status.Counters.Desired.NumDrives = getCounter(drivesCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Desired.NumDrives = getCounter(drivesDesiredCounts, wekav1alpha1.WekaContainerModeDrive)
 	cluster.Status.Counters.Active.NumDrives = getCounter(drivesActiveCounts, wekav1alpha1.WekaContainerModeDrive)
 
-	cluster.Status.Counters.Desired.NumComputeCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Desired.NumComputeCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeCompute)
 	cluster.Status.Counters.Active.NumComputeCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Desired.NumDriveCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Desired.NumDriveCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeDrive)
 	cluster.Status.Counters.Active.NumDriveCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeDrive)
-	cluster.Status.Counters.Desired.NumS3Cores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeS3)
+	cluster.Status.Counters.Desired.NumS3Cores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeS3)
 	cluster.Status.Counters.Active.NumS3Cores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeS3)
-	cluster.Status.Counters.Desired.NumNfsGatewayCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeNfsGateway)
+	cluster.Status.Counters.Desired.NumNfsGatewayCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeNfsGateway)
 	cluster.Status.Counters.Active.NumNfsGatewayCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeNfsGateway)
-	cluster.Status.Counters.Desired.NumEnvoyCores = getCounter(coreCounts, wekav1alpha1.WekaContainerModeEnvoy)
+	cluster.Status.Counters.Desired.NumEnvoyCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeEnvoy)
 	cluster.Status.Counters.Active.NumEnvoyCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
 
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
