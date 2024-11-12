@@ -22,59 +22,53 @@ spec:
     - description: Weka cluster ID
       jsonPath: .status.clusterID
       name: Cluster ID
+      priority: 1
       type: string
-    - description: Number of drives
-      jsonPath: .status.counters.current.Drives
+    - description: 'Number of drives: Running/Total (per container)'
+      jsonPath: .status.printerColumns.Drives
       name: Drives
-      type: integer
-    - description: Number of compute containers
-      jsonPath: .status.counters.current.ComputeContainers
-      name: Compute Containers
-      type: integer
-    - description: Number of drive containers
-      jsonPath: .status.counters.desired.DriveContainers
-      name: Drive Containers
-      type: integer
-    - description: Number of S3 containers
-      jsonPath: .status.counters.desired.S3Containers
-      name: S3 Containers
-      priority: 1
-      type: integer
-    - description: Number of NFS gateway containers
-      jsonPath: .status.counters.desired.NfsGatewayContainers
-      name: NFS Containers
-      priority: 1
-      type: integer
-    - description: Number of NFS gateway containers
-      jsonPath: .status.counters.desired.EnvoyContainers
-      name: Envoy Containers
-      priority: 1
-      type: integer
-    - description: Number of compute cores
-      jsonPath: .status.counters.current.ComputeCores
+      type: string
+    - description: 'Number of compute containers: Running/Total (required)'
+      jsonPath: .status.printerColumns.ComputeContainers
+      name: Compute Cont.
+      type: string
+    - description: 'Number of S3 containers: Running/Total (required)'
+      jsonPath: .status.printerColumns.S3Containers
+      name: S3 Cont.
+      type: string
+    - description: 'Number of NFS gateway containers: Running/Total (required)'
+      jsonPath: .status.printerColumns.NfsGatewayContainers
+      name: NFS Cont.
+      type: string
+    - description: 'Number of NFS gateway containers: Running/Total (required)'
+      jsonPath: .status.printerColumns.EnvoyContainers
+      name: Envoy Cont.
+      type: string
+    - description: 'Number of compute cores: Active/Total (per container)'
+      jsonPath: .status.printerColumns.ComputeCores
       name: Compute Cores
       priority: 1
-      type: integer
-    - description: Number of drive cores
-      jsonPath: .status.counters.current.DriveCores
+      type: string
+    - description: 'Number of drive cores: Active/Total (per container)'
+      jsonPath: .status.printerColumns.DriveCores
       name: Drive Cores
       priority: 1
-      type: integer
-    - description: Number of S3 cores
-      jsonPath: .status.counters.current.s3Cores
+      type: string
+    - description: 'Number of S3 cores: Active/Total (per container)'
+      jsonPath: .status.printerColumns.s3Cores
       name: S3 Cores
       priority: 1
-      type: integer
-    - description: Number of NFS Gateway cores
-      jsonPath: .status.counters.current.NfsGatewayCores
-      name: NFS Gateway Cores
+      type: string
+    - description: 'Number of NFS Gateway cores: Active/Total (per container)'
+      jsonPath: .status.printerColumns.NfsGatewayCores
+      name: NFS Cores
       priority: 1
-      type: integer
-    - description: Number of Envoy cores
-      jsonPath: .status.counters.current.EnvoyCores
+      type: string
+    - description: 'Number of Envoy cores: Active/Total (per container)'
+      jsonPath: .status.printerColumns.EnvoyCores
       name: Envoy Cores
       priority: 1
-      type: integer
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -6034,6 +6028,31 @@ spec:
                     type: integer
                   s3Port:
                     type: integer
+                type: object
+              printerColumns:
+                properties:
+                  ComputeContainers:
+                    type: string
+                  ComputeCores:
+                    type: string
+                  DriveContainers:
+                    type: string
+                  DriveCores:
+                    type: string
+                  Drives:
+                    type: string
+                  EnvoyContainers:
+                    type: string
+                  EnvoyCores:
+                    type: string
+                  NfsGatewayContainers:
+                    type: string
+                  NfsGatewayCores:
+                    type: string
+                  S3Containers:
+                    type: string
+                  S3Cores:
+                    type: string
                 type: object
               spanId:
                 type: string

@@ -1260,6 +1260,34 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	cluster.Status.Counters.Desired.NumEnvoyCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeEnvoy)
 	cluster.Status.Counters.Active.NumEnvoyCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
 
+	cluster.Status.PrinterColumns.ComputeContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumComputeContainers, cluster.Status.Counters.Desired.NumComputeContainers, *cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.PrinterColumns.DriveContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDriveContainers, cluster.Status.Counters.Desired.NumDriveContainers, *cluster.Spec.Dynamic.DriveContainers)
+
+	cluster.Status.PrinterColumns.Drives = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDrives, cluster.Status.Counters.Desired.NumDrives, max(cluster.Spec.Dynamic.NumDrives, 1)) //TODO: check how to present faulty drives
+
+	cluster.Status.PrinterColumns.ComputeCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumComputeCores, cluster.Status.Counters.Desired.NumComputeCores, max(cluster.Spec.Dynamic.ComputeCores, 1))
+	cluster.Status.PrinterColumns.DriveCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDriveCores, cluster.Status.Counters.Desired.NumDriveCores, max(cluster.Spec.Dynamic.DriveCores, 1))
+
+	if cluster.Spec.Dynamic.S3Containers > 0 {
+		cluster.Status.PrinterColumns.S3Containers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumS3Containers, cluster.Status.Counters.Desired.NumS3Containers, cluster.Spec.Dynamic.S3Containers)
+		cluster.Status.PrinterColumns.EnvoyContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumEnvoyContainers, cluster.Status.Counters.Desired.NumEnvoyContainers, cluster.Spec.Dynamic.S3Containers) //TODO: check what should be in ()
+		cluster.Status.PrinterColumns.S3Cores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumS3Cores, cluster.Status.Counters.Desired.NumS3Cores, max(cluster.Spec.Dynamic.S3Cores, 1))
+		cluster.Status.PrinterColumns.EnvoyCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumEnvoyCores, cluster.Status.Counters.Desired.NumEnvoyCores, max(cluster.Spec.Dynamic.EnvoyCores, 1))
+	} else {
+		cluster.Status.PrinterColumns.S3Containers = ""
+		cluster.Status.PrinterColumns.S3Cores = ""
+		cluster.Status.PrinterColumns.EnvoyContainers = ""
+		cluster.Status.PrinterColumns.EnvoyCores = ""
+	}
+
+	if cluster.Spec.Dynamic.NfsGatewayContainers > 0 {
+		cluster.Status.PrinterColumns.NfsGatewayContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumNfsGatewayContainers, cluster.Status.Counters.Desired.NumNfsGatewayContainers, cluster.Spec.Dynamic.NfsGatewayContainers)
+		cluster.Status.PrinterColumns.NfsGatewayCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumNfsGatewayCores, cluster.Status.Counters.Desired.NumNfsGatewayCores, max(cluster.Spec.Dynamic.NfsGatewayCores, 1))
+	} else {
+		cluster.Status.PrinterColumns.NfsGatewayContainers = ""
+		cluster.Status.PrinterColumns.NfsGatewayCores = ""
+	}
+
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
 	}
