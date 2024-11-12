@@ -61,8 +61,12 @@ func NewClientSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) *v1
 	}
 }
 
-func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoints []string) *v1.Secret {
-	return &v1.Secret{
+func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoints []string, nfsTargetIps []string) *v1.Secret {
+	nfsTargetIpsStr := ""
+	if len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
+		nfsTargetIpsStr = strings.Join(nfsTargetIps, ",")
+	}
+	ret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cluster.GetCSISecretName(),
 			Namespace: cluster.Namespace,
@@ -75,6 +79,10 @@ func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoi
 			"scheme":       "https",
 		},
 	}
+	if nfsTargetIpsStr != "" {
+		ret.StringData["nfsTargetIps"] = nfsTargetIpsStr
+	}
+	return ret
 }
 
 type SecretsService interface {
@@ -137,12 +145,17 @@ func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterS
 	}
 
 	endpoints := []string{}
+	nfsTargetIps := []string{}
+
 	for _, container := range containers {
 		endpoints = append(endpoints, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.GetPort()))
+		if container.IsNfsGatewayContainer() {
+			nfsTargetIps = append(nfsTargetIps, container.Status.ManagementIP)
+		}
 	}
 
 	cluster := clusterService.GetCluster()
-	clientSecret := NewCsiSecret(ctx, cluster, endpoints)
+	clientSecret := NewCsiSecret(ctx, cluster, endpoints, nfsTargetIps)
 
 	if err := kubeService.EnsureSecret(ctx, clientSecret, &kubernetes.K8sOwnerRef{
 		Scheme: r.Scheme,
