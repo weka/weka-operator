@@ -155,11 +155,6 @@ spec:
           # TODO(user): Configure the resources accordingly based on the project requirements.
           # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
           resources:
-            limits:
-              cpu: 500m
-              memory: 128Mi
-            requests:
-              cpu: 10m
-              memory: 64Mi
+            {{- toYaml .Values.manager.resources | nindent 12 }}
       serviceAccountName: "{{ .Values.prefix }}-controller-manager"
       terminationGracePeriodSeconds: 10
