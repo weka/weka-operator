@@ -188,6 +188,7 @@ runcontroller: ## Run a controller from your host.
 	WEKA_OCP_TOOLKIT_IMAGE_BASE_URL=quay.io/openshift-release-dev/ocp-v4.0-art-dev \
 	WEKA_COS_SERVICE_ACCOUNT_SECRET=weka-builder \
 	WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
+	OTEL_DEPLOYMENT_IDENTIFIER="dev"-${USER} \
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
 	OPERATOR_DEV_MODE=true \
@@ -264,6 +265,7 @@ deploy: generate manifests ## Deploy controller to the K8s cluster specified in 
 		--set ocpCompatibility.driverToolkitImageBaseUrl=quay.io/weka.io/gke-toolkit \
 		--set gkeCompatibility.hugepageConfiguration.enabled=true \
 		--set gkeCompatibility.disableDriverSigning=true \
+		--set deploymentIdentifier="dev-${USER}"
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder
 
 .PHONY: undeploy
