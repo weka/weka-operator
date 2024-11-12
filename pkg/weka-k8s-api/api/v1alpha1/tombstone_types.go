@@ -20,6 +20,9 @@ type TombstoneStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Container",type="string",JSONPath=".spec.container_name",description="Container name",priority=0
+// +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".spec.node_affinity",description="Node",priority=0
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Creation time",priority=0
 type Tombstone struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

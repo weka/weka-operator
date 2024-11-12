@@ -14,7 +14,31 @@ spec:
     singular: wekapolicy
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Type
+      jsonPath: .spec.type
+      name: Type
+      type: string
+    - description: Status
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: Last result
+      jsonPath: .status.lastResult
+      name: Result
+      priority: 1
+      type: string
+    - description: Interval
+      jsonPath: .spec.payload.interval
+      name: Interval
+      priority: 1
+      type: string
+    - description: Last run time
+      jsonPath: .status.lastRunTime
+      name: Last Run Time
+      priority: 1
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: WekaPolicy is the Schema for the wekapolicies API
