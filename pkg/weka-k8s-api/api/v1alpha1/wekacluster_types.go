@@ -247,6 +247,20 @@ type Counters struct {
 	Active  Counter `json:"current,omitempty"`
 }
 
+type PrinterColumns struct {
+	ComputeContainers    string `json:"ComputeContainers,omitempty"`
+	DriveContainers      string `json:"DriveContainers,omitempty"`
+	S3Containers         string `json:"S3Containers,omitempty"`
+	NfsGatewayContainers string `json:"NfsGatewayContainers,omitempty"`
+	EnvoyContainers      string `json:"EnvoyContainers,omitempty"`
+	Drives               string `json:"Drives,omitempty"`
+	ComputeCores         string `json:"ComputeCores,omitempty"`
+	DriveCores           string `json:"DriveCores,omitempty"`
+	S3Cores              string `json:"S3Cores,omitempty"`
+	NfsGatewayCores      string `json:"NfsGatewayCores,omitempty"`
+	EnvoyCores           string `json:"EnvoyCores,omitempty"`
+}
+
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
 	Status           WekaClusterStatusEnum `json:"status"`
@@ -259,6 +273,7 @@ type WekaClusterStatus struct {
 	LastAppliedSpec  string                `json:"lastAppliedSpec,omitempty"`
 	Ports            ClusterPorts          `json:"ports,omitempty"`
 	Counters         Counters              `json:"counters,omitempty"`
+	PrinterColumns   PrinterColumns        `json:"printerColumns,omitempty"`
 
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
@@ -270,18 +285,17 @@ type WekaClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
-// +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster ID",priority=0
-// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".status.counters.current.Drives",description="Number of drives",priority=0
-// +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".status.counters.current.ComputeContainers",description="Number of compute containers",priority=0
-// +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".status.counters.desired.DriveContainers",description="Number of drive containers",priority=0
-// +kubebuilder:printcolumn:name="S3 Containers",type="integer",JSONPath=".status.counters.desired.S3Containers",description="Number of S3 containers",priority=1
-// +kubebuilder:printcolumn:name="NFS Containers",type="integer",JSONPath=".status.counters.desired.NfsGatewayContainers",description="Number of NFS gateway containers",priority=1
-// +kubebuilder:printcolumn:name="Envoy Containers",type="integer",JSONPath=".status.counters.desired.EnvoyContainers",description="Number of NFS gateway containers",priority=1
-// +kubebuilder:printcolumn:name="Compute Cores",type="integer",JSONPath=".status.counters.current.ComputeCores",description="Number of compute cores",priority=1
-// +kubebuilder:printcolumn:name="Drive Cores",type="integer",JSONPath=".status.counters.current.DriveCores",description="Number of drive cores",priority=1
-// +kubebuilder:printcolumn:name="S3 Cores",type="integer",JSONPath=".status.counters.current.s3Cores",description="Number of S3 cores",priority=1
-// +kubebuilder:printcolumn:name="NFS Gateway Cores",type="integer",JSONPath=".status.counters.current.NfsGatewayCores",description="Number of NFS Gateway cores",priority=1
-// +kubebuilder:printcolumn:name="Envoy Cores",type="integer",JSONPath=".status.counters.current.EnvoyCores",description="Number of Envoy cores",priority=1
+// +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster ID",priority=1
+// +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printerColumns.Drives",description="Number of drives: Running/Total (per container)",priority=0
+// +kubebuilder:printcolumn:name="Compute Cont.",type="string",JSONPath=".status.printerColumns.ComputeContainers",description="Number of compute containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="S3 Cont.",type="string",JSONPath=".status.printerColumns.S3Containers",description="Number of S3 containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="NFS Cont.",type="string",JSONPath=".status.printerColumns.NfsGatewayContainers",description="Number of NFS gateway containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="Envoy Cont.",type="string",JSONPath=".status.printerColumns.EnvoyContainers",description="Number of NFS gateway containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="Compute Cores",type="string",JSONPath=".status.printerColumns.ComputeCores",description="Number of compute cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="Drive Cores",type="string",JSONPath=".status.printerColumns.DriveCores",description="Number of drive cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="S3 Cores",type="string",JSONPath=".status.printerColumns.s3Cores",description="Number of S3 cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="NFS Cores",type="string",JSONPath=".status.printerColumns.NfsGatewayCores",description="Number of NFS Gateway cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="Envoy Cores",type="string",JSONPath=".status.printerColumns.EnvoyCores",description="Number of Envoy cores: Active/Total (per container)",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
