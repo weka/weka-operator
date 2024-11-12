@@ -39,20 +39,31 @@ spec:
       name: Cores
       priority: 4
       type: integer
+    - description: Weka container ID
+      jsonPath: .status.containerID
+      name: Weka cID
+      priority: 5
+      type: string
+    - description: Node name
+      jsonPath: .status.nodeAffinity
+      name: Node
+      priority: 6
+      type: string
+    - description: Weka cluster GUID
+      jsonPath: .status.clusterID
+      name: Weka Cluster GUID
+      priority: 7
+      type: string
     - description: Weka container name
       jsonPath: .spec.name
-      name: InternalName
-      priority: 5
+      name: Internal Name
+      priority: 8
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
-      priority: 6
+      priority: 9
       type: date
-    - description: Weka container ID
-      jsonPath: .status.containerID
-      name: Weka cID
-      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
