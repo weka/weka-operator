@@ -19,54 +19,30 @@ spec:
       jsonPath: .status.status
       name: Status
       type: string
-    - description: Weka cluster ID
+    - description: Weka cluster GUID
       jsonPath: .status.clusterID
       name: Cluster ID
-      priority: 1
       type: string
-    - description: 'Number of drives: Running/Total (per container)'
-      jsonPath: .status.printerColumns.Drives
-      name: Drives
-      type: string
-    - description: 'Number of compute containers: Running/Total (required)'
+    - description: 'Number of compute containers: Active/Created/Desired'
       jsonPath: .status.printerColumns.ComputeContainers
-      name: Compute Cont.
+      name: CCT(A/C/D)
       type: string
-    - description: 'Number of S3 containers: Running/Total (required)'
-      jsonPath: .status.printerColumns.S3Containers
-      name: S3 Cont.
+    - description: 'Number of drive containers: Active/Created/Desired'
+      jsonPath: .status.printerColumns.DriveContainers
+      name: DCT(A/C/D)
       type: string
-    - description: 'Number of NFS gateway containers: Running/Total (required)'
-      jsonPath: .status.printerColumns.NfsGatewayContainers
-      name: NFS Cont.
+    - description: 'Number of Drives: Active/Created/Desired'
+      jsonPath: .status.printerColumns.Drives
+      name: DRVS(A/C/D)
       type: string
-    - description: 'Number of NFS gateway containers: Running/Total (required)'
-      jsonPath: .status.printerColumns.EnvoyContainers
-      name: Envoy Cont.
-      type: string
-    - description: 'Number of compute cores: Active/Total (per container)'
-      jsonPath: .status.printerColumns.ComputeCores
-      name: Compute Cores
+    - description: Throughput Read/Write/Metadata
+      jsonPath: .status.iops
+      name: IOPS(R/W/M)
       priority: 1
       type: string
-    - description: 'Number of drive cores: Active/Total (per container)'
-      jsonPath: .status.printerColumns.DriveCores
-      name: Drive Cores
-      priority: 1
-      type: string
-    - description: 'Number of S3 cores: Active/Total (per container)'
-      jsonPath: .status.printerColumns.s3Cores
-      name: S3 Cores
-      priority: 1
-      type: string
-    - description: 'Number of NFS Gateway cores: Active/Total (per container)'
-      jsonPath: .status.printerColumns.NfsGatewayCores
-      name: NFS Cores
-      priority: 1
-      type: string
-    - description: 'Number of Envoy cores: Active/Total (per container)'
-      jsonPath: .status.printerColumns.EnvoyCores
-      name: Envoy Cores
+    - description: Throughput Read/Write
+      jsonPath: .status.throughput
+      name: TPS(R/W)
       priority: 1
       type: string
     name: v1alpha1
@@ -138,14 +114,24 @@ spec:
                   envoyCores:
                     type: integer
                   nfsGatewayContainers:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of NFS gateway containers'
                     type: integer
                   nfsGatewayCores:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of NFS gateway cores per container'
                     type: integer
                   nfsGatewayExtraCores:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of NFS gateway extra cores per container'
                     type: integer
                   nfsGatewayFrontendHugepages:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage allocation for NFS gateway frontend'
                     type: integer
                   nfsGatewayFrontendHugepagesOffset:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage offset for NFS gateway frontend'
                     type: integer
                   numDrives:
                     type: integer
@@ -5766,8 +5752,6 @@ spec:
                     type: integer
                   lbPort:
                     type: integer
-                  nfsGatewayPort:
-                    type: integer
                   portRange:
                     type: integer
                   s3Port:
@@ -5929,79 +5913,69 @@ spec:
                 type: array
               counters:
                 properties:
-                  current:
+                  active:
                     properties:
                       ComputeContainers:
                         format: int64
                         type: integer
-                      ComputeCores:
+                      ComputeProcesses:
                         format: int64
                         type: integer
                       DriveContainers:
                         format: int64
                         type: integer
-                      DriveCores:
+                      DriveProcesses:
                         format: int64
                         type: integer
                       Drives:
                         format: int64
                         type: integer
-                      EnvoyContainers:
+                    required:
+                    - Drives
+                    type: object
+                  created:
+                    properties:
+                      ComputeContainers:
                         format: int64
                         type: integer
-                      EnvoyCores:
+                      ComputeProcesses:
                         format: int64
                         type: integer
-                      NfsGatewayContainers:
+                      DriveContainers:
                         format: int64
                         type: integer
-                      NfsGatewayCores:
+                      DriveProcesses:
                         format: int64
                         type: integer
-                      S3Containers:
+                      Drives:
                         format: int64
                         type: integer
-                      S3Cores:
-                        format: int64
-                        type: integer
+                    required:
+                    - Drives
                     type: object
                   desired:
                     properties:
                       ComputeContainers:
                         format: int64
                         type: integer
-                      ComputeCores:
+                      ComputeProcesses:
                         format: int64
                         type: integer
                       DriveContainers:
                         format: int64
                         type: integer
-                      DriveCores:
+                      DriveProcesses:
                         format: int64
                         type: integer
                       Drives:
                         format: int64
                         type: integer
-                      EnvoyContainers:
-                        format: int64
-                        type: integer
-                      EnvoyCores:
-                        format: int64
-                        type: integer
-                      NfsGatewayContainers:
-                        format: int64
-                        type: integer
-                      NfsGatewayCores:
-                        format: int64
-                        type: integer
-                      S3Containers:
-                        format: int64
-                        type: integer
-                      S3Cores:
-                        format: int64
-                        type: integer
+                    required:
+                    - Drives
                     type: object
                 type: object
+              iops:
+                type: string
               lastAppliedImage:
                 type: string
               lastAppliedSpec:
@@ -6022,8 +5996,6 @@ spec:
                     type: integer
                   lbPort:
                     type: integer
-                  nfsGatewayPort:
-                    type: integer
                   portRange:
                     type: integer
                   s3Port:
@@ -6033,25 +6005,9 @@ spec:
                 properties:
                   ComputeContainers:
                     type: string
-                  ComputeCores:
-                    type: string
                   DriveContainers:
                     type: string
-                  DriveCores:
-                    type: string
                   Drives:
-                    type: string
-                  EnvoyContainers:
-                    type: string
-                  EnvoyCores:
-                    type: string
-                  NfsGatewayContainers:
-                    type: string
-                  NfsGatewayCores:
-                    type: string
-                  S3Containers:
-                    type: string
-                  S3Cores:
                     type: string
                 type: object
               spanId:
@@ -6063,6 +6019,7 @@ spec:
               traceId:
                 type: string
             required:
+            - iops
             - status
             - throughput
             type: object
