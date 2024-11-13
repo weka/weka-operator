@@ -1377,10 +1377,12 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
-			if err != nil {
-				logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
-				return err
+			if container.HasFrontend() {
+				stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+				if err != nil {
+					logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
+					return err
+				}
 			}
 			if container.Spec.Mode == "client" && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
 				// leaving client delete operation to user and we will apply lastappliedimage if pod got restarted
