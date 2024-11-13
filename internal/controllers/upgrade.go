@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"github.com/weka/go-weka-observability/instrumentation"
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -58,8 +60,12 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 
 // Upgrades one container at a time
 func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RollingUpgrade")
+
+	defer end()
 	for _, container := range u.Containers {
 		if container.Status.LastAppliedImage != container.Spec.Image {
+			logger.Info("container upgrade did not finish yet", "container", container.Name)
 			return lifecycle.NewWaitError(errors.New("container upgrade not finished yet"))
 		}
 	}
@@ -70,7 +76,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			return lifecycle.NewWaitError(errors.New("container upgrade not finished yet"))
+			return lifecycle.NewWaitError(errors.New(fmt.Sprintf("starting upgrade of container %s", container.Name)))
 		}
 	}
 	return nil
