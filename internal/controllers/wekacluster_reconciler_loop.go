@@ -1208,89 +1208,103 @@ func getCounter(counters *sync.Map, key string) int64 {
 func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) error {
 	cluster := r.cluster
 	containers := r.containers
-	roleDesiredCounters := &sync.Map{}
+	roleCreatedCounts := &sync.Map{}
 	roleActiveCounts := &sync.Map{}
-	drivesDesiredCounts := &sync.Map{}
-	drivesActiveCounts := &sync.Map{}
-	coreDesiredCounts := &sync.Map{}
-	coreActiveCounts := &sync.Map{}
+	driveCreatedCounts := &sync.Map{}
 
 	for _, container := range containers {
-		if !container.IsBackend() {
-			continue
-		}
-		tickCounter(coreDesiredCounts, container.Spec.Mode, int64(container.Spec.NumCores))
-		tickCounter(roleDesiredCounters, container.Spec.Mode, 1)
-		if container.Status.Status == "Running" {
+		// count Active containers
+		if container.Status.Status == ContainerStatusRunning {
 			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
-			tickCounter(coreActiveCounts, container.Spec.Mode, int64(container.Spec.NumCores))
-		}
+		} else {
+			panic(container.Status.Status)
 
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
-			tickCounter(drivesDesiredCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
-			if container.Status.Status == "Running" {
-				tickCounter(drivesActiveCounts, container.Spec.Mode, int64(container.Spec.NumDrives))
-				// TODO: more precise logic to fetch the number of drives that are active / faulty /etc
+		}
+		// count Created containers
+		if container.Status.Status != PodStatePodNotRunning {
+			tickCounter(roleCreatedCounts, container.Spec.Mode, 1)
+			if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))
 			}
 		}
 	}
 
-	cluster.Status.Counters.Desired.NumComputeContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeCompute)
+	// calculate desired counts
+	cluster.Status.Counters.Desired.NumComputeContainers = int64(*cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.Counters.Desired.NumDriveContainers = int64(*cluster.Spec.Dynamic.ComputeContainers)
+
+	cluster.Status.Counters.Desired.NumDrives = int64(max(cluster.Spec.Dynamic.NumDrives, 1) * *cluster.Spec.Dynamic.DriveContainers)
+
+	cluster.Status.Counters.Desired.NumComputeProcesses = int64(max(cluster.Spec.Dynamic.ComputeCores, 1) * *cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.Counters.Desired.NumDriveProcesses = int64(max(cluster.Spec.Dynamic.DriveCores, 1) * *cluster.Spec.Dynamic.DriveContainers)
+
+	// propagate "created" counters
+	cluster.Status.Counters.Created.NumComputeContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute)
+	cluster.Status.Counters.Created.NumDriveContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive)
+
+	// propagate "active" counters
 	cluster.Status.Counters.Active.NumComputeContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Desired.NumDriveContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeDrive)
 	cluster.Status.Counters.Active.NumDriveContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive)
-	cluster.Status.Counters.Desired.NumS3Containers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeS3)
-	cluster.Status.Counters.Active.NumS3Containers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3)
-	cluster.Status.Counters.Desired.NumNfsGatewayContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeNfsGateway)
-	cluster.Status.Counters.Active.NumNfsGatewayContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeNfsGateway)
-	cluster.Status.Counters.Desired.NumEnvoyContainers = getCounter(roleDesiredCounters, wekav1alpha1.WekaContainerModeEnvoy)
-	cluster.Status.Counters.Active.NumEnvoyContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
 
-	cluster.Status.Counters.Desired.NumDrives = getCounter(drivesDesiredCounts, wekav1alpha1.WekaContainerModeDrive)
-	cluster.Status.Counters.Active.NumDrives = getCounter(drivesActiveCounts, wekav1alpha1.WekaContainerModeDrive)
-
-	cluster.Status.Counters.Desired.NumComputeCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Active.NumComputeCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Desired.NumDriveCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeDrive)
-	cluster.Status.Counters.Active.NumDriveCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeDrive)
-	cluster.Status.Counters.Desired.NumS3Cores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeS3)
-	cluster.Status.Counters.Active.NumS3Cores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeS3)
-	cluster.Status.Counters.Desired.NumNfsGatewayCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeNfsGateway)
-	cluster.Status.Counters.Active.NumNfsGatewayCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeNfsGateway)
-	cluster.Status.Counters.Desired.NumEnvoyCores = getCounter(coreDesiredCounts, wekav1alpha1.WekaContainerModeEnvoy)
-	cluster.Status.Counters.Active.NumEnvoyCores = getCounter(coreActiveCounts, wekav1alpha1.WekaContainerModeEnvoy)
-
-	cluster.Status.PrinterColumns.ComputeContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumComputeContainers, cluster.Status.Counters.Desired.NumComputeContainers, *cluster.Spec.Dynamic.ComputeContainers)
-	cluster.Status.PrinterColumns.DriveContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDriveContainers, cluster.Status.Counters.Desired.NumDriveContainers, *cluster.Spec.Dynamic.DriveContainers)
-
-	cluster.Status.PrinterColumns.Drives = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDrives, cluster.Status.Counters.Desired.NumDrives, max(cluster.Spec.Dynamic.NumDrives, 1)) //TODO: check how to present faulty drives
-
-	cluster.Status.PrinterColumns.ComputeCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumComputeCores, cluster.Status.Counters.Desired.NumComputeCores, max(cluster.Spec.Dynamic.ComputeCores, 1))
-	cluster.Status.PrinterColumns.DriveCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumDriveCores, cluster.Status.Counters.Desired.NumDriveCores, max(cluster.Spec.Dynamic.DriveCores, 1))
-
-	if cluster.Spec.Dynamic.S3Containers > 0 {
-		cluster.Status.PrinterColumns.S3Containers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumS3Containers, cluster.Status.Counters.Desired.NumS3Containers, cluster.Spec.Dynamic.S3Containers)
-		cluster.Status.PrinterColumns.EnvoyContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumEnvoyContainers, cluster.Status.Counters.Desired.NumEnvoyContainers, cluster.Spec.Dynamic.S3Containers) //TODO: check what should be in ()
-		cluster.Status.PrinterColumns.S3Cores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumS3Cores, cluster.Status.Counters.Desired.NumS3Cores, max(cluster.Spec.Dynamic.S3Cores, 1))
-		cluster.Status.PrinterColumns.EnvoyCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumEnvoyCores, cluster.Status.Counters.Desired.NumEnvoyCores, max(cluster.Spec.Dynamic.EnvoyCores, 1))
-	} else {
-		cluster.Status.PrinterColumns.S3Containers = ""
-		cluster.Status.PrinterColumns.S3Cores = ""
-		cluster.Status.PrinterColumns.EnvoyContainers = ""
-		cluster.Status.PrinterColumns.EnvoyCores = ""
-	}
-
-	if cluster.Spec.Dynamic.NfsGatewayContainers > 0 {
-		cluster.Status.PrinterColumns.NfsGatewayContainers = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumNfsGatewayContainers, cluster.Status.Counters.Desired.NumNfsGatewayContainers, cluster.Spec.Dynamic.NfsGatewayContainers)
-		cluster.Status.PrinterColumns.NfsGatewayCores = fmt.Sprintf("%d/%d (%d)", cluster.Status.Counters.Active.NumNfsGatewayCores, cluster.Status.Counters.Desired.NumNfsGatewayCores, max(cluster.Spec.Dynamic.NfsGatewayCores, 1))
-	} else {
-		cluster.Status.PrinterColumns.NfsGatewayContainers = ""
-		cluster.Status.PrinterColumns.NfsGatewayCores = ""
-	}
+	// prepare printerColumns
+	cluster.Status.PrinterColumns.ComputeContainers = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumComputeContainers, cluster.Status.Counters.Created.NumComputeContainers, cluster.Status.Counters.Desired.NumComputeContainers)
+	cluster.Status.PrinterColumns.DriveContainers = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumDriveContainers, cluster.Status.Counters.Created.NumDriveContainers, cluster.Status.Counters.Desired.NumDriveContainers)
+	cluster.Status.PrinterColumns.Drives = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumDrives, cluster.Status.Counters.Created.NumDrives, cluster.Status.Counters.Desired.NumDrives)
 
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Context) error {
+	cluster := r.cluster
+	executor, err := r.ExecService.GetExecutor(ctx, r.containers[0])
+	if err != nil || executor == nil {
+		return errors.New("Failed to create executor")
+	}
+	cmd := "weka status -J"
+	stdout, stderr, err := executor.ExecNamed(ctx, "FetchWekaClusterStats", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to fetch weka status: %s", stderr.String())
+	}
+
+	containers := r.containers
+	wekaService := services.NewWekaService(r.ExecService, containers[0])
+
+	wekaStatus, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		cluster.Status.Counters.Active.NumDrives = 0
+		cluster.Status.Counters.Active.NumComputeProcesses = 0
+		cluster.Status.Counters.Active.NumDriveProcesses = 0
+		cluster.Status.Counters.Active.NumDrives = 0
+
+		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
+	}
+
+	cluster.Status.Counters.Active.NumDrives = int64(wekaStatus.Drives.Active)
+	cluster.Status.Counters.Active.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Active)
+	cluster.Status.Counters.Active.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Active)
+	cluster.Status.Counters.Active.NumDrives = int64(wekaStatus.Drives.Active)
+
+	cluster.Status.Counters.Created.NumDrives = int64(wekaStatus.Drives.Total)
+	cluster.Status.Counters.Created.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Total)
+	cluster.Status.Counters.Created.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Total)
+
+	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
+	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)
+	cluster.Status.Throughput = fmt.Sprintf("%s/%s", tpsRead, tpsWrite)
+
+	iopsRead := util2.HumanReadableIops(wekaStatus.Activity.NumReads)
+	iopsWrite := util2.HumanReadableIops(wekaStatus.Activity.NumWrites)
+	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
+
+	cluster.Status.Iops = fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther)
+
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
+	}
+
 	return nil
 }
 
