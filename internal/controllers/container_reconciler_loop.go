@@ -36,9 +36,10 @@ import (
 )
 
 const (
-	PodStatePodNotRunning = "PodNotRunning"
-	PodStatePodRunning    = "PodRunning"
-	WaitForDrivers        = "WaitForDrivers"
+	PodStatePodNotRunning  = "PodNotRunning"
+	PodStatePodRunning     = "PodRunning"
+	WaitForDrivers         = "WaitForDrivers"
+	ContainerStatusRunning = "Running"
 	// for drivers-build container
 	Completed = "Completed"
 	Building  = "Building"
@@ -1101,7 +1102,7 @@ func (r *containerReconcilerLoop) ensureDriversLoader(ctx context.Context) error
 	// It would be convenient, if container would just exit.
 	// Maybe, we should just replace this with completely different entry point and consolidate everything under single script
 	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
-	loaderContainer.Status.Status = "Active"
+	loaderContainer.Status.Status = ContainerStatusRunning
 	if err := r.Status().Update(ctx, loaderContainer); err != nil {
 		l.Error(err, "Failed to update status of container")
 		return err
@@ -1422,7 +1423,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			return errors.New("Pod is not running yet")
 		}
 
-		if container.Status.Status != "Running" {
+		if container.Status.Status != ContainerStatusRunning {
 			logger.Info("Container is not running yet")
 			return errors.New("Container is not running yet")
 		}
