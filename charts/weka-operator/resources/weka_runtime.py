@@ -1684,7 +1684,7 @@ async def main():
                 await asyncio.sleep(1)
                 if time.time() > end_time:
                     write_results(dict(
-                        err=str(e),
+                        err=getattr(e, 'message', repr(e)),
                         drivers_loaded=False,
                     ))
                     raise e
