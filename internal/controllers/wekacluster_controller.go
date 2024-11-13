@@ -127,6 +127,25 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.HandleSpecUpdates,
 			},
 			{
+				Run: loop.UpdateClusterCounters,
+			},
+			{
+				Run: loop.UpdateWekaClusterCounters,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						for _, c := range loop.cluster.Status.Conditions {
+							if c.Type == condition.CondClusterCreated {
+								if time.Since(c.LastTransitionTime.Time) > time.Second*5 {
+									return true
+								}
+							}
+						}
+						return false
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:             condition.CondContainerResourcesAllocated,
 				Run:                   loop.AllocateResources,
 				SkipOwnConditionCheck: true,
@@ -168,9 +187,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
 				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Run: loop.UpdateClusterCounters,
 			},
 			{
 				Condition: condition.CondAdminUserDeleted,
