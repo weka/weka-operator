@@ -229,7 +229,6 @@ func (w *WekaContainer) IsServiceContainer() bool {
 		WekaContainerModeEnvoy,
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeAdhocOp,
-		WekaContainerModeNfsGateway,
 	}, w.Spec.Mode)
 }
 
@@ -317,7 +316,7 @@ func (w *WekaContainer) IsAllocatable() bool {
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
-	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy() || w.IsNfsGatewayContainer()
+	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy()
 }
 
 func (w *WekaContainer) HasAgent() bool {
