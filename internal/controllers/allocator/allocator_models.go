@@ -40,7 +40,7 @@ type OwnerCluster struct {
 type Owner struct {
 	OwnerCluster
 	Container string
-	Role      string
+	Role      weka.WekaContainerMode
 }
 
 type ClusterRanges map[OwnerCluster]Range

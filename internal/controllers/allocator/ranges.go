@@ -151,8 +151,8 @@ func (a *Allocations) FindNodeRange(owner Owner, node v1alpha1.NodeName, size in
 	return a.FindNodeRangeWithOffset(owner, node, size, 0)
 }
 
-func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string, target Range) (Range, error) {
-	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
+func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name v1alpha1.WekaContainerMode, target Range) (Range, error) {
+	if existing, ok := a.Global.AllocatedRanges[Owner][string(name)]; ok {
 		if existing.Base != target.Base {
 			return Range{}, fmt.Errorf("range %s is already allocated with different base %d", name, existing.Base)
 		}
@@ -185,7 +185,7 @@ func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string,
 		if _, ok := a.Global.AllocatedRanges[Owner]; !ok {
 			a.Global.AllocatedRanges[Owner] = map[string]Range{}
 		}
-		a.Global.AllocatedRanges[Owner][name] = target
+		a.Global.AllocatedRanges[Owner][string(name)] = target
 		return target, nil
 	}
 }

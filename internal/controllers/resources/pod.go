@@ -201,7 +201,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 						{
 							Name:  "MODE",
-							Value: f.container.Spec.Mode,
+							Value: string(f.container.Spec.Mode),
 						},
 						{
 							Name:  "PORT",
@@ -874,7 +874,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
 	}
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
+	if slices.Contains([]wekav1alpha1.WekaContainerMode{wekav1alpha1.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
 		memRequest = "500M"
 		cpuRequestStr = "500m"
 		cpuLimitStr = "500m"
@@ -1019,7 +1019,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			LabelSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"weka.io/cluster-id": clusterId,
-					"weka.io/mode":       f.container.Spec.Mode,
+					"weka.io/mode":       string(f.container.Spec.Mode),
 				},
 			},
 			TopologyKey: "kubernetes.io/hostname",
@@ -1041,7 +1041,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			term := corev1.PodAffinityTerm{
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"weka.io/mode":       wekav1alpha1.WekaContainerModeS3,
+						"weka.io/mode":       string(wekav1alpha1.WekaContainerModeS3),
 						"weka.io/cluster-id": clusterId,
 					},
 				},
@@ -1067,7 +1067,7 @@ func labelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
 		"app.kubernetes.io/name":      "WekaContainer",
 		"app.kubernetes.io/part-of":   "weka-operator",
 		"app.kubernetes.io/create-by": "controller-manager",
-		"weka.io/mode":                container.Spec.Mode,
+		"weka.io/mode":                string(container.Spec.Mode),
 	}
 	for k, v := range container.ObjectMeta.Labels {
 		labels[k] = v

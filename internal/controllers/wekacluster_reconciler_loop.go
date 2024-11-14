@@ -604,7 +604,7 @@ func (r *wekaClusterReconcilerLoop) SelectActiveContainer(containers []*wekav1al
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alpha1.WekaContainer, role string) (*wekav1alpha1.WekaContainer, error) {
+func (r *wekaClusterReconcilerLoop) SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alpha1.WekaContainer, role wekav1alpha1.WekaContainerMode) (*wekav1alpha1.WekaContainer, error) {
 	for _, container := range containers {
 		if container.Spec.Mode != role {
 			continue
@@ -1240,13 +1240,13 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	for _, container := range containers {
 		// count Active containers
 		if container.Status.Status == ContainerStatusRunning {
-			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
+			tickCounter(roleActiveCounts, string(container.Spec.Mode), 1)
 		}
 		// count Created containers
 		if container.Status.Status != PodStatePodNotRunning {
-			tickCounter(roleCreatedCounts, container.Spec.Mode, 1)
+			tickCounter(roleCreatedCounts, string(container.Spec.Mode), 1)
 			if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
-				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))
+				tickCounter(driveCreatedCounts, string(container.Spec.Mode), int64(max(container.Spec.NumDrives, 1)))
 			}
 		}
 	}
@@ -1261,12 +1261,12 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	cluster.Status.Counters.Desired.NumDriveProcesses = int64(max(cluster.Spec.Dynamic.DriveCores, 1) * *cluster.Spec.Dynamic.DriveContainers)
 
 	// propagate "created" counters
-	cluster.Status.Counters.Created.NumComputeContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Created.NumDriveContainers = getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Created.NumComputeContainers = getCounter(roleCreatedCounts, string(wekav1alpha1.WekaContainerModeCompute))
+	cluster.Status.Counters.Created.NumDriveContainers = getCounter(roleCreatedCounts, string(wekav1alpha1.WekaContainerModeDrive))
 
 	// propagate "active" counters
-	cluster.Status.Counters.Active.NumComputeContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute)
-	cluster.Status.Counters.Active.NumDriveContainers = getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive)
+	cluster.Status.Counters.Active.NumComputeContainers = getCounter(roleActiveCounts, string(wekav1alpha1.WekaContainerModeCompute))
+	cluster.Status.Counters.Active.NumDriveContainers = getCounter(roleActiveCounts, string(wekav1alpha1.WekaContainerModeDrive))
 
 	// prepare printerColumns
 	cluster.Status.PrinterColumns.ComputeContainers = fmt.Sprintf("%d/%d/%d", cluster.Status.Counters.Active.NumComputeContainers, cluster.Status.Counters.Created.NumComputeContainers, cluster.Status.Counters.Desired.NumComputeContainers)
@@ -1364,7 +1364,13 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
-	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs-gateway"} {
+	for _, role := range []wekav1alpha1.WekaContainerMode{
+		wekav1alpha1.WekaContainerModeDrive,
+		wekav1alpha1.WekaContainerModeCompute,
+		wekav1alpha1.WekaContainerModeS3,
+		wekav1alpha1.WekaContainerModeEnvoy,
+		wekav1alpha1.WekaContainerModeNfsGateway,
+	} {
 		var numContainers int
 
 		switch role {
@@ -1388,7 +1394,7 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-			name := allocator.NewContainerName(role)
+			name := allocator.NewContainerName(string(role))
 			logger.Info("Building missing container", "role", role, "name", name)
 
 			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, name)

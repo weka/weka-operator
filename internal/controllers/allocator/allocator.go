@@ -535,7 +535,7 @@ func (c *Owner) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	c.ClusterName = parts[0]
 	c.Namespace = parts[1]
 	c.Container = parts[2]
-	c.Role = parts[3]
+	c.Role = weka.WekaContainerMode(parts[3])
 	return nil
 }
 
@@ -571,7 +571,7 @@ func (c Owner) ToOwnerRole() OwnerRole {
 
 type OwnerRole struct {
 	OwnerCluster
-	Role string
+	Role weka.WekaContainerMode
 }
 
 // MarshalYAML implements the yaml.Marshaler interface for CustomType.
@@ -594,7 +594,7 @@ func (c *OwnerRole) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 	c.ClusterName = parts[0]
 	c.Namespace = parts[1]
-	c.Role = parts[2]
+	c.Role = weka.WekaContainerMode(parts[2])
 	return nil
 }
 

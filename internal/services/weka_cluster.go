@@ -20,8 +20,8 @@ import (
 type WekaClusterService interface {
 	GetCluster() *wekav1alpha1.WekaCluster
 	FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error
-	EnsureNoContainers(ctx context.Context, mode string) error
-	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
+	EnsureNoContainers(ctx context.Context, mode wekav1alpha1.WekaContainerMode) error
+	GetOwnedContainers(ctx context.Context, mode wekav1alpha1.WekaContainerMode) ([]*wekav1alpha1.WekaContainer, error)
 }
 
 func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
@@ -45,7 +45,7 @@ func (r *wekaClusterService) GetCluster() *wekav1alpha1.WekaCluster {
 	return r.Cluster
 }
 
-func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string) error {
+func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode wekav1alpha1.WekaContainerMode) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNoContainers", "cluster", r.Cluster.Name, "mode", mode)
 	defer end()
 
@@ -180,7 +180,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	return nil
 }
 
-func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error) {
+func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode wekav1alpha1.WekaContainerMode) ([]*wekav1alpha1.WekaContainer, error) {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "GetClusterContainers", "cluster", r.Cluster.Name, "mode", mode, "cluster_uid", string(r.Cluster.UID))
 	defer end()
 

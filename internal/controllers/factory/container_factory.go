@@ -17,11 +17,11 @@ import (
 
 func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	template allocator.ClusterTemplate,
-	role, name string,
+	role wekav1alpha1.WekaContainerMode, name string,
 ) (*wekav1alpha1.WekaContainer, error) {
 	labels := map[string]string{
 		"weka.io/cluster-id": string(cluster.UID),
-		"weka.io/mode":       role, // in addition to spec for indexing on k8s side for filtering by mode
+		"weka.io/mode":       string(role), // in addition to spec for indexing on k8s side for filtering by mode
 	}
 	labels = util2.MergeLabels(cluster.ObjectMeta.GetLabels(), labels)
 
@@ -62,21 +62,21 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	numDrives := 0
 
 	switch role {
-	case "compute":
+	case wekav1alpha1.WekaContainerModeCompute:
 		additionalMemory = cluster.Spec.AdditionalMemory.Compute
-	case "drive":
+	case wekav1alpha1.WekaContainerModeDrive:
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
 		numDrives = template.NumDrives
-	case "s3":
+	case wekav1alpha1.WekaContainerModeS3:
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores
-	case "nfs-gateway":
+	case wekav1alpha1.WekaContainerModeNfsGateway:
 		additionalMemory = cluster.Spec.AdditionalMemory.NfsGateway
 		extraCores = template.NfsGatewayExtraCores
 	}
 
 	containerGroup := ""
-	if slices.Contains([]string{"s3", "envoy"}, role) {
+	if slices.Contains([]wekav1alpha1.WekaContainerMode{"s3", "envoy"}, role) {
 		containerGroup = "s3"
 	}
 
@@ -155,7 +155,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	return container, nil
 }
 
-func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) []v1.TopologySpreadConstraint {
+func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role wekav1alpha1.WekaContainerMode) []v1.TopologySpreadConstraint {
 	defaultConstraints := getDefaultRoleTopologySpreadConstraints(cluster, role)
 	podConstraints := make([]v1.TopologySpreadConstraint, 0)
 	podConstraints = append(podConstraints, defaultConstraints.ForRole(role)...)
@@ -181,14 +181,14 @@ func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role
 	return podConstraints
 }
 
-func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) *wekav1alpha1.RoleTopologySpreadConstraints {
+func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role wekav1alpha1.WekaContainerMode) *wekav1alpha1.RoleTopologySpreadConstraints {
 	constraints := &wekav1alpha1.RoleTopologySpreadConstraints{}
 
 	if cluster.Spec.FailureDomainLabel == nil {
 		return constraints
 	}
 
-	if !slices.Contains([]string{"compute", "drive", "s3"}, role) {
+	if !slices.Contains([]wekav1alpha1.WekaContainerMode{wekav1alpha1.WekaContainerModeCompute, wekav1alpha1.WekaContainerModeDrive, wekav1alpha1.WekaContainerModeS3}, role) {
 		return constraints
 	}
 
@@ -199,17 +199,17 @@ func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, 
 		LabelSelector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{
 				"weka.io/cluster-id": string(cluster.UID),
-				"weka.io/mode":       role,
+				"weka.io/mode":       string(role),
 			},
 		},
 	}
 
 	switch role {
-	case "compute":
+	case wekav1alpha1.WekaContainerModeCompute:
 		constraints.Compute = append(constraints.Compute, constraint)
-	case "drive":
+	case wekav1alpha1.WekaContainerModeDrive:
 		constraints.Drive = append(constraints.Drive, constraint)
-	case "s3":
+	case wekav1alpha1.WekaContainerModeS3:
 		constraints.S3 = append(constraints.S3, constraint)
 	}
 	return constraints

@@ -226,7 +226,7 @@ func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string,
 	return fmt.Sprintf("%s@sha256:%s", imageBase, imageTag), nil
 }
 
-func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, namespace, mode string) ([]*weka.WekaContainer, error) {
+func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, namespace string, mode weka.WekaContainerMode) ([]*weka.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOwnedContainers", "owner", owner, "mode", mode, "namespace", namespace)
 	defer end()
 
@@ -236,7 +236,7 @@ func GetOwnedContainers(ctx context.Context, c client.Client, owner types.UID, n
 		client.MatchingFields{"metadata.ownerReferences.uid": string(owner)},
 	}
 	if mode != "" {
-		listOpts = append(listOpts, client.MatchingLabels{"weka.io/mode": mode})
+		listOpts = append(listOpts, client.MatchingLabels{"weka.io/mode": string(mode)})
 	}
 
 	err := c.List(ctx, &containersList, listOpts...)

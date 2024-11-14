@@ -123,7 +123,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		}
 
 		labels := map[string]string{
-			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
+			"weka.io/mode": string(weka.WekaContainerModeAdhocOpWC),
 		}
 		labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
 

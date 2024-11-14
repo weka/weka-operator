@@ -137,7 +137,7 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 		}
 
 		labels := map[string]string{
-			"weka.io/mode": v1alpha1.WekaContainerModeAdhocOp,
+			"weka.io/mode": string(v1alpha1.WekaContainerModeAdhocOp),
 		}
 		labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
 
