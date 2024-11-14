@@ -12,7 +12,7 @@ import (
 )
 
 type ContainerTestCase struct {
-	mode          string
+	mode          wekav1alpha1.WekaContainerMode
 	cpuPolicy     wekav1alpha1.CpuPolicy
 	expectedError bool
 }
@@ -41,7 +41,7 @@ type ContainerTestCase struct {
 func CanCreateContainer(testEnv *TestEnvironment, test ContainerTestCase) func(t *testing.T) {
 	ctx := testEnv.Ctx
 	return func(t *testing.T) {
-		name := test.mode + "-" + string(test.cpuPolicy)
+		name := string(test.mode) + "-" + string(test.cpuPolicy)
 		key := client.ObjectKey{
 			Namespace: "default",
 			Name:      fmt.Sprintf("test-container-%s", name),

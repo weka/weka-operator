@@ -82,7 +82,7 @@ func buildTestContainers(cluster *weka.WekaCluster, nodeNamePool []weka.NodeName
 			containers = append(containers, &weka.WekaContainer{
 				Spec: weka.WekaContainerSpec{
 					NodeAffinity: placement,
-					Mode:         mode,
+					Mode:         weka.WekaContainerMode(mode),
 					NumDrives:    numDrives,
 				},
 				ObjectMeta: v1.ObjectMeta{
