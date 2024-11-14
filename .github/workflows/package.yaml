@@ -19,6 +19,8 @@ permissions:
 jobs:
   Helm-Release:
     runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
     steps:
