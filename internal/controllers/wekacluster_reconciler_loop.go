@@ -232,6 +232,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 
 	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusGracePeriod {
 		cluster.Status.Status = wekav1alpha1.WekaClusterStatusGracePeriod
+		resetWekaStatusCounters(cluster)
 		err := r.getClient().Status().Update(ctx, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to update cluster status")
@@ -266,6 +267,17 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	deletionTime := r.cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
 	logger.Debug("Not graceful deletion", "deletionTime", deletionTime, "now", time.Now(), "gracefulDestroyDuration", gracefulDestroyDuration)
 
+	cluster := r.cluster
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDestroying {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDestroying
+		resetWekaStatusCounters(cluster)
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
+	}
+
 	if controllerutil.ContainsFinalizer(r.cluster, WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
@@ -292,11 +304,19 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	cluster := r.cluster
 	clusterService := r.clusterService
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDeallocating {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDeallocating
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
+	}
 
 	err := clusterService.EnsureNoContainers(ctx, "s3")
 	if err != nil {
@@ -1254,8 +1274,7 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) resetWekaStatusCounters(ctx context.Context) error {
-	cluster := r.cluster
+func resetWekaStatusCounters(cluster *wekav1alpha1.WekaCluster) {
 	cluster.Status.Counters.Active.NumDrives = 0
 	cluster.Status.Counters.Active.NumComputeProcesses = 0
 	cluster.Status.Counters.Active.NumDriveProcesses = 0
@@ -1270,25 +1289,31 @@ func (r *wekaClusterReconcilerLoop) resetWekaStatusCounters(ctx context.Context)
 	cluster.Status.Iops.Total = 0
 	cluster.Status.PrinterColumns.Throughput = ""
 	cluster.Status.PrinterColumns.Iops = ""
-	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Context) error {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaClusterCounters")
 	defer end()
 	cluster := r.cluster
+	defer func() {
+		_ = r.getClient().Status().Update(ctx, cluster)
+	}()
+
+	if cluster.IsTerminating() || r.cluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
+		resetWekaStatusCounters(cluster)
+		return nil
+	}
+
 	executor, err := r.ExecService.GetExecutor(ctx, r.containers[0])
 	if err != nil || executor == nil {
+		resetWekaStatusCounters(cluster)
 		return errors.New("Failed to create executor")
 	}
 	cmd := "weka status -J"
 	stdout, stderr, err := executor.ExecNamed(ctx, "FetchWekaClusterStats", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.SetError(err, "Failed to fetch weka status", "stderr", stderr.String())
-		_ = r.resetWekaStatusCounters(ctx)
+		resetWekaStatusCounters(cluster)
 		return errors.Wrapf(err, "Failed to fetch weka status: %s", stderr.String())
 	}
 
@@ -1297,7 +1322,7 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
-		_ = r.resetWekaStatusCounters(ctx)
+		resetWekaStatusCounters(cluster)
 		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
 	}
 
@@ -1324,10 +1349,6 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 	iopsWrite := util2.HumanReadableIops(wekaStatus.Activity.NumWrites)
 	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
 	cluster.Status.PrinterColumns.Iops = fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther)
-
-	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
-		return err
-	}
 
 	return nil
 }
