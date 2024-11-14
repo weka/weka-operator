@@ -961,6 +961,10 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "driversLoaded")
 	defer end()
 
+	if !r.container.RequiresDrivers() {
+		return true, nil
+	}
+
 	pod := r.pod
 
 	executor, err := util.NewExecInPod(pod)
@@ -980,7 +984,8 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 		return true, nil
 	}
 
-	return false, fmt.Errorf("driver %s is not loaded", missingDriverName)
+	logger.Info("Driver not loaded", "missing_driver", missingDriverName)
+	return false, nil
 }
 
 func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {

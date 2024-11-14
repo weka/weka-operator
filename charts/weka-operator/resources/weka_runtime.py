@@ -234,34 +234,30 @@ async def ensure_drivers():
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
     if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
-            load_drivers_threshold = 3
-            attempts = 0
             stdout, stderr, ec = await run_command("weka driver ready")
             if ec != 0:
-                attempts += 1
-                if attempts == load_drivers_threshold:
-                    with open("/tmp/weka-drivers.log_tmp", "w") as f:
-                        f.write("weka-drivers-loading")
-                        logging.warning(f"Drivers are not loaded, waiting for them")
-                    os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
+                with open("/tmp/weka-drivers.log_tmp", "w") as f:
+                    f.write("weka-drivers-loading")
+                    logging.warning(f"Drivers are not loaded, waiting for them")
+                os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
                 logging.error(f"Failed to validate drivers {stderr.decode('utf-8')}: exc={ec}")
                 await asyncio.sleep(1)
                 continue
             logging.info("drivers are ready")
-            return
-    for driver in drivers:
-        while True:
-            stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
-            if ec == 0:
-                break
-            # write driver name into /tmp/weka-drivers.log
-            logging.info(f"Driver {driver} not loaded, waiting for it")
-            with open("/tmp/weka-drivers.log_tmp", "w") as f:
-                logging.warning(f"Driver {driver} not loaded, waiting for it")
-                f.write(driver)
-            os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
-            await asyncio.sleep(1)
-            continue
+    else:
+        for driver in drivers:
+            while True:
+                stdout, stderr, ec = await run_command(f"lsmod | grep -w {driver}")
+                if ec == 0:
+                    break
+                # write driver name into /tmp/weka-drivers.log
+                logging.info(f"Driver {driver} not loaded, waiting for it")
+                with open("/tmp/weka-drivers.log_tmp", "w") as f:
+                    logging.warning(f"Driver {driver} not loaded, waiting for it")
+                    f.write(driver)
+                os.rename("/tmp/weka-drivers.log_tmp", "/tmp/weka-drivers.log")
+                await asyncio.sleep(1)
+                continue
 
     with open("/tmp/weka-drivers.log_tmp", "w") as f:
         f.write("")
