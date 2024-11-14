@@ -95,6 +95,26 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.getCurrentContainers,
 			},
 			{
+				Run: loop.UpdateClusterCounters,
+			},
+			{
+				Run: loop.UpdateWekaClusterCounters,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						for _, c := range loop.cluster.Status.Conditions {
+							if c.Type == condition.CondClusterCreated {
+								if time.Since(c.LastTransitionTime.Time) > time.Second*5 {
+									return true
+								}
+							}
+						}
+						return false
+					},
+					lifecycle.IsNotFunc(loop.cluster.IsTerminating),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.HandleGracefulDeletion,
 				Predicates: lifecycle.Predicates{
 					loop.ClusterIsInGracefulDeletion,
@@ -125,25 +145,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Run: loop.HandleSpecUpdates,
-			},
-			{
-				Run: loop.UpdateClusterCounters,
-			},
-			{
-				Run: loop.UpdateWekaClusterCounters,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						for _, c := range loop.cluster.Status.Conditions {
-							if c.Type == condition.CondClusterCreated {
-								if time.Since(c.LastTransitionTime.Time) > time.Second*5 {
-									return true
-								}
-							}
-						}
-						return false
-					},
-				},
-				ContinueOnPredicatesFalse: true,
 			},
 			{
 				Condition:             condition.CondContainerResourcesAllocated,
