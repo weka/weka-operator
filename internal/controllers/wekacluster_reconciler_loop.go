@@ -1254,7 +1254,31 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) resetWekaStatusCounters(ctx context.Context) error {
+	cluster := r.cluster
+	cluster.Status.Counters.Active.NumDrives = 0
+	cluster.Status.Counters.Active.NumComputeProcesses = 0
+	cluster.Status.Counters.Active.NumDriveProcesses = 0
+	cluster.Status.Counters.Created.NumComputeProcesses = 0
+	cluster.Status.Counters.Created.NumDriveProcesses = 0
+	cluster.Status.Counters.Created.NumDrives = 0
+	cluster.Status.Throughput.Read = 0
+	cluster.Status.Throughput.Write = 0
+	cluster.Status.Iops.Read = 0
+	cluster.Status.Iops.Write = 0
+	cluster.Status.Iops.Metadata = 0
+	cluster.Status.Iops.Total = 0
+	cluster.Status.PrinterColumns.Throughput = ""
+	cluster.Status.PrinterColumns.Iops = ""
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Context) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaClusterCounters")
+	defer end()
 	cluster := r.cluster
 	executor, err := r.ExecService.GetExecutor(ctx, r.containers[0])
 	if err != nil || executor == nil {
@@ -1263,6 +1287,8 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 	cmd := "weka status -J"
 	stdout, stderr, err := executor.ExecNamed(ctx, "FetchWekaClusterStats", []string{"bash", "-ce", cmd})
 	if err != nil {
+		logger.SetError(err, "Failed to fetch weka status", "stderr", stderr.String())
+		_ = r.resetWekaStatusCounters(ctx)
 		return errors.Wrapf(err, "Failed to fetch weka status: %s", stderr.String())
 	}
 
@@ -1271,22 +1297,17 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
-		cluster.Status.Counters.Active.NumDrives = 0
-		cluster.Status.Counters.Active.NumComputeProcesses = 0
-		cluster.Status.Counters.Active.NumDriveProcesses = 0
-		cluster.Status.Counters.Active.NumDrives = 0
-
+		_ = r.resetWekaStatusCounters(ctx)
 		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
 	}
 
-	cluster.Status.Counters.Active.NumDrives = int64(wekaStatus.Drives.Active)
 	cluster.Status.Counters.Active.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Active)
 	cluster.Status.Counters.Active.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Active)
 	cluster.Status.Counters.Active.NumDrives = int64(wekaStatus.Drives.Active)
 
-	cluster.Status.Counters.Created.NumDrives = int64(wekaStatus.Drives.Total)
 	cluster.Status.Counters.Created.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Total)
 	cluster.Status.Counters.Created.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Total)
+	cluster.Status.Counters.Created.NumDrives = int64(wekaStatus.Drives.Total)
 
 	cluster.Status.Throughput.Read = int64(wekaStatus.Activity.SumBytesRead)
 	cluster.Status.Throughput.Write = int64(wekaStatus.Activity.SumBytesWritten)
