@@ -309,14 +309,6 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 
 	cluster := r.cluster
 	clusterService := r.clusterService
-	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDeallocating {
-		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDeallocating
-		err := r.getClient().Status().Update(ctx, cluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return err
-		}
-	}
 
 	err := clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 	if err != nil {
@@ -331,6 +323,15 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
 		return err
+	}
+
+	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDeallocating {
+		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDeallocating
+		err := r.getClient().Status().Update(ctx, cluster)
+		if err != nil {
+			logger.Error(err, "Failed to update cluster status")
+			return err
+		}
 	}
 
 	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
