@@ -958,10 +958,6 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, error) {
-	if r.container.IsClientContainer() || r.container.IsS3Container() {
-		return true, nil
-	}
-
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "driversLoaded")
 	defer end()
 
