@@ -251,7 +251,7 @@ func (w *WekaContainer) IsDiscoveryContainer() bool {
 }
 
 func (w *WekaContainer) IsAdhocOpContainer() bool {
-	return slices.Contains([]string{WekaContainerModeAdhocOpWC, WekaContainerModeAdhocOp}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeAdhocOpWC, WekaContainerModeAdhocOp, WekaContainerModeDriversLoader}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasPersistentStorage() bool {
