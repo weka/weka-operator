@@ -949,8 +949,13 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		details.Image = r.container.Spec.DriversLoaderImage
 	}
 
+	err := r.updateStatusWaitForDrivers(ctx)
+	if err != nil {
+		return err
+	}
+
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
-	err := operations.ExecuteOperation(ctx, driversLoader)
+	err = operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
 	}
@@ -1427,6 +1432,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
 	if err != nil {
+		logger.Error(err, "Error getting weka local ps", "stderr", stderr.String())
+
 		// TODO: Validate agent-specific errors, but should not be very important
 		// check if drivers should be force-reloaded
 		loaded, driversErr := r.driversLoaded(ctx)
@@ -1435,6 +1442,11 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		}
 
 		if !loaded {
+			err = r.updateStatusWaitForDrivers(ctx)
+			if err != nil {
+				return err
+			}
+
 			details := r.container.ToContainerDetails()
 			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
