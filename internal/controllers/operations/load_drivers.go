@@ -21,6 +21,22 @@ import (
 
 const driversLoadedAnnotation = "weka.io/drivers-loaded"
 
+func getExpectedDriversVersion(image, bootId string) string {
+	return fmt.Sprintf("%s:%s", image, bootId)
+}
+
+func DriversLoaded(node *v1.Node, image string, isFrontend bool) bool {
+	annotations := node.Annotations
+	current, ok := annotations[driversLoadedAnnotation]
+	if ok && !isFrontend {
+		return true
+	}
+	if current == getExpectedDriversVersion(image, node.Status.NodeInfo.BootID) {
+		return true
+	}
+	return false
+}
+
 type LoadDrivers struct {
 	mgr                 ctrl.Manager
 	client              client.Client
@@ -32,9 +48,10 @@ type LoadDrivers struct {
 	container           *weka.WekaContainer
 	namespace           string
 	isFrontend          bool // defines whether we should enforce latest version, or suffice with any version
+	force               bool // ignores existing node annotation
 }
 
-func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.WekaContainerDetails, distServiceEndpoint string, isFrontend bool) *LoadDrivers {
+func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.WekaContainerDetails, distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace()
 	return &LoadDrivers{
@@ -47,6 +64,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.W
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
 		isFrontend:          isFrontend,
+		force:               force,
 	}
 }
 
@@ -109,19 +127,14 @@ func (o *LoadDrivers) NodeRebooted() bool {
 }
 
 func (o *LoadDrivers) IsLoaded() bool {
-	annotations := o.node.Annotations
-	current, ok := annotations[driversLoadedAnnotation]
-	if ok && !o.isFrontend {
-		return true
+	if o.force {
+		return false
 	}
-	if current == o.GetExpectedDriversVersion() {
-		return true
-	}
-	return false
+	return DriversLoaded(o.node, o.containerDetails.Image, o.isFrontend)
 }
 
 func (o *LoadDrivers) GetExpectedDriversVersion() string {
-	return fmt.Sprintf("%s:%s", o.containerDetails.Image, o.node.Status.NodeInfo.BootID)
+	return getExpectedDriversVersion(o.containerDetails.Image, o.node.Status.NodeInfo.BootID)
 }
 
 func (o *LoadDrivers) ExitIfLoaded(ctx context.Context) error {

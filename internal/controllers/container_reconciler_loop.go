@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.opentelemetry.io/otel/attribute"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -187,7 +187,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.resetEnsureDriversForNewPod},
 			{Run: loop.WaitForRunning},
 			{
 				Run:       loop.WriteResources,
@@ -217,7 +216,10 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{
 				Run: loop.updateAdhocOpStatus,
 				Predicates: lifecycle.Predicates{
-					container.IsAdhocOpContainer,
+					lifecycle.Or(
+						container.IsAdhocOpContainer,
+						container.IsDriversLoaderMode,
+					),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -281,6 +283,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 				CondMessage:               "Container joined cluster",
+			},
+			{
+				Run: loop.checkNodeAnnotation,
 			},
 			{
 				Condition:   condition.CondDrivesAdded,
@@ -948,35 +953,6 @@ func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
 	return lifecycle.NewWaitError(errors.New("Pod is finished and will be deleted"))
 }
 
-func (r *containerReconcilerLoop) resetEnsureDriversForNewPod(ctx context.Context) error {
-	container := r.container
-	pod := r.pod
-	// reset drivers condition if pod started after last transition time. Basically every restart will cause re-go after this
-	// and considering it is every restart, we might/should for simpler solution here and recognize re-build at more appropriate place
-	// another option, where this code suits better - fetch node status and compare its uptime to when condition was set
-	if meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondEnsureDrivers) {
-		for _, containerStatus := range pod.Status.ContainerStatuses {
-			if containerStatus.Name == "weka-container" && containerStatus.State.Running != nil {
-				for _, cond := range container.Status.Conditions {
-					if cond.Type == condition.CondEnsureDrivers {
-						if containerStatus.State.Running.StartedAt.After(cond.LastTransitionTime.Time) {
-							meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-								Type:   condition.CondEnsureDrivers,
-								Status: metav1.ConditionUnknown, Reason: "Reset", Message: "Drivers are not ensured",
-							})
-							err := r.Status().Update(ctx, container)
-							if err != nil {
-								return lifecycle.NewWaitError(err)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return nil
-}
-
 func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context) error {
 	if r.container.Status.Status != WaitForDrivers {
 		r.container.Status.Status = WaitForDrivers
@@ -988,20 +964,53 @@ func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context
 	return nil
 }
 
+func (r *containerReconcilerLoop) checkNodeAnnotation(ctx context.Context) error {
+	node := r.node
+	container := r.container
+
+	if node == nil {
+		err := errors.New("Node not found")
+		return err
+	}
+
+	if node.Annotations == nil || !operations.DriversLoaded(node, container.Spec.Image, container.HasFrontend()) {
+		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
+			Type:    condition.CondEnsureDrivers,
+			Status:  metav1.ConditionFalse,
+			Reason:  "NoNodeAnnotation",
+			Message: "Node annotation not found or it has wrong value of driver version",
+		})
+		err := r.Status().Update(ctx, container)
+		if err != nil {
+			err = errors.Wrap(err, "cannot update container status with 'no node annotation'")
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	details := r.container.ToContainerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
 		details.Image = r.container.Spec.DriversLoaderImage
 	}
-	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend())
-	return operations.ExecuteOperation(ctx, driversLoader)
+
+	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
+	err := operations.ExecuteOperation(ctx, driversLoader)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) error {
+	if r.container.IsClientContainer() || r.container.IsS3Container() {
+		return nil
+	}
+
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileDriversStatus")
 	defer end()
 
-	container := r.container
 	pod := r.pod
 
 	executor, err := util.NewExecInPod(pod)
@@ -1013,119 +1022,15 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 	if err != nil {
 		return errors.Wrap(err, stderr.String())
 	}
-	if strings.TrimSpace(stdout.String()) == "" {
+
+	missingDriverName := strings.TrimSpace(stdout.String())
+
+	if missingDriverName == "" {
 		logger.InfoWithStatus(codes.Ok, "Drivers already loaded")
 		return nil
 	}
 
-	if container.Spec.DriversDistService != "" {
-		logger.Info("Drivers not loaded, ensuring drivers dist service")
-		err2 := r.ensureDriversLoader(ctx)
-		if err2 != nil {
-			logger.Error(err2, "Error ensuring drivers loader", "container", container.Name)
-		}
-	}
-
-	return errors.New("Drivers not loaded")
-}
-
-// Refactor drivers handling as operation
-func (r *containerReconcilerLoop) ensureDriversLoader(ctx context.Context) error {
-	container := r.container
-	pod := r.pod
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureDriversLoader", "container", container.Name)
-	defer end()
-
-	// namespace := pod.Namespace
-	namespace, err := util.GetPodNamespace()
-	if err != nil {
-		logger.Error(err, "GetPodNamespace")
-		return err
-	}
-	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
-	if serviceAccountName == "" {
-		return fmt.Errorf("cannot create driver loader container, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
-	}
-	name, err := r.getDriverLoaderName(ctx, container)
-	if err != nil {
-		logger.Error(err, "error naming driver loader pod")
-		return err
-	}
-	loaderContainer := &weka.WekaContainer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    container.ObjectMeta.GetLabels(),
-		},
-		Spec: weka.WekaContainerSpec{
-			Image:               container.Spec.Image,
-			Mode:                weka.WekaContainerModeDriversLoader,
-			ImagePullSecret:     container.Spec.ImagePullSecret,
-			Hugepages:           0,
-			NodeAffinity:        container.GetNodeAffinity(),
-			DriversDistService:  container.Spec.DriversDistService,
-			TracesConfiguration: container.Spec.TracesConfiguration,
-			Tolerations:         container.Spec.Tolerations,
-			NodeSelector:        container.Spec.NodeSelector,
-			ServiceAccountName:  serviceAccountName,
-		},
-	}
-
-	found := &weka.WekaContainer{}
-	err = r.Get(ctx, client.ObjectKey{Name: loaderContainer.Name, Namespace: loaderContainer.ObjectMeta.Namespace}, found)
-	l := logger.WithValues("container", loaderContainer.Name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			l.Info("Creating drivers loader pod", "node_name", pod.Spec.NodeName, "namespace", loaderContainer.Namespace)
-			err = r.Create(ctx, loaderContainer)
-			if err != nil {
-				l.Error(err, "Error creating drivers loader pod")
-				return err
-			}
-		}
-	}
-	if found != nil {
-		// logger.InfoWithStatus(codes.Ok, "Drivers loader pod already exists")
-		// Could be debug? we dont have good debug right now, and this one is spamming
-		return nil // TODO: Update handling?
-	}
-	// Should we have an owner? Or should we just delete it once done? We cant have owner in different namespace
-	// It would be convenient, if container would just exit.
-	// Maybe, we should just replace this with completely different entry point and consolidate everything under single script
-	// Agent does us no good. Container that runs on-time and just finished and removed afterwards would be simpler
-	loaderContainer.Status.Status = "Active"
-	if err := r.Status().Update(ctx, loaderContainer); err != nil {
-		l.Error(err, "Failed to update status of container")
-		return err
-
-	}
-	return nil
-}
-
-func (r *containerReconcilerLoop) getDriverLoaderName(ctx context.Context, container *weka.WekaContainer) (string, error) {
-	node := container.GetNodeAffinity()
-	if node == "" {
-		return "", errors.New("node affinity not set")
-	}
-	name := fmt.Sprintf("weka-drivers-loader-%s", node)
-	if len(name) <= 63 {
-		return name, nil
-	}
-
-	nodeObj := &v1.Node{}
-	err := r.Get(ctx, client.ObjectKey{Name: string(node)}, nodeObj)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to get node")
-	}
-	if nodeObj == nil {
-		return "", errors.New("node not found")
-	}
-
-	name = fmt.Sprintf("weka-drivers-loader-%s", nodeObj.UID)
-	if len(name) > 63 {
-		return "", errors.New("driver loader pod name too long")
-	}
-	return name, nil
+	return fmt.Errorf("driver %s is not loaded", missingDriverName)
 }
 
 func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
@@ -1142,11 +1047,15 @@ func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "FetchResults", []string{"cat", "/weka-runtime/results.json"})
 	if err != nil {
-		return errors.New(fmt.Sprintf("Error fetching results, stderr: %s", stderr.String()))
+		return fmt.Errorf("Error fetching results, stderr: %s", stderr.String())
+	}
+
+	result := stdout.String()
+	if result == "" {
+		return errors.New("Empty result")
 	}
 
 	// update container to set execution result on container object
-	result := string(stdout.Bytes())
 	container.Status.ExecutionResult = &result
 	err = r.Status().Update(ctx, container)
 	if err != nil {
@@ -1511,32 +1420,21 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 	return r.Status().Update(ctx, r.container)
 }
 
-func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
+func (r *containerReconcilerLoop) handleWekaLocalPsResponse(ctx context.Context, stdout []byte, psErr error) (response []resources.WekaLocalPs, err error) {
+	if psErr != nil {
+		return nil, psErr
+	}
 
 	container := r.container
-	pod := r.pod
 
-	executor, err := util.NewExecInPod(pod)
+	err = json.Unmarshal(stdout, &response)
 	if err != nil {
-		return err
-	}
-
-	statusCommand := fmt.Sprintf("weka local ps -J")
-	stdout, _, err := executor.ExecNamed(ctx, "WekaLocalPs", []string{"bash", "-ce", statusCommand})
-	if err != nil {
-		return err
-	}
-	response := []resources.WekaLocalPs{}
-	err = json.Unmarshal(stdout.Bytes(), &response)
-	if err != nil {
-		return err
+		return
 	}
 
 	if len(response) == 0 {
-		err := errors.New("Expected at least one container to be present, none found")
-		return err
+		err = errors.New("Expected at least one container to be present, none found")
+		return
 	}
 
 	found := false
@@ -1551,8 +1449,51 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	if !found {
-		err := errors.New("weka container not found")
+		err = errors.New("weka container not found")
+		return
+	}
+	return
+}
+
+func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+	pod := r.pod
+
+	executor, err := util.NewExecInPod(pod)
+	if err != nil {
 		return err
+	}
+
+	statusCommand := "weka local ps -J"
+	stdout, stderr, err := executor.ExecNamed(ctx, "WekaLocalPs", []string{"bash", "-ce", statusCommand})
+
+	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
+	if err != nil {
+		forceReload := false
+		details := r.container.ToContainerDetails()
+
+		// check if drivers should be force-reloaded
+		driversErr := r.reconcileDriversStatus(ctx)
+		if driversErr != nil {
+			// extend error message with original error
+			driversErr = fmt.Errorf("weka local ps failed: %v, stderr: %s; drivers are not loaded: %v", err, stderr.String(), driversErr)
+			logger.Error(driversErr, "Drivers are not loaded")
+
+			forceReload = true
+		}
+
+		driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), forceReload)
+		loaderErr := operations.ExecuteOperation(ctx, driversLoader)
+		if loaderErr != nil {
+			err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
+			return lifecycle.NewWaitError(err)
+		}
+
+		err = fmt.Errorf("weka local ps failed: %v, stderr: %s", err, stderr.String())
+		return lifecycle.NewWaitError(err)
 	}
 
 	status := response[0].RunStatus

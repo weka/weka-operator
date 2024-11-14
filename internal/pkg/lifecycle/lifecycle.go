@@ -71,6 +71,17 @@ func IsTrueCondition(condition string, currentConditions *[]metav1.Condition) Pr
 	}
 }
 
+func Or(predicates ...PredicateFunc) PredicateFunc {
+	return func() bool {
+		for _, predicate := range predicates {
+			if predicate() {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // Errors ----------------------------------------------------------------------
 type AbortedByPredicate struct {
 	error
