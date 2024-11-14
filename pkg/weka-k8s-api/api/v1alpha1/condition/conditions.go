@@ -26,6 +26,11 @@ const (
 	CondResultsProcessed             = "CondResultsProcessed"
 	CondEnsureDrivers                = "EnsuredDrivers"
 	CondContainerResourcesAllocated  = "ContainerResourcesAllocated"
+	CondContainerDeactivated         = "ContainerDeactivated"
+	CondContainerDrivesDeactivated   = "ContainerDrivesDeactivated"
+	CondContainerRemoved             = "ContainerRemoved"
+	CondContainerDrivesResigned      = "ContainerDrivesResigned"
+	CondContainerDrivesRemoved       = "ContainerDriveRemoved"
 	CondContainerAffinitySet         = "ContainerAffinitySet"
 	CondClusterReady                 = "ClusterIsReady"
 )

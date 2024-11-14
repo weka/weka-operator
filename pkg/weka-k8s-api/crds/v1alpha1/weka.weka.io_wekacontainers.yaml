@@ -1580,6 +1580,10 @@ spec:
                 type: string
               result:
                 type: string
+              skipDeactivate:
+                type: boolean
+              skipDrivesForceResign:
+                type: boolean
               status:
                 type: string
             required:

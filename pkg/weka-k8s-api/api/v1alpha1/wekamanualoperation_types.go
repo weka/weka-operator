@@ -7,6 +7,7 @@ import (
 
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
+	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;ensure-nics
 	Action          string                `json:"action"`
 	Payload         ManualOperatorPayload `json:"payload"`
 	Image           string                `json:"image"`
@@ -47,10 +48,11 @@ type WekaManualOperationList struct {
 }
 
 type ManualOperatorPayload struct {
-	SignDrives     *SignDrivesPayload     `json:"signDrivesPayload,omitempty"`
-	BlockDrives    *BlockDrivesPayload    `json:"blockDrivesPayload,omitempty"`
-	DiscoverDrives *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
-	EnsureNICs     *EnsureNICsPayload     `json:"ensureNICsPayload,omitempty"`
+	SignDrives        *SignDrivesPayload        `json:"signDrivesPayload,omitempty"`
+	BlockDrives       *BlockDrivesPayload       `json:"blockDrivesPayload,omitempty"`
+	DiscoverDrives    *DiscoverDrivesPayload    `json:"discoverDrivesPayload,omitempty"`
+	EnsureNICs        *EnsureNICsPayload        `json:"ensureNICsPayload,omitempty"`
+	ForceResignDrives *ForceResignDrivesPayload `json:"forceResignDrivesPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -93,6 +95,12 @@ type SignDrivesPayload struct {
 	//    00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]
 	//    ```
 	PCIDevices *PCIDevices `json:"pciDevices,omitempty"`
+}
+
+type ForceResignDrivesPayload struct {
+	NodeName      NodeName `json:"node_name"`
+	DeviceSerials []string `json:"device_serials,omitempty"`
+	DevicePaths   []string `json:"device_paths,omitempty"`
 }
 
 type BlockDrivesPayload struct {

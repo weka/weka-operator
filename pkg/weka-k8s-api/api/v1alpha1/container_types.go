@@ -147,16 +147,18 @@ type ContainerAllocations struct {
 }
 
 type WekaContainerStatus struct {
-	Status             string                `json:"status"`
-	Message            string                `json:"message,omitempty"`
-	ManagementIP       string                `json:"managementIP,omitempty"`
-	ClusterContainerID *int                  `json:"containerID,omitempty"`
-	ClusterID          string                `json:"clusterID,omitempty"`
-	Conditions         []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage   string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	NodeAffinity       NodeName              `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
-	ExecutionResult    *string               `json:"result,omitempty"`
-	Allocations        *ContainerAllocations `json:"allocations,omitempty"`
+	Status                string                `json:"status"`
+	Message               string                `json:"message,omitempty"`
+	ManagementIP          string                `json:"managementIP,omitempty"`
+	ClusterContainerID    *int                  `json:"containerID,omitempty"`
+	ClusterID             string                `json:"clusterID,omitempty"`
+	Conditions            []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage      string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	NodeAffinity          NodeName              `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	ExecutionResult       *string               `json:"result,omitempty"`
+	Allocations           *ContainerAllocations `json:"allocations,omitempty"`
+	SkipDeactivate        bool                  `json:"skipDeactivate,omitempty"`
+	SkipDrivesForceResign bool                  `json:"skipDrivesForceResign,omitempty"`
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
@@ -409,6 +411,18 @@ func (c *WekaContainer) IsMarkedForDeletion() bool {
 
 func (c *WekaContainer) IsPaused() bool {
 	return c.Spec.State == ContainerStatePaused
+}
+
+func (c *WekaContainer) IsDeactivated() bool {
+	return meta.IsStatusConditionTrue(c.Status.Conditions, condition.CondContainerDeactivated)
+}
+
+func (c *WekaContainer) IsRemoved() bool {
+	return meta.IsStatusConditionTrue(c.Status.Conditions, condition.CondContainerRemoved)
+}
+
+func (c *WekaContainer) DrivesRemoved() bool {
+	return meta.IsStatusConditionTrue(c.Status.Conditions, condition.CondContainerDrivesRemoved)
 }
 
 type WekaContainerDetails struct {

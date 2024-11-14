@@ -443,6 +443,10 @@ func (c *WekaCluster) IsTerminating() bool {
 	return c.Status.Status == WekaClusterStatusDeallocating || c.Status.Status == WekaClusterStatusDestroying
 }
 
+func (c *WekaCluster) IsReady() bool {
+	return c.Status.Status == WekaClusterStatusReady
+}
+
 func (c *WekaCluster) IsExpand() bool {
 	return len(c.Spec.ExpandEndpoints) != 0
 }
