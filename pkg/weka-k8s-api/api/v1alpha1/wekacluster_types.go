@@ -27,9 +27,11 @@ import (
 type WekaClusterStatusEnum string
 
 const (
-	WekaClusterStatusInit        WekaClusterStatusEnum = "Init"
-	WekaClusterStatusReady       WekaClusterStatusEnum = "Ready"
-	WekaClusterStatusGracePeriod WekaClusterStatusEnum = "GracePeriod"
+	WekaClusterStatusInit         WekaClusterStatusEnum = "Init"
+	WekaClusterStatusReady        WekaClusterStatusEnum = "Ready"
+	WekaClusterStatusGracePeriod  WekaClusterStatusEnum = "GracePeriod"
+	WekaClusterStatusDestroying   WekaClusterStatusEnum = "Destroying"
+	WekaClusterStatusDeallocating WekaClusterStatusEnum = "Deallocating"
 )
 
 type NetworkSelector struct {
@@ -374,6 +376,10 @@ func (c *WekaCluster) GetClusterCSIUsername() string {
 
 func (c *WekaCluster) IsMarkedForDeletion() bool {
 	return !c.GetDeletionTimestamp().IsZero()
+}
+
+func (c *WekaCluster) IsTerminating() bool {
+	return c.Status.Status == WekaClusterStatusDeallocating || c.Status.Status == WekaClusterStatusDestroying
 }
 
 func (c *WekaCluster) IsExpand() bool {
