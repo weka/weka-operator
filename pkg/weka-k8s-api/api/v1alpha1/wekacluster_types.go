@@ -250,14 +250,28 @@ type PrinterColumns struct {
 	ComputeContainers string `json:"ComputeContainers,omitempty"`
 	DriveContainers   string `json:"DriveContainers,omitempty"`
 	Drives            string `json:"Drives,omitempty"`
+	Throughput        string `json:"Throughput,omitempty"`
+	Iops              string `json:"Iops,omitempty"`
+}
+
+type StatusThroughput struct {
+	Read  int64 `json:"read"`
+	Write int64 `json:"write"`
+}
+
+type StatusIops struct {
+	Read     int64 `json:"read"`
+	Write    int64 `json:"write"`
+	Metadata int64 `json:"metadata"`
+	Total    int64 `json:"total"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
 	Status           WekaClusterStatusEnum `json:"status"`
 	Conditions       []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	Throughput       string                `json:"throughput"`
-	Iops             string                `json:"iops"`
+	Throughput       StatusThroughput      `json:"throughput,omitempty"`
+	Iops             StatusIops            `json:"iops,omitempty"`
 	ClusterID        string                `json:"clusterID,omitempty"`
 	TraceId          string                `json:"traceId,omitempty"`
 	SpanID           string                `json:"spanId,omitempty"`
@@ -281,8 +295,8 @@ type WekaClusterStatus struct {
 // +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printerColumns.ComputeContainers",description="Number of compute containers: Active/Created/Desired",priority=0
 // +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printerColumns.DriveContainers",description="Number of drive containers: Active/Created/Desired",priority=0
 // +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printerColumns.Drives",description="Number of Drives: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.iops",description="Throughput Read/Write/Metadata",priority=1
-// +kubebuilder:printcolumn:name="TPS(R/W)",type="string",JSONPath=".status.throughput",description="Throughput Read/Write",priority=1
+// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printerColumns.Iops",description="IOPS Read/Write/Metadata",priority=1
+// +kubebuilder:printcolumn:name="TPS(R/W)",type="string",JSONPath=".status.printerColumns.Throughput",description="Throughput Read/Write",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
