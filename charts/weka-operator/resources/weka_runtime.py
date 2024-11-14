@@ -234,7 +234,8 @@ async def ensure_drivers():
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
     if not await is_legacy_driver_cmd() and MODE in ["client", "s3"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
-            stdout, stderr, ec = await run_command("weka driver ready")
+            version = await get_weka_version()
+            stdout, stderr, ec = await run_command(f"weka driver ready --without-agent --version {version}")
             if ec != 0:
                 with open("/tmp/weka-drivers.log_tmp", "w") as f:
                     f.write("weka-drivers-loading")
@@ -244,6 +245,7 @@ async def ensure_drivers():
                 await asyncio.sleep(1)
                 continue
             logging.info("drivers are ready")
+            break
     else:
         for driver in drivers:
             while True:
@@ -373,6 +375,12 @@ import signal
 loop = asyncio.get_event_loop()
 
 
+async def get_weka_version():
+    files = os.listdir("/opt/weka/dist/release")
+    assert len(files) == 1, Exception(f"More then one release found: {files}")
+    version = files[0].partition(".spec")[0]
+    return version
+
 async def load_drivers():
     def should_skip_uio_pci_generic():
         return version_params.get('uio_pci_generic') is False or should_skip_uio()
@@ -432,9 +440,7 @@ async def load_drivers():
     else:
         # list directory /opt/weka/dist/version
         # assert single json file and take json filename
-        files = os.listdir("/opt/weka/dist/release")
-        assert len(files) == 1, Exception(f"More then one release found: {files}")
-        version = files[0].partition(".spec")[0]
+        version = await get_weka_version()
         download_cmds = [
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
         ]
@@ -1714,16 +1720,16 @@ async def main():
     syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
     await syslog.start()
 
+    await override_dependencies_flag()
+    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
+        await ensure_drivers()
+
     agent_cmd = get_agent_cmd()
     agent = Daemon(agent_cmd, "agent")
     await agent.start()
     await await_agent()
 
     await ensure_weka_version()
-    await override_dependencies_flag()
-
-    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
-        await ensure_drivers()
 
     if MODE == "drivers-dist":
         # Dist is only serving, we will invoke downloads on it, probably in stand-alone ad-hoc container, but never actually build
