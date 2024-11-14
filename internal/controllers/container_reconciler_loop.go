@@ -216,10 +216,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{
 				Run: loop.updateAdhocOpStatus,
 				Predicates: lifecycle.Predicates{
-					lifecycle.Or(
-						container.IsAdhocOpContainer,
-						container.IsDriversLoaderMode,
-					),
+					container.IsAdhocOpContainer,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
