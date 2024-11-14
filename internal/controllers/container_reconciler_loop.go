@@ -135,6 +135,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run: loop.cleanupFinishedOneOff,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
+					loop.ResultsAreProcessed,
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
