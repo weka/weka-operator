@@ -318,7 +318,12 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 		}
 	}
 
-	err := clusterService.EnsureNoContainers(ctx, "s3")
+	err := clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
+	if err != nil {
+		return err
+	}
+
+	err = clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfsGateway)
 	if err != nil {
 		return err
 	}
