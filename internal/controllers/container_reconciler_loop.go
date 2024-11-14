@@ -132,6 +132,14 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
 			{
+				Run: loop.cleanupFinishedOneOff,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsOneOff,
+				},
+				ContinueOnPredicatesFalse: true,
+				FinishOnSuccess:           true,
+			},
+			{
 				Run: loop.Noop,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
@@ -239,14 +247,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					loop.container.IsOneOff,
 				},
 				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Run: loop.cleanupFinishedOneOff,
-				Predicates: lifecycle.Predicates{
-					loop.container.IsOneOff,
-				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
 			},
 			{
 				Run: loop.reconcileManagementIP, // TODO: #shouldRefresh?
