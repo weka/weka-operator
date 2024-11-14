@@ -26,7 +26,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -197,14 +196,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.updateStatusWaitForDrivers,
-				Predicates: lifecycle.Predicates{
-					container.RequiresDrivers,
-					loop.CondEnsureDriversNotSet,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
 				Run: loop.updateDriversBuilderStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsDriversBuilder,
@@ -239,7 +230,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					loop.container.IsOneOff,
 				},
 				ContinueOnPredicatesFalse: true,
-				SkipOwnConditionCheck:     true,
+				SkipOwnConditionCheck:     false,
 			},
 			{
 				Condition: condition.CondResultsProcessed,
@@ -280,9 +271,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				},
 				ContinueOnPredicatesFalse: true,
 				CondMessage:               "Container joined cluster",
-			},
-			{
-				Run: loop.checkNodeAnnotation,
 			},
 			{
 				Condition:   condition.CondDrivesAdded,
@@ -369,12 +357,6 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	}
 
 	changes := false
-	if !r.container.DriversReady() && r.container.RequiresDrivers() {
-		changes = true
-		meta.SetStatusCondition(&r.container.Status.Conditions,
-			metav1.Condition{Type: condition.CondEnsureDrivers, Status: metav1.ConditionFalse, Message: "Init", Reason: "Init"},
-		)
-	}
 
 	if r.container.Status.LastAppliedImage == "" {
 		r.container.Status.LastAppliedImage = r.container.Spec.Image
@@ -390,7 +372,7 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	return nil
 }
 
-// Implement the remaining methods (ensurePod, reconcileDriversStatus, reconcileManagementIP, etc.)
+// Implement the remaining methods (ensurePod, driversLoaded, reconcileManagementIP, etc.)
 // by adapting the logic from the original container_controller.go file.
 
 func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx context.Context) error {
@@ -961,31 +943,6 @@ func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context
 	return nil
 }
 
-func (r *containerReconcilerLoop) checkNodeAnnotation(ctx context.Context) error {
-	node := r.node
-	container := r.container
-
-	if node == nil {
-		err := errors.New("Node not found")
-		return err
-	}
-
-	if node.Annotations == nil || !operations.DriversLoaded(node, container.Spec.Image, container.HasFrontend()) {
-		meta.SetStatusCondition(&container.Status.Conditions, metav1.Condition{
-			Type:    condition.CondEnsureDrivers,
-			Status:  metav1.ConditionFalse,
-			Reason:  "NoNodeAnnotation",
-			Message: "Node annotation not found or it has wrong value of driver version",
-		})
-		err := r.Status().Update(ctx, container)
-		if err != nil {
-			err = errors.Wrap(err, "cannot update container status with 'no node annotation'")
-			return err
-		}
-	}
-	return nil
-}
-
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	details := r.container.ToContainerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
@@ -1000,12 +957,12 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) error {
+func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, error) {
 	if r.container.IsClientContainer() || r.container.IsS3Container() {
-		return nil
+		return true, nil
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reconcileDriversStatus")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "driversLoaded")
 	defer end()
 
 	pod := r.pod
@@ -1013,21 +970,21 @@ func (r *containerReconcilerLoop) reconcileDriversStatus(ctx context.Context) er
 	executor, err := util.NewExecInPod(pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
-		return err
+		return false, err
 	}
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
-		return errors.Wrap(err, stderr.String())
+		return false, fmt.Errorf("error checking drivers loaded: %s", stderr.String())
 	}
 
 	missingDriverName := strings.TrimSpace(stdout.String())
 
 	if missingDriverName == "" {
 		logger.InfoWithStatus(codes.Ok, "Drivers already loaded")
-		return nil
+		return true, nil
 	}
 
-	return fmt.Errorf("driver %s is not loaded", missingDriverName)
+	return false, fmt.Errorf("driver %s is not loaded", missingDriverName)
 }
 
 func (r *containerReconcilerLoop) fetchResults(ctx context.Context) error {
@@ -1469,28 +1426,25 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
 	if err != nil {
-		forceReload := false
-		details := r.container.ToContainerDetails()
-
+		// TODO: Validate agent-specific errors, but should not be very important
 		// check if drivers should be force-reloaded
-		driversErr := r.reconcileDriversStatus(ctx)
+		loaded, driversErr := r.driversLoaded(ctx)
 		if driversErr != nil {
-			// extend error message with original error
-			driversErr = fmt.Errorf("weka local ps failed: %v, stderr: %s; drivers are not loaded: %v", err, stderr.String(), driversErr)
-			logger.Error(driversErr, "Drivers are not loaded")
-
-			forceReload = true
+			return driversErr
 		}
 
-		driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), forceReload)
-		loaderErr := operations.ExecuteOperation(ctx, driversLoader)
-		if loaderErr != nil {
-			err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
+		if !loaded {
+			details := r.container.ToContainerDetails()
+			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
+			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
+			if loaderErr != nil {
+				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
+				return lifecycle.NewWaitError(err)
+			}
+
+			err = fmt.Errorf("weka local ps failed: %v, stderr: %s", err, stderr.String())
 			return lifecycle.NewWaitError(err)
 		}
-
-		err = fmt.Errorf("weka local ps failed: %v, stderr: %s", err, stderr.String())
-		return lifecycle.NewWaitError(err)
 	}
 
 	status := response[0].RunStatus
@@ -1669,6 +1623,15 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 			return r.Client.Delete(ctx, r.pod)
 		}
 	}
+	if r.container.IsDriversLoaderMode() { // sounds like
+		for _, c := range r.container.Status.Conditions {
+			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
+				if time.Since(c.LastTransitionTime.Time) > time.Minute*5 {
+					return r.Client.Delete(ctx, r.container)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -1715,10 +1678,6 @@ func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error
 
 func (r *containerReconcilerLoop) PodNotRunning() bool {
 	return r.pod.Status.Phase != v1.PodRunning
-}
-
-func (r *containerReconcilerLoop) CondEnsureDriversNotSet() bool {
-	return !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondEnsureDrivers)
 }
 
 func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
