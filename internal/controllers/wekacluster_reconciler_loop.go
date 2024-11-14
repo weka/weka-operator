@@ -1216,9 +1216,6 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 		// count Active containers
 		if container.Status.Status == ContainerStatusRunning {
 			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
-		} else {
-			panic(container.Status.Status)
-
 		}
 		// count Created containers
 		if container.Status.Status != PodStatePodNotRunning {
@@ -1291,15 +1288,21 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 	cluster.Status.Counters.Created.NumComputeProcesses = int64(wekaStatus.Containers.Computes.Total)
 	cluster.Status.Counters.Created.NumDriveProcesses = int64(wekaStatus.Containers.Drives.Total)
 
+	cluster.Status.Throughput.Read = int64(wekaStatus.Activity.SumBytesRead)
+	cluster.Status.Throughput.Write = int64(wekaStatus.Activity.SumBytesWritten)
+	cluster.Status.Iops.Read = int64(wekaStatus.Activity.NumReads)
+	cluster.Status.Iops.Write = int64(wekaStatus.Activity.NumWrites)
+	cluster.Status.Iops.Metadata = int64(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
+	cluster.Status.Iops.Total = int64(wekaStatus.Activity.NumOps)
+
 	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
 	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)
-	cluster.Status.Throughput = fmt.Sprintf("%s/%s", tpsRead, tpsWrite)
+	cluster.Status.PrinterColumns.Throughput = fmt.Sprintf("%s/%s", tpsRead, tpsWrite)
 
 	iopsRead := util2.HumanReadableIops(wekaStatus.Activity.NumReads)
 	iopsWrite := util2.HumanReadableIops(wekaStatus.Activity.NumWrites)
 	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
-
-	cluster.Status.Iops = fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther)
+	cluster.Status.PrinterColumns.Iops = fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther)
 
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
