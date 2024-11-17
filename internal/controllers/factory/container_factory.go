@@ -88,6 +88,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
 		nodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
 	}
+
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",

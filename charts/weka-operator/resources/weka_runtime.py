@@ -33,7 +33,8 @@ DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
 FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
-FAILURE_DOMAIN = None
+FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
+MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -1150,7 +1151,15 @@ async def configure_agent(agent_handle_drivers=False):
     stdout, stderr, ec = await run_command(cmd, env=env_vars)
     if ec != 0:
         raise Exception(f"Failed to configure agent: {stderr}")
+
+    if MACHINE_IDENTIFIER is not None:
+        os.makedirs("/opt/weka/data/agent", exist_ok=True)
+        cmd = f"echo '{MACHINE_IDENTIFIER}' > /opt/weka/data/agent/machine-identifier"
+        stdout, stderr, ec = await run_command(cmd)
+        if ec != 0:
+            raise Exception(f"Failed to set machine-id: {stderr}")
     logging.info("Agent configured successfully")
+
 
 
 async def override_dependencies_flag():

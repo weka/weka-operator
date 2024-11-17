@@ -1043,6 +1043,22 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
+	if f.container.Spec.NoAffinityConstraints {
+		// TODO: Keeping this as a reference, once there is a fix for 7-containers detection, might try using FD again
+		// preserving save machine identifier. Weka still might justifiably not allow to put different FDs on the same node
+		// but then it will be cleaner ask, to have a manual override that ignores specifically that
+
+		//// set failure domain to ID of wekaContainer
+		//pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+		//	Name:  "FAILURE_DOMAIN",
+		//	Value: util.GetLastGuidPart(f.container.GetUID()),
+		//})
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "MACHINE_IDENTIFIER",
+			Value: string(f.container.GetUID()),
+		})
+	}
+
 	return nil
 }
 
