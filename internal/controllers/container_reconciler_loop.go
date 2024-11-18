@@ -1459,6 +1459,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 			err = fmt.Errorf("weka local ps failed: %v, stderr: %s", err, stderr.String())
 			return lifecycle.NewWaitError(err)
 		}
+		return lifecycle.NewWaitError(err)
 	}
 
 	status := response[0].RunStatus
