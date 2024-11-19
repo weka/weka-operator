@@ -21,12 +21,13 @@ jobs:
     if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
+      - name: Set up SSH # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: |
@@ -47,10 +48,18 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-${{ hashFiles('package-lock.json') }}
+
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21.3"
+          go-version: "1.22.3"
+
+      - name: Setup go
+        run: |
+          go version
+          go mod download
+
+
       - name: Setup envtest
         run: |
           make envtest
