@@ -1556,6 +1556,10 @@ async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[L
 async def ensure_client_ports():
     global PORT, AGENT_PORT
     logging.info("Ensuring client ports")
+
+    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:  # we got resources via env, so no need to wait here
+        await save_weka_ports_data()
+        return
     
     base_port = parse_port(BASE_PORT)
     port_range = parse_port(PORT_RANGE)
@@ -1589,9 +1593,6 @@ def parse_port(port_str: str) -> int:
 
 async def wait_for_resources():
     global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN
-    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0 and not FAILURE_DOMAIN_LABEL:  # we got resources via env, so no need to wait here
-        await save_weka_ports_data()
-        return
 
     if MODE == 'client':
         await ensure_client_ports()
