@@ -22,7 +22,7 @@ spec:
     - description: Weka container mode
       jsonPath: .spec.mode
       name: Mode
-      priority: 2
+      priority: 1
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
@@ -31,11 +31,16 @@ spec:
     - description: Number of drives attached to container
       jsonPath: .spec.numDrives
       name: Drives Count
-      priority: 5
+      priority: 2
       type: integer
     - description: Weka container ID
       jsonPath: .status.containerID
       name: Weka cID
+      type: string
+    - description: Weka container message
+      jsonPath: .status.message
+      name: Message
+      priority: 3
       type: string
     name: v1alpha1
     schema:
@@ -1525,6 +1530,8 @@ spec:
               lastAppliedImage:
                 type: string
               managementIP:
+                type: string
+              message:
                 type: string
               nodeAffinity:
                 description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing

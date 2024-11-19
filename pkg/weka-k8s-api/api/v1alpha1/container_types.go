@@ -16,10 +16,11 @@ type NodeName types.NodeName
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
-// +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=2
+// +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
-// +kubebuilder:printcolumn:name="Drives Count",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=5
+// +kubebuilder:printcolumn:name="Drives Count",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=2
 // +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=0
+// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=3
 type WekaContainer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -138,6 +139,7 @@ type ContainerAllocations struct {
 
 type WekaContainerStatus struct {
 	Status             string                `json:"status"`
+	Message            string                `json:"message,omitempty"`
 	ManagementIP       string                `json:"managementIP,omitempty"`
 	ClusterContainerID *int                  `json:"containerID,omitempty"`
 	ClusterID          string                `json:"clusterID,omitempty"`
