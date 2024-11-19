@@ -1082,6 +1082,8 @@ async def configure_persistency():
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
         fi
         
+        mkdir -p {WEKA_K8S_RUNTIME_DIR}
+        touch {PERSISTENCY_CONFIGURED}
     """)
 
     stdout, stderr, ec = await run_command(command)
@@ -1432,14 +1434,19 @@ async def disable_driver_signing():
 
 
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
-GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
-GENERATION_PATH = f'{GENERATION_PATH_DIR}/runtime-generation'
+WEKA_K8S_RUNTIME_DIR = '/opt/weka/k8s-runtime'
+GENERATION_PATH = f'{WEKA_K8S_RUNTIME_DIR}/runtime-generation'
 CURRENT_GENERATION = str(time.time())
+PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
 
-def write_generation():
+async def write_generation():
+    while WEKA_PERSISTENCE_DIR and not os.path.exists(PERSISTENCY_CONFIGURED):
+        logging.info("Waiting for persistency to be configured")
+        await asyncio.sleep(1)
+
     logging.info("Writing generation %s", CURRENT_GENERATION)
-    os.makedirs(GENERATION_PATH_DIR, exist_ok=True)
+    os.makedirs(WEKA_K8S_RUNTIME_DIR, exist_ok=True)
     with open(GENERATION_PATH, 'w') as f:
         f.write(CURRENT_GENERATION)
     logging.info("current generation: %s", read_generation())
@@ -1722,7 +1729,7 @@ async def main():
 
     await configure_persistency()
     await wait_for_resources()
-    write_generation()  # write own generation to kill other processes
+    await write_generation()  # write own generation to kill other processes
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
