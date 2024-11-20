@@ -165,7 +165,7 @@ async def find_weka_drives():
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
     devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
-    logging.info(f"Found block devices devices: {devices}")
+    logging.info(f"All found in kernel block devices: {devices}")
     for block_device in devices:
         try:
             type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
@@ -1598,6 +1598,14 @@ def parse_port(port_str: str) -> int:
             return 0
 
 
+async def get_requested_drives():
+    if not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
+        return []
+    with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
+        data = json.load(f)
+    return data.get("drives", [])
+
+
 async def wait_for_resources():
     global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN
 
@@ -1935,6 +1943,19 @@ async def shutdown():
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
         logging.info("finished stopping weka container")
+        sys.exit(1)
+
+    if MODE == "drive":
+        timeout = 60
+        # print out in-kernel devices for up to 60 seconds every 0.3 seconds
+        requested_drives = len(await get_requested_drives())
+        for _ in range(int(timeout/0.3)):
+            drives = await find_weka_drives()
+            logging.info(f"Found {len(drives)}: {drives}")
+            if len(drives) == requested_drives:
+                logging.info("all drives returned to kernel")
+                break
+            await asyncio.sleep(0.3)
 
     for key, process in dict(processes.items()).items():
         logging.info(f"stopping process {process.pid}, {key}")
