@@ -91,8 +91,10 @@ jobs:
         id: version
         run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
       - name: build version
+        if: ${{ env.VERSION != '' }}
         run: VERSION=${{ env.VERSION }} ./build-release.sh
       - name: Create release
+        if: ${{ env.VERSION != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
