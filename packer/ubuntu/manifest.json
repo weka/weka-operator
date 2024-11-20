@@ -188,7 +188,34 @@
       "artifact_id": "us-west-1:ami-04d935841ec70e42c",
       "packer_run_uuid": "85fb8504-9b3d-2832-0a11-c71d004d06bc",
       "custom_data": null
+    },
+    {
+      "name": "weka-eks",
+      "builder_type": "amazon-ebs",
+      "build_time": 1732102217,
+      "files": null,
+      "artifact_id": "us-west-2:ami-0a64ccfbc32ce7551",
+      "packer_run_uuid": "07600a5f-930c-b90b-f725-c53a68302f61",
+      "custom_data": null
+    },
+    {
+      "name": "weka-eks",
+      "builder_type": "amazon-ebs",
+      "build_time": 1732102375,
+      "files": null,
+      "artifact_id": "us-east-1:ami-0b8bd1b0df1dedb24",
+      "packer_run_uuid": "07600a5f-930c-b90b-f725-c53a68302f61",
+      "custom_data": null
+    },
+    {
+      "name": "weka-eks",
+      "builder_type": "amazon-ebs",
+      "build_time": 1732102395,
+      "files": null,
+      "artifact_id": "us-west-1:ami-0292dda826a16b860",
+      "packer_run_uuid": "07600a5f-930c-b90b-f725-c53a68302f61",
+      "custom_data": null
     }
   ],
-  "last_run_uuid": "85fb8504-9b3d-2832-0a11-c71d004d06bc"
+  "last_run_uuid": "07600a5f-930c-b90b-f725-c53a68302f61"
 }
