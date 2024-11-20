@@ -38,6 +38,7 @@ const (
 	PodStatePodNotRunning = "PodNotRunning"
 	PodStatePodRunning    = "PodRunning"
 	WaitForDrivers        = "WaitForDrivers"
+	Error                 = "Error"
 	// for drivers-build container
 	Completed = "Completed"
 	Building  = "Building"
@@ -256,6 +257,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
+				OnFail:                    loop.setErrorStatus,
 			},
 			{
 				Run: loop.reconcileWekaLocalStatus,
@@ -263,6 +265,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 					container.IsWekaContainer,
 				},
 				ContinueOnPredicatesFalse: true,
+				OnFail:                    loop.setErrorStatus,
 			},
 			{
 				Condition: condition.CondJoinedCluster,
@@ -1315,6 +1318,12 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		return err
 	}
 
+	_, _, err = executor.ExecNamed(ctx, "CheckPersistencyConfigured", []string{"bash", "-ce", "test -f /opt/weka/k8s-runtime/persistency-configured"})
+	if err != nil {
+		err = errors.New("Persistency is not yet configured")
+		return lifecycle.NewWaitError(err)
+	}
+
 	resourcesJson, err := json.Marshal(r.container.Status.Allocations)
 	if err != nil {
 		return err
@@ -1466,6 +1475,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
+		container.Status.Message = ""
 		if err := r.Status().Update(ctx, container); err != nil {
 			return err
 		}
@@ -1473,6 +1483,18 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		return nil
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, err error) error {
+	container := r.container
+	msg := err.Error()
+
+	if container.Status.Status == Error && container.Status.Message == msg {
+		return nil
+	}
+	container.Status.Status = Error
+	container.Status.Message = err.Error()
+	return r.Status().Update(ctx, container)
 }
 
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
