@@ -49,6 +49,9 @@ type Step struct {
 
 	// The function to execute
 	Run StepFunc
+
+	// The function to execute if the step is failed
+	OnFail func(context.Context, error) error
 }
 
 type ReconciliationState[Subject client.Object] struct {
@@ -221,6 +224,11 @@ STEPS:
 					stepLogger.SetError(err, "Error running step")
 					stepEnd()
 					return setCondError
+				}
+			}
+			if step.OnFail != nil {
+				if fErr := step.OnFail(stepCtx, err); fErr != nil {
+					stepLogger.Error(fErr, "Error running onFail step")
 				}
 			}
 			//spanLogger.Error(err, "Error running step")

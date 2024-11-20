@@ -33,7 +33,8 @@ DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
 FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
-FAILURE_DOMAIN = None
+FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
+MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -164,7 +165,7 @@ async def find_weka_drives():
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
     devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
-    logging.info(f"Found block devices devices: {devices}")
+    logging.info(f"All found in kernel block devices: {devices}")
     for block_device in devices:
         try:
             type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
@@ -1081,6 +1082,8 @@ async def configure_persistency():
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
         fi
         
+        mkdir -p {WEKA_K8S_RUNTIME_DIR}
+        touch {PERSISTENCY_CONFIGURED}
     """)
 
     stdout, stderr, ec = await run_command(command)
@@ -1150,7 +1153,15 @@ async def configure_agent(agent_handle_drivers=False):
     stdout, stderr, ec = await run_command(cmd, env=env_vars)
     if ec != 0:
         raise Exception(f"Failed to configure agent: {stderr}")
+
+    if MACHINE_IDENTIFIER is not None:
+        os.makedirs("/opt/weka/data/agent", exist_ok=True)
+        cmd = f"echo '{MACHINE_IDENTIFIER}' > /opt/weka/data/agent/machine-identifier"
+        stdout, stderr, ec = await run_command(cmd)
+        if ec != 0:
+            raise Exception(f"Failed to set machine-id: {stderr}")
     logging.info("Agent configured successfully")
+
 
 
 async def override_dependencies_flag():
@@ -1423,14 +1434,19 @@ async def disable_driver_signing():
 
 
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
-GENERATION_PATH_DIR = '/opt/weka/k8s-runtime'
-GENERATION_PATH = f'{GENERATION_PATH_DIR}/runtime-generation'
+WEKA_K8S_RUNTIME_DIR = '/opt/weka/k8s-runtime'
+GENERATION_PATH = f'{WEKA_K8S_RUNTIME_DIR}/runtime-generation'
 CURRENT_GENERATION = str(time.time())
+PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
 
-def write_generation():
+async def write_generation():
+    while WEKA_PERSISTENCE_DIR and not os.path.exists(PERSISTENCY_CONFIGURED):
+        logging.info("Waiting for persistency to be configured")
+        await asyncio.sleep(1)
+
     logging.info("Writing generation %s", CURRENT_GENERATION)
-    os.makedirs(GENERATION_PATH_DIR, exist_ok=True)
+    os.makedirs(WEKA_K8S_RUNTIME_DIR, exist_ok=True)
     with open(GENERATION_PATH, 'w') as f:
         f.write(CURRENT_GENERATION)
     logging.info("current generation: %s", read_generation())
@@ -1547,6 +1563,10 @@ async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[L
 async def ensure_client_ports():
     global PORT, AGENT_PORT
     logging.info("Ensuring client ports")
+
+    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:  # we got resources via env, so no need to wait here
+        await save_weka_ports_data()
+        return
     
     base_port = parse_port(BASE_PORT)
     port_range = parse_port(PORT_RANGE)
@@ -1578,11 +1598,16 @@ def parse_port(port_str: str) -> int:
             return 0
 
 
+async def get_requested_drives():
+    if not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
+        return []
+    with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
+        data = json.load(f)
+    return data.get("drives", [])
+
+
 async def wait_for_resources():
     global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN
-    if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0 and not FAILURE_DOMAIN_LABEL:  # we got resources via env, so no need to wait here
-        await save_weka_ports_data()
-        return
 
     if MODE == 'client':
         await ensure_client_ports()
@@ -1712,7 +1737,7 @@ async def main():
 
     await configure_persistency()
     await wait_for_resources()
-    write_generation()  # write own generation to kill other processes
+    await write_generation()  # write own generation to kill other processes
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
@@ -1918,6 +1943,19 @@ async def shutdown():
         stop_flag = "--force" if force_stop else "-g"
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
         logging.info("finished stopping weka container")
+        sys.exit(1)
+
+    if MODE == "drive":
+        timeout = 60
+        # print out in-kernel devices for up to 60 seconds every 0.3 seconds
+        requested_drives = len(await get_requested_drives())
+        for _ in range(int(timeout/0.3)):
+            drives = await find_weka_drives()
+            logging.info(f"Found {len(drives)}: {drives}")
+            if len(drives) == requested_drives:
+                logging.info("all drives returned to kernel")
+                break
+            await asyncio.sleep(0.3)
 
     for key, process in dict(processes.items()).items():
         logging.info(f"stopping process {process.pid}, {key}")

@@ -11,7 +11,7 @@ image:
   # Override only, default equals to the chart version
   tag: ""
 
-imagePullSecret: quay-cred
+imagePullSecret: quay-io-robot-secret
 deployController: true
 # -- experimental: enables custtom HTTP API endpoint as alternative to K8s API
 enableClusterApi: false
