@@ -2,7 +2,7 @@
 version: "3"
 
 vars:
-  ClusterName: e2e-test
+  ClusterName: "e2e-test-$USER"
   ControllerPort: 8080
   HealthProbeBindAddress: "{{add .ControllerPort 1}}"
   MetricsBindAddress: "{{.ControllerPort}}"
