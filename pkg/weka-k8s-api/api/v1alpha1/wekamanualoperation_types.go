@@ -49,6 +49,7 @@ type ManualOperatorPayload struct {
 	SignDrives     *SignDrivesPayload     `json:"signDrivesPayload,omitempty"`
 	BlockDrives    *BlockDrivesPayload    `json:"blockDrivesPayload,omitempty"`
 	DiscoverDrives *DiscoverDrivesPayload `json:"discoverDrivesPayload,omitempty"`
+	EnsureNICs     *EnsureNICsPayload     `json:"ensureNICsPayload,omitempty"`
 }
 
 type PCIDevices struct {
@@ -60,6 +61,18 @@ type PCIDevices struct {
 	// default for AWS: `cd01` (NVMe SSD)
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F]{4}$`
 	DeviceId string `json:"deviceId"`
+}
+
+type NICType string
+
+const (
+	AWS NICType = "aws"
+)
+
+type EnsureNICsPayload struct {
+	Type           NICType           `json:"type"`
+	NodeSelector   map[string]string `json:"nodeSelector,omitempty"`
+	DataNICsNumber int               `json:"dataNICsNumber,omitempty"`
 }
 
 type SignDrivesPayload struct {

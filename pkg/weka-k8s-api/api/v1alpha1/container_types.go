@@ -121,10 +121,15 @@ type WekaContainerSpec struct {
 	State ContainerState `json:"state,omitempty"`
 }
 
+type AWSNetwork struct {
+	DeviceSlots []int `json:"deviceSlots,omitempty"`
+}
+
 type Network struct {
-	EthDevices []string `json:"ethDevices,omitempty"`
-	EthDevice  string   `json:"ethDevice,omitempty"`
-	UdpMode    bool     `json:"udpMode,omitempty"`
+	EthDevices []string   `json:"ethDevices,omitempty"`
+	EthDevice  string     `json:"ethDevice,omitempty"`
+	UdpMode    bool       `json:"udpMode,omitempty"`
+	AWS        AWSNetwork `json:"aws,omitempty"`
 }
 
 type ContainerAllocations struct {
