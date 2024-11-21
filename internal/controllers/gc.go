@@ -2,10 +2,10 @@ package controllers
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -55,14 +55,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		}
 	}
 
-	detectZombieSecondsStr, _ := os.LookupEnv("WEKA_ALLOC_ZOMBIE_DELETE_SECONDS")
-	if detectZombieSecondsStr == "" {
-		detectZombieSecondsStr = "5m"
-	}
-	detectZombiesTime, err := time.ParseDuration(detectZombieSecondsStr)
-	if err != nil {
-		return err
-	}
+	detectZombiesTime := config.Config.WekaAllocZombieDeleteAfter
 
 	if r.DetectedZombies == nil {
 		r.DetectedZombies = make(map[util.NamespacedObject]time.Time)

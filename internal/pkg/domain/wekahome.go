@@ -1,9 +1,8 @@
 package domain
 
 import (
-	"os"
-
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	env "github.com/weka/weka-operator/internal/config"
 )
 
 func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, error) {
@@ -13,12 +12,7 @@ func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, 
 	}
 
 	if wekaHomeEndpoint == "" {
-		//get from env var instead
-		var isSet bool
-		wekaHomeEndpoint, isSet = os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENDPOINT")
-		if !isSet {
-			wekaHomeEndpoint = "https://api.home.weka.io"
-		}
+		wekaHomeEndpoint = env.Config.WekaHome.Endpoint
 	}
 
 	config := v1alpha1.WekaHomeConfig{
@@ -33,37 +27,15 @@ func GetWekahomeConfig(cluster *v1alpha1.WekaCluster) (v1alpha1.WekaHomeConfig, 
 	}
 
 	if !config.AllowInsecure {
-		wekaHomeInsecure, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_INSECURE")
-		if isSet {
-			if wekaHomeInsecure != "" {
-				if wekaHomeInsecure == "true" {
-					config.AllowInsecure = true
-				}
-			}
-		}
+		config.AllowInsecure = env.Config.WekaHome.AllowInsecure
 	}
 
 	if config.CacertSecret == "" {
-		wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
-		if isSet {
-			if wekaHomeCacertSecret != "" {
-				config.CacertSecret = wekaHomeCacertSecret
-			}
-		}
+		config.CacertSecret = env.Config.WekaHome.CacertSecret
 	}
 
 	if config.EnableStats == nil {
-		wekahomeEnableStats, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS")
-		var val bool
-		if isSet {
-			if wekahomeEnableStats == "true" {
-				val = true
-			} else {
-				val = false
-			}
-		} else {
-			val = true
-		}
+		val := env.Config.WekaHome.EnableStats
 		config.EnableStats = &val
 	}
 

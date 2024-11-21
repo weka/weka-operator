@@ -38,6 +38,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -137,7 +138,7 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 		fmt.Printf("failed to create manager: %v", err)
 		return
 	}
-	os.Setenv("OPERATOR_DEV_MODE", "true")
+	config.Config.DevMode = true
 	clusterController := NewWekaClusterController(testEnv.Manager)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
 	if err != nil {

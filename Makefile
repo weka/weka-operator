@@ -33,6 +33,8 @@ WH_CACERT_SECRET ?= ""
 ENABLE_CLUSTER_API ?= false
 TOMBSTONE_EXPIRATION ?= 10s
 SKIP_CRD_INSTALL ?= false
+RECONCILE_TIMEOUT ?= 10m
+KUBE_EXEC_TIMEOUT ?= 5m
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -185,9 +187,13 @@ runcontroller: ## Run a controller from your host.
 	VERSION=${VERSION} \
 	LOG_LEVEL=0 \
 	LOG_TIME_ONLY=true \
-	go run ./cmd/manager/main.go \
-	--enable-cluster-api=$(ENABLE_CLUSTER_API) \
-	--tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
+	TOMBSTONE_EXPIRATION=$(TOMBSTONE_EXPIRATION) \
+	RECONCILE_TIMEOUT=$(RECONCILE_TIMEOUT) \
+	KUBE_EXEC_TIMEOUT=$(KUBE_EXEC_TIMEOUT) \
+	METRICS_BIND_ADDRESS=":8080" \
+	HEALTH_PROBE_BIND_ADDRESS=":8081" \
+	go run ./cmd/manager/main.go
 
 .PHONY: debugcontroller
 debugcontroller: ## Run a controller from your host.
@@ -201,6 +207,8 @@ debugcontroller: ## Run a controller from your host.
 	WEKA_COS_ALLOW_HUGEPAGE_CONFIG=true \
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
+	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
+	TOMBSTONE_EXPIRATION=$(TOMBSTONE_EXPIRATION) \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
 	dlv debug \
@@ -208,9 +216,7 @@ debugcontroller: ## Run a controller from your host.
 	--listen=:2345 \
 	--api-version=2 \
 	--accept-multiclient \
-	./cmd/manager/main.go -- \
-	--enable-cluster-api=$(ENABLE_CLUSTER_API) \
-	--tombstone-expiration=$(TOMBSTONE_EXPIRATION)
+	./cmd/manager/main.go
 
 #.PHONY: docker-build
 #docker-build: ## Build docker image with the manager.

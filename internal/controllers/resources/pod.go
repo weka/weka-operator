@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +11,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/envvars"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -107,10 +106,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	tolerations := f.getTolerations()
 
-	debugSleep := os.Getenv("WEKA_OPERATOR_DEBUG_SLEEP")
-	if debugSleep == "" {
-		debugSleep = "3"
-	}
+	debugSleep := config.Config.DebugSleep
 
 	containerPathPersistence := "/opt/weka-persistence"
 	hostsideContainerPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideContainerPersistence(), f.container.GetUID())
@@ -245,7 +241,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						},
 						{
 							Name:  "WEKA_OPERATOR_DEBUG_SLEEP",
-							Value: debugSleep,
+							Value: strconv.Itoa(debugSleep),
 						},
 						// use Downward API to get the name of the node where the Pod is executing
 						{
@@ -382,13 +378,10 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	}
 
 	if f.container.IsDiscoveryContainer() {
-		allowCosHugepageConfig := envvars.GetBoolEnv(envvars.EnvCosAllowHugePagesConfig, false)
+		allowCosHugepageConfig := config.Config.GkeCompatibility.HugepageConfiguration.Enabled
 		if allowCosHugepageConfig {
-			globalCosHugepageSize := envvars.GetStringEnv(envvars.EnvCosHugePagesSize, "2m")
-			globalCosHugepageCount := envvars.GetStringEnv(envvars.EnvCosHugePagesCount, "4000")
-			if _, err := strconv.Atoi(globalCosHugepageCount); err != nil {
-				return nil, errors.New("WEKA_COS_GLOBAL_HUGEPAGE_COUNT env var is not a number")
-			}
+			globalCosHugepageSize := config.Config.GkeCompatibility.HugepageConfiguration.Size
+			globalCosHugepageCount := config.Config.GkeCompatibility.HugepageConfiguration.Count
 			// for discovery containers, set COS params for hugepages
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 				Name:  "WEKA_COS_ALLOW_HUGEPAGE_CONFIG",
@@ -400,7 +393,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			})
 			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 				Name:  "WEKA_COS_GLOBAL_HUGEPAGE_COUNT",
-				Value: globalCosHugepageCount,
+				Value: strconv.Itoa(globalCosHugepageCount),
 			})
 		}
 	}
@@ -509,7 +502,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
 		if f.nodeInfo.IsCos() {
-			allowCosDisableDriverSigning := envvars.GetBoolEnv("EnvCosAllowSigningDisable", false)
+			allowCosDisableDriverSigning := config.Config.GkeCompatibility.DisableDriverSigning
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-boot-scripts",
 				MountPath: "/devenv.sh",
@@ -553,7 +546,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 					Name: "gcloud-credentials",
 					VolumeSource: corev1.VolumeSource{
 						Secret: &corev1.SecretVolumeSource{
-							SecretName: envvars.GetStringEnv(envvars.EnvCOSServiceAccount, ""),
+							SecretName: config.Config.GkeCompatibility.ServiceAccountSecret,
 						},
 					},
 				})
@@ -607,7 +600,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 		if f.nodeInfo.InitContainerImage == "" {
 			return nil, errors.New("cannot create build container for OCP without Toolkit image")
 		}
-		ocpPullSecret := envvars.GetStringEnv(envvars.EnvOCPPullSecret, "")
+		ocpPullSecret := config.Config.OcpCompatibility.DriverToolkitSecretName
 		if ocpPullSecret != "" {
 			// we need to add the buildkit image pull secret
 			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{

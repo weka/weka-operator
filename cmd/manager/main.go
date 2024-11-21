@@ -18,16 +18,16 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"os"
-	"time"
+
+	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,35 +61,18 @@ type WekaReconciler interface {
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
-	var enableClusterApi bool
-	tombstoneConfig := controllers.TombstoneConfig{}
-
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&enableClusterApi, "enable-cluster-api", false, "Enable Cluster API controllers")
-	flag.BoolVar(&tombstoneConfig.EnableTombstoneGc, "enable-tombstone-gc", true, "Enable Tombstone GC")
-	flag.DurationVar(&tombstoneConfig.TombstoneGcInterval, "tombstone-gc-interval", 3*time.Second, "GC Interval")
-	flag.DurationVar(&tombstoneConfig.TombstoneExpiration, "tombstone-expiration", 10*time.Second, "Tombstone Expiration")
-	flag.BoolVar(&tombstoneConfig.DeleteOnNodeMissing, "allow-tombstone-delete-on-node-missing", false, "Allow deletion of tombstones when node is not anymore a part of the cluster")
-
-	flag.Parse()
-
 	ctx := ctrl.SetupSignalHandler()
 	ctx = context.WithValue(ctx, "is_root", true)
 
 	// initialize root logger and put it into context
 	logr := instrumentation.NewZerologrWithLoggerNameInsteadCaller()
 
-	deploymentIdentifier := ""
-	deploymentIdentifier = os.Getenv("OTEL_DEPLOYMENT_IDENTIFIER")
+	// initialize config from environment variables
+	config.ConfigureEnv(ctx)
+
+	deploymentIdentifier := config.Config.Otel.DeploymentIdentifier
 	if deploymentIdentifier == "" {
-		deploymentIdentifier = os.Getenv("POD_UID")
+		deploymentIdentifier = config.Config.PodUID
 	}
 	if deploymentIdentifier == "" {
 		// local mode? Generating new one with dev- prefix
@@ -103,6 +86,18 @@ func main() {
 	ctx = context.WithValue(ctx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
+
+	metricsAddr := config.Config.BindAddress.Metrics
+	probeAddr := config.Config.BindAddress.HealthProbe
+	enableLeaderElection := config.Config.EnableLeaderElection
+	enableClusterApi := config.Config.EnableClusterApi
+
+	tombstoneConfig := controllers.TombstoneConfig{
+		EnableTombstoneGc:   config.Config.EnableTombstoneGC,
+		TombstoneGcInterval: config.Config.TombstoneGC.Interval,
+		TombstoneExpiration: config.Config.TombstoneGC.Expiration,
+		DeleteOnNodeMissing: config.Config.TombstoneGC.DeleteOnNodeMissing,
+	}
 
 	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi, "tombstoneConfig", tombstoneConfig)
 
@@ -137,8 +132,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	version := os.Getenv("VERSION")
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", version, logger)
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger)
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
 		os.Exit(1)

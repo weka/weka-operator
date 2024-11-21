@@ -23,8 +23,10 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -45,6 +47,9 @@ func (c *ClientController) RunGC(ctx context.Context) {}
 func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()
+
+	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
+	defer cancel()
 
 	wekaClient, err := c.GetClient(ctx, req)
 	if err != nil {
@@ -84,5 +89,6 @@ func (r *ClientController) SetupWithManager(mgr ctrl.Manager, wrappedReconiler r
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaClient{}).
 		Owns(&wekav1alpha1.WekaContainer{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaClient}).
 		Complete(wrappedReconiler)
 }
