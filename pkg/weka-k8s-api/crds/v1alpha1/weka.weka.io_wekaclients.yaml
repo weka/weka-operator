@@ -19,18 +19,20 @@ spec:
       jsonPath: .status.status
       name: Status
       type: string
-    - description: Name of the target cluster if exists
-      jsonPath: .spec.targetCluster.name
-      name: Target Cluster
-      type: string
     - description: Number of cores
       jsonPath: .spec.coresNum
       name: Cores
+      priority: 1
       type: integer
+    - description: Name of the target cluster if exists
+      jsonPath: .spec.targetCluster.name
+      name: Target Cluster
+      priority: 2
+      type: string
     - description: IPs of the target cluster
       jsonPath: .spec.joinIpPorts
       name: Join IPs
-      priority: 1
+      priority: 3
       type: string
     name: v1alpha1
     schema:

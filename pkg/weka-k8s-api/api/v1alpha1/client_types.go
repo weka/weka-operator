@@ -108,9 +108,9 @@ type WekaClientStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Resource status",priority=0
-// +kubebuilder:printcolumn:name="Target Cluster",type="string",JSONPath=".spec.targetCluster.name",description="Name of the target cluster if exists",priority=0
-// +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.coresNum",description="Number of cores",priority=0
-// +kubebuilder:printcolumn:name="Join IPs",type="string",JSONPath=".spec.joinIpPorts",description="IPs of the target cluster",priority=1
+// +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.coresNum",description="Number of cores",priority=1
+// +kubebuilder:printcolumn:name="Target Cluster",type="string",JSONPath=".spec.targetCluster.name",description="Name of the target cluster if exists",priority=2
+// +kubebuilder:printcolumn:name="Join IPs",type="string",JSONPath=".spec.joinIpPorts",description="IPs of the target cluster",priority=3
 
 // WekaClient is the Schema for the clients API
 type WekaClient struct {
