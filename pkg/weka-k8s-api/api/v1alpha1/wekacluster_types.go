@@ -39,10 +39,9 @@ type NetworkSelector struct {
 }
 
 type AdditionalMemory struct {
-	Compute    int `json:"compute,omitempty"`
-	Drive      int `json:"drive,omitempty"`
-	S3         int `json:"s3,omitempty"`
-	NfsGateway int `json:"nfsGateway,omitempty"`
+	Compute int `json:"compute,omitempty"`
+	Drive   int `json:"drive,omitempty"`
+	S3      int `json:"s3,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -54,33 +53,26 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.Compute
 	case WekaContainerModeS3:
 		additionalMemory = a.S3
-	case WekaContainerModeNfsGateway:
-		additionalMemory = a.NfsGateway
 	}
 	return additionalMemory
 }
 
 type WekaConfig struct {
-	ComputeContainers                 *int `json:"computeContainers,omitempty"`
-	DriveContainers                   *int `json:"driveContainers,omitempty"`
-	S3Containers                      int  `json:"s3Containers,omitempty"`
-	ComputeCores                      int  `json:"computeCores,omitempty"`
-	DriveCores                        int  `json:"driveCores,omitempty"`
-	S3Cores                           int  `json:"s3Cores,omitempty"`
-	NumDrives                         int  `json:"numDrives,omitempty"`
-	S3ExtraCores                      int  `json:"s3ExtraCores,omitempty"`
-	DriveHugepages                    int  `json:"driveHugepages,omitempty"`
-	DriveHugepagesOffset              int  `json:"driveHugepagesOffset,omitempty"`
-	ComputeHugepages                  int  `json:"computeHugepages,omitempty"`
-	ComputeHugepagesOffset            int  `json:"computeHugepagesOffset,omitempty"`
-	S3FrontendHugepages               int  `json:"s3FrontendHugepages,omitempty"`
-	S3FrontendHugepagesOffset         int  `json:"s3FrontendHugepagesOffset,omitempty"`
-	EnvoyCores                        int  `json:"envoyCores,omitempty"`
-	NfsGatewayContainers              int  `json:"nfsGatewayContainers,omitempty"`
-	NfsGatewayCores                   int  `json:"nfsGatewayCores,omitempty"`
-	NfsGatewayExtraCores              int  `json:"nfsGatewayExtraCores,omitempty"`
-	NfsGatewayFrontendHugepages       int  `json:"nfsGatewayFrontendHugepages,omitempty"`
-	NfsGatewayFrontendHugepagesOffset int  `json:"nfsGatewayFrontendHugepagesOffset,omitempty"`
+	ComputeContainers         *int `json:"computeContainers,omitempty"`
+	DriveContainers           *int `json:"driveContainers,omitempty"`
+	S3Containers              int  `json:"s3Containers,omitempty"`
+	ComputeCores              int  `json:"computeCores,omitempty"`
+	DriveCores                int  `json:"driveCores,omitempty"`
+	S3Cores                   int  `json:"s3Cores,omitempty"`
+	NumDrives                 int  `json:"numDrives,omitempty"`
+	S3ExtraCores              int  `json:"s3ExtraCores,omitempty"`
+	DriveHugepages            int  `json:"driveHugepages,omitempty"`
+	DriveHugepagesOffset      int  `json:"driveHugepagesOffset,omitempty"`
+	ComputeHugepages          int  `json:"computeHugepages,omitempty"`
+	ComputeHugepagesOffset    int  `json:"computeHugepagesOffset,omitempty"`
+	S3FrontendHugepages       int  `json:"s3FrontendHugepages,omitempty"`
+	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
+	EnvoyCores                int  `json:"envoyCores,omitempty"`
 }
 
 type WekaHomeConfig struct {
@@ -91,10 +83,9 @@ type WekaHomeConfig struct {
 }
 
 type RoleNodeSelector struct {
-	Compute    map[string]string `json:"compute,omitempty"`
-	Drive      map[string]string `json:"drive,omitempty"`
-	S3         map[string]string `json:"s3,omitempty"`
-	NfsGateway map[string]string `json:"nfsGateway,omitempty"`
+	Compute map[string]string `json:"compute,omitempty"`
+	Drive   map[string]string `json:"drive,omitempty"`
+	S3      map[string]string `json:"s3,omitempty"`
 }
 
 func (s RoleNodeSelector) ForRole(role string) map[string]string {
@@ -105,18 +96,15 @@ func (s RoleNodeSelector) ForRole(role string) map[string]string {
 		return s.Drive
 	case "s3":
 		return s.S3
-	case "nfs-gateway":
-		return s.NfsGateway
 	default:
 		return nil
 	}
 }
 
 type RoleTopologySpreadConstraints struct {
-	Compute    []v1.TopologySpreadConstraint `json:"compute,omitempty"`
-	Drive      []v1.TopologySpreadConstraint `json:"drive,omitempty"`
-	S3         []v1.TopologySpreadConstraint `json:"s3,omitempty"`
-	NfsGateway []v1.TopologySpreadConstraint `json:"nfsGateway,omitempty"`
+	Compute []v1.TopologySpreadConstraint `json:"compute,omitempty"`
+	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
+	S3      []v1.TopologySpreadConstraint `json:"s3,omitempty"`
 }
 
 func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpreadConstraint {
@@ -127,18 +115,15 @@ func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpread
 		return c.Drive
 	case "s3":
 		return c.S3
-	case "nfs-gateway":
-		return c.NfsGateway
 	default:
 		return nil
 	}
 }
 
 type RoleAffinity struct {
-	Compute    *v1.Affinity `json:"compute,omitempty"`
-	Drive      *v1.Affinity `json:"drive,omitempty"`
-	S3         *v1.Affinity `json:"s3,omitempty"`
-	NfsGateway *v1.Affinity `json:"nfsGateway,omitempty"`
+	Compute *v1.Affinity `json:"compute,omitempty"`
+	Drive   *v1.Affinity `json:"drive,omitempty"`
+	S3      *v1.Affinity `json:"s3,omitempty"`
 }
 
 func (a *RoleAffinity) ForRole(role string) *v1.Affinity {
@@ -149,8 +134,6 @@ func (a *RoleAffinity) ForRole(role string) *v1.Affinity {
 		return a.Drive
 	case "s3":
 		return a.S3
-	case "nfs-gateway":
-		return a.NfsGateway
 	default:
 		return nil
 	}
@@ -220,12 +203,11 @@ func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
 type ClusterPorts struct {
 	// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
 	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
-	BasePort       int `json:"basePort,omitempty"`
-	PortRange      int `json:"portRange,omitempty"`
-	LbPort         int `json:"lbPort,omitempty"`
-	LbAdminPort    int `json:"lbAdminPort,omitempty"`
-	S3Port         int `json:"s3Port,omitempty"`
-	NfsGatewayPort int `json:"nfsGatewayPort,omitempty"`
+	BasePort    int `json:"basePort,omitempty"`
+	PortRange   int `json:"portRange,omitempty"`
+	LbPort      int `json:"lbPort,omitempty"`
+	LbAdminPort int `json:"lbAdminPort,omitempty"`
+	S3Port      int `json:"s3Port,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
@@ -253,13 +235,10 @@ type WekaClusterStatus struct {
 // +kubebuilder:printcolumn:name="Compute Containers",type="integer",JSONPath=".spec.dynamicTemplate.computeContainers",description="Number of compute containers",priority=3
 // +kubebuilder:printcolumn:name="Drive Containers",type="integer",JSONPath=".spec.dynamicTemplate.driveContainers",description="Number of drive containers",priority=4
 // +kubebuilder:printcolumn:name="S3 Containers",type="integer",JSONPath=".spec.dynamicTemplate.S3Containers",description="Number of S3 containers",priority=5
-// +kubebuilder:printcolumn:name="NFS Gateway Containers",type="integer",JSONPath=".spec.dynamicTemplate.NfsGatewayContainers",description="Number of compute cores",priority=6
-// +kubebuilder:printcolumn:name="Envoy Cores",type="integer",JSONPath=".spec.dynamicTemplate.EnvoyCores",description="Number of Envoy cores",priority=7
-// +kubebuilder:printcolumn:name="Compute Cores",type="integer",JSONPath=".spec.dynamicTemplate.computeCores",description="Number of compute cores",priority=8
-// +kubebuilder:printcolumn:name="Drive Cores",type="integer",JSONPath=".spec.dynamicTemplate.driveCores",description="Number of drive cores",priority=9
-// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".spec.dynamicTemplate.NumDrives",description="Number of drives",priority=10
-// +kubebuilder:printcolumn:name="S3 Cores",type="integer",JSONPath=".spec.dynamicTemplate.s3Cores",description="Number of S3 cores",priority=11
-// +kubebuilder:printcolumn:name="NFS Gateway Cores",type="integer",JSONPath=".spec.dynamicTemplate.NfsGatewayCores",description="Number of NFS Gateway cores",priority=12
+// +kubebuilder:printcolumn:name="Compute Cores",type="integer",JSONPath=".spec.dynamicTemplate.computeCores",description="Number of compute cores",priority=6
+// +kubebuilder:printcolumn:name="Drive Cores",type="integer",JSONPath=".spec.dynamicTemplate.driveCores",description="Number of drive cores",priority=7
+// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".spec.dynamicTemplate.NumDrives",description="Number of drives",priority=8
+// +kubebuilder:printcolumn:name="S3 Cores",type="integer",JSONPath=".spec.dynamicTemplate.s3Cores",description="Number of S3 cores",priority=9
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
