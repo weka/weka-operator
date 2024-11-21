@@ -24,54 +24,54 @@ spec:
       name: Cluster ID
       type: string
     - description: Number of drives
-      jsonPath: .status.counters.current.Drives
+      jsonPath: .status.counters.current.numDrives
       name: Drives
       type: integer
     - description: Number of compute containers
-      jsonPath: .status.counters.current.ComputeContainers
+      jsonPath: .status.counters.current.numComputeContainers
       name: Compute Containers
       type: integer
     - description: Number of drive containers
-      jsonPath: .status.counters.desired.DriveContainers
+      jsonPath: .status.counters.desired.numDriveContainers
       name: Drive Containers
       type: integer
     - description: Number of S3 containers
-      jsonPath: .status.counters.desired.S3Containers
+      jsonPath: .status.counters.desired.numS3Containers
       name: S3 Containers
       priority: 1
       type: integer
     - description: Number of NFS gateway containers
-      jsonPath: .status.counters.desired.NfsGatewayContainers
+      jsonPath: .status.counters.desired.numNfsGatewayContainers
       name: NFS Containers
       priority: 1
       type: integer
     - description: Number of NFS gateway containers
-      jsonPath: .status.counters.desired.EnvoyContainers
+      jsonPath: .status.counters.desired.numEnvoyContainers
       name: Envoy Containers
       priority: 1
       type: integer
     - description: Number of compute cores
-      jsonPath: .status.counters.current.ComputeCores
+      jsonPath: .status.counters.current.numComputeCores
       name: Compute Cores
       priority: 1
       type: integer
     - description: Number of drive cores
-      jsonPath: .status.counters.current.DriveCores
+      jsonPath: .status.counters.current.numDriveCores
       name: Drive Cores
       priority: 1
       type: integer
     - description: Number of S3 cores
-      jsonPath: .status.counters.current.s3Cores
+      jsonPath: .status.counters.current.nums3Cores
       name: S3 Cores
       priority: 1
       type: integer
     - description: Number of NFS Gateway cores
-      jsonPath: .status.counters.current.NfsGatewayCores
+      jsonPath: .status.counters.current.numNfsGatewayCores
       name: NFS Gateway Cores
       priority: 1
       type: integer
     - description: Number of Envoy cores
-      jsonPath: .status.counters.current.EnvoyCores
+      jsonPath: .status.counters.current.numEnvoyCores
       name: Envoy Cores
       priority: 1
       type: integer
@@ -5937,73 +5937,73 @@ spec:
                 properties:
                   current:
                     properties:
-                      ComputeContainers:
+                      numComputeContainers:
                         format: int64
                         type: integer
-                      ComputeCores:
+                      numComputeCores:
                         format: int64
                         type: integer
-                      DriveContainers:
+                      numDriveContainers:
                         format: int64
                         type: integer
-                      DriveCores:
+                      numDriveCores:
                         format: int64
                         type: integer
-                      Drives:
+                      numDrives:
                         format: int64
                         type: integer
-                      EnvoyContainers:
+                      numEnvoyContainers:
                         format: int64
                         type: integer
-                      EnvoyCores:
+                      numEnvoyCores:
                         format: int64
                         type: integer
-                      NfsGatewayContainers:
+                      numNfsGatewayContainers:
                         format: int64
                         type: integer
-                      NfsGatewayCores:
+                      numNfsGatewayCores:
                         format: int64
                         type: integer
-                      S3Containers:
+                      numS3Containers:
                         format: int64
                         type: integer
-                      S3Cores:
+                      numS3Cores:
                         format: int64
                         type: integer
                     type: object
                   desired:
                     properties:
-                      ComputeContainers:
+                      numComputeContainers:
                         format: int64
                         type: integer
-                      ComputeCores:
+                      numComputeCores:
                         format: int64
                         type: integer
-                      DriveContainers:
+                      numDriveContainers:
                         format: int64
                         type: integer
-                      DriveCores:
+                      numDriveCores:
                         format: int64
                         type: integer
-                      Drives:
+                      numDrives:
                         format: int64
                         type: integer
-                      EnvoyContainers:
+                      numEnvoyContainers:
                         format: int64
                         type: integer
-                      EnvoyCores:
+                      numEnvoyCores:
                         format: int64
                         type: integer
-                      NfsGatewayContainers:
+                      numNfsGatewayContainers:
                         format: int64
                         type: integer
-                      NfsGatewayCores:
+                      numNfsGatewayCores:
                         format: int64
                         type: integer
-                      S3Containers:
+                      numS3Containers:
                         format: int64
                         type: integer
-                      S3Cores:
+                      numS3Cores:
                         format: int64
                         type: integer
                     type: object
