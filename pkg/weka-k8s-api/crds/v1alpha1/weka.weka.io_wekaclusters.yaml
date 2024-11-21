@@ -35,13 +35,13 @@ spec:
       jsonPath: .status.printerColumns.Drives
       name: DRVS(A/C/D)
       type: string
-    - description: IOPS Read/Write/Metadata
-      jsonPath: .status.printerColumns.Iops
+    - description: Throughput Read/Write/Metadata
+      jsonPath: .status.iops
       name: IOPS(R/W/M)
       priority: 1
       type: string
     - description: Throughput Read/Write
-      jsonPath: .status.printerColumns.Throughput
+      jsonPath: .status.throughput
       name: TPS(R/W)
       priority: 1
       type: string
@@ -5975,25 +5975,7 @@ spec:
                     type: object
                 type: object
               iops:
-                properties:
-                  metadata:
-                    format: int64
-                    type: integer
-                  read:
-                    format: int64
-                    type: integer
-                  total:
-                    format: int64
-                    type: integer
-                  write:
-                    format: int64
-                    type: integer
-                required:
-                - metadata
-                - read
-                - total
-                - write
-                type: object
+                type: string
               lastAppliedImage:
                 type: string
               lastAppliedSpec:
@@ -6027,31 +6009,19 @@ spec:
                     type: string
                   Drives:
                     type: string
-                  Iops:
-                    type: string
-                  Throughput:
-                    type: string
                 type: object
               spanId:
                 type: string
               status:
                 type: string
               throughput:
-                properties:
-                  read:
-                    format: int64
-                    type: integer
-                  write:
-                    format: int64
-                    type: integer
-                required:
-                - read
-                - write
-                type: object
+                type: string
               traceId:
                 type: string
             required:
+            - iops
             - status
+            - throughput
             type: object
         type: object
     served: true
