@@ -22,25 +22,39 @@ spec:
     - description: Weka container mode
       jsonPath: .spec.mode
       name: Mode
+      type: string
+    - description: Node where the container is running
+      jsonPath: .status.managementIP
+      name: Management IP
+      type: string
+    - description: Number of drives attached to container
+      jsonPath: .spec.numDrives
+      name: Drives
+      priority: 1
+      type: integer
+    - description: Number of dedicated cores
+      jsonPath: .spec.numCores
+      name: Cores
+      priority: 1
+      type: integer
+    - description: Weka container name
+      jsonPath: .spec.name
+      name: InternalName
       priority: 1
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - description: Number of drives attached to container
-      jsonPath: .spec.numDrives
-      name: Drives Count
-      priority: 2
-      type: integer
     - description: Weka container ID
       jsonPath: .status.containerID
       name: Weka cID
+      priority: 1
       type: string
     - description: Weka container message
       jsonPath: .status.message
       name: Message
-      priority: 3
+      priority: 1
       type: string
     name: v1alpha1
     schema:
@@ -1058,11 +1072,19 @@ spec:
                 - adhoc-op-with-container
                 - adhoc-op
                 - envoy
+                - nfs-gateway
                 type: string
               name:
                 type: string
               network:
                 properties:
+                  aws:
+                    properties:
+                      deviceSlots:
+                        items:
+                          type: integer
+                        type: array
+                    type: object
                   ethDevice:
                     type: string
                   ethDevices:

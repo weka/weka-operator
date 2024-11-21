@@ -23,9 +23,10 @@ type WekaManualOperationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status",priority=1
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=2
-// +kubebuilder:printcolumn:name="Result",type="string",JSONPath=".status.result",description="Result",priority=3
+// +kubebuilder:printcolumn:name="Action",type="string",JSONPath=".spec.action",description="Action",priority=0
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status",priority=0
+// +kubebuilder:printcolumn:name="Result",type="string",JSONPath=".status.result",description="Result",priority=1
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
 
 // WekaManualOperation is the Schema for the wekamanualoperations API
 type WekaManualOperation struct {

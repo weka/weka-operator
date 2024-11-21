@@ -14,7 +14,25 @@ spec:
     singular: driveclaim
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Owner
+      jsonPath: .spec.owner
+      name: Owner
+      type: string
+    - description: Device
+      jsonPath: .spec.device
+      name: Device
+      type: string
+    - description: Drive UUUD
+      jsonPath: .spec.driveUuid
+      name: Drive UUID
+      priority: 1
+      type: string
+    - description: Creation time
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:
