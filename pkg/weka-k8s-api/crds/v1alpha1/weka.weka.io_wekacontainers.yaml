@@ -30,34 +30,32 @@ spec:
     - description: Number of drives attached to container
       jsonPath: .spec.numDrives
       name: Drives
+      priority: 1
       type: integer
     - description: Number of dedicated cores
       jsonPath: .spec.numCores
       name: Cores
+      priority: 1
       type: integer
-    - description: Weka container ID
-      jsonPath: .status.containerID
-      name: Weka cID
-      type: string
-    - description: Node name
-      jsonPath: .status.nodeAffinity
-      name: Node
-      priority: 1
-      type: string
-    - description: Weka cluster GUID
-      jsonPath: .status.clusterID
-      name: Weka Cluster GUID
-      priority: 1
-      type: string
     - description: Weka container name
       jsonPath: .spec.name
-      name: Internal Name
+      name: InternalName
       priority: 1
       type: string
     - description: Time since creation
       jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - description: Weka container ID
+      jsonPath: .status.containerID
+      name: Weka cID
+      priority: 1
+      type: string
+    - description: Weka container message
+      jsonPath: .status.message
+      name: Message
+      priority: 1
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -1080,6 +1078,13 @@ spec:
                 type: string
               network:
                 properties:
+                  aws:
+                    properties:
+                      deviceSlots:
+                        items:
+                          type: integer
+                        type: array
+                    type: object
                   ethDevice:
                     type: string
                   ethDevices:
@@ -1547,6 +1552,8 @@ spec:
               lastAppliedImage:
                 type: string
               managementIP:
+                type: string
+              message:
                 type: string
               nodeAffinity:
                 description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
