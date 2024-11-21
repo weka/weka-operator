@@ -83,19 +83,6 @@ spec:
                           type: string
                         type: object
                     type: object
-                  ensureNICsPayload:
-                    properties:
-                      dataNICsNumber:
-                        type: integer
-                      nodeSelector:
-                        additionalProperties:
-                          type: string
-                        type: object
-                      type:
-                        type: string
-                    required:
-                    - type
-                    type: object
                   signDrivesPayload:
                     properties:
                       devicePaths:
