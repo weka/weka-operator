@@ -61,31 +61,26 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 }
 
 type WekaConfig struct {
-	ComputeContainers         *int `json:"computeContainers,omitempty"`
-	DriveContainers           *int `json:"driveContainers,omitempty"`
-	S3Containers              int  `json:"s3Containers,omitempty"`
-	ComputeCores              int  `json:"computeCores,omitempty"`
-	DriveCores                int  `json:"driveCores,omitempty"`
-	S3Cores                   int  `json:"s3Cores,omitempty"`
-	NumDrives                 int  `json:"numDrives,omitempty"`
-	S3ExtraCores              int  `json:"s3ExtraCores,omitempty"`
-	DriveHugepages            int  `json:"driveHugepages,omitempty"`
-	DriveHugepagesOffset      int  `json:"driveHugepagesOffset,omitempty"`
-	ComputeHugepages          int  `json:"computeHugepages,omitempty"`
-	ComputeHugepagesOffset    int  `json:"computeHugepagesOffset,omitempty"`
-	S3FrontendHugepages       int  `json:"s3FrontendHugepages,omitempty"`
-	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
-	EnvoyCores                int  `json:"envoyCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway containers
-	NfsGatewayContainers int `json:"nfsGatewayContainers,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway cores per container
-	NfsGatewayCores int `json:"nfsGatewayCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway extra cores per container
-	NfsGatewayExtraCores int `json:"nfsGatewayExtraCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS gateway frontend
-	NfsGatewayFrontendHugepages int `json:"nfsGatewayFrontendHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS gateway frontend
-	NfsGatewayFrontendHugepagesOffset int `json:"nfsGatewayFrontendHugepagesOffset,omitempty"`
+	ComputeContainers                 *int `json:"computeContainers,omitempty"`
+	DriveContainers                   *int `json:"driveContainers,omitempty"`
+	S3Containers                      int  `json:"s3Containers,omitempty"`
+	ComputeCores                      int  `json:"computeCores,omitempty"`
+	DriveCores                        int  `json:"driveCores,omitempty"`
+	S3Cores                           int  `json:"s3Cores,omitempty"`
+	NumDrives                         int  `json:"numDrives,omitempty"`
+	S3ExtraCores                      int  `json:"s3ExtraCores,omitempty"`
+	DriveHugepages                    int  `json:"driveHugepages,omitempty"`
+	DriveHugepagesOffset              int  `json:"driveHugepagesOffset,omitempty"`
+	ComputeHugepages                  int  `json:"computeHugepages,omitempty"`
+	ComputeHugepagesOffset            int  `json:"computeHugepagesOffset,omitempty"`
+	S3FrontendHugepages               int  `json:"s3FrontendHugepages,omitempty"`
+	S3FrontendHugepagesOffset         int  `json:"s3FrontendHugepagesOffset,omitempty"`
+	EnvoyCores                        int  `json:"envoyCores,omitempty"`
+	NfsGatewayContainers              int  `json:"nfsGatewayContainers,omitempty"`
+	NfsGatewayCores                   int  `json:"nfsGatewayCores,omitempty"`
+	NfsGatewayExtraCores              int  `json:"nfsGatewayExtraCores,omitempty"`
+	NfsGatewayFrontendHugepages       int  `json:"nfsGatewayFrontendHugepages,omitempty"`
+	NfsGatewayFrontendHugepagesOffset int  `json:"nfsGatewayFrontendHugepagesOffset,omitempty"`
 }
 
 type WekaHomeConfig struct {
@@ -225,31 +220,45 @@ func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
 type ClusterPorts struct {
 	// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
 	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
-	BasePort    int `json:"basePort,omitempty"`
-	PortRange   int `json:"portRange,omitempty"`
-	LbPort      int `json:"lbPort,omitempty"`
-	LbAdminPort int `json:"lbAdminPort,omitempty"`
-	S3Port      int `json:"s3Port,omitempty"`
+	BasePort       int `json:"basePort,omitempty"`
+	PortRange      int `json:"portRange,omitempty"`
+	LbPort         int `json:"lbPort,omitempty"`
+	LbAdminPort    int `json:"lbAdminPort,omitempty"`
+	S3Port         int `json:"s3Port,omitempty"`
+	NfsGatewayPort int `json:"nfsGatewayPort,omitempty"`
 }
 
 type Counter struct {
-	NumComputeContainers int64 `json:"ComputeContainers,omitempty"`
-	NumDriveContainers   int64 `json:"DriveContainers,omitempty"`
-	NumDrives            int64 `json:"Drives"`
-	NumComputeProcesses  int64 `json:"ComputeProcesses,omitempty"`
-	NumDriveProcesses    int64 `json:"DriveProcesses,omitempty"`
+	NumComputeContainers    int64 `json:"ComputeContainers,omitempty"`
+	NumDriveContainers      int64 `json:"DriveContainers,omitempty"`
+	NumS3Containers         int64 `json:"S3Containers,omitempty"`
+	NumNfsGatewayContainers int64 `json:"NfsGatewayContainers,omitempty"`
+	NumDrives               int64 `json:"Drives,omitempty"`
+	NumComputeCores         int64 `json:"ComputeCores,omitempty"`
+	NumDriveCores           int64 `json:"DriveCores,omitempty"`
+	NumS3Cores              int64 `json:"S3Cores,omitempty"`
+	NumNfsGatewayCores      int64 `json:"NfsGatewayCores,omitempty"`
+	NumEnvoyContainers      int64 `json:"EnvoyContainers,omitempty"`
+	NumEnvoyCores           int64 `json:"EnvoyCores,omitempty"`
 }
 
 type Counters struct {
-	Active  Counter `json:"active,omitempty"`
-	Created Counter `json:"created,omitempty"`
 	Desired Counter `json:"desired,omitempty"`
+	Active  Counter `json:"current,omitempty"`
 }
 
 type PrinterColumns struct {
-	ComputeContainers string `json:"ComputeContainers,omitempty"`
-	DriveContainers   string `json:"DriveContainers,omitempty"`
-	Drives            string `json:"Drives,omitempty"`
+	ComputeContainers    string `json:"ComputeContainers,omitempty"`
+	DriveContainers      string `json:"DriveContainers,omitempty"`
+	S3Containers         string `json:"S3Containers,omitempty"`
+	NfsGatewayContainers string `json:"NfsGatewayContainers,omitempty"`
+	EnvoyContainers      string `json:"EnvoyContainers,omitempty"`
+	Drives               string `json:"Drives,omitempty"`
+	ComputeCores         string `json:"ComputeCores,omitempty"`
+	DriveCores           string `json:"DriveCores,omitempty"`
+	S3Cores              string `json:"S3Cores,omitempty"`
+	NfsGatewayCores      string `json:"NfsGatewayCores,omitempty"`
+	EnvoyCores           string `json:"EnvoyCores,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
@@ -257,7 +266,6 @@ type WekaClusterStatus struct {
 	Status           WekaClusterStatusEnum `json:"status"`
 	Conditions       []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	Throughput       string                `json:"throughput"`
-	Iops             string                `json:"iops"`
 	ClusterID        string                `json:"clusterID,omitempty"`
 	TraceId          string                `json:"traceId,omitempty"`
 	SpanID           string                `json:"spanId,omitempty"`
@@ -277,12 +285,17 @@ type WekaClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
-// +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster GUID",priority=0
-// +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printerColumns.ComputeContainers",description="Number of compute containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printerColumns.DriveContainers",description="Number of drive containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printerColumns.Drives",description="Number of Drives: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.iops",description="Throughput Read/Write/Metadata",priority=1
-// +kubebuilder:printcolumn:name="TPS(R/W)",type="string",JSONPath=".status.throughput",description="Throughput Read/Write",priority=1
+// +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster ID",priority=1
+// +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printerColumns.Drives",description="Number of drives: Running/Total (per container)",priority=0
+// +kubebuilder:printcolumn:name="Compute Cont.",type="string",JSONPath=".status.printerColumns.ComputeContainers",description="Number of compute containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="S3 Cont.",type="string",JSONPath=".status.printerColumns.S3Containers",description="Number of S3 containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="NFS Cont.",type="string",JSONPath=".status.printerColumns.NfsGatewayContainers",description="Number of NFS gateway containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="Envoy Cont.",type="string",JSONPath=".status.printerColumns.EnvoyContainers",description="Number of NFS gateway containers: Running/Total (required)",priority=0
+// +kubebuilder:printcolumn:name="Compute Cores",type="string",JSONPath=".status.printerColumns.ComputeCores",description="Number of compute cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="Drive Cores",type="string",JSONPath=".status.printerColumns.DriveCores",description="Number of drive cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="S3 Cores",type="string",JSONPath=".status.printerColumns.s3Cores",description="Number of S3 cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="NFS Cores",type="string",JSONPath=".status.printerColumns.NfsGatewayCores",description="Number of NFS Gateway cores: Active/Total (per container)",priority=1
+// +kubebuilder:printcolumn:name="Envoy Cores",type="string",JSONPath=".status.printerColumns.EnvoyCores",description="Number of Envoy cores: Active/Total (per container)",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`
