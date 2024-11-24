@@ -24,9 +24,27 @@ type ClusterContainersResponse []ClusterContainer
 type ClusterContainersMap map[string]ClusterContainer
 
 func HostIdToContainerId(hostId string) (int, error) {
-	hostId = strings.Replace(hostId, "HostId<", "", 1)
-	hostId = strings.Replace(hostId, ">", "", 1)
-	id, err := strconv.Atoi(hostId)
+	wekaId, err := WekaIdToInteger("HostId", hostId)
+	if err != nil {
+		return 0, err
+	}
+
+	return wekaId, nil
+}
+
+func NodeIdToProcessId(nodeId string) (int, error) {
+	wekaId, err := WekaIdToInteger("NodeId", nodeId)
+	if err != nil {
+		return 0, err
+	}
+
+	return wekaId, nil
+}
+
+func WekaIdToInteger(prefix string, wekaId string) (int, error) {
+	wekaId = strings.Replace(wekaId, prefix+"<", "", 1)
+	wekaId = strings.Replace(wekaId, ">", "", 1)
+	id, err := strconv.Atoi(wekaId)
 	if err != nil {
 		return 0, err
 	}

@@ -345,3 +345,15 @@ func IsNotFunc(container func() bool) PredicateFunc {
 		return !container()
 	}
 }
+
+func ForceNoError(f StepFunc) StepFunc {
+	return func(ctx context.Context) error {
+		_, logger, end := instrumentation.GetLogSpan(ctx, "ForceNoError")
+		defer end()
+		ret := f(ctx)
+		if ret != nil {
+			logger.SetError(ret, "transient error in step, but forcing no error in flow")
+		}
+		return nil
+	}
+}

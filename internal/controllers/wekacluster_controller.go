@@ -100,10 +100,18 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.getCurrentContainers,
 			},
 			{
-				Run: loop.UpdateClusterCounters,
+				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
+				Run: lifecycle.ForceNoError(loop.UpdateClusterCounters),
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return config.Config.Metrics.Clusters.Enabled
+					},
+				},
+				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.UpdateWekaClusterCounters,
+				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
+				Run: lifecycle.ForceNoError(loop.UpdateWekaClusterCounters),
 				Predicates: lifecycle.Predicates{
 					func() bool {
 						for _, c := range loop.cluster.Status.Conditions {
@@ -114,6 +122,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 							}
 						}
 						return false
+					},
+					func() bool {
+						return config.Config.Metrics.Clusters.Enabled
 					},
 					lifecycle.IsNotFunc(loop.cluster.IsTerminating),
 				},
@@ -230,12 +241,12 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Condition: condition.ConfNfsGatewayConfigured,
+				Condition: condition.ConfNfsConfigured,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
-					loop.HasNfsGatewayContainers,
+					loop.HasNfsContainers,
 				},
-				Run:                       loop.EnsureNfsGateway,
+				Run:                       loop.EnsureNfs,
 				ContinueOnPredicatesFalse: true,
 			},
 			{

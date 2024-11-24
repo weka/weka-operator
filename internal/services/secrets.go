@@ -149,7 +149,7 @@ func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterS
 
 	for _, container := range containers {
 		endpoints = append(endpoints, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.GetPort()))
-		if container.IsNfsGatewayContainer() {
+		if container.IsNfsContainer() {
 			nfsTargetIps = append(nfsTargetIps, container.Status.ManagementIP)
 		}
 	}

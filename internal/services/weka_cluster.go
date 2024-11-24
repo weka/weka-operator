@@ -198,6 +198,6 @@ func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
 	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 }
 
-func (r *wekaClusterService) EnsureNoNfsGatewayContainers(ctx context.Context) error {
-	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfsGateway)
+func (r *wekaClusterService) EnsureNoNfsContainers(ctx context.Context) error {
+	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfs)
 }

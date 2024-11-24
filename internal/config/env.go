@@ -89,6 +89,16 @@ var Config struct {
 	DevMode                    bool
 	Logging                    Logging
 	MaxWorkers                 MaxWorkers
+	Metrics                    Metrics
+}
+
+type Metrics struct {
+	Clusters struct {
+		Enabled bool
+	}
+	Containers struct {
+		Enabled bool
+	}
 }
 
 var Consts struct {
@@ -102,7 +112,7 @@ func init() {
 func ConfigureEnv(ctx context.Context) {
 	Config.Version = getEnvOrFail("VERSION")
 	Config.PodUID = os.Getenv("POD_UID")
-	Config.BindAddress.Metrics = getEnvOrFail("METRICS_BIND_ADDRESS")
+	Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
 	Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
@@ -146,6 +156,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.MaxWorkers.WekaManualOperation = getIntEnvOrDefault("MAX_WORKERS_WEKAMANUALOPERATION", 1)
 	Config.MaxWorkers.WekaPolicy = getIntEnvOrDefault("MAX_WORKERS_WEKAPOLICY", 1)
 	Config.MaxWorkers.Tombstone = getIntEnvOrDefault("MAX_WORKERS_TOMBSTONE", 5)
+
+	Config.Metrics.Clusters.Enabled = getBoolEnvOrDefault("METRICS_CLUSTERS_ENABLED", true)
+	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 }
 
 func getEnvOrFail(envKey string) string {

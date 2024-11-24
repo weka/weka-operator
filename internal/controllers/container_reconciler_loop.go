@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/config"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +41,7 @@ const (
 	PodStatePodRunning     = "PodRunning"
 	WaitForDrivers         = "WaitForDrivers"
 	ContainerStatusRunning = "Running"
-	Error                 = "Error"
+	Error                  = "Error"
 	// for drivers-build container
 	Completed = "Completed"
 	Building  = "Building"
@@ -361,7 +362,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run:         loop.JoinNfsInterfaceGroups,
 				CondMessage: "NFS interface groups configured",
 				Predicates: lifecycle.Predicates{
-					container.IsNfsGatewayContainer,
+					container.IsNfsContainer,
 					container.HasJoinIps,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -376,7 +377,18 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.ReportMetrics,
+				Run: lifecycle.ForceNoError(loop.SetStatusMetrics),
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return config.Config.Metrics.Containers.Enabled
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+				Name:                      "SetStatusMetrics",
+			},
+			{
+				Run:  lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Name: "ReportOtelMetrics",
 			},
 		},
 	}
@@ -1377,7 +1389,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	drivesAddedBySerial := make(map[string]bool)
 	for _, drive := range drivesAdded {
-		drivesAddedBySerial[drive.Serial] = true
+		drivesAddedBySerial[drive.SerialNumber] = true
 	}
 
 	// TODO: Not validating part of added drives and trying all over
@@ -2063,7 +2075,7 @@ func (r *containerReconcilerLoop) PodNotRunning() bool {
 	return r.pod.Status.Phase != v1.PodRunning
 }
 
-func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
+func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MetricsData", "pod_name", r.container.Name, "namespace", r.container.Namespace, "mode", r.container.Spec.Mode)
 	defer end()
 
@@ -2086,6 +2098,86 @@ func (r *containerReconcilerLoop) ReportMetrics(ctx context.Context) error {
 		attribute.Int64("memory_limit", metrics.MemoryLimit),
 	)
 
+	if r.container.IsBackend() {
+		logger.SetAttributes(
+			attribute.Int64("desired_processes", r.container.Status.Metrics.Processes.Desired.Value),
+			attribute.Int64("created_processes", r.container.Status.Metrics.Processes.Desired.Value),
+			attribute.Int64("active_processes", r.container.Status.Metrics.Processes.Active.Value),
+		)
+	}
+	if r.container.IsDriveContainer() {
+		logger.SetAttributes(
+			attribute.Int64("desired_drives", r.container.Status.Metrics.Drives.DriveCounters.Desired.Value),
+			attribute.Int64("created_drives", r.container.Status.Metrics.Drives.DriveCounters.Created.Value),
+			attribute.Int64("active_drives", r.container.Status.Metrics.Drives.DriveCounters.Active.Value),
+		)
+	}
+
+	return nil
+}
+
+func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
+	// TODO: Should we be do this locally? it actually will be better to find failures from different container
+	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything throught just one
+	// tldr: we need a proper service gateway for weka api, that will both healthcheck and distribute
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetStatusMetrics")
+	defer end()
+
+	wekaService := services.NewWekaService(r.ExecService, r.container)
+	changed := false
+
+	changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Desired.SetValue(int64(r.container.Spec.NumDrives), time.Now())
+	changed = changed || r.container.Status.Metrics.Processes.Desired.SetValue(int64(r.container.Spec.NumCores+1), time.Now())
+
+	if r.container.Spec.Mode == weka.WekaContainerModeDrive {
+		if r.container.Status.ClusterContainerID == nil {
+			return nil
+		}
+		driveListoptions := services.DriveListOptions{
+			ContainerId: r.container.Status.ClusterContainerID,
+		}
+		drives, err := wekaService.ListDrives(ctx, driveListoptions)
+		if err == nil {
+			var active int64 = 0
+			for _, drive := range drives {
+				if drive.Status == "ACTIVE" {
+					active++
+				}
+			}
+			changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Active.SetValue(active, time.Now())
+			changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Created.SetValue(int64(len(drives)), time.Now())
+		} else {
+			logger.Error(err, "Error listing drives")
+		}
+
+		changed = changed || r.container.Status.PrinterColumns.Drives.SetValue(r.container.Status.Metrics.Drives.DriveCounters.String(), time.Now())
+	}
+
+	if r.container.IsBackend() {
+		processListOptions := services.ProcessListOptions{
+			ContainerId: r.container.Status.ClusterContainerID,
+		}
+		processes, err := wekaService.ListProcesses(ctx, processListOptions)
+		if err == nil {
+			var active int64 = 0
+			for _, process := range processes {
+				if process.Status == "UP" {
+					active++
+				}
+			}
+			changed = changed || r.container.Status.Metrics.Processes.Active.SetValue(active, time.Now())
+			// TODO: Desired/Created probably have better place to be set
+			changed = changed || r.container.Status.Metrics.Processes.Created.SetValue(int64(len(processes)), time.Now())
+		} else {
+			logger.Error(err, "Error listing processes")
+		}
+
+		changed = changed || r.container.Status.PrinterColumns.Processes.SetValue(r.container.Status.Metrics.Processes.String(), time.Now())
+	}
+
+	if changed {
+		return r.Status().Update(ctx, r.container)
+	}
 	return nil
 }
 

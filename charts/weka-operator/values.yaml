@@ -60,7 +60,7 @@ maxWorkers:
 
 wekaAllocZombieDeleteAfter: 5m
 
-metricsBindAddress: "127.0.0.1:8080"
+operatorMetricsBindAddress: "127.0.0.1:8080"
 healthProbeBindAddress: ":8081"
 
 ocpCompatibility:
@@ -107,3 +107,9 @@ debugSleep: 3
 
 tolerations: []
 deploymentIdentifier: ""
+
+metrics:
+  clusters:
+    enabled: true
+  containers:
+    enabled: true

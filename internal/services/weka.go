@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"strconv"
 	"strings"
 
@@ -97,12 +98,26 @@ type WekaUserResponse struct {
 	Username string `json:"username"`
 }
 
+type Process struct {
+	Status string   `json:"status"`
+	NodeId string   `json:"node_id"`
+	Roles  []string `json:"roles"`
+}
+
+func (p Process) GetProcessId() int {
+	id, err := resources.NodeIdToProcessId(p.NodeId)
+	if err != nil {
+		return -1
+	}
+	return id
+}
+
 type Drive struct {
-	Uuid       string `json:"uuid"`
-	AddedTime  string `json:"added_time"`
-	DevicePath string `json:"device_path"`
-	Serial     string `json:"serial_number"`
-	Status     string `json:"status"`
+	Uuid         string `json:"uuid"`
+	AddedTime    string `json:"added_time"`
+	DevicePath   string `json:"device_path"`
+	SerialNumber string `json:"serial_number"`
+	Status       string `json:"status"`
 }
 
 type DriveListOptions struct {
@@ -110,11 +125,15 @@ type DriveListOptions struct {
 	Status      *string `json:"status"`
 }
 
+type ProcessListOptions struct {
+	ContainerId *int `json:"container_id"`
+}
+
 type WekaService interface {
 	GetWekaStatus(ctx context.Context) (WekaStatusResponse, error)
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
-	ConfigureNfsGateway(ctx context.Context, nfsParams NFSParams) error
+	ConfigureNfs(ctx context.Context, nfsParams NFSParams) error
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
 	JoinNfsInterfaceGroups(ctx context.Context, containerId int) error
@@ -129,6 +148,7 @@ type WekaService interface {
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int) error
 	DeactivateDrive(ctx context.Context, driveUuid string) error
+	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -162,6 +182,26 @@ type NfsInterfaceGroupAlreadyJoined struct {
 type CliWekaService struct {
 	ExecService exec.ExecService
 	Container   *v1alpha1.WekaContainer
+}
+
+func (c *CliWekaService) ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error) {
+	var processes []Process
+	filters := []string{}
+	wekacli := "wekaauthcli"
+	cmdParts := []string{wekacli, "cluster", "process", "--json"}
+	if listOptions.ContainerId != nil {
+		filters = append(filters, fmt.Sprintf("containerId=%d", *listOptions.ContainerId))
+	}
+	if len(filters) != 0 {
+		cmdParts = append(cmdParts, "--filter")
+		cmdParts = append(cmdParts, strings.Join(filters, ","))
+	}
+
+	err := c.RunJsonCmd(ctx, cmdParts, "ListProcesses", &processes)
+	if err != nil {
+		return nil, err
+	}
+	return processes, nil
 }
 
 func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error) {
@@ -441,8 +481,8 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 	return nil
 }
 
-func (c *CliWekaService) ConfigureNfsGateway(ctx context.Context, nfsParams NFSParams) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfsGateway")
+func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
@@ -456,7 +496,7 @@ func (c *CliWekaService) ConfigureNfsGateway(ctx context.Context, nfsParams NFSP
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "ConfigureNfsConfigFilesystem", cmd)
 	if err != nil {
-		logger.SetError(err, "Failed to configure NFS gateway config filesystem", "stderr", stderr.String(), "stdout", stdout.String())
+		logger.SetError(err, "Failed to configure NFS config filesystem", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
 
@@ -466,7 +506,7 @@ func (c *CliWekaService) ConfigureNfsGateway(ctx context.Context, nfsParams NFSP
 		}
 		stdout, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsSupportedVersions", cmd)
 		if err != nil {
-			logger.SetError(err, "Failed to configure NFS gateway supported versions", "stderr", stderr.String(), "stdout", stdout.String())
+			logger.SetError(err, "Failed to configure NFS supported versions", "stderr", stderr.String(), "stdout", stdout.String())
 			return err
 		}
 	}
@@ -480,7 +520,7 @@ func (c *CliWekaService) ConfigureNfsGateway(ctx context.Context, nfsParams NFSP
 		if strings.Contains(stderr.String(), "already exists") {
 			return NfsInterfaceGroupExists{err}
 		} else {
-			logger.SetError(err, "Failed to configure NFS gateway interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+			logger.SetError(err, "Failed to configure NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
 			return err
 		}
 	}

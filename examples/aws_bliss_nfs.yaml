@@ -8,7 +8,7 @@ spec:
   dynamicTemplate:
       computeContainers: 6
       driveContainers: 6
-      nfsGatewayContainers: 2
+      nfsContainers: 2
   imagePullSecret: "quay-io-robot-secret"
   image: quay.io/weka.io/weka-in-container:4.4.1.8763-14fac292b856304e7f04e8804474b09c-dev
   driversDistService: "https://weka-driver-builder.weka-operator-system.svc.cluster.local:60002"

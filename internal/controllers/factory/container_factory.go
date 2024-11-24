@@ -42,10 +42,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.S3Cores
 	} else if role == "envoy" {
 		numCores = template.EnvoyCores
-	} else if role == "nfs-gateway" {
-		numCores = template.NfsGatewayCores
-		hugePagesNum = template.NfsGatewayFrontendHugepages
-		hugePagesOffset = template.NfsGatewayFrontendHugepagesOffset
+	} else if role == "nfs" {
+		numCores = template.NfsCores
+		hugePagesNum = template.NfsFrontendHugepages
+		hugePagesOffset = template.NfsFrontendHugepagesOffset
 	} else {
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -70,9 +70,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores
-	case "nfs-gateway":
-		additionalMemory = cluster.Spec.AdditionalMemory.NfsGateway
-		extraCores = template.NfsGatewayExtraCores
+	case "nfs":
+		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
+		extraCores = template.NfsExtraCores
 	}
 
 	containerGroup := ""
