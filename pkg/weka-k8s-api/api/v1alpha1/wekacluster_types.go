@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/weka/weka-k8s-api/util"
@@ -57,7 +56,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.Compute
 	case WekaContainerModeS3:
 		additionalMemory = a.S3
-	case WekaContainerModeNfsGateway:
+	case WekaContainerModeNfs:
 		additionalMemory = a.NfsGateway
 	}
 	return additionalMemory
@@ -80,15 +79,15 @@ type WekaConfig struct {
 	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
 	EnvoyCores                int  `json:"envoyCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway containers
-	NfsGatewayContainers int `json:"nfsGatewayContainers,omitempty"`
+	NfsContainers int `json:"nfsContainers,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway cores per container
-	NfsGatewayCores int `json:"nfsGatewayCores,omitempty"`
+	NfsCores int `json:"nfsCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway extra cores per container
-	NfsGatewayExtraCores int `json:"nfsGatewayExtraCores,omitempty"`
+	NfsExtraCores int `json:"nfsExtraCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS gateway frontend
-	NfsGatewayFrontendHugepages int `json:"nfsGatewayFrontendHugepages,omitempty"`
+	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS gateway frontend
-	NfsGatewayFrontendHugepagesOffset int `json:"nfsGatewayFrontendHugepagesOffset,omitempty"`
+	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
 }
 
 type WekaHomeConfig struct {
@@ -235,102 +234,6 @@ type ClusterPorts struct {
 	S3Port      int `json:"s3Port,omitempty"`
 }
 
-type ContainerCounters struct {
-	NumComputeContainers int64 `json:"ComputeContainers,omitempty"`
-	NumDriveContainers   int64 `json:"DriveContainers,omitempty"`
-	NumDrives            int64 `json:"Drives"`
-	NumComputeProcesses  int64 `json:"ComputeProcesses,omitempty"`
-	NumDriveProcesses    int64 `json:"DriveProcesses,omitempty"`
-}
-
-type IntMetric struct {
-	Value     int64       `json:"value,omitempty"`
-	Timestamp metav1.Time `json:"timestamp,omitempty"`
-}
-
-type FloatMetric struct {
-	Value     string      `json:"value,omitempty"` // usage of float type is highly discouraged by the Kubernetes API
-	Timestamp metav1.Time `json:"timestamp,omitempty"`
-}
-
-type ErrorType string
-
-const (
-	DriveError ErrorType = "DriveError"
-)
-
-type EntityStatefulNum struct {
-	Active  IntMetric `json:"active,omitempty"`
-	Created IntMetric `json:"created,omitempty"`
-	Desired IntMetric `json:"desired,omitempty"`
-}
-
-type MinMaxAvgPercent struct {
-	Min FloatMetric `json:"min,omitempty"`
-	Max FloatMetric `json:"max,omitempty"`
-	Avg FloatMetric `json:"avg,omitempty"`
-}
-
-type ContainerMetrics struct {
-	Containers EntityStatefulNum `json:"numContainers,omitempty"`
-	Processes  EntityStatefulNum `json:"processes,omitempty"`
-	CpuUsage   MinMaxAvgPercent  `json:"cpuUsage,omitempty"`
-}
-
-func (c EntityStatefulNum) String() string {
-	return fmt.Sprintf("%d/%d/%d", c.Active.Value, c.Created.Value, c.Desired.Value)
-}
-
-type ContainersMetrics struct {
-	Drive      ContainerMetrics `json:"drive,omitempty"`
-	Compute    ContainerMetrics `json:"compute,omitempty"`
-	S3         ContainerMetrics `json:"s3,omitempty"`
-	NfsGateway ContainerMetrics `json:"nfsGateway,omitempty"`
-}
-
-type DriveFailures struct {
-	SerialId      string `json:"serialId,omitempty"`
-	NodeName      string `json:"nodeName,omitempty"`
-	WekaDriveId   string `json:"wekaDriveId,omitempty"`
-	ContainerName string `json:"containerName,omitempty"`
-}
-
-type DriveMetrics struct {
-	DriveCounters EntityStatefulNum `json:"driveCounters,omitempty"`
-	DriveFailures DriveFailures     `json:"driveFailures,omitempty"`
-}
-
-type IoStats struct {
-	Throughput StatusThroughput `json:"throughput,omitempty"`
-	Iops       StatusIops       `json:"iops,omitempty"`
-}
-
-type ClusterMetrics struct {
-	Containers ContainersMetrics `json:"containers,omitempty"`
-	IoStats    IoStats           `json:"ioStats,omitempty"`
-	Drives     DriveMetrics      `json:"drives,omitempty"`
-}
-
-type PrinterColumns struct {
-	ComputeContainers string `json:"computeContainers,omitempty"`
-	DriveContainers   string `json:"driveContainers,omitempty"`
-	Drives            string `json:"drives,omitempty"`
-	Throughput        string `json:"throughput,omitempty"`
-	Iops              string `json:"iops,omitempty"`
-}
-
-type StatusThroughput struct {
-	Read  IntMetric `json:"read"`
-	Write IntMetric `json:"write"`
-}
-
-type StatusIops struct {
-	Read     IntMetric `json:"read"`
-	Write    IntMetric `json:"write"`
-	Metadata IntMetric `json:"metadata"`
-	Total    IntMetric `json:"total"`
-}
-
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
 	Status           WekaClusterStatusEnum `json:"status"`
@@ -342,7 +245,7 @@ type WekaClusterStatus struct {
 	LastAppliedSpec  string                `json:"lastAppliedSpec,omitempty"`
 	Ports            ClusterPorts          `json:"ports,omitempty"`
 	Metrics          ClusterMetrics        `json:"metrics,omitempty"`
-	PrinterColumns   PrinterColumns        `json:"printerColumns,omitempty"`
+	PrinterColumns   ClusterPrinterColumns `json:"printerColumns,omitempty"`
 
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
@@ -355,11 +258,11 @@ type WekaClusterStatus struct {
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
 // +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster GUID",priority=0
-// +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printerColumns.ComputeContainers",description="Number of compute containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printerColumns.DriveContainers",description="Number of drive containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printerColumns.Drives",description="Number of Drives: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printerColumns.Iops",description="IOPS Read/Write/Metadata",priority=1
-// +kubebuilder:printcolumn:name="TPS(R/W)",type="string",JSONPath=".status.printerColumns.Throughput",description="Throughput Read/Write",priority=1
+// +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printerColumns.computeContainers.value",description="Number of compute containers: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printerColumns.driveContainers.value",description="Number of drive containers: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printerColumns.drives.value",description="Number of Drives: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printerColumns.iops.value",description="IOPS Read/Write/Metadata",priority=1
+// +kubebuilder:printcolumn:name="THRPT(R/W)",type="string",JSONPath=".status.printerColumns.throughput.value",description="Throughput Read/Write",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`

@@ -24,25 +24,25 @@ spec:
       name: Cluster ID
       type: string
     - description: 'Number of compute containers: Active/Created/Desired'
-      jsonPath: .status.printerColumns.ComputeContainers
+      jsonPath: .status.printerColumns.computeContainers.value
       name: CCT(A/C/D)
       type: string
     - description: 'Number of drive containers: Active/Created/Desired'
-      jsonPath: .status.printerColumns.DriveContainers
+      jsonPath: .status.printerColumns.driveContainers.value
       name: DCT(A/C/D)
       type: string
     - description: 'Number of Drives: Active/Created/Desired'
-      jsonPath: .status.printerColumns.Drives
+      jsonPath: .status.printerColumns.drives.value
       name: DRVS(A/C/D)
       type: string
     - description: IOPS Read/Write/Metadata
-      jsonPath: .status.printerColumns.Iops
+      jsonPath: .status.printerColumns.iops.value
       name: IOPS(R/W/M)
       priority: 1
       type: string
     - description: Throughput Read/Write
-      jsonPath: .status.printerColumns.Throughput
-      name: TPS(R/W)
+      jsonPath: .status.printerColumns.throughput.value
+      name: THRPT(R/W)
       priority: 1
       type: string
     name: v1alpha1
@@ -113,23 +113,23 @@ spec:
                     type: integer
                   envoyCores:
                     type: integer
-                  nfsGatewayContainers:
+                  nfsContainers:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of NFS gateway containers'
                     type: integer
-                  nfsGatewayCores:
+                  nfsCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of NFS gateway cores per container'
                     type: integer
-                  nfsGatewayExtraCores:
+                  nfsExtraCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of NFS gateway extra cores per container'
                     type: integer
-                  nfsGatewayFrontendHugepages:
+                  nfsFrontendHugepages:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage allocation for NFS gateway frontend'
                     type: integer
-                  nfsGatewayFrontendHugepagesOffset:
+                  nfsFrontendHugepagesOffset:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage offset for NFS gateway frontend'
                     type: integer
@@ -6099,7 +6099,7 @@ spec:
                                 type: object
                             type: object
                         type: object
-                      nfsGateway:
+                      nfs:
                         properties:
                           cpuUsage:
                             properties:
@@ -6420,15 +6420,45 @@ spec:
               printerColumns:
                 properties:
                   computeContainers:
-                    type: string
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
                   driveContainers:
-                    type: string
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
                   drives:
-                    type: string
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
                   iops:
-                    type: string
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
                   throughput:
-                    type: string
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
                 type: object
               spanId:
                 type: string

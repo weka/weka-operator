@@ -23,23 +23,22 @@ spec:
       jsonPath: .spec.mode
       name: Mode
       type: string
-    - description: Node where the container is running
+    - description: Management IP
       jsonPath: .status.managementIP
       name: Management IP
       type: string
-    - description: Number of drives attached to container
-      jsonPath: .spec.numDrives
+    - description: Node affinity of container
+      jsonPath: .status.nodeAffinity
+      name: Node
+      type: string
+    - description: Number of processes per state
+      jsonPath: .status.printerColumns.processes.value
+      name: Processes
+      priority: 1
+      type: string
+    - description: Number of drives per state
+      jsonPath: .status.printerColumns.drives.value
       name: Drives
-      priority: 1
-      type: integer
-    - description: Number of dedicated cores
-      jsonPath: .spec.numCores
-      name: Cores
-      priority: 1
-      type: integer
-    - description: Weka container name
-      jsonPath: .spec.name
-      name: InternalName
       priority: 1
       type: string
     - description: Time since creation
@@ -1072,7 +1071,7 @@ spec:
                 - adhoc-op-with-container
                 - adhoc-op
                 - envoy
-                - nfs-gateway
+                - nfs
                 type: string
               name:
                 type: string
@@ -1555,6 +1554,110 @@ spec:
                 type: string
               message:
                 type: string
+              metrics:
+                properties:
+                  cpuUsage:
+                    properties:
+                      avg:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            type: string
+                        type: object
+                      max:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            type: string
+                        type: object
+                      min:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            type: string
+                        type: object
+                    type: object
+                  drives:
+                    properties:
+                      driveCounters:
+                        properties:
+                          active:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          created:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          desired:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                        type: object
+                      driveFailures:
+                        properties:
+                          containerName:
+                            type: string
+                          nodeName:
+                            type: string
+                          serialId:
+                            type: string
+                          wekaDriveId:
+                            type: string
+                        type: object
+                    type: object
+                  processes:
+                    properties:
+                      active:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            format: int64
+                            type: integer
+                        type: object
+                      created:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            format: int64
+                            type: integer
+                        type: object
+                      desired:
+                        properties:
+                          timestamp:
+                            format: date-time
+                            type: string
+                          value:
+                            format: int64
+                            type: integer
+                        type: object
+                    type: object
+                type: object
               nodeAffinity:
                 description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
                   a type captures intent and helps make sure that the node name\nis
@@ -1578,6 +1681,25 @@ spec:
                   this is _not_ always the same as the hostname: if\n\twe are using
                   a custom DHCP domain it won't be."
                 type: string
+              printerColumns:
+                properties:
+                  drives:
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
+                  processes:
+                    properties:
+                      timestamp:
+                        format: date-time
+                        type: string
+                      value:
+                        type: string
+                    type: object
+                type: object
               result:
                 type: string
               skipDeactivate:

@@ -17,10 +17,10 @@ type NodeName types.NodeName
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
-// +kubebuilder:printcolumn:name="Management IP",type="string",JSONPath=".status.managementIP",description="Node where the container is running",priority=0
-// +kubebuilder:printcolumn:name="Drives",type="integer",JSONPath=".spec.numDrives",description="Number of drives attached to container",priority=1
-// +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.numCores",description="Number of dedicated cores",priority=1
-// +kubebuilder:printcolumn:name="InternalName",type="string",JSONPath=".spec.name",description="Weka container name",priority=1
+// +kubebuilder:printcolumn:name="Management IP",type="string",JSONPath=".status.managementIP",description="Management IP",priority=0
+// +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
+// +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printerColumns.processes.value",description="Number of processes per state",priority=1
+// +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printerColumns.drives.value",description="Number of drives per state",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
 // +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=1
 // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=1
@@ -44,7 +44,7 @@ const (
 	WekaContainerModeClient         = "client"
 	WekaContainerModeDiscovery      = "discovery"
 	WekaContainerModeS3             = "s3"
-	WekaContainerModeNfsGateway     = "nfs-gateway"
+	WekaContainerModeNfs            = "nfs"
 	WekaContainerModeEnvoy          = "envoy"
 	WekaContainerModeAdhocOpWC      = "adhoc-op-with-container"
 	WekaContainerModeAdhocOp        = "adhoc-op"
@@ -87,7 +87,7 @@ type WekaContainerSpec struct {
 	Image             string            `json:"image"`
 	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
 	WekaContainerName string            `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs-gateway
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -146,19 +146,32 @@ type ContainerAllocations struct {
 	FailureDomain *string `json:"failureDomain,omitempty"`
 }
 
+type WekaContainerMetrics struct {
+	Processes EntityStatefulNum `json:"processes,omitempty"`
+	CpuUsage  MinMaxAvgPercent  `json:"cpuUsage,omitempty"`
+	Drives    DriveMetrics      `json:"drives,omitempty"`
+}
+
+type ContainerPrinterColumns struct {
+	Processes StringMetric `json:"processes,omitempty"`
+	Drives    StringMetric `json:"drives,omitempty"`
+}
+
 type WekaContainerStatus struct {
-	Status                string                `json:"status"`
-	Message               string                `json:"message,omitempty"`
-	ManagementIP          string                `json:"managementIP,omitempty"`
-	ClusterContainerID    *int                  `json:"containerID,omitempty"`
-	ClusterID             string                `json:"clusterID,omitempty"`
-	Conditions            []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage      string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	NodeAffinity          NodeName              `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
-	ExecutionResult       *string               `json:"result,omitempty"`
-	Allocations           *ContainerAllocations `json:"allocations,omitempty"`
-	SkipDeactivate        bool                  `json:"skipDeactivate,omitempty"`
-	SkipDrivesForceResign bool                  `json:"skipDrivesForceResign,omitempty"`
+	Status                string                  `json:"status"`
+	Message               string                  `json:"message,omitempty"`
+	ManagementIP          string                  `json:"managementIP,omitempty"`
+	ClusterContainerID    *int                    `json:"containerID,omitempty"`
+	ClusterID             string                  `json:"clusterID,omitempty"`
+	Conditions            []metav1.Condition      `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage      string                  `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	NodeAffinity          NodeName                `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	ExecutionResult       *string                 `json:"result,omitempty"`
+	Allocations           *ContainerAllocations   `json:"allocations,omitempty"`
+	SkipDeactivate        bool                    `json:"skipDeactivate,omitempty"`
+	SkipDrivesForceResign bool                    `json:"skipDrivesForceResign,omitempty"`
+	Metrics               WekaContainerMetrics    `json:"metrics,omitempty"`
+	PrinterColumns        ContainerPrinterColumns `json:"printerColumns,omitempty"`
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
@@ -256,7 +269,7 @@ func (w *WekaContainer) IsDriversBuilder() bool {
 }
 
 func (w *WekaContainer) IsBackend() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfsGateway}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDiscoveryContainer() bool {
@@ -276,20 +289,20 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeClient,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
-		WekaContainerModeNfsGateway,
+		WekaContainerModeNfs,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasFrontend() bool {
-	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfsGateway}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsS3Container() bool {
 	return slices.Contains([]string{WekaContainerModeS3}, w.Spec.Mode)
 }
 
-func (w *WekaContainer) IsNfsGatewayContainer() bool {
-	return slices.Contains([]string{WekaContainerModeNfsGateway}, w.Spec.Mode)
+func (w *WekaContainer) IsNfsContainer() bool {
+	return slices.Contains([]string{WekaContainerModeNfs}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasJoinIps() bool {
@@ -309,12 +322,12 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeEnvoy,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
-		WekaContainerModeNfsGateway,
+		WekaContainerModeNfs,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfsGateway}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
@@ -330,12 +343,12 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 		WekaContainerModeAdhocOpWC,
-		WekaContainerModeNfsGateway,
+		WekaContainerModeNfs,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfsGateway}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) GetNodeAffinity() NodeName {
@@ -368,7 +381,7 @@ func (w *WekaContainer) IsClientContainer() bool {
 }
 
 func (w *WekaContainer) IsProtocolContainer() bool {
-	return slices.Contains([]string{WekaContainerModeNfsGateway, WekaContainerModeS3}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) GetParentClusterId() string {
