@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - dev
 
 permissions:
   contents: write
@@ -28,8 +27,16 @@ jobs:
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip == 'false'
     steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ vars.WEKA_K8S_API_GH_APP_ID }}
+          private-key: ${{ secrets.WEKA_K8S_API_GH_APP_PRIVATE_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -41,5 +48,5 @@ jobs:
 
       - name: Run semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: npx semantic-release

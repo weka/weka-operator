@@ -1,3 +1,18 @@
+# [1.22.0](https://github.com/weka/weka-k8s-api/compare/v1.21.0...v1.22.0) (2024-11-25)
+
+
+### Bug Fixes
+
+* add loader mode to IsAdhocOpContainer ([0df651e](https://github.com/weka/weka-k8s-api/commit/0df651e5f305d4766515ea3c7c09d3375e3b77b3))
+* add loader mode to IsAdhocOpContainer ([#43](https://github.com/weka/weka-k8s-api/issues/43)) ([f33a857](https://github.com/weka/weka-k8s-api/commit/f33a857ed6ca8d8a859972d9c9896002ffeb730e))
+
+
+### Features
+
+* add ensure-nics manual operation ([c6fe92c](https://github.com/weka/weka-k8s-api/commit/c6fe92c407ca19b9a645add41de6ecc06c1db1f0))
+* add ensure-nics manual operation ([#46](https://github.com/weka/weka-k8s-api/issues/46)) ([312c122](https://github.com/weka/weka-k8s-api/commit/312c122a82387b45fd74d943987b7486325ed7ea))
+* add message field to weka container status ([3b015b0](https://github.com/weka/weka-k8s-api/commit/3b015b0d2ab08bb695bf5c0874d40cc3690a1401))
+
 # [1.21.0](https://github.com/weka/weka-k8s-api/compare/v1.20.0...v1.21.0) (2024-11-11)
 
 
