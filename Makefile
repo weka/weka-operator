@@ -107,7 +107,7 @@ manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomReso
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="" paths="./..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -285,7 +285,7 @@ CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTR
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.16.3
+CONTROLLER_TOOLS_VERSION ?= v0.16.5
 
 
 .PHONY: envtest
