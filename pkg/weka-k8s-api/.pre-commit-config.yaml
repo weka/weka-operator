@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: make-all
+        name: Run `make all`
+        entry: make all
+        language: system
+        pass_filenames: false

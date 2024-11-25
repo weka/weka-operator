@@ -244,13 +244,13 @@ type ContainerCounters struct {
 }
 
 type IntMetric struct {
-	Value     int64     `json:"value,omitempty"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
+	Value     int64       `json:"value,omitempty"`
+	Timestamp metav1.Time `json:"timestamp,omitempty"`
 }
 
 type FloatMetric struct {
-	Value     float64   `json:"value,omitempty"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
+	Value     string      `json:"value,omitempty"` // usage of float type is highly discouraged by the Kubernetes API
+	Timestamp metav1.Time `json:"timestamp,omitempty"`
 }
 
 type ErrorType string
@@ -266,9 +266,9 @@ type EntityStatefulNum struct {
 }
 
 type MinMaxAvgPercent struct {
-	Min FloatMetric
-	Max FloatMetric
-	Avg FloatMetric
+	Min FloatMetric `json:"min,omitempty"`
+	Max FloatMetric `json:"max,omitempty"`
+	Avg FloatMetric `json:"avg,omitempty"`
 }
 
 type ContainerMetrics struct {
@@ -282,10 +282,10 @@ func (c EntityStatefulNum) String() string {
 }
 
 type ContainersMetrics struct {
-	Drive      ContainerMetrics
-	Compute    ContainerMetrics
-	S3         ContainerMetrics
-	NfsGateway ContainerMetrics
+	Drive      ContainerMetrics `json:"drive,omitempty"`
+	Compute    ContainerMetrics `json:"compute,omitempty"`
+	S3         ContainerMetrics `json:"s3,omitempty"`
+	NfsGateway ContainerMetrics `json:"nfsGateway,omitempty"`
 }
 
 type DriveFailures struct {

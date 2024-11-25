@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.3
+    controller-gen.kubebuilder.io/version: v0.16.5
   name: wekaclusters.weka.weka.io
 spec:
   group: weka.weka.io
@@ -5911,93 +5911,491 @@ spec:
                   - type
                   type: object
                 type: array
-              counters:
-                properties:
-                  active:
-                    properties:
-                      ComputeContainers:
-                        format: int64
-                        type: integer
-                      ComputeProcesses:
-                        format: int64
-                        type: integer
-                      DriveContainers:
-                        format: int64
-                        type: integer
-                      DriveProcesses:
-                        format: int64
-                        type: integer
-                      Drives:
-                        format: int64
-                        type: integer
-                    required:
-                    - Drives
-                    type: object
-                  created:
-                    properties:
-                      ComputeContainers:
-                        format: int64
-                        type: integer
-                      ComputeProcesses:
-                        format: int64
-                        type: integer
-                      DriveContainers:
-                        format: int64
-                        type: integer
-                      DriveProcesses:
-                        format: int64
-                        type: integer
-                      Drives:
-                        format: int64
-                        type: integer
-                    required:
-                    - Drives
-                    type: object
-                  desired:
-                    properties:
-                      ComputeContainers:
-                        format: int64
-                        type: integer
-                      ComputeProcesses:
-                        format: int64
-                        type: integer
-                      DriveContainers:
-                        format: int64
-                        type: integer
-                      DriveProcesses:
-                        format: int64
-                        type: integer
-                      Drives:
-                        format: int64
-                        type: integer
-                    required:
-                    - Drives
-                    type: object
-                type: object
-              iops:
-                properties:
-                  metadata:
-                    format: int64
-                    type: integer
-                  read:
-                    format: int64
-                    type: integer
-                  total:
-                    format: int64
-                    type: integer
-                  write:
-                    format: int64
-                    type: integer
-                required:
-                - metadata
-                - read
-                - total
-                - write
-                type: object
               lastAppliedImage:
                 type: string
               lastAppliedSpec:
                 type: string
+              metrics:
+                properties:
+                  containers:
+                    properties:
+                      compute:
+                        properties:
+                          cpuUsage:
+                            properties:
+                              avg:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              max:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              min:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                            type: object
+                          numContainers:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                          processes:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                        type: object
+                      drive:
+                        properties:
+                          cpuUsage:
+                            properties:
+                              avg:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              max:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              min:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                            type: object
+                          numContainers:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                          processes:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                        type: object
+                      nfsGateway:
+                        properties:
+                          cpuUsage:
+                            properties:
+                              avg:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              max:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              min:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                            type: object
+                          numContainers:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                          processes:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                        type: object
+                      s3:
+                        properties:
+                          cpuUsage:
+                            properties:
+                              avg:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              max:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              min:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                            type: object
+                          numContainers:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                          processes:
+                            properties:
+                              active:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              created:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                              desired:
+                                properties:
+                                  timestamp:
+                                    format: date-time
+                                    type: string
+                                  value:
+                                    format: int64
+                                    type: integer
+                                type: object
+                            type: object
+                        type: object
+                    type: object
+                  drives:
+                    properties:
+                      driveCounters:
+                        properties:
+                          active:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          created:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          desired:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                        type: object
+                      driveFailures:
+                        properties:
+                          containerName:
+                            type: string
+                          nodeName:
+                            type: string
+                          serialId:
+                            type: string
+                          wekaDriveId:
+                            type: string
+                        type: object
+                    type: object
+                  ioStats:
+                    properties:
+                      iops:
+                        properties:
+                          metadata:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          read:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          total:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          write:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                        required:
+                        - metadata
+                        - read
+                        - total
+                        - write
+                        type: object
+                      throughput:
+                        properties:
+                          read:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                          write:
+                            properties:
+                              timestamp:
+                                format: date-time
+                                type: string
+                              value:
+                                format: int64
+                                type: integer
+                            type: object
+                        required:
+                        - read
+                        - write
+                        type: object
+                    type: object
+                type: object
               overrideGracefulDestroyDuration:
                 description: has priority over the spec `gracefulDestroyDuration`
                   value (if set)
@@ -6021,33 +6419,21 @@ spec:
                 type: object
               printerColumns:
                 properties:
-                  ComputeContainers:
+                  computeContainers:
                     type: string
-                  DriveContainers:
+                  driveContainers:
                     type: string
-                  Drives:
+                  drives:
                     type: string
-                  Iops:
+                  iops:
                     type: string
-                  Throughput:
+                  throughput:
                     type: string
                 type: object
               spanId:
                 type: string
               status:
                 type: string
-              throughput:
-                properties:
-                  read:
-                    format: int64
-                    type: integer
-                  write:
-                    format: int64
-                    type: integer
-                required:
-                - read
-                - write
-                type: object
               traceId:
                 type: string
             required:
