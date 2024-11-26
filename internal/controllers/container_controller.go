@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -81,6 +82,9 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaContainerReconcile", "namespace", req.Namespace, "container_name", req.Name)
 	defer end()
 
+	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
+	defer cancel()
+
 	container, err := r.refreshContainer(ctx, req)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -111,6 +115,6 @@ func (r *ContainerController) SetupWithManager(mgr ctrl.Manager, wrappedReconcil
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaContainer{}).
 		Owns(&v1.Pod{}).
-		WithOptions(controller.Options{MaxConcurrentReconciles: 10}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaContainer}).
 		Complete(wrappedReconcile)
 }

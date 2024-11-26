@@ -7,9 +7,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/config"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -19,8 +21,6 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
 )
-
-const DevModeNamespace = "weka-operator-system"
 
 type Exec interface {
 	Exec(ctx context.Context, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error)
@@ -32,6 +32,7 @@ type PodExec struct {
 	ClientSet *kubernetes.Clientset
 	Pod       NamespacedObject
 	Config    *rest.Config
+	timeout   *time.Duration
 }
 
 type ConfigurationError struct {
@@ -43,16 +44,22 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(config *rest.Config, pod NamespacedObject) (Exec, error) {
-	clientset, err := KubernetesClientSet(config)
+func NewExecWithConfig(cfg *rest.Config, pod NamespacedObject, timeout *time.Duration) (Exec, error) {
+	clientset, err := KubernetesClientSet(cfg)
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
+	}
+
+	if timeout == nil {
+		defaultTimeout := config.Config.Timeouts.KubeExecTimeout
+		timeout = &defaultTimeout
 	}
 
 	return &PodExec{
 		ClientSet: clientset,
 		Pod:       pod,
-		Config:    config,
+		Config:    cfg,
+		timeout:   timeout,
 	}, nil
 }
 
@@ -67,12 +74,16 @@ func NewExecInPod(pod *v1.Pod) (Exec, error) {
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(config, namespacedObject)
+	return NewExecWithConfig(config, namespacedObject, nil)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Exec", "command_name", name)
 	defer end()
+
+	ctx, cancel := context.WithTimeout(ctx, *e.timeout)
+	defer cancel()
+
 	// TODO: hide sensitive data
 	logger.SetValues(
 		"pod", e.Pod.Name,
@@ -164,8 +175,8 @@ func KubernetesConfiguration() (*rest.Config, error) {
 func GetPodNamespace() (string, error) {
 	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 	if err != nil {
-		if os.IsNotExist(err) && os.Getenv("OPERATOR_DEV_MODE") == "true" {
-			return DevModeNamespace, nil
+		if os.IsNotExist(err) && config.Config.DevMode {
+			return config.Consts.DevModeNamespace, nil
 		}
 		return "", err
 	}

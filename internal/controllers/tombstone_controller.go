@@ -3,10 +3,10 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"time"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -39,6 +40,7 @@ type TombstoneReconciller struct {
 func (r *TombstoneReconciller) SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.Tombstone{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.Tombstone}).
 		Complete(reconciler)
 }
 
@@ -74,6 +76,10 @@ func (r *TombstoneReconciller) Reconcile(ctx context.Context, request reconcile.
 	// check if object is being deleted, only then take action
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "TombstoneReconcile")
 	defer end()
+
+	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
+	defer cancel()
+
 	logger.Debug("reconciling tombstone", "name", request.Name, "namespace", request.Namespace)
 	tombstone := &wekav1alpha1.Tombstone{}
 	err := r.Client.Get(ctx, request.NamespacedName, tombstone)
@@ -195,10 +201,7 @@ func getWekaContainerByUUID(ctx context.Context, r client.Client, namespace stri
 func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone) (*v1.Job, error) {
 	_, logger, end := instrumentation.GetLogSpan(context.Background(), "GetDeletionJob")
 	defer end()
-	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
-	if serviceAccountName == "" {
-		return nil, fmt.Errorf("cannot remove tombstone, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
-	}
+	serviceAccountName := config.Config.MaintenanceSaName
 
 	jobName := "weka-tombstone-delete-" + string(tombstone.UID)
 	logger.Debug("fetching job", "jobName", jobName)
@@ -229,11 +232,8 @@ func (r *TombstoneReconciller) GetDeletionJob(tombstone *wekav1alpha1.Tombstone)
 		persistencePath = wekav1alpha1.PersistencePathBase + "/containers"
 	}
 
-	maintenanceImage := os.Getenv("WEKA_MAINTENANCE_IMAGE")
-	maintenanceImagePullSecret := os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
-	if maintenanceImage == "" {
-		maintenanceImage = "busybox"
-	}
+	maintenanceImage := config.Config.MaintenanceImage
+	maintenanceImagePullSecret := config.Config.MaintenanceImagePullSecret
 
 	if tombstone.Spec.CrId == "" {
 		return nil, fmt.Errorf("tombstone CR ID is empty, refusing removal")

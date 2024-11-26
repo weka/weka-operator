@@ -14,6 +14,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -489,7 +490,12 @@ func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
 		return err
 	}
 
-	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
+	kubeExecTimeout := config.Config.Timeouts.KubeExecTimeout
+	if kubeExecTimeout < 10*time.Minute {
+		kubeExecTimeout = 10 * time.Minute
+	}
+
+	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, containers[0], &kubeExecTimeout)
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")
 	}

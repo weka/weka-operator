@@ -7,6 +7,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -43,6 +45,9 @@ func (r *WekaManualOperationReconciler) RunGC(ctx context.Context) {}
 func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaManualOperationReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()
+
+	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
+	defer cancel()
 
 	// Fetch the WekaManualOperation instance
 	wekaManualOperation := &weka.WekaManualOperation{}
@@ -155,5 +160,6 @@ func (r *WekaManualOperationReconciler) SetupWithManager(mgr ctrl.Manager, wrapp
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&weka.WekaManualOperation{}).
 		Owns(&weka.WekaContainer{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaManualOperation}).
 		Complete(wrappedReconcile)
 }

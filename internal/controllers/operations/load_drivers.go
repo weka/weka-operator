@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -167,10 +167,7 @@ func (o *LoadDrivers) HasNotContainer() bool {
 }
 
 func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
-	serviceAccountName := os.Getenv("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
-	if serviceAccountName == "" {
-		return fmt.Errorf("cannot create driver loader container, WEKA_OPERATOR_MAINTENANCE_SA_NAME is not defined")
-	}
+	serviceAccountName := config.Config.MaintenanceSaName
 
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place

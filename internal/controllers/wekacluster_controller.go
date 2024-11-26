@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
@@ -18,6 +19,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -61,6 +63,9 @@ func (r *WekaClusterReconciler) RunGC(ctx context.Context) {
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(initContext, "WekaClusterReconcile", "namespace", req.Namespace, "cluster_name", req.Name)
 	defer end()
+
+	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
+	defer cancel()
 
 	loop := NewWekaClusterReconcileLoop(r.Manager)
 
@@ -278,6 +283,7 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaCluster{}).
 		Owns(&wekav1alpha1.WekaContainer{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaCluster}).
 		Complete(wrappedReconcile)
 }
 

@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 
 	"github.com/go-logr/logr"
@@ -11,6 +10,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -207,12 +207,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 	if wekaClient.Spec.WekaHome != nil {
 		whCaCert = wekaClient.Spec.WekaHome.CacertSecret
 		if whCaCert == "" {
-			wekaHomeCacertSecret, isSet := os.LookupEnv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
-			if isSet {
-				if wekaHomeCacertSecret != "" {
-					whCaCert = wekaHomeCacertSecret
-				}
-			}
+			whCaCert = config.Config.WekaHome.CacertSecret
 		}
 	}
 
