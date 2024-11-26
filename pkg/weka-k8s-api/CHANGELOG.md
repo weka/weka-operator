@@ -1,3 +1,18 @@
+# [1.23.0](https://github.com/weka/weka-k8s-api/compare/v1.22.0...v1.23.0) (2024-11-26)
+
+
+### Bug Fixes
+
+* add loader mode to IsAdhocOpContainer ([b78e5a5](https://github.com/weka/weka-k8s-api/commit/b78e5a5cc54ddf21f6fd45b375c3bd74ba52e182))
+* change nfsGateway to nfs ([e5e5edc](https://github.com/weka/weka-k8s-api/commit/e5e5edce3c184249d9e46ac9dca1f0c0c4a2558f))
+
+
+### Features
+
+* manual operation of openning remote trace session ([f5f7c1f](https://github.com/weka/weka-k8s-api/commit/f5f7c1fca6eee781c1513bd1894104cfabdc4225))
+* metrics via crd ([d9302bd](https://github.com/weka/weka-k8s-api/commit/d9302bd4bb6ff92def29057db043960b70c2fb3f))
+* use crds as metrics storage ([a3ca575](https://github.com/weka/weka-k8s-api/commit/a3ca575db721bdb9c81bfdcdcf5283abb4b4c7bf))
+
 # [1.22.0](https://github.com/weka/weka-k8s-api/compare/v1.21.0...v1.22.0) (2024-11-25)
 
 
