@@ -12,7 +12,7 @@ const (
 	CondClusterCSISecretsApplied     = "ClusterCSIsSecretsApplied"
 	CondDefaultFsCreated             = "CondDefaultFsCreated"
 	CondS3ClusterCreated             = "CondS3ClusterCreated" // not pre-set on purpose, as optional
-	ConfNfsGatewayConfigured         = "NfsGatewayConfigured"
+	ConfNfsConfigured                = "NfsConfigured"
 	CondNfsInterfaceGroupsConfigured = "NfsInterfaceGroupsConfigured"
 	CondPodsReady                    = "PodsReady"
 	CondClusterCreated               = "ClusterCreated"

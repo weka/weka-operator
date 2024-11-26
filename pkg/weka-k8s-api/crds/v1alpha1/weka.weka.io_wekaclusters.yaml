@@ -75,7 +75,7 @@ spec:
                     type: integer
                   drive:
                     type: integer
-                  nfsGateway:
+                  nfs:
                     type: integer
                   s3:
                     type: integer
@@ -115,23 +115,23 @@ spec:
                     type: integer
                   nfsContainers:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS gateway containers'
+                      production: number of NFS containers'
                     type: integer
                   nfsCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS gateway cores per container'
+                      production: number of NFS cores per container'
                     type: integer
                   nfsExtraCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS gateway extra cores per container'
+                      production: number of NFS extra cores per container'
                     type: integer
                   nfsFrontendHugepages:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage allocation for NFS gateway frontend'
+                      production: hugepage allocation for NFS frontend'
                     type: integer
                   nfsFrontendHugepagesOffset:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage offset for NFS gateway frontend'
+                      production: hugepage offset for NFS frontend'
                     type: integer
                   numDrives:
                     type: integer
@@ -2994,7 +2994,7 @@ spec:
                                 x-kubernetes-list-type: atomic
                             type: object
                         type: object
-                      nfsGateway:
+                      nfs:
                         description: Affinity is a group of affinity scheduling rules.
                         properties:
                           nodeAffinity:
@@ -5212,7 +5212,7 @@ spec:
                           - whenUnsatisfiable
                           type: object
                         type: array
-                      nfsGateway:
+                      nfs:
                         items:
                           description: TopologySpreadConstraint specifies how to spread
                             matching pods among the given topology.
@@ -5807,7 +5807,7 @@ spec:
                     additionalProperties:
                       type: string
                     type: object
-                  nfsGateway:
+                  nfs:
                     additionalProperties:
                       type: string
                     type: object

@@ -41,10 +41,10 @@ type NetworkSelector struct {
 }
 
 type AdditionalMemory struct {
-	Compute    int `json:"compute,omitempty"`
-	Drive      int `json:"drive,omitempty"`
-	S3         int `json:"s3,omitempty"`
-	NfsGateway int `json:"nfsGateway,omitempty"`
+	Compute int `json:"compute,omitempty"`
+	Drive   int `json:"drive,omitempty"`
+	S3      int `json:"s3,omitempty"`
+	Nfs     int `json:"nfs,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -57,7 +57,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 	case WekaContainerModeS3:
 		additionalMemory = a.S3
 	case WekaContainerModeNfs:
-		additionalMemory = a.NfsGateway
+		additionalMemory = a.Nfs
 	}
 	return additionalMemory
 }
@@ -78,15 +78,15 @@ type WekaConfig struct {
 	S3FrontendHugepages       int  `json:"s3FrontendHugepages,omitempty"`
 	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
 	EnvoyCores                int  `json:"envoyCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway containers
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS containers
 	NfsContainers int `json:"nfsContainers,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway cores per container
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS cores per container
 	NfsCores int `json:"nfsCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS gateway extra cores per container
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container
 	NfsExtraCores int `json:"nfsExtraCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS gateway frontend
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend
 	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS gateway frontend
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
 }
 
@@ -98,10 +98,10 @@ type WekaHomeConfig struct {
 }
 
 type RoleNodeSelector struct {
-	Compute    map[string]string `json:"compute,omitempty"`
-	Drive      map[string]string `json:"drive,omitempty"`
-	S3         map[string]string `json:"s3,omitempty"`
-	NfsGateway map[string]string `json:"nfsGateway,omitempty"`
+	Compute map[string]string `json:"compute,omitempty"`
+	Drive   map[string]string `json:"drive,omitempty"`
+	S3      map[string]string `json:"s3,omitempty"`
+	Nfs     map[string]string `json:"nfs,omitempty"`
 }
 
 func (s RoleNodeSelector) ForRole(role string) map[string]string {
@@ -112,18 +112,18 @@ func (s RoleNodeSelector) ForRole(role string) map[string]string {
 		return s.Drive
 	case "s3":
 		return s.S3
-	case "nfs-gateway":
-		return s.NfsGateway
+	case "nfs":
+		return s.Nfs
 	default:
 		return nil
 	}
 }
 
 type RoleTopologySpreadConstraints struct {
-	Compute    []v1.TopologySpreadConstraint `json:"compute,omitempty"`
-	Drive      []v1.TopologySpreadConstraint `json:"drive,omitempty"`
-	S3         []v1.TopologySpreadConstraint `json:"s3,omitempty"`
-	NfsGateway []v1.TopologySpreadConstraint `json:"nfsGateway,omitempty"`
+	Compute []v1.TopologySpreadConstraint `json:"compute,omitempty"`
+	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
+	S3      []v1.TopologySpreadConstraint `json:"s3,omitempty"`
+	Nfs     []v1.TopologySpreadConstraint `json:"nfs,omitempty"`
 }
 
 func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpreadConstraint {
@@ -134,18 +134,18 @@ func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpread
 		return c.Drive
 	case "s3":
 		return c.S3
-	case "nfs-gateway":
-		return c.NfsGateway
+	case "nfs":
+		return c.Nfs
 	default:
 		return nil
 	}
 }
 
 type RoleAffinity struct {
-	Compute    *v1.Affinity `json:"compute,omitempty"`
-	Drive      *v1.Affinity `json:"drive,omitempty"`
-	S3         *v1.Affinity `json:"s3,omitempty"`
-	NfsGateway *v1.Affinity `json:"nfsGateway,omitempty"`
+	Compute *v1.Affinity `json:"compute,omitempty"`
+	Drive   *v1.Affinity `json:"drive,omitempty"`
+	S3      *v1.Affinity `json:"s3,omitempty"`
+	Nfs     *v1.Affinity `json:"nfs,omitempty"`
 }
 
 func (a *RoleAffinity) ForRole(role string) *v1.Affinity {
@@ -156,8 +156,8 @@ func (a *RoleAffinity) ForRole(role string) *v1.Affinity {
 		return a.Drive
 	case "s3":
 		return a.S3
-	case "nfs-gateway":
-		return a.NfsGateway
+	case "nfs":
+		return a.Nfs
 	default:
 		return nil
 	}

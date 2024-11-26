@@ -760,8 +760,8 @@ func (in *RoleAffinity) DeepCopyInto(out *RoleAffinity) {
 		*out = new(v1.Affinity)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.NfsGateway != nil {
-		in, out := &in.NfsGateway, &out.NfsGateway
+	if in.Nfs != nil {
+		in, out := &in.Nfs, &out.Nfs
 		*out = new(v1.Affinity)
 		(*in).DeepCopyInto(*out)
 	}
@@ -801,8 +801,8 @@ func (in *RoleNodeSelector) DeepCopyInto(out *RoleNodeSelector) {
 			(*out)[key] = val
 		}
 	}
-	if in.NfsGateway != nil {
-		in, out := &in.NfsGateway, &out.NfsGateway
+	if in.Nfs != nil {
+		in, out := &in.Nfs, &out.Nfs
 		*out = make(map[string]string, len(*in))
 		for key, val := range *in {
 			(*out)[key] = val
@@ -844,8 +844,8 @@ func (in *RoleTopologySpreadConstraints) DeepCopyInto(out *RoleTopologySpreadCon
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.NfsGateway != nil {
-		in, out := &in.NfsGateway, &out.NfsGateway
+	if in.Nfs != nil {
+		in, out := &in.Nfs, &out.Nfs
 		*out = make([]v1.TopologySpreadConstraint, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
