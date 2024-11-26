@@ -15,14 +15,20 @@
   ],
   "plugins": [
     [
-          "@semantic-release/exec",
-          {
-            "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
-          }
+      "@semantic-release/exec",
+      {
+        "verifyReleaseCmd": "echo ${nextRelease.version} > .VERSION"
+      }
     ],
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
-    "@semantic-release/github",
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false
+      }
+    ],
     "@semantic-release/git"
   ],
   "preset": "conventionalcommits"
