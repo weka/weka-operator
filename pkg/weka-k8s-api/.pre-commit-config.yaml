@@ -1,8 +1,18 @@
 repos:
   - repo: local
     hooks:
-      - id: make-all
-        name: Run `make all`
-        entry: make all
+      - id: make-generate
+        name: Generate code from CRDs
+        entry: make generate
+        language: system
+        pass_filenames: false
+      - id: make-manifests
+        name: Generate manifests
+        entry: make manifests
+        language: system
+        pass_filenames: false
+      - id: make-fmt-vet
+        name: Format code and vet
+        entry: make fmt vet
         language: system
         pass_filenames: false
