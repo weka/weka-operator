@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/config"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-operator/internal/config"
 	allocator2 "github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -1209,7 +1209,13 @@ func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) erro
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupIfNeeded")
 	defer end()
 
-	_, err := kubeService.GetNode(ctx, types.NodeName(pod.Spec.NodeName))
+	nodeName := container.Status.NodeAffinity
+	if nodeName == "" {
+		err := errors.New("Node affinity not set")
+		return err
+	}
+
+	_, err := kubeService.GetNode(ctx, types.NodeName(nodeName))
 	if !apierrors.IsNotFound(err) {
 		return nil // node still exists, handling only not found node
 	}
