@@ -172,6 +172,7 @@ type WekaContainerStatus struct {
 	SkipDrivesForceResign bool                    `json:"skipDrivesForceResign,omitempty"`
 	Metrics               WekaContainerMetrics    `json:"metrics,omitempty"`
 	PrinterColumns        ContainerPrinterColumns `json:"printerColumns,omitempty"`
+	Timestamps            map[string]metav1.Time  `json:"timestamps,omitempty"`
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes

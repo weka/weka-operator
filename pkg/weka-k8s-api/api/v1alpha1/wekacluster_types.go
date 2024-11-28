@@ -236,16 +236,17 @@ type ClusterPorts struct {
 
 // WekaClusterStatus defines the observed state of WekaCluster
 type WekaClusterStatus struct {
-	Status           WekaClusterStatusEnum `json:"status"`
-	Conditions       []metav1.Condition    `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	ClusterID        string                `json:"clusterID,omitempty"`
-	TraceId          string                `json:"traceId,omitempty"`
-	SpanID           string                `json:"spanId,omitempty"`
-	LastAppliedImage string                `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec  string                `json:"lastAppliedSpec,omitempty"`
-	Ports            ClusterPorts          `json:"ports,omitempty"`
-	Metrics          ClusterMetrics        `json:"metrics,omitempty"`
-	PrinterColumns   ClusterPrinterColumns `json:"printerColumns,omitempty"`
+	Status           WekaClusterStatusEnum  `json:"status"`
+	Conditions       []metav1.Condition     `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	ClusterID        string                 `json:"clusterID,omitempty"`
+	TraceId          string                 `json:"traceId,omitempty"`
+	SpanID           string                 `json:"spanId,omitempty"`
+	LastAppliedImage string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec  string                 `json:"lastAppliedSpec,omitempty"`
+	Ports            ClusterPorts           `json:"ports,omitempty"`
+	Metrics          ClusterMetrics         `json:"metrics,omitempty"`
+	PrinterColumns   ClusterPrinterColumns  `json:"printerColumns,omitempty"`
+	Timestamps       map[string]metav1.Time `json:"timestamps,omitempty"`
 
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"

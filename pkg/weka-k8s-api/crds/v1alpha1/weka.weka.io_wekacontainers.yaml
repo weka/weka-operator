@@ -1708,6 +1708,11 @@ spec:
                 type: boolean
               status:
                 type: string
+              timestamps:
+                additionalProperties:
+                  format: date-time
+                  type: string
+                type: object
             required:
             - status
             type: object

@@ -6464,6 +6464,11 @@ spec:
                 type: string
               status:
                 type: string
+              timestamps:
+                additionalProperties:
+                  format: date-time
+                  type: string
+                type: object
               traceId:
                 type: string
             required:
