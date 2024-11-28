@@ -378,18 +378,18 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: lifecycle.ForceNoError(loop.SetStatusMetrics),
+				Name: "SetStatusMetrics",
+				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
 				Predicates: lifecycle.Predicates{
-					func() bool {
-						return config.Config.Metrics.Containers.Enabled
-					},
+					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 				},
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
-				Name:                      "SetStatusMetrics",
 			},
 			{
-				Run:  lifecycle.ForceNoError(loop.ReportOtelMetrics),
-				Name: "ReportOtelMetrics",
+				Name:      "ReportOtelMetrics",
+				Run:       lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Throttled: time.Minute,
 			},
 		},
 	}

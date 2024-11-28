@@ -140,7 +140,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
 				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
+				Throttled:                 config.Config.Metrics.Clusters.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 			{

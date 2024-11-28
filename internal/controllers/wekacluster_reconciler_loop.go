@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	apps "k8s.io/api/apps/v1"
 	"reflect"
 	"slices"
 	"strconv"
@@ -1364,9 +1366,164 @@ func (r *wekaClusterReconcilerLoop) InitStatuses(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
-	// create deployment for cluster-wide nginx container
-	// it will receive updates of data via exec api initially
-	// find our deployment by labels of cluster name, namespace and
+	// TODO: Re-wrap as operation
+	labels := map[string]string{
+		"app":                "weka-cluster-monitoring",
+		"weka.io/cluster-id": string(r.cluster.GetUID()),
+	}
+
+	annototations := map[string]string{
+		// prometheus annotations
+		"prometheus.io/scrape": "true",
+		"prometheus.io/port":   "80",
+		"prometheus.io/path":   "/metrics",
+	}
+
+	deployment := apps.Deployment{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name:      "monitoring-" + r.cluster.Name,
+			Namespace: r.cluster.Namespace,
+			Labels:    labels,
+		},
+		Spec: apps.DeploymentSpec{
+			Replicas: util2.Int32Ref(1),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app":                "weka-cluster-monitoring",
+					"weka.io/cluster-id": string(r.cluster.GetUID()),
+				},
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: ctrl.ObjectMeta{
+					Labels:      labels,
+					Annotations: annototations,
+				},
+				Spec: v1.PodSpec{
+					ImagePullSecrets: []v1.LocalObjectReference{
+						{Name: r.cluster.Spec.ImagePullSecret},
+					},
+					Tolerations:  util.ExpandTolerations([]v1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
+					NodeSelector: r.cluster.Spec.NodeSelector, //TODO: Monitoring-specific node-selector
+					Containers: []v1.Container{
+						{
+							Name:  "weka-cluster-metrics",
+							Image: config.Config.Metrics.Clusters.Image,
+							Ports: []v1.ContainerPort{
+								{
+									ContainerPort: 80,
+								},
+							},
+							Command: []string{
+								"/bin/sh",
+								"-c",
+								`echo 'server {
+								listen 80;
+								location / {
+									root /data;
+									autoindex on;
+								}
+							}' > /etc/nginx/conf.d/default.conf &&
+							nginx -g 'daemon off;'`,
+							},
+							VolumeMounts: []v1.VolumeMount{
+								{
+									Name:      "data",
+									MountPath: "/data",
+								},
+							},
+						},
+					},
+					Volumes: []v1.Volume{
+						{
+							Name: "data",
+							VolumeSource: v1.VolumeSource{
+								EmptyDir: &v1.EmptyDirVolumeSource{},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	err := ctrl.SetControllerReference(r.cluster, &deployment, r.Manager.GetScheme())
+	if err != nil {
+		return err
+	}
+
+	upsert := func() error {
+		err = r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
+		if err == nil {
+			// already exists, no need to stress api with creates
+			return nil
+		}
+
+		err = r.getClient().Create(ctx, &deployment)
+		if err != nil {
+			if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
+				//fetch current deployment
+				err = r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
+				if err != nil {
+					return err
+				}
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+
+	if err := upsert(); err != nil {
+		return err
+	}
+
+	// we should have deployment at hand now
+	kubeService := kubernetes.NewKubeService(r.getClient())
+	// searching for own pods
+	pods, err := kubeService.GetPods(ctx, r.cluster.Namespace, "", labels)
+	if err != nil {
+		return err
+	}
+	// find running pod
+	var pod *v1.Pod
+	for _, p := range pods {
+		if p.Status.Phase == v1.PodRunning {
+			pod = &p
+			break
+		}
+	}
+	if pod == nil {
+		return lifecycle.NewWaitError(errors.New("No running monitoring pod found"))
+	}
+
+	exec, err := util2.NewExecInPodByName(pod, "weka-cluster-metrics")
+	if err != nil {
+		return err
+	}
+	// finally write a data
+	// better data operation/labeling to come
+	cmd := []string{
+		"/bin/sh",
+		"-ec",
+		`cat <<EOF > /data/metrics.tmp
+# HELP weka_throughput Weka clusters throughput
+# TYPE weka_throughput gauge
+weka_throughput{type="write",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Write.String() + `
+weka_throughput{type="read",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Read.String() + `
+weka_throughput{type="total",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Total() + `
+# HELP weka_throughput Weka clusters iops
+# TYPE weka_throughput gauge
+weka_iops{type="write",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Write.String() + `
+weka_iops{type="read",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Read.String() + `
+weka_iops{type="metadata",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Metadata.String() + `
+weka_iops{type="total",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Total.String() + `
+EOF
+mv /data/metrics.tmp /data/metrics
+`,
+	}
+	stdout, stderr, err := exec.ExecNamed(ctx, "WriteMetrics", cmd)
+	if err != nil {
+		return errors.Wrapf(err, "Failed to write metrics: %s\n%s", stderr.String(), stdout.String())
+	}
 	return nil
 }
 

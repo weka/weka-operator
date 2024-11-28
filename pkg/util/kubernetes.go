@@ -29,10 +29,11 @@ type Exec interface {
 }
 
 type PodExec struct {
-	ClientSet *kubernetes.Clientset
-	Pod       NamespacedObject
-	Config    *rest.Config
-	timeout   *time.Duration
+	ClientSet     *kubernetes.Clientset
+	Pod           NamespacedObject
+	Config        *rest.Config
+	timeout       *time.Duration
+	ContainerName string
 }
 
 type ConfigurationError struct {
@@ -44,7 +45,7 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(cfg *rest.Config, pod NamespacedObject, timeout *time.Duration) (Exec, error) {
+func NewExecWithConfig(cfg *rest.Config, pod NamespacedObject, timeout *time.Duration, containerName string) (Exec, error) {
 	clientset, err := KubernetesClientSet(cfg)
 	if err != nil {
 		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
@@ -56,10 +57,11 @@ func NewExecWithConfig(cfg *rest.Config, pod NamespacedObject, timeout *time.Dur
 	}
 
 	return &PodExec{
-		ClientSet: clientset,
-		Pod:       pod,
-		Config:    cfg,
-		timeout:   timeout,
+		ClientSet:     clientset,
+		Pod:           pod,
+		ContainerName: containerName,
+		Config:        cfg,
+		timeout:       timeout,
 	}, nil
 }
 
@@ -74,7 +76,21 @@ func NewExecInPod(pod *v1.Pod) (Exec, error) {
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(config, namespacedObject, nil)
+	return NewExecWithConfig(config, namespacedObject, nil, "weka-container")
+}
+
+func NewExecInPodByName(pod *v1.Pod, containerName string) (Exec, error) {
+	config, err := KubernetesConfiguration()
+	if err != nil {
+		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
+	}
+
+	namespacedObject := NamespacedObject{
+		Namespace: pod.Namespace,
+		Name:      pod.Name,
+	}
+
+	return NewExecWithConfig(config, namespacedObject, nil, containerName)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
@@ -99,7 +115,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 		Namespace(e.Pod.Namespace).
 		SubResource("exec").
 		VersionedParams(&v1.PodExecOptions{
-			Container: "weka-container",
+			Container: e.ContainerName,
 			Command:   command,
 			Stdout:    true,
 			Stderr:    true,
