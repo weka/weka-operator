@@ -30,7 +30,7 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 	executor, err := util2.NewExecWithConfig(config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
 		Name:      container.ObjectMeta.Name,
-	}, timeout)
+	}, timeout, "weka-container")
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
 	}
@@ -42,7 +42,7 @@ func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha
 	executor, err := util2.NewExecWithConfig(config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
 		Name:      container.ObjectMeta.Name,
-	}, nil)
+	}, nil, "weka-container")
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
 	}

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"k8s.io/utils/env"
 	"os"
 	"strconv"
 	"time"
@@ -87,6 +88,7 @@ type Metrics struct {
 	Clusters struct {
 		Enabled     bool
 		PollingRate time.Duration
+		Image       string
 	}
 	Containers struct {
 		Enabled     bool
@@ -145,6 +147,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
+	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
 }
 
 func getEnvOrFail(envKey string) string {
