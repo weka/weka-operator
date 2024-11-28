@@ -20,6 +20,10 @@ func (c *IntMetric) SetValue(v int64, t time.Time) bool {
 	return false
 }
 
+func (in *IntMetric) String() string {
+	return fmt.Sprintf("%d", in.Value)
+}
+
 type FloatMetric struct {
 	Value string      `json:"value,omitempty"` // CRD Gen discourages use of float64
 	Time  metav1.Time `json:"timestamp,omitempty"`
@@ -112,6 +116,14 @@ type ClusterPrinterColumns struct {
 type StatusThroughput struct {
 	Read  IntMetric `json:"read"`
 	Write IntMetric `json:"write"`
+}
+
+func (c *StatusThroughput) String() string {
+	return fmt.Sprintf("%d/%d", c.Read.Value, c.Write.Value)
+}
+
+func (c *StatusThroughput) Total() string {
+	return fmt.Sprintf("%d", c.Read.Value+c.Write.Value)
 }
 
 type StatusIops struct {
