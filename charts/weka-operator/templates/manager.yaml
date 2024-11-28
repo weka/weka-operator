@@ -129,22 +129,12 @@ spec:
               value: "{{ .Values.enableLeaderElection }}"
             - name: ENABLE_CLUSTER_API
               value: "{{ .Values.enableClusterApi }}"
-            - name: ENABLE_TOMBSTONE_GC
-              value: "{{ .Values.persistence.containerTombstone.gc.enabled }}"
-            - name: TOMBSTONE_GC_INTERVAL
-              value: "{{ .Values.persistence.containerTombstone.gc.interval }}"
-            - name: TOMBSTONE_EXPIRATION
-              value: "{{ .Values.persistence.containerTombstone.gc.retention }}"
             - name: RECONCILE_TIMEOUT
               value: "{{ .Values.reconcileTimeout }}"
             - name: KUBE_EXEC_TIMEOUT
               value: "{{ .Values.kubeExecTimeout }}"
             - name: WEKA_ALLOC_ZOMBIE_DELETE_AFTER
               value: "{{ .Values.wekaAllocZombieDeleteAfter }}"
-            {{- if .Values.persistence.containerTombstone.gc.allowDeleteOnNodeMissing }}
-            - name: ALLOW_TOMBSTONE_DELETE_ON_NODE_MISSING
-              value: "true"
-            {{- end }}
             - name: MAX_WORKERS_WEKACLUSTER
               value: "{{ .Values.maxWorkers.wekaCluster }}"
             - name: MAX_WORKERS_WEKACONTAINER
@@ -155,8 +145,6 @@ spec:
               value: "{{ .Values.maxWorkers.wekaManualOperation }}"
             - name: MAX_WORKERS_WEKAPOLICY
               value: "{{ .Values.maxWorkers.wekaPolicy }}"
-            - name: MAX_WORKERS_TOMBSTONE
-              value: "{{ .Values.maxWorkers.tombstone }}"
             - name: METRICS_CLUSTERS_ENABLED
               value: "{{ .Values.metrics.clusters.enabled }}"
             - name: METRICS_CLUSTERS_POLLING_RATE

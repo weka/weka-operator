@@ -834,22 +834,18 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
 
-	// TODO: Break apart/wrap as OP
-
 	container := r.container
 
-	err := r.ensureTombstone(ctx)
+	// first ensure no pod exists
+	err := r.ensureNoPod(ctx)
 	if err != nil {
-		logger.Error(err, "Error ensuring tombstone")
 		return err
 	}
 
-	//tombstone first, delete pod next
-	//tombstone will have to ensure that no pod exists by itself
-
-	// ensure no pod exists
-	err = r.ensureNoPod(ctx)
+	// then ensure we deleted container data
+	err = r.cleanupPersistentDir(ctx)
 	if err != nil {
+		err = errors.Wrap(err, "Failed to cleanup persistent dir")
 		return err
 	}
 
@@ -865,80 +861,57 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) ensureTombstone(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTombstone")
+func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupPersistentDir")
 	defer end()
 
 	container := r.container
 
-	// skip tombstone creation for containers without persistent storage
-	if !container.HasPersistentStorage() {
-		logger.Debug("Container has no persistent storage, skipping tombstone creation", "container", container.Name)
+	if container.GetNodeAffinity() == "" {
+		logger.Info("Container has no node affinity, skipping", "container", container.Name)
 		return nil
 	}
 
-	nodeAffinity := container.GetNodeAffinity()
-	// This code needed only for back compatibility
-	// TODO: Fix and remove by having reconcile loop that will update status from pod
-	// And changing allocation logic to update status for future iterations
-	if nodeAffinity == "" {
-		// attempting to find persistent location of the container based on actual pod
-		err := r.refreshPod(ctx)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("no affinity on container and actual pod not found to set affinity")
-				return nil
-			}
-		}
-		if r.pod == nil {
-			return nil // no pod, no affinity
-		}
-		if r.pod.Spec.NodeName != "" {
-			nodeAffinity = weka.NodeName(r.pod.Spec.NodeName)
-		}
+	if !container.HasPersistentStorage() {
+		logger.Debug("Container has no persistent storage, skipping", "container", container.Name)
+		return nil
+	}
+
+	if !r.ContainerNodeIsAlive() {
+		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
+		return err
 	}
 
 	nodeInfo, err := r.GetNodeInfo(ctx)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("node is deleted, no need for tombstone")
+			logger.Info("node is deleted, no need for cleanup")
 			return nil
 		}
 		// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
 		// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
 		// but generic ReconcilationError wrapping error is sort of pointless
 		if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
-			logger.Info("node is deleted, no need for tombstone")
+			logger.Info("node is deleted, no need for cleanup")
 			return nil
 		}
 		logger.Error(err, "Error getting node discovery")
 		return err
 	}
 
-	tombstone := &weka.Tombstone{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("wekacontainer-%s", container.GetUID()),
-			Namespace: container.Namespace,
-			Labels:    container.ObjectMeta.GetLabels(),
-		},
-		Spec: weka.TombstoneSpec{
-			CrType:          "WekaContainer",
-			CrId:            string(container.UID),
-			NodeAffinity:    nodeAffinity,
-			PersistencePath: nodeInfo.GetHostsideContainerPersistence(),
-			ContainerName:   container.Name,
-			Tolerations:     container.Spec.Tolerations,
-		},
+	payload := operations.CleanupPersistentDirPayload{
+		NodeName:        container.GetNodeAffinity(),
+		ContainerId:     string(container.UID),
+		PersistencePath: nodeInfo.GetHostsideContainerPersistence(),
 	}
-
-	err = r.Create(ctx, tombstone)
-	if err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			logger.Error(err, "Error creating tombstone")
-			return err
-		}
-	}
-	return nil
+	op := operations.NewCleanupPersistentDirOperation(
+		r.Manager,
+		&payload,
+		container,
+		*container.ToContainerDetails(),
+	)
+	err = operations.ExecuteOperation(ctx, op)
+	return err
 }
 
 func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.DiscoveryNodeInfo, error) {

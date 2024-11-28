@@ -15,12 +15,6 @@ type BindAddress struct {
 	HealthProbe string
 }
 
-type TombstoneGC struct {
-	Interval            time.Duration
-	Expiration          time.Duration
-	DeleteOnNodeMissing bool // Allow deletion of tombstones when node is not anymore a part of the cluster
-}
-
 type Timeouts struct {
 	ReconcileTimeout time.Duration // Reconcile timeout
 	KubeExecTimeout  time.Duration // Kubernetes ssh commands executor timeout
@@ -65,7 +59,6 @@ type MaxWorkers struct {
 	WekaClient          int
 	WekaManualOperation int
 	WekaPolicy          int
-	Tombstone           int
 }
 
 var Config struct {
@@ -74,8 +67,6 @@ var Config struct {
 	BindAddress                BindAddress
 	EnableLeaderElection       bool
 	EnableClusterApi           bool
-	EnableTombstoneGC          bool
-	TombstoneGC                *TombstoneGC
 	Timeouts                   Timeouts
 	Otel                       Otel
 	WekaHome                   WekaHome
@@ -118,14 +109,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
-	Config.EnableTombstoneGC = getBoolEnvOrDefault("ENABLE_TOMBSTONE_GC", true)
-	if Config.EnableTombstoneGC {
-		Config.TombstoneGC = &TombstoneGC{
-			Interval:            getDurationEnvOrDefault("TOMBSTONE_GC_INTERVAL", 5*time.Minute),
-			Expiration:          getDurationEnv("TOMBSTONE_EXPIRATION"),
-			DeleteOnNodeMissing: getBoolEnvOrDefault("ALLOW_TOMBSTONE_DELETE_ON_NODE_MISSING", true),
-		}
-	}
 	Config.Timeouts.KubeExecTimeout = getDurationEnvOrDefault("KUBE_EXEC_TIMEOUT", 5*time.Minute)
 	Config.Timeouts.ReconcileTimeout = getDurationEnvOrDefault("RECONCILE_TIMEOUT", 30*time.Minute)
 	Config.Otel.DeploymentIdentifier = os.Getenv("OTEL_DEPLOYMENT_IDENTIFIER")
@@ -157,7 +140,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.MaxWorkers.WekaClient = getIntEnvOrDefault("MAX_WORKERS_WEKACLIENT", 10)
 	Config.MaxWorkers.WekaManualOperation = getIntEnvOrDefault("MAX_WORKERS_WEKAMANUALOPERATION", 1)
 	Config.MaxWorkers.WekaPolicy = getIntEnvOrDefault("MAX_WORKERS_WEKAPOLICY", 1)
-	Config.MaxWorkers.Tombstone = getIntEnvOrDefault("MAX_WORKERS_TOMBSTONE", 5)
 
 	Config.Metrics.Clusters.Enabled = getBoolEnvOrDefault("METRICS_CLUSTERS_ENABLED", true)
 	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)

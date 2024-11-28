@@ -169,8 +169,6 @@ tasks:
       - kubectl -n {{.Namespace}} wait --for=delete wekacluster --all
       - kubectl -n {{.Namespace}} delete wekacontainer --all --ignore-not-found
       - kubectl -n {{.Namespace}} wait --for=delete wekacontainer --all
-      - kubectl -n {{.Namespace}} delete tombstone --all --ignore-not-found
-      - kubectl -n {{.Namespace}} wait --for=delete tombstone --all
     vars:
       KubeConfig:
         sh: ./kubeconfig.sh
