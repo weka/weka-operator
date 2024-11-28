@@ -40,6 +40,7 @@ help: ## Display this help.
 CRD = crds/v1alpha1/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = api/v1alpha1/driveclaims_types.go \
 		api/v1alpha1/container_types.go \
+		api/v1alpha1/tombstone_types.go \
 		api/v1alpha1/wekacluster_types.go \
 		api/v1alpha1/wekamanualoperation_types.go \
 		api/v1alpha1/wekapolicy_types.go

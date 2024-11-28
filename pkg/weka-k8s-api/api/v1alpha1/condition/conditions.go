@@ -30,7 +30,7 @@ const (
 	CondContainerDrivesDeactivated   = "ContainerDrivesDeactivated"
 	CondContainerRemoved             = "ContainerRemoved"
 	CondContainerDrivesResigned      = "ContainerDrivesResigned"
-	CondContainerDrivesRemoved       = "ContainerDrivesRemoved"
+	CondContainerDrivesRemoved       = "ContainerDriveRemoved"
 	CondContainerAffinitySet         = "ContainerAffinitySet"
 	CondClusterReady                 = "ClusterIsReady"
 )
