@@ -191,6 +191,28 @@ STEPS:
 		if step.Name == "" {
 			step.Name = util.GetFunctionName(step.Run)
 		}
+
+		//Throttling handling
+		if step.Throttled > 0 && r.ConditionsObject != nil && r.ThrottlingMap != nil {
+			lastRun, ok := r.ThrottlingMap[step.Name]
+			if ok {
+				if time.Since(lastRun.Time) < step.Throttled {
+					continue STEPS
+				}
+			}
+			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
+			if r.Conditions != nil && step.Condition != "" {
+				// we are going to trigger due to condition update, so skipping updating timestamp directly
+			} else {
+				// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
+				if err := r.Client.Status().Update(ctx, r.ConditionsObject); err != nil {
+					stopErr := NewWaitError(err)
+					runLogger.SetValues("stop_err", stopErr.Error())
+					return stopErr
+				}
+			}
+		}
+
 		stepCtx, stepLogger, spanEnd := instrumentation.GetLogSpan(ctx, step.Name)
 		stepEnd = spanEnd
 		defer spanEnd() // in case we dont handle it will in terms of closing in for loop
@@ -213,28 +235,6 @@ STEPS:
 					continue STEPS
 				} else {
 					stopErr := &AbortedByPredicate{fmt.Errorf("aborted: predicate %v is false for step %s", predicate, step.Name)}
-					runLogger.SetValues("stop_err", stopErr.Error())
-					return stopErr
-				}
-			}
-		}
-
-		//Throttling handling
-		if step.Throttled > 0 && r.ConditionsObject != nil && r.ThrottlingMap != nil {
-			lastRun, ok := r.ThrottlingMap[step.Name]
-			if ok {
-				if time.Since(lastRun.Time) < step.Throttled {
-					stepEnd()
-					continue STEPS
-				}
-			}
-			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
-			if r.Conditions != nil && step.Condition != "" {
-				// we are going to trigger due to condition update, so skipping updating timestamp directly
-			} else {
-				// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
-				if err := r.Client.Status().Update(ctx, r.ConditionsObject); err != nil {
-					stopErr := NewWaitError(err)
 					runLogger.SetValues("stop_err", stopErr.Error())
 					return stopErr
 				}
