@@ -159,8 +159,12 @@ spec:
               value: "{{ .Values.maxWorkers.tombstone }}"
             - name: METRICS_CLUSTERS_ENABLED
               value: "{{ .Values.metrics.clusters.enabled }}"
+            - name: METRICS_CLUSTERS_POLLING_RATE
+              value: "{{ .Values.metrics.clusters.pollingRate }}"
             - name: METRICS_CONTAINERS_ENABLED
               value: "{{ .Values.metrics.containers.enabled }}"
+            - name: METRICS_CONTAINERS_POLLING_RATE
+              value: "{{ .Values.metrics.containers.pollingRate }}"
 
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"

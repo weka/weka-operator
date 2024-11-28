@@ -21,13 +21,14 @@ type StepFunc func(ctx context.Context) error
 type ReconciliationSteps struct {
 	Client           client.Client
 	ConditionsObject client.Object
+	ThrottlingMap    map[string]metav1.Time
 	Conditions       *[]metav1.Condition
 	Steps            []Step
 }
 
 type Step struct {
 	// Name of the step
-	Name string
+	Name string // It is best to put explicit name for throttled funcs to ensure it's static and not affected by magic names change
 
 	// Condition that must be false for the step to be executed, set to True if the step is done succesfully
 	Condition   string
@@ -36,6 +37,7 @@ type Step struct {
 
 	// Predicates must all be true for the step to be executed
 	Predicates []PredicateFunc
+	Throttled  time.Duration
 
 	// Should the step be run if the condition is already true
 	// Preconditions will also be evaluated and must be true
@@ -211,6 +213,28 @@ STEPS:
 					continue STEPS
 				} else {
 					stopErr := &AbortedByPredicate{fmt.Errorf("aborted: predicate %v is false for step %s", predicate, step.Name)}
+					runLogger.SetValues("stop_err", stopErr.Error())
+					return stopErr
+				}
+			}
+		}
+
+		//Throttling handling
+		if step.Throttled > 0 && r.ConditionsObject != nil && r.ThrottlingMap != nil {
+			lastRun, ok := r.ThrottlingMap[step.Name]
+			if ok {
+				if time.Since(lastRun.Time) < step.Throttled {
+					stepEnd()
+					continue STEPS
+				}
+			}
+			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
+			if r.Conditions != nil && step.Condition != "" {
+				// we are going to trigger due to condition update, so skipping updating timestamp directly
+			} else {
+				// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
+				if err := r.Client.Status().Update(ctx, r.ConditionsObject); err != nil {
+					stopErr := NewWaitError(err)
 					runLogger.SetValues("stop_err", stopErr.Error())
 					return stopErr
 				}

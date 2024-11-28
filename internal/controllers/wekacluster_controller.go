@@ -95,23 +95,31 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		Client:           r.Client,
 		ConditionsObject: loop.cluster,
 		Conditions:       &loop.cluster.Status.Conditions,
+		ThrottlingMap:    loop.cluster.Status.Timestamps,
 		Steps: []lifecycle.Step{
+			{
+				Run: loop.InitStatuses,
+			},
 			{
 				Run: loop.getCurrentContainers,
 			},
 			{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
-				Run: lifecycle.ForceNoError(loop.UpdateClusterCounters),
+				Run:  lifecycle.ForceNoError(loop.UpdateContainersCounters),
+				Name: "UpdateContainersCounters", // explicit for throttling
 				Predicates: lifecycle.Predicates{
 					func() bool {
+						// TODO: Throttle concept on lifecycle framework
 						return config.Config.Metrics.Clusters.Enabled
 					},
 				},
+				Throttled:                 time.Second * 60,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
-				Run: lifecycle.ForceNoError(loop.UpdateWekaClusterCounters),
+				Run:  lifecycle.ForceNoError(loop.UpdateWekaStatusMetrics),
+				Name: "UpdateWekaStatusMetrics", // explicit for throttling
 				Predicates: lifecycle.Predicates{
 					func() bool {
 						for _, c := range loop.cluster.Status.Conditions {
@@ -128,6 +136,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 					},
 					lifecycle.IsNotFunc(loop.cluster.IsTerminating),
 				},
+				Throttled:                 time.Second * 60,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
@@ -178,7 +187,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			//TODO: Very fat function, that will prevent us from continuing on any bad container
 			{
-				Run: loop.updateContainersJoinIps,
+				Run:       loop.updateContainersJoinIps,
+				Throttled: time.Minute * 3,
 			},
 			{
 				Condition: condition.CondJoinedCluster,

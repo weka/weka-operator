@@ -1211,13 +1211,14 @@ func getCounter(counters *sync.Map, key string) int64 {
 	return 0
 }
 
-func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) error {
+func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context) error {
 	cluster := r.cluster
 	containers := r.containers
 	roleCreatedCounts := &sync.Map{}
 	roleActiveCounts := &sync.Map{}
 	driveCreatedCounts := &sync.Map{}
 
+	// Idea to bubble up from containers, TODO: Actually use metrics and not accumulated status
 	for _, container := range containers {
 		// count Active containers
 		if container.Status.Status == ContainerStatusRunning {
@@ -1276,19 +1277,20 @@ func (r *wekaClusterReconcilerLoop) UpdateClusterCounters(ctx context.Context) e
 	changed = changed || cluster.Status.PrinterColumns.DriveContainers.SetValue(cluster.Status.Metrics.Containers.Drive.Containers.String(), time.Now())
 	changed = changed || cluster.Status.PrinterColumns.Drives.SetValue(cluster.Status.Metrics.Drives.DriveCounters.String(), time.Now())
 
-	if changed {
-		if err := r.getClient().Status().Update(ctx, cluster); err != nil {
-			return err
-		}
+	// TODO: Due to global UpdateContainersCounters timestamp changed thing is less needed now, as doing update anyway to mark last polling time
+	cluster.Status.Timestamps["UpdateContainersCounters"] = metav1.NewTime(time.Now())
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
 	}
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaClusterCounters")
+func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaStatusMetrics")
 	defer end()
 	cluster := r.cluster
 	defer func() {
+		cluster.Status.Timestamps["UpdateWekaStatusMetrics"] = metav1.NewTime(time.Now())
 		_ = r.getClient().Status().Update(ctx, cluster)
 	}()
 
@@ -1346,6 +1348,18 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaClusterCounters(ctx context.Contex
 	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
 	cluster.Status.PrinterColumns.Iops.SetValue(fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther), time.Now())
 
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) InitStatuses(ctx context.Context) error {
+	// Not refactoring into initState as they work differently, state working with finalizer and making it order-dependant with deletion
+	// while things that should just be initialized to work with, like this map, can be be always safely done in the beginning
+	if r.cluster.Status.Timestamps == nil {
+		r.cluster.Status.Timestamps = make(map[string]metav1.Time)
+	} else {
+		// cleanup old names
+		delete(r.cluster.Status.Timestamps, "func6") // this was dev artifact, however can be used in future if we drop some timestamp from accounting, to keep custom resource clean
+	}
 	return nil
 }
 

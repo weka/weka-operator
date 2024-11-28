@@ -37,11 +37,12 @@ import (
 )
 
 const (
-	PodStatePodNotRunning  = "PodNotRunning"
-	PodStatePodRunning     = "PodRunning"
-	WaitForDrivers         = "WaitForDrivers"
-	ContainerStatusRunning = "Running"
-	Error                  = "Error"
+	PodStatePodNotRunning   = "PodNotRunning"
+	PodStatePodRunning      = "PodRunning"
+	WaitForDrivers          = "WaitForDrivers"
+	ContainerStatusRunning  = "Running"
+	ContainerStatusDegraded = "Degraded"
+	Error                   = "Error"
 	// for drivers-build container
 	Completed = "Completed"
 	Building  = "Building"

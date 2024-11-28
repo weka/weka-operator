@@ -111,5 +111,7 @@ deploymentIdentifier: ""
 metrics:
   clusters:
     enabled: true
+    pollingRate: 60s
   containers:
     enabled: true
+    pollingRate: 60s

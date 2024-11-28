@@ -94,10 +94,12 @@ var Config struct {
 
 type Metrics struct {
 	Clusters struct {
-		Enabled bool
+		Enabled     bool
+		PollingRate time.Duration
 	}
 	Containers struct {
-		Enabled bool
+		Enabled     bool
+		PollingRate time.Duration
 	}
 }
 
@@ -158,7 +160,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.MaxWorkers.Tombstone = getIntEnvOrDefault("MAX_WORKERS_TOMBSTONE", 5)
 
 	Config.Metrics.Clusters.Enabled = getBoolEnvOrDefault("METRICS_CLUSTERS_ENABLED", true)
+	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
+	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
 }
 
 func getEnvOrFail(envKey string) string {
