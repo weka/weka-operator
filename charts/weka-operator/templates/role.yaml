@@ -82,7 +82,6 @@ rules:
   - weka.weka.io
   resources:
   - driveclaims
-  - tombstones
   - wekaclients
   - wekaclusters
   - wekacontainers
@@ -100,7 +99,6 @@ rules:
   - weka.weka.io
   resources:
   - driveclaims/finalizers
-  - tombstones/finalizers
   - wekaclients/finalizers
   - wekaclusters/finalizers
   - wekacontainers/finalizers
@@ -112,7 +110,6 @@ rules:
   - weka.weka.io
   resources:
   - driveclaims/status
-  - tombstones/status
   - wekaclients/status
   - wekaclusters/status
   - wekacontainers/status

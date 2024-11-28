@@ -92,14 +92,7 @@ func main() {
 	enableLeaderElection := config.Config.EnableLeaderElection
 	enableClusterApi := config.Config.EnableClusterApi
 
-	tombstoneConfig := controllers.TombstoneConfig{
-		EnableTombstoneGc:   config.Config.EnableTombstoneGC,
-		TombstoneGcInterval: config.Config.TombstoneGC.Interval,
-		TombstoneExpiration: config.Config.TombstoneGC.Expiration,
-		DeleteOnNodeMissing: config.Config.TombstoneGC.DeleteOnNodeMissing,
-	}
-
-	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi, "tombstoneConfig", tombstoneConfig)
+	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -145,7 +138,6 @@ func main() {
 		controllers.NewClientController(mgr),
 		controllers.NewContainerController(mgr),
 		controllers.NewWekaClusterController(mgr),
-		controllers.NewTombstoneController(mgr, tombstoneConfig),
 		controllers.NewWekaPolicyController(mgr),
 		controllers.NewWekaManualOperationController(mgr),
 	}

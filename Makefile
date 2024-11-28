@@ -31,7 +31,6 @@ WH_ENABLE_INSECURE ?= false
 WH_ENDPOINT ?= "https://api.home.rnd.weka.io"
 WH_CACERT_SECRET ?= ""
 ENABLE_CLUSTER_API ?= false
-TOMBSTONE_EXPIRATION ?= 10s
 SKIP_CRD_INSTALL ?= false
 RECONCILE_TIMEOUT ?= 10m
 KUBE_EXEC_TIMEOUT ?= 5m
@@ -82,7 +81,6 @@ help: ## Display this help.
 CRD = pkg/weka-k8s-api/crds/v1alpha1/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/driveclaims_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/container_types.go \
-		pkg/weka-k8s-api/api/v1alpha1/tombstone_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekacluster_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekamanualoperation_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekapolicy_types.go
@@ -188,7 +186,6 @@ runcontroller: ## Run a controller from your host.
 	LOG_LEVEL=0 \
 	LOG_TIME_ONLY=true \
 	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
-	TOMBSTONE_EXPIRATION=$(TOMBSTONE_EXPIRATION) \
 	RECONCILE_TIMEOUT=$(RECONCILE_TIMEOUT) \
 	KUBE_EXEC_TIMEOUT=$(KUBE_EXEC_TIMEOUT) \
 	OPERATOR_METRICS_BIND_ADDRESS=":8080" \
@@ -208,7 +205,6 @@ debugcontroller: ## Run a controller from your host.
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
 	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
-	TOMBSTONE_EXPIRATION=$(TOMBSTONE_EXPIRATION) \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
 	dlv debug \

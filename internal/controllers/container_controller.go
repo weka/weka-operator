@@ -51,9 +51,6 @@ func (c *ContainerController) RunGC(ctx context.Context) {}
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
-//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=tombstones/finalizers,verbs=update
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/finalizers,verbs=update

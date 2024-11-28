@@ -38,13 +38,6 @@ wekahome:
   # -- name of the secret specifying CA certificate chain. It is assumed that every target namespace will have such secret
   cacertSecret: ""
   enableStats: true
-persistence:
-  containerTombstone:
-    gc:
-      enabled: true
-      interval: 5m
-      retention: 72h
-      allowDeleteOnNodeMissing: true
 
 reconcileTimeout: 30m
 kubeExecTimeout: 5m
@@ -56,7 +49,6 @@ maxWorkers:
   wekaClient: 10
   wekaManualOperation: 1
   wekaPolicy: 1
-  tombstone: 5
 
 wekaAllocZombieDeleteAfter: 5m
 

@@ -44,11 +44,6 @@ for NAMESPACE in "${NAMESPACES[@]}"; do
   echo "${NAMESPACE}: Deleting Weka Containers"
   "${K}" delete -n "${NAMESPACE}" wekacontainer --all --ignore-not-found
   "${K}" wait --for=delete wekacontainer --all
-
-  echo "${NAMESPACE}: Deleting tombstones"
-  "${K}" delete -n "${NAMESPACE}" tombstone --all --ignore-not-found
-  "${K}" wait --for=delete tombstone --all
-
 done
 
 if [ "${REMOVE_RELEASE}" = true ]; then
