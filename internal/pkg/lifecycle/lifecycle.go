@@ -390,3 +390,11 @@ func ForceNoError(f StepFunc) StepFunc {
 		return nil
 	}
 }
+
+func BoolValue(value bool) PredicateFunc {
+	//cautious using this, cannot reference cluster values as they are not yet initialized when creating structs
+	//this is convenient for use with global configuration values
+	return func() bool {
+		return value
+	}
+}

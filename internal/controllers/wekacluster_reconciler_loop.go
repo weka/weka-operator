@@ -1363,6 +1363,13 @@ func (r *wekaClusterReconcilerLoop) InitStatuses(ctx context.Context) error {
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
+	// create deployment for cluster-wide nginx container
+	// it will receive updates of data via exec api initially
+	// find our deployment by labels of cluster name, namespace and
+	return nil
+}
+
 func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
 	defer end()

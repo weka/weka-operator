@@ -108,12 +108,9 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run:  lifecycle.ForceNoError(loop.UpdateContainersCounters),
 				Name: "UpdateContainersCounters", // explicit for throttling
 				Predicates: lifecycle.Predicates{
-					func() bool {
-						// TODO: Throttle concept on lifecycle framework
-						return config.Config.Metrics.Clusters.Enabled
-					},
+					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 				},
-				Throttled:                 time.Second * 60,
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
@@ -131,12 +128,19 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 						}
 						return false
 					},
-					func() bool {
-						return config.Config.Metrics.Clusters.Enabled
-					},
+					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
 					lifecycle.IsNotFunc(loop.cluster.IsTerminating),
 				},
-				Throttled:                 time.Second * 60,
+				Throttled:                 config.Config.Metrics.Clusters.PollingRate,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run:  lifecycle.ForceNoError(loop.EnsureClusterMonitoringService),
+				Name: "EnsureClusterMonitoringService",
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
+				},
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
