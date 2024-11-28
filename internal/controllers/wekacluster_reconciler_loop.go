@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	apps "k8s.io/api/apps/v1"
 	"reflect"
@@ -1499,23 +1500,17 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	if err != nil {
 		return err
 	}
+	data, err := resources.BuildClusterPrometheusMetrics(r.cluster)
+	if err != nil {
+		return err
+	}
 	// finally write a data
 	// better data operation/labeling to come
 	cmd := []string{
 		"/bin/sh",
 		"-ec",
 		`cat <<EOF > /data/metrics.tmp
-# HELP weka_throughput Weka clusters throughput
-# TYPE weka_throughput gauge
-weka_throughput{type="write",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Write.String() + `
-weka_throughput{type="read",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Read.String() + `
-weka_throughput{type="total",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Throughput.Total() + `
-# HELP weka_throughput Weka clusters iops
-# TYPE weka_throughput gauge
-weka_iops{type="write",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Write.String() + `
-weka_iops{type="read",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Read.String() + `
-weka_iops{type="metadata",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Metadata.String() + `
-weka_iops{type="total",cluster_name="` + r.cluster.Name + `"} ` + r.cluster.Status.Metrics.IoStats.Iops.Total.String() + `
+` + data + `
 EOF
 mv /data/metrics.tmp /data/metrics
 `,
