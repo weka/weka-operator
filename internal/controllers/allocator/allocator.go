@@ -32,10 +32,9 @@ type Allocator interface {
 
 type AllocatorNodeInfo struct {
 	AvailableDrives []string
-	FailureDomain   *string
 }
 
-type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (*AllocatorNodeInfo, error)
+type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
 
 type ResourcesAllocator struct {
 	configStore    AllocationsStore
@@ -44,7 +43,7 @@ type ResourcesAllocator struct {
 }
 
 func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
-	return func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (nodeInfo *AllocatorNodeInfo, err error) {
+	return func(ctx context.Context, nodeName weka.NodeName) (nodeInfo *AllocatorNodeInfo, err error) {
 		node := &v1.Node{}
 		err = k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node)
 		if err != nil {
@@ -52,15 +51,6 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 
 		nodeInfo = &AllocatorNodeInfo{}
-
-		if cluster != nil && cluster.Spec.FailureDomainLabel != nil {
-			fdLabel := *cluster.Spec.FailureDomainLabel
-			if fdLabel != "" {
-				if fd, ok := node.Labels[fdLabel]; ok {
-					nodeInfo.FailureDomain = &fd
-				}
-			}
-		}
 
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]
@@ -259,14 +249,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		logger := logger.WithValues("role", role, "name", container.ObjectMeta.Name)
 
 		owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: role}
-
 		nodeName := container.GetNodeAffinity()
-		nodeInfo, err := t.nodeInfoGetter(ctx, nodeName, cluster)
-		if err != nil {
-			logger.Info("Failed to get node", "error", err)
-			revert(err, container)
-			continue
-		}
 
 		if _, ok := nodeMap[nodeName]; !ok {
 			nodeAlloc := NodeAllocations{
@@ -278,19 +261,19 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		}
 		nodeAlloc := nodeMap[nodeName]
 
-		if container.Status.Allocations == nil {
-			container.Status.Allocations = &weka.ContainerAllocations{}
-		}
 		if nodeAlloc.AllocatedRanges[owner] == nil {
 			nodeAlloc.AllocatedRanges[owner] = make(map[string]Range)
 		}
 
-		if nodeInfo.FailureDomain != nil {
-			container.Status.Allocations.FailureDomain = nodeInfo.FailureDomain
-		}
-
 		if container.Spec.NumDrives > 0 {
 			if nodeAlloc.Drives[owner] == nil || len(nodeAlloc.Drives[owner]) == 0 {
+				nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
+				if err != nil {
+					logger.Info("Failed to get node", "error", err)
+					revert(err, container)
+					continue
+				}
+
 				allDrives := nodeInfo.AvailableDrives
 				if len(allDrives) < container.Spec.NumDrives {
 					logger.Info("Not enough drives to allocate request even on fully free node", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
@@ -308,9 +291,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 				revertFuncs = append(revertFuncs, func() {
 					nodeAlloc.deallocateDrives(owner)
 				})
-				container.Status.Allocations.Drives = allocatedDrives
-			} else {
-				container.Status.Allocations.Drives = nodeAlloc.Drives[owner]
+				changed = true
 			}
 		}
 
@@ -324,13 +305,11 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 					continue
 				}
 				baseWekaPort = basePortRange.Base
-				container.Status.Allocations.WekaPort = baseWekaPort
 				nodeAlloc.AllocatedRanges[owner]["weka"] = Range{Base: baseWekaPort, Size: 100}
 				revertFuncs = append(revertFuncs, func() {
 					nodeAlloc.DeallocateNodeRange(owner, baseWekaPort)
 				})
-			} else {
-				container.Status.Allocations.WekaPort = currentRanges["weka"].Base
+				changed = true
 			}
 		}
 		if container.HasAgent() {
@@ -344,10 +323,8 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 						continue
 					}
 				}
-				container.Status.Allocations.AgentPort = agentPort.Base
 				nodeAlloc.AllocatedRanges[owner]["agent"] = Range{Base: agentPort.Base, Size: 1}
-			} else {
-				container.Status.Allocations.AgentPort = currentRanges["agent"].Base
+				changed = true
 			}
 		}
 
@@ -355,9 +332,6 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		// Strange datab modeling, ignoring for now
 		//	container.Spec.Port = cluster.Status.Ports.LbPort
 		//}
-
-		//All looks good, allocating
-		changed = true
 
 		//TODO: MaxFD not supported, will need to rely on admission controller or custom scheduler
 		//TODO: Prioritizing nodes not supported, will need to rely on custom scheduler

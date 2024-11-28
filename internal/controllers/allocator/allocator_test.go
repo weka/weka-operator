@@ -20,7 +20,7 @@ import (
 )
 
 func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {
-	return func(ctx context.Context, nodeName weka.NodeName, cluster *weka.WekaCluster) (*AllocatorNodeInfo, error) {
+	return func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error) {
 		drives := []string{}
 		for i := 0; i < numDrives; i++ {
 			drives = append(drives, fmt.Sprintf("some-longer-drive-%d", i))
@@ -157,19 +157,9 @@ func TestAllocatePort(t *testing.T) {
 
 		err = allocator.AllocateContainers(ctx, cluster, containers)
 		if err != nil {
-			t.Errorf("Failed to allocate containers: %v", err)
-			return
-		}
-
-		notChanged := []*weka.WekaContainer{}
-
-		if err != nil {
 			if failedAllocs, ok := err.(*FailedAllocations); ok {
-				for _, allocation := range *failedAllocs {
-					notChanged = append(notChanged, allocation.Container)
-				}
 				// we proceed despite failures, as partial might be sufficient(?)
-				if len(notChanged) != 0 {
+				if len(*failedAllocs) != 0 {
 					t.Errorf("some allocations have failed %v", err)
 					return
 				}
@@ -179,20 +169,40 @@ func TestAllocatePort(t *testing.T) {
 			}
 		}
 
+		resultAllocations, err := allocator.GetAllocations(ctx)
+		if err != nil {
+			t.Errorf("Failed to get allocations: %v", err)
+			return
+		}
+
 		// validating that no two containers have the same agent port on the same node
 		agentNodePorts := map[string]bool{}
 		for _, container := range containers {
+			owner := Owner{
+				OwnerCluster: OwnerCluster{
+					Namespace:   cluster.Namespace,
+					ClusterName: cluster.Name,
+				},
+				Container: container.Name,
+				Role:      container.Spec.Mode,
+			}
+			nodeName := container.GetNodeAffinity()
+			nodeAlloc := resultAllocations.NodeMap[nodeName]
+
+			ranges := nodeAlloc.AllocatedRanges[owner]
+			agentPort := ranges["agent"].Base
+
 			if !container.IsHostNetwork() || container.IsEnvoy() {
 				continue
 			}
-			found := agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)]
+			found := agentNodePorts[fmt.Sprintf("%s:%d", nodeName, agentPort)]
 			if found {
-				t.Errorf("Node port already allocated: %s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)
+				t.Errorf("Node port already allocated: %s:%d", nodeName, agentPort)
 				allocations, _ := allocator.GetAllocations(ctx)
 				printAsYaml(allocations)
 				return
 			} else {
-				agentNodePorts[fmt.Sprintf("%s:%d", container.Spec.NodeAffinity, container.Status.Allocations.AgentPort)] = true
+				agentNodePorts[fmt.Sprintf("%s:%d", nodeName, agentPort)] = true
 			}
 		}
 	}

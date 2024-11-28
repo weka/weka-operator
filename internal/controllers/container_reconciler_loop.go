@@ -15,7 +15,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/config"
-	allocator2 "github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -849,7 +849,7 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		return err
 	}
 
-	err = allocator2.DeallocateContainer(ctx, container, r.Client)
+	err = allocator.DeallocateContainer(ctx, container, r.Client)
 	if err != nil {
 		logger.Error(err, "Error deallocating container")
 		return err
@@ -1183,7 +1183,7 @@ func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) erro
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupIfNeeded")
 	defer end()
 
-	nodeName := container.Status.NodeAffinity
+	nodeName := container.GetNodeAffinity()
 	if nodeName == "" {
 		err := errors.New("Node affinity not set")
 		return err
@@ -1651,13 +1651,92 @@ func (r *containerReconcilerLoop) PodNotSet() bool {
 	return r.pod == nil
 }
 
+func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
+	fdLabel := r.container.Spec.FailureDomainLabel
+	if fdLabel == nil || *fdLabel == "" {
+		return nil
+	}
+
+	if fd, ok := r.node.Labels[*fdLabel]; ok {
+		return &fd
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SelfUpdateAllocations")
+	defer end()
+
+	container := r.container
+
+	cs, err := allocator.NewConfigMapStore(ctx, r.Client)
+	if err != nil {
+		return err
+	}
+
+	allAllocations, err := cs.GetAllocations(ctx)
+	if err != nil {
+		return lifecycle.NewWaitError(errors.New("allocations are not set yet"))
+	}
+
+	owner := container.GetOwnerReferences()
+	nodeName := container.GetNodeAffinity()
+	nodeAlloc, ok := allAllocations.NodeMap[nodeName]
+	if !ok {
+		return lifecycle.NewWaitError(errors.New("node allocations are not set yet"))
+	}
+
+	allocOwner := allocator.Owner{
+		OwnerCluster: allocator.OwnerCluster{
+			ClusterName: owner[0].Name,
+			Namespace:   container.Namespace,
+		},
+		Container: container.Name,
+		Role:      container.Spec.Mode,
+	}
+
+	allocatedDrives, ok := nodeAlloc.Drives[allocOwner]
+	if !ok && container.IsDriveContainer() {
+		return lifecycle.NewWaitError(fmt.Errorf("no drives allocated for owner %v", allocOwner))
+	}
+
+	currentRanges, ok := nodeAlloc.AllocatedRanges[allocOwner]
+	if !ok {
+		return lifecycle.NewWaitError(fmt.Errorf("no ranges allocated for owner %v", allocOwner))
+	}
+	wekaPort := currentRanges["weka"].Base
+	agentPort := currentRanges["agent"].Base
+
+	failureDomain := r.getFailureDomain(ctx)
+
+	allocations := &weka.ContainerAllocations{
+		Drives:        allocatedDrives,
+		WekaPort:      wekaPort,
+		AgentPort:     agentPort,
+		FailureDomain: failureDomain,
+	}
+	logger.Info("Updating container with allocations", "allocations", allocations)
+
+	container.Status.Allocations = allocations
+
+	err = r.Status().Update(ctx, container)
+	if err != nil {
+		err = fmt.Errorf("cannot update container status with allocations: %w", err)
+		return err
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WriteResources")
 	defer end()
 
 	container := r.container
 	if r.container.Status.Allocations == nil {
-		return lifecycle.NewWaitError(errors.New("Allocations are not set yet"))
+		err := r.selfUpdateAllocations(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	executor, err := r.ExecService.GetExecutor(ctx, container)

@@ -7,7 +7,6 @@ import (
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	apps "k8s.io/api/apps/v1"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1061,44 +1060,26 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 			toAllocate = append(toAllocate, container)
 		}
 	}
+
+	if len(toAllocate) == 0 {
+		// No containers to allocate resources for
+		return nil
+	}
+
 	resourceAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
 	if err != nil {
 		return err
 	}
 
 	err = resourceAllocator.AllocateContainers(ctx, r.cluster, toAllocate)
-	notChanged := []*wekav1alpha1.WekaContainer{}
-
 	if err != nil {
 		if failedAllocs, ok := err.(*allocator.FailedAllocations); ok {
-			for _, allocation := range *failedAllocs {
-				notChanged = append(notChanged, allocation.Container)
-			}
 			logger.Error(err, "Failed to allocate resources for containers", "failed", len(*failedAllocs))
 			// we proceed despite failures, as partial might be sufficient(?)
 		} else {
 			return err
 		}
 	}
-
-	// update not changed containers
-	failedWrites := false
-	for _, container := range toAllocate {
-		if slices.Contains(notChanged, container) {
-			continue
-		}
-		if err := r.getClient().Status().Update(ctx, container); err != nil {
-			failedWrites = true
-			continue
-		}
-	}
-	if err != nil {
-		return err // we might want not to return err on failed allocations, if we within resiliency limits
-	}
-	if failedWrites {
-		return errors.New("Failed to update containers, re-reconciling")
-	}
-
 	return nil
 }
 
