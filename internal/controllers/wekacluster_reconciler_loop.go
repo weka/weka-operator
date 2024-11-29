@@ -3,9 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	apps "k8s.io/api/apps/v1"
 	"reflect"
 	"strconv"
 	"strings"
@@ -20,29 +17,34 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	"go.opentelemetry.io/otel/codes"
+	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func NewWekaClusterReconcileLoop(mgr ctrl.Manager) *wekaClusterReconcilerLoop {
+func NewWekaClusterReconcileLoop(mgr ctrl.Manager, restClient rest.Interface) *wekaClusterReconcilerLoop {
 	config := mgr.GetConfig()
-	execService := exec.NewExecService(config)
+	execService := exec.NewExecService(restClient, config)
 	scheme := mgr.GetScheme()
 	return &wekaClusterReconcilerLoop{
 		Manager:        mgr,
 		ExecService:    execService,
 		SecretsService: services.NewSecretsService(mgr.GetClient(), scheme, execService),
+		RestClient:     restClient,
 	}
 }
 
@@ -53,6 +55,7 @@ type wekaClusterReconcilerLoop struct {
 	clusterService services.WekaClusterService
 	containers     []*wekav1alpha1.WekaContainer
 	SecretsService services.SecretsService
+	RestClient     rest.Interface
 }
 
 func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.Request) error {
@@ -66,7 +69,7 @@ func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.R
 	}
 
 	r.cluster = wekaCluster
-	r.clusterService = services.NewWekaClusterService(r.Manager, wekaCluster)
+	r.clusterService = services.NewWekaClusterService(r.Manager, r.RestClient, wekaCluster)
 
 	return err
 }
@@ -1477,7 +1480,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		return lifecycle.NewWaitError(errors.New("No running monitoring pod found"))
 	}
 
-	exec, err := util2.NewExecInPodByName(pod, "weka-cluster-metrics")
+	exec, err := util2.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), pod, "weka-cluster-metrics")
 	if err != nil {
 		return err
 	}

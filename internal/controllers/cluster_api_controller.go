@@ -5,19 +5,20 @@ import (
 
 	"github.com/go-logr/logr"
 	clusterApi "github.com/weka/weka-operator/internal/rest_api"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewClusterApiController(mgr ctrl.Manager) *ClusterApiController {
+func NewClusterApiController(ctx context.Context, mgr ctrl.Manager, restClient rest.Interface) *ClusterApiController {
 	logger := mgr.GetLogger().WithName("controllers").WithName("ClusterApiController")
 	apiController := &ClusterApiController{
 		Client:     mgr.GetClient(),
 		logger:     logger,
-		clusterAPI: clusterApi.NewClusterAPI(mgr.GetClient(), logger),
+		clusterAPI: clusterApi.NewClusterAPI(restClient, mgr.GetConfig(), mgr.GetClient(), logger),
 	}
 	// TODO: Move to main-level to have runtime-scoped context and not reconcile request scoped
-	go apiController.clusterAPI.StartServer(context.Background())
+	go apiController.clusterAPI.StartServer(ctx)
 	return apiController
 }
 

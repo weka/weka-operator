@@ -7,6 +7,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
+	"k8s.io/client-go/rest"
 
 	"github.com/kr/pretty"
 	"github.com/pkg/errors"
@@ -24,12 +25,12 @@ type WekaClusterService interface {
 	GetOwnedContainers(ctx context.Context, mode string) ([]*wekav1alpha1.WekaContainer, error)
 }
 
-func NewWekaClusterService(mgr ctrl.Manager, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
+func NewWekaClusterService(mgr ctrl.Manager, restClient rest.Interface, cluster *wekav1alpha1.WekaCluster) WekaClusterService {
 	client := mgr.GetClient()
 	config := mgr.GetConfig()
 	return &wekaClusterService{
 		Client:      client,
-		ExecService: exec.NewExecService(config),
+		ExecService: exec.NewExecService(restClient, config),
 		Cluster:     cluster,
 	}
 }

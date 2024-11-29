@@ -1,9 +1,10 @@
 package resources
 
 import (
+	"strings"
+
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
-	"strings"
 )
 
 func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error) {

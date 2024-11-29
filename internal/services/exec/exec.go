@@ -15,19 +15,21 @@ type ExecService interface {
 	GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (util2.Exec, error)
 }
 
-func NewExecService(config *rest.Config) ExecService {
+func NewExecService(client rest.Interface, config *rest.Config) ExecService {
 	return &PodExecService{
-		config: config,
+		config:     config,
+		restClient: client,
 	}
 }
 
 type PodExecService struct {
-	config *rest.Config
+	config     *rest.Config
+	restClient rest.Interface
 }
 
 func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *wekav1alpha1.WekaContainer, timeout *time.Duration) (util2.Exec, error) {
 	config := s.getConfig()
-	executor, err := util2.NewExecWithConfig(config, util2.NamespacedObject{
+	executor, err := util2.NewExecWithConfig(s.restClient, config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
 		Name:      container.ObjectMeta.Name,
 	}, timeout, "weka-container")
@@ -39,7 +41,7 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 
 func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha1.WekaContainer) (util2.Exec, error) {
 	config := s.getConfig()
-	executor, err := util2.NewExecWithConfig(config, util2.NamespacedObject{
+	executor, err := util2.NewExecWithConfig(s.restClient, config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
 		Name:      container.ObjectMeta.Name,
 	}, nil, "weka-container")

@@ -7,17 +7,20 @@ import (
 
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/go-logr/logr"
+	k8sRest "k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewClusterAPI(client client.Client, logger logr.Logger) *ClusterAPI {
+func NewClusterAPI(k8sRestClient k8sRest.Interface, config *k8sRest.Config, client client.Client, logger logr.Logger) *ClusterAPI {
 	api := rest.NewApi()
 	api.Use(rest.DefaultDevStack...)
 
 	clusterAPI := &ClusterAPI{
-		client: client,
-		logger: logger.WithName("ClusterAPI"),
-		api:    api,
+		client:        client,
+		logger:        logger.WithName("ClusterAPI"),
+		api:           api,
+		k8sRestClient: k8sRestClient,
+		k8sConfig:     config,
 	}
 
 	clusterAPI.registerRoutes()
@@ -25,9 +28,11 @@ func NewClusterAPI(client client.Client, logger logr.Logger) *ClusterAPI {
 }
 
 type ClusterAPI struct {
-	client client.Client
-	logger logr.Logger
-	api    *rest.Api
+	k8sRestClient k8sRest.Interface
+	k8sConfig     *k8sRest.Config
+	client        client.Client
+	logger        logr.Logger
+	api           *rest.Api
 }
 
 func (api *ClusterAPI) StartServer(ctx context.Context) {

@@ -16,7 +16,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
@@ -29,9 +28,9 @@ type Exec interface {
 }
 
 type PodExec struct {
-	ClientSet     *kubernetes.Clientset
+	RestClient    rest.Interface
+	RestConfig    *rest.Config
 	Pod           NamespacedObject
-	Config        *rest.Config
 	timeout       *time.Duration
 	ContainerName string
 }
@@ -45,52 +44,37 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(cfg *rest.Config, pod NamespacedObject, timeout *time.Duration, containerName string) (Exec, error) {
-	clientset, err := KubernetesClientSet(cfg)
-	if err != nil {
-		return nil, &ConfigurationError{err, "failed to get Kubernetes clientset"}
-	}
-
+func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod NamespacedObject, timeout *time.Duration, containerName string) (Exec, error) {
 	if timeout == nil {
 		defaultTimeout := config.Config.Timeouts.KubeExecTimeout
 		timeout = &defaultTimeout
 	}
 
 	return &PodExec{
-		ClientSet:     clientset,
+		RestClient:    client,
 		Pod:           pod,
 		ContainerName: containerName,
-		Config:        cfg,
+		RestConfig:    cfg,
 		timeout:       timeout,
 	}, nil
 }
 
-func NewExecInPod(pod *v1.Pod) (Exec, error) {
-	config, err := KubernetesConfiguration()
-	if err != nil {
-		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
-	}
-
+func NewExecInPod(client rest.Interface, cfg *rest.Config, pod *v1.Pod) (Exec, error) {
 	namespacedObject := NamespacedObject{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(config, namespacedObject, nil, "weka-container")
+	return NewExecWithConfig(client, cfg, namespacedObject, nil, "weka-container")
 }
 
-func NewExecInPodByName(pod *v1.Pod, containerName string) (Exec, error) {
-	config, err := KubernetesConfiguration()
-	if err != nil {
-		return nil, &ConfigurationError{err, "failed to get Kubernetes configuration"}
-	}
-
+func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string) (Exec, error) {
 	namespacedObject := NamespacedObject{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(config, namespacedObject, nil, containerName)
+	return NewExecWithConfig(client, cfg, namespacedObject, nil, containerName)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
@@ -109,7 +93,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 		logger.SetValues("command", strings.Join(command, " "))
 	}
 
-	podExec := e.ClientSet.CoreV1().RESTClient().Post().
+	podExec := e.RestClient.Post().
 		Resource("pods").
 		Name(e.Pod.Name).
 		Namespace(e.Pod.Namespace).
@@ -122,7 +106,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewSPDYExecutor(e.Config, "POST", podExec.URL())
+	executor, err := remotecommand.NewSPDYExecutor(e.RestConfig, "POST", podExec.URL())
 	if err != nil {
 		logger.SetError(err, "Exec failed to create executor")
 		return stdout, stderr, errors.Wrap(err, "Exec failed to create executor")
@@ -174,18 +158,6 @@ func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 	}
 
 	return clientset, nil
-}
-
-func KubernetesConfiguration() (*rest.Config, error) {
-	if os.Getenv("UNIT_TEST") == "true" {
-		return &rest.Config{}, nil
-	}
-	kubeConfigPath := os.Getenv("KUBECONFIG")
-	if kubeConfigPath == "" {
-		return rest.InClusterConfig()
-	} else {
-		return clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	}
 }
 
 func GetPodNamespace() (string, error) {

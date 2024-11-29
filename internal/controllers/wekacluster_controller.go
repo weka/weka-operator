@@ -16,6 +16,7 @@ import (
 	"github.com/weka/weka-operator/internal/services"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,25 +32,27 @@ const (
 // WekaClusterReconciler reconciles a WekaCluster object
 type WekaClusterReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Manager  ctrl.Manager
-	Recorder record.EventRecorder
+	Scheme     *runtime.Scheme
+	Manager    ctrl.Manager
+	RestClient rest.Interface
+	Recorder   record.EventRecorder
 
 	SecretsService services.SecretsService
 
 	DetectedZombies map[util.NamespacedObject]time.Time
 }
 
-func NewWekaClusterController(mgr ctrl.Manager) *WekaClusterReconciler {
+func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *WekaClusterReconciler {
 	client := mgr.GetClient()
 	config := mgr.GetConfig()
 	scheme := mgr.GetScheme()
-	execService := exec.NewExecService(config)
+	execService := exec.NewExecService(restClient, config)
 
 	ret := &WekaClusterReconciler{
 		Client:         client,
 		Scheme:         scheme,
 		Manager:        mgr,
+		RestClient:     restClient,
 		Recorder:       mgr.GetEventRecorderFor("wekaCluster-controller"),
 		SecretsService: services.NewSecretsService(client, scheme, execService),
 	}
@@ -67,7 +70,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()
 
-	loop := NewWekaClusterReconcileLoop(r.Manager)
+	loop := NewWekaClusterReconcileLoop(r.Manager, r.RestClient)
 
 	err := loop.FetchCluster(ctx, req)
 	if err != nil {

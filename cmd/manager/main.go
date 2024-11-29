@@ -19,13 +19,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/go-logr/logr"
-	"github.com/weka/weka-operator/internal/node_agent"
 	"io"
 	"os"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/uuid"
+	"github.com/go-logr/logr"
+	"github.com/weka/weka-operator/internal/node_agent"
 
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -35,12 +34,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -161,12 +165,29 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 		os.Exit(1)
 	}
 
+	httpClient, err := rest.HTTPClientFor(mgr.GetConfig())
+	if err != nil {
+		logger.Error(err, "unable to create http client")
+		os.Exit(1)
+	}
+
+	gvk := schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Pod",
+	}
+	restClient, err := apiutil.RESTClientForGVK(gvk, false, mgr.GetConfig(), serializer.NewCodecFactory(mgr.GetScheme()), httpClient)
+	if err != nil {
+		logger.Error(err, "unable to create rest client")
+		os.Exit(1)
+	}
+
 	ctrls := []WekaReconciler{
 		controllers.NewClientController(mgr),
-		controllers.NewContainerController(mgr),
-		controllers.NewWekaClusterController(mgr),
+		controllers.NewContainerController(mgr, restClient),
+		controllers.NewWekaClusterController(mgr, restClient),
 		controllers.NewWekaPolicyController(mgr),
-		controllers.NewWekaManualOperationController(mgr),
+		controllers.NewWekaManualOperationController(mgr, restClient),
 	}
 
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
@@ -203,7 +224,7 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
 	if enableClusterApi {
-		if err = (controllers.NewClusterApiController(mgr)).SetupWithManager(mgr); err != nil {
+		if err = (controllers.NewClusterApiController(ctx, mgr, restClient)).SetupWithManager(mgr); err != nil {
 			logger.Error(err, "unable to create controller", "controller", "ClusterAPI")
 			os.Exit(1)
 		}

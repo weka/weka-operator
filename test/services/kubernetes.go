@@ -73,7 +73,6 @@ func (k *kubernetes) Setup(ctx context.Context) error {
 
 	os.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc.cluster.local")
 	os.Setenv("KUBERNETES_SERVICE_PORT", "443")
-	os.Setenv("UNIT_TEST", "true")
 
 	if os.Getenv("KUBECONFIG") == "" {
 		return &EnvironmentError{

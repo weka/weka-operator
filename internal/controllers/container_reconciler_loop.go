@@ -4,29 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/node_agent"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,9 +20,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -51,11 +52,11 @@ const (
 	Building  = "Building"
 )
 
-func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
+func NewContainerReconcileLoop(mgr ctrl.Manager, restClient rest.Interface) *containerReconcilerLoop {
 	//TODO: We creating new client on every loop, we should reuse from reconciler, i.e pass it by reference
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
-	execService := exec.NewExecService(config)
+	execService := exec.NewExecService(restClient, config)
 	metricsService, err := kubernetes.NewKubeMetricsServiceFromManager(mgr)
 	if err != nil {
 		mgr.GetLogger().Error(err, "Failed to create metrics service")
@@ -67,6 +68,7 @@ func NewContainerReconcileLoop(mgr ctrl.Manager) *containerReconcilerLoop {
 		MetricsService: metricsService,
 		ExecService:    execService,
 		Manager:        mgr,
+		RestClient:     restClient,
 	}
 }
 
@@ -83,6 +85,7 @@ func (lm *LockMap) GetLock(id string) *sync.Mutex {
 
 type containerReconcilerLoop struct {
 	client.Client
+	RestClient       rest.Interface
 	Scheme           *runtime.Scheme
 	KubeService      kubernetes.KubeService
 	ExecService      exec.ExecService
@@ -112,8 +115,8 @@ func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.R
 	return nil
 }
 
-func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
-	loop := NewContainerReconcileLoop(mgr)
+func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
+	loop := NewContainerReconcileLoop(mgr, restClient)
 	loop.container = container
 
 	return lifecycle.ReconciliationSteps{
@@ -725,7 +728,7 @@ func (r *containerReconcilerLoop) reconcileManagementIP(ctx context.Context) err
 	container := r.container
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(pod)
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}
@@ -787,7 +790,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 	container := r.container
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(pod)
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return err
@@ -970,6 +973,7 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 	}
 	discoverNodeOp := operations.NewDiscoverNodeOperation(
 		r.Manager,
+		r.RestClient,
 		nodeAffinity,
 		container,
 		container.ToContainerDetails(),
@@ -1073,7 +1077,7 @@ func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
 	}
 
 	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
-		executor, err := util.NewExecInPod(pod)
+		executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 		if err != nil {
 			logger.Error(err, "Error creating executor")
 			return err
@@ -1304,7 +1308,7 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(pod)
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return false, err
@@ -1362,7 +1366,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
 	defer end()
 
-	executor, err := util.NewExecInPod(pod)
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}
@@ -1616,7 +1620,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		if wekaPodContainer.Image != container.Spec.Image {
 			logger.Info("Deleting pod to apply new image")
 
-			executor, err := util.NewExecInPod(pod)
+			executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 			if err != nil {
 				return err
 			}
@@ -1881,7 +1885,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	container := r.container
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(pod)
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}

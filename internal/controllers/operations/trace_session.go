@@ -3,6 +3,9 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"time"
+
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -14,10 +17,9 @@ import (
 	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
-	"time"
 )
 
 type MaintainTraceSession struct {
@@ -29,12 +31,14 @@ type MaintainTraceSession struct {
 	containerDetails weka.WekaContainerDetails
 	deployment       *apps.Deployment
 	containers       []*weka.WekaContainer
+	restClient       rest.Interface
 }
 
-func NewMaintainTraceSession(mgr ctrl.Manager, payload *weka.RemoteTracesSessionConfig, ownerRef client.Object, containerDetails weka.WekaContainerDetails) *MaintainTraceSession {
+func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payload *weka.RemoteTracesSessionConfig, ownerRef client.Object, containerDetails weka.WekaContainerDetails) *MaintainTraceSession {
 	return &MaintainTraceSession{
 		payload:          payload,
 		mgr:              mgr,
+		restClient:       restClient,
 		ownerRef:         ownerRef,
 		containerDetails: containerDetails,
 	}
@@ -312,7 +316,7 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 	// this config map serves as simplified discovery mechanism, this one contains map of weka node id to weka container id
 	// in addition to that it contains map of container id to container name + base port + trace server port
 	// this way trace viewer proxy can discover trace server for given container
-	execService := exec.NewExecService(o.mgr.GetConfig())
+	execService := exec.NewExecService(o.restClient, o.mgr.GetConfig())
 	// fetch all processes
 	err := o.ensureClusterContainers(ctx)
 	if err != nil {

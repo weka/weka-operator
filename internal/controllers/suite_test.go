@@ -53,12 +53,13 @@ var (
 )
 
 type TestEnvironment struct {
-	Env     *envtest.Environment
-	Cancel  context.CancelFunc
-	Ctx     context.Context
-	Manager ctrl.Manager
-	Client  client.Client
-	Logger  logr.Logger
+	Env        *envtest.Environment
+	Cancel     context.CancelFunc
+	Ctx        context.Context
+	Manager    ctrl.Manager
+	RestClient rest.Interface
+	Client     client.Client
+	Logger     logr.Logger
 }
 
 func setupLogging(ctx context.Context) (logger logr.Logger, shutdown func(context.Context) error, err error) {
@@ -101,7 +102,6 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 
 	os.Setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc.cluster.local")
 	os.Setenv("KUBERNETES_SERVICE_PORT", "443")
-	os.Setenv("UNIT_TEST", "true")
 
 	ctx, cancel := context.WithCancel(ctx)
 	environment := &envtest.Environment{
@@ -138,14 +138,21 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 		fmt.Printf("failed to create manager: %v", err)
 		return
 	}
+
+	testEnv.RestClient, err = rest.RESTClientFor(cfg)
+	if err != nil {
+		fmt.Printf("failed to create REST client: %v", err)
+		return
+	}
+
 	config.Config.DevMode = true
-	clusterController := NewWekaClusterController(testEnv.Manager)
+	clusterController := NewWekaClusterController(testEnv.Manager, testEnv.RestClient)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
 	if err != nil {
 		fmt.Printf("failed to setup WekaCluster controller: %v", err)
 		return
 	}
-	containerController := NewContainerController(testEnv.Manager)
+	containerController := NewContainerController(testEnv.Manager, testEnv.RestClient)
 	err = containerController.SetupWithManager(testEnv.Manager, containerController)
 	if err != nil {
 		fmt.Printf("failed to setup Container controller: %v", err)

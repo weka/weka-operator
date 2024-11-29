@@ -9,6 +9,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -23,10 +24,10 @@ import (
 
 const bootScriptConfigName = "weka-boot-scripts"
 
-func NewContainerController(mgr ctrl.Manager) *ContainerController {
+func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *ContainerController {
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
-	execService := exec.NewExecService(config)
+	execService := exec.NewExecService(restClient, config)
 	return &ContainerController{
 		Client:      kClient,
 		Scheme:      mgr.GetScheme(),
@@ -34,6 +35,7 @@ func NewContainerController(mgr ctrl.Manager) *ContainerController {
 		KubeService: kubernetes.NewKubeService(mgr.GetClient()),
 		ExecService: execService,
 		Manager:     mgr,
+		RestClient:  restClient,
 	}
 }
 
@@ -44,6 +46,7 @@ type ContainerController struct {
 	KubeService kubernetes.KubeService
 	ExecService exec.ExecService
 	Manager     ctrl.Manager
+	RestClient  rest.Interface
 }
 
 func (c *ContainerController) RunGC(ctx context.Context) {}
@@ -92,7 +95,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	logger.SetValues("mode", container.Spec.Mode, "uuid", string(container.GetUID()))
-	steps := ContainerReconcileSteps(r.Manager, container)
+	steps := ContainerReconcileSteps(r.Manager, r.RestClient, container)
 	return steps.RunAsReconcilerResponse(ctx)
 }
 

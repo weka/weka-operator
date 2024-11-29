@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -22,15 +23,17 @@ import (
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
 type WekaManualOperationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Mgr    ctrl.Manager
+	Scheme     *runtime.Scheme
+	Mgr        ctrl.Manager
+	RestClient rest.Interface
 }
 
-func NewWekaManualOperationController(mgr ctrl.Manager) *WekaManualOperationReconciler {
+func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interface) *WekaManualOperationReconciler {
 	return &WekaManualOperationReconciler{
-		Mgr:    mgr,
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Mgr:        mgr,
+		RestClient: restClient,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
 	}
 }
 
@@ -130,6 +133,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	case "remote-traces-session":
 		remoteTracesOp := operations.NewMaintainTraceSession(
 			r.Mgr,
+			r.RestClient,
 			wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig,
 			wekaManualOperation,
 			weka.WekaContainerDetails{

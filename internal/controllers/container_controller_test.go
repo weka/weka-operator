@@ -113,7 +113,7 @@ func TestNewContainerController(t *testing.T) {
 		return
 	}
 
-	subject := NewContainerController(testEnv.Manager)
+	subject := NewContainerController(testEnv.Manager, testEnv.RestClient)
 	if subject == nil {
 		t.Errorf("NewContainerController() returned nil")
 		return

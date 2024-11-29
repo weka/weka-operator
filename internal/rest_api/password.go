@@ -54,7 +54,7 @@ func (api *ClusterAPI) updateClusterPassword(w rest.ResponseWriter, r *rest.Requ
 		return
 	}
 
-	exec, err := util.NewExecInPod(pod)
+	exec, err := util.NewExecInPod(api.k8sRestClient, api.k8sConfig, pod)
 	if err != nil {
 		logger.Error(err, "Failed to create exec in pod")
 		rest.Error(w, "Failed to create exec in pod", http.StatusInternalServerError)

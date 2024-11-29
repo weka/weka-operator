@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -39,13 +40,13 @@ type DiscoverNodeOperation struct {
 	node            *corev1.Node
 }
 
-func NewDiscoverNodeOperation(mgr ctrl.Manager, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaContainerDetails) *DiscoverNodeOperation {
+func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaContainerDetails) *DiscoverNodeOperation {
 	kclient := mgr.GetClient()
 	return &DiscoverNodeOperation{
 		mgr:         mgr,
 		client:      kclient,
 		kubeService: kubernetes.NewKubeService(kclient),
-		execService: exec.NewExecService(mgr.GetConfig()),
+		execService: exec.NewExecService(restClient, mgr.GetConfig()),
 		scheme:      mgr.GetScheme(),
 		nodeName:    node,
 		image:       ownerDetails.Image,
