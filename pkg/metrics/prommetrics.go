@@ -10,8 +10,9 @@ import (
 type TagMap map[string]string
 
 type TaggedValue struct {
-	Tags  map[string]string
-	Value float64
+	Tags      map[string]string
+	Value     float64
+	Timestamp time.Time
 }
 
 type PromMetric struct {
@@ -52,8 +53,13 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	ret = ret + "# HELP " + m.Metric + " " + m.Help + "\n"
 	ret = ret + "# TYPE " + m.Metric + " " + mtype + "\n"
 
+	ts := time.Now()
+	if !m.Timestamp.IsZero() {
+		ts = m.Timestamp
+	}
+
 	if len(m.ValuesByTags) == 0 && m.Value != nil {
-		ret = ret + fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(tags, ","), *m.Value, m.Timestamp.UnixMilli())
+		ret = ret + fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(tags, ","), *m.Value, ts.UnixMilli())
 		return &ret
 	} else if len(m.ValuesByTags) == 0 {
 		return nil // no data
@@ -67,8 +73,12 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 		for k, v := range util.MapOrdered(perm.Tags) {
 			permTags = append(permTags, fmt.Sprintf("%s=\"%s\"", k, v))
 		}
+		tagTs := ts
+		if !perm.Timestamp.IsZero() {
+			tagTs = perm.Timestamp
+		}
 
-		parts = append(parts, fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(permTags, ","), perm.Value, m.Timestamp.UnixMilli()))
+		parts = append(parts, fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(permTags, ","), perm.Value, tagTs.UnixMilli()))
 	}
 	ret = ret + strings.Join(parts, "\n")
 

@@ -175,9 +175,9 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	reconSteps := lifecycle.ReconciliationSteps{
-		ConditionsObject: wekaManualOperation,
-		Client:           r.Client,
-		Steps:            steps,
+		StatusObject: wekaManualOperation,
+		Client:       r.Client,
+		Steps:        steps,
 	}
 
 	return reconSteps.RunAsReconcilerResponse(ctx)

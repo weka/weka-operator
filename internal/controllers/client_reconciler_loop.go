@@ -56,9 +56,9 @@ func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *v1alpha1.WekaClient) lif
 	loop.wekaClient = wekaClient
 
 	return lifecycle.ReconciliationSteps{
-		Client:           loop.Client,
-		ConditionsObject: loop.wekaClient,
-		Conditions:       &loop.wekaClient.Status.Conditions,
+		Client:       loop.Client,
+		StatusObject: loop.wekaClient,
+		Conditions:   &loop.wekaClient.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{
 				Run: loop.HandleDeletion,

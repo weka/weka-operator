@@ -109,7 +109,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 	debugSleep := config.Config.DebugSleep
 
 	containerPathPersistence := "/opt/weka-persistence"
-	hostsideContainerPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideContainerPersistence(), f.container.GetUID())
+	hostsideContainerPersistence := f.nodeInfo.GetContainerPersistencePath(f.container.GetUID())
 	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
 		clusterId := f.container.GetOwnerReferences()[0].UID

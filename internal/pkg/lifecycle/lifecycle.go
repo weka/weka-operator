@@ -19,11 +19,11 @@ import (
 type StepFunc func(ctx context.Context) error
 
 type ReconciliationSteps struct {
-	Client           client.Client
-	ConditionsObject client.Object
-	ThrottlingMap    map[string]metav1.Time
-	Conditions       *[]metav1.Condition
-	Steps            []Step
+	Client        client.Client
+	StatusObject  client.Object
+	ThrottlingMap map[string]metav1.Time
+	Conditions    *[]metav1.Condition
+	Steps         []Step
 }
 
 type Step struct {
@@ -170,8 +170,8 @@ func (e RetryableError) Error() string {
 func (r *ReconciliationSteps) Run(ctx context.Context) error {
 	var end func()
 	var runLogger *instrumentation.SpanLogger
-	if r.ConditionsObject != nil {
-		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps", "object_namespace", r.ConditionsObject.GetNamespace(), "object_name", r.ConditionsObject.GetName())
+	if r.StatusObject != nil {
+		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps", "object_namespace", r.StatusObject.GetNamespace(), "object_name", r.StatusObject.GetName())
 		defer end()
 	} else {
 		ctx, runLogger, end = instrumentation.GetLogSpan(ctx, "ReconciliationSteps")
@@ -193,7 +193,7 @@ STEPS:
 		}
 
 		//Throttling handling
-		if step.Throttled > 0 && r.ConditionsObject != nil && r.ThrottlingMap != nil {
+		if step.Throttled > 0 && r.StatusObject != nil && r.ThrottlingMap != nil {
 			lastRun, ok := r.ThrottlingMap[step.Name]
 			if ok {
 				if time.Since(lastRun.Time) < step.Throttled {
@@ -201,15 +201,11 @@ STEPS:
 				}
 			}
 			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
-			if r.Conditions != nil && step.Condition != "" {
-				// we are going to trigger due to condition update, so skipping updating timestamp directly
-			} else {
-				// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
-				if err := r.Client.Status().Update(ctx, r.ConditionsObject); err != nil {
-					stopErr := NewWaitError(err)
-					runLogger.SetValues("stop_err", stopErr.Error())
-					return stopErr
-				}
+			// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
+			if err := r.Client.Status().Update(ctx, r.StatusObject); err != nil {
+				stopErr := NewWaitError(err)
+				runLogger.SetValues("stop_err", stopErr.Error())
+				return stopErr
 			}
 		}
 
@@ -265,7 +261,7 @@ STEPS:
 			runLogger.SetError(err, "Error running step "+step.Name)
 			runLogger.SetValues("stop_err", err.Error())
 			stepEnd()
-			return &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
+			return &ReconciliationError{Err: err, Subject: r.StatusObject, Step: step}
 		} else {
 			stepLogger.SetStatus(codes.Ok, "Step completed successfully")
 			if step.FinishOnSuccess {
@@ -294,7 +290,7 @@ STEPS:
 
 			if err != nil {
 				stepEnd()
-				stopErr := &ReconciliationError{Err: err, Subject: r.ConditionsObject, Step: step}
+				stopErr := &ReconciliationError{Err: err, Subject: r.StatusObject, Step: step}
 				runLogger.SetValues("stop_err", stopErr.Error())
 				runLogger.SetError(err, "Error running step "+step.Name)
 				stepLogger.SetError(err, "Error setting condition")
@@ -307,8 +303,8 @@ STEPS:
 
 func (r *ReconciliationSteps) setConditions(ctx context.Context, condition metav1.Condition) error {
 	meta.SetStatusCondition(r.Conditions, condition)
-	if err := r.Client.Status().Update(ctx, r.ConditionsObject); err != nil {
-		return &ConditionUpdateError{Err: err, Subject: r.ConditionsObject, Condition: condition}
+	if err := r.Client.Status().Update(ctx, r.StatusObject); err != nil {
+		return &ConditionUpdateError{Err: err, Subject: r.StatusObject, Condition: condition}
 	}
 
 	return nil

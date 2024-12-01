@@ -136,9 +136,9 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	steps := loop.Op.GetSteps()
 
 	reconSteps := lifecycle.ReconciliationSteps{
-		ConditionsObject: wekaPolicy,
-		Client:           r.Client,
-		Steps:            steps,
+		StatusObject: wekaPolicy,
+		Client:       r.Client,
+		Steps:        steps,
 	}
 
 	result, err := reconSteps.RunAsReconcilerResponse(ctx)

@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/go-logr/logr"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"io"
 	"os"
 
@@ -70,6 +72,7 @@ func main() {
 	// initialize config from environment variables
 	config.ConfigureEnv(ctx)
 
+	// TODO: Make this part of config loading, as this is common for everything
 	deploymentIdentifier := config.Config.Otel.DeploymentIdentifier
 	if deploymentIdentifier == "" {
 		deploymentIdentifier = config.Config.PodUID
@@ -87,11 +90,43 @@ func main() {
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
 
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger)
+	if err != nil {
+		logger.Error(err, "Failed to set up OTel SDK")
+		os.Exit(1)
+	}
+	defer func() {
+		_ = shutdown(ctx)
+	}()
+
+	logger.Info("running in mode", "mode", config.Config.Mode)
+
+	switch config.Config.Mode {
+	case config.OperatorModeManager:
+		startAsManager(ctx, logger, deploymentIdentifier)
+	case config.OperatorModeNodeAgent:
+		startAsNodeAgent(ctx, logger, deploymentIdentifier)
+	default:
+		logger.Error(fmt.Errorf("unknown mode: %s", config.Config.Mode), "Failed to start operator")
+		os.Exit(1)
+	}
+}
+
+func startAsNodeAgent(ctx context.Context, logger logr.Logger, identifier string) {
+	//initialize node agent
+	agent := node_agent.NewNodeAgent(logger)
+	err := agent.Run(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to start node agent")
+		os.Exit(1)
+	}
+}
+
+func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifier string) {
 	metricsAddr := config.Config.BindAddress.Metrics
 	probeAddr := config.Config.BindAddress.HealthProbe
 	enableLeaderElection := config.Config.EnableLeaderElection
 	enableClusterApi := config.Config.EnableClusterApi
-
 	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -124,15 +159,6 @@ func main() {
 		logger.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
-
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger)
-	if err != nil {
-		logger.Error(err, "Failed to set up OTel SDK")
-		os.Exit(1)
-	}
-	defer func() {
-		_ = shutdown(ctx)
-	}()
 
 	ctrls := []WekaReconciler{
 		controllers.NewClientController(mgr),

@@ -20,3 +20,14 @@ func MapOrdered[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 		}
 	}
 }
+
+func MergeMaps(originalMap map[string]string, newMap map[string]string) map[string]string {
+	retMap := make(map[string]string)
+	for k, v := range originalMap {
+		retMap[k] = v
+	}
+	for k, v := range newMap {
+		retMap[k] = v
+	}
+	return retMap
+}

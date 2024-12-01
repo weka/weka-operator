@@ -1,9 +1,13 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/node_agent"
+	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -114,9 +118,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 	loop.container = container
 
 	return lifecycle.ReconciliationSteps{
-		Client:           loop.Client,
-		ConditionsObject: loop.container,
-		Conditions:       &loop.container.Status.Conditions,
+		Client:       loop.Client,
+		StatusObject: loop.container,
+		Conditions:   &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},
 			{
@@ -382,14 +386,34 @@ func ContainerReconcileSteps(mgr ctrl.Manager, container *weka.WekaContainer) li
 				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+					container.IsWekaContainer,
 				},
 				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Name:      "ReportOtelMetrics",
-				Run:       lifecycle.ForceNoError(loop.ReportOtelMetrics),
-				Throttled: time.Minute,
+				Name: "RegisterContainerOnMetrics",
+				Run:  lifecycle.ForceNoError(loop.RegisterContainerOnMetrics),
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+					func() bool {
+						return slices.Contains(
+							[]string{
+								weka.WekaContainerModeCompute,
+								weka.WekaContainerModeS3,
+								weka.WekaContainerModeDrive,
+								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
+							}, container.Spec.Mode)
+					},
+				},
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Name:                      "ReportOtelMetrics",
+				Run:                       lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Throttled:                 time.Minute,
+				ContinueOnPredicatesFalse: true,
 			},
 		},
 	}
@@ -2271,4 +2295,60 @@ func (r *containerReconcilerLoop) CanProceedDeletion() bool {
 		return false
 	}
 	return true
+}
+
+func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RegisterContainerOnMetrics")
+	defer end()
+
+	nodeInfo, err := r.GetNodeInfo(ctx)
+	if err != nil {
+		return err
+	}
+
+	// find a pod service node metrics
+	payload := node_agent.RegisterContainerPayload{
+		ContainerName:     r.container.Name,
+		ContainerId:       string(r.container.GetUID()),
+		WekaContainerName: r.container.Spec.WekaContainerName,
+		PersistencePath:   nodeInfo.GetContainerPersistencePath(r.container.GetUID()),
+		Labels:            r.container.GetLabels(),
+		Mode:              r.container.Spec.Mode,
+	}
+	// submit http request to metrics pod
+	pods, err := r.KubeService.GetPods(ctx, r.container.Namespace, r.node.Name, map[string]string{
+		"app.kubernetes.io/component": "weka-node-agent",
+	})
+	if err != nil {
+		return err
+	}
+	for _, pod := range pods {
+		if pod.Status.Phase == v1.PodRunning {
+			// if multiple found - register on each one of them
+			// make post request to metrics pod
+
+			url := "http://" + pod.Status.PodIP + ":8090/register"
+
+			// Convert the payload to JSON
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				logger.Error(err, "Error marshalling payload")
+				continue
+			}
+
+			// Create the POST request
+			resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+			if err != nil {
+				logger.Error(err, "Error sending register request")
+				continue
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				logger.Error(err, "Error sending register request", "status", resp.Status)
+				continue
+			}
+		}
+	}
+
+	return nil
 }

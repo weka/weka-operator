@@ -61,6 +61,10 @@ func (d *DiscoveryNodeInfo) GetHostsideContainerPersistence() string {
 	return d.GetHostsidePersistenceBaseLocation() + "/containers"
 }
 
+func (d *DiscoveryNodeInfo) GetContainerPersistencePath(uid types.UID) string {
+	return fmt.Sprintf("%s/%s", d.GetHostsideContainerPersistence(), uid)
+}
+
 func (d *DiscoveryNodeInfo) GetHostsideClusterPersistence() string {
 	return d.GetHostsidePersistenceBaseLocation() + "/clusters"
 }

@@ -92,10 +92,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer logger.Info("Reconciliation of WekaCluster finished")
 
 	reconSteps := lifecycle.ReconciliationSteps{
-		Client:           r.Client,
-		ConditionsObject: loop.cluster,
-		Conditions:       &loop.cluster.Status.Conditions,
-		ThrottlingMap:    loop.cluster.Status.Timestamps,
+		Client:        r.Client,
+		StatusObject:  loop.cluster,
+		Conditions:    &loop.cluster.Status.Conditions,
+		ThrottlingMap: loop.cluster.Status.Timestamps,
 		Steps: []lifecycle.Step{
 			{
 				Run: loop.InitStatuses,

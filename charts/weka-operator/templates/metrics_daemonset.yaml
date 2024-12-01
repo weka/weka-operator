@@ -1,0 +1,108 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: "{{ .Values.prefix }}-node-agent"
+  labels:
+    app.kubernetes.io/component: weka-node-agent
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/instance: weka-node-agent
+    app.kubernetes.io/name: weka-node-agent
+    app.kubernetes.io/part-of: weka-operator
+    control-plane: node-agent
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  selector:
+    matchLabels:
+      control-plane: weka-node-agent
+      app.kubernetes.io/component: weka-node-agent
+  template:
+    metadata:
+      annotations:
+        "prometheus.io/scrape": "true"
+        "prometheus.io/port": "8090"
+        "prometheus.io/path": "/metrics"
+        "kubectl.kubernetes.io/default-container": node-agent
+      labels:
+        control-plane: weka-node-agent
+        app.kubernetes.io/component: weka-node-agent
+    spec:
+      securityContext:
+        runAsNonRoot: false
+      imagePullSecrets:
+        - name: "{{ .Values.imagePullSecret }}"
+      {{ if .Values.nodeAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.nodeAgent.nodeSelector | nindent 8 }}
+      {{- end }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      tolerations:
+      {{- if .Values.nodeAgent.tolerations }}
+        {{- toYaml .Values.nodeAgent.tolerations | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmpdir
+          emptyDir: { }
+        - name: weka-persistence
+          hostPath:
+            path: {{ .Values.nodeAgent.persistencePaths }}
+
+      containers:
+        - command:
+            - /weka-operator
+          ports:
+            - containerPort: 8090
+              name: http
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: OTEL_DEPLOYMENT_IDENTIFIER
+              value: "{{ .Values.deploymentIdentifier }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.otelExporterOtlpEndpoint }}"
+            - name: VERSION
+              value: "{{ .Values.Version }}"
+            - name: OPERATOR_MODE
+              value: node-agent
+            - name: NODE_AGENT_BIND_ADDRESS
+              value: ":8090"
+
+          image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmpdir
+            - mountPath: /opt/k8s-weka
+              name: weka-persistence
+          name: node-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          resources:
+            {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+      terminationGracePeriodSeconds: 10
+

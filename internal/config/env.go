@@ -14,6 +14,7 @@ import (
 type BindAddress struct {
 	Metrics     string
 	HealthProbe string
+	NodeAgent   string
 }
 
 type Timeouts struct {
@@ -62,6 +63,13 @@ type MaxWorkers struct {
 	WekaPolicy          int
 }
 
+type OperatorMode string
+
+const (
+	OperatorModeManager   OperatorMode = "manager"
+	OperatorModeNodeAgent OperatorMode = "node-agent"
+)
+
 var Config struct {
 	Version                    string
 	PodUID                     string
@@ -82,6 +90,7 @@ var Config struct {
 	Logging                    Logging
 	MaxWorkers                 MaxWorkers
 	Metrics                    Metrics
+	Mode                       OperatorMode
 }
 
 type Metrics struct {
@@ -106,9 +115,15 @@ func init() {
 
 func ConfigureEnv(ctx context.Context) {
 	Config.Version = getEnvOrFail("VERSION")
+	Config.Mode = OperatorMode(env.GetString("OPERATOR_MODE", string(OperatorModeManager)))
 	Config.PodUID = os.Getenv("POD_UID")
-	Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
-	Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
+	if Config.Mode == OperatorModeManager {
+		Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
+		Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")
+		Config.MaintenanceSaName = getEnvOrFail("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
+		Config.OcpCompatibility.DriverToolkitSecretName = getEnvOrFail("WEKA_OCP_PULL_SECRET")
+	}
+	Config.BindAddress.NodeAgent = getEnvOrDefault("NODE_AGENT_BIND_ADDRESS", ":8090")
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
 	Config.Timeouts.KubeExecTimeout = getDurationEnvOrDefault("KUBE_EXEC_TIMEOUT", 5*time.Minute)
@@ -121,10 +136,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.WekaHome.CacertSecret = os.Getenv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
 	Config.WekaHome.EnableStats = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS", true)
 	Config.DebugSleep = getIntEnvOrDefault("WEKA_OPERATOR_DEBUG_SLEEP", 3)
-	Config.MaintenanceSaName = getEnvOrFail("WEKA_OPERATOR_MAINTENANCE_SA_NAME")
 	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "busybox")
 	Config.MaintenanceImagePullSecret = os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
-	Config.OcpCompatibility.DriverToolkitSecretName = getEnvOrFail("WEKA_OCP_PULL_SECRET")
 	Config.OcpCompatibility.DriverToolkitImageBaseUrl = getEnvOrDefault("WEKA_OCP_TOOLKIT_IMAGE_BASE_URL", "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	Config.GkeCompatibility.DisableDriverSigning = getBoolEnvOrDefault("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING", false)
 	Config.GkeCompatibility.HugepageConfiguration.Enabled = getBoolEnvOrDefault("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", false)

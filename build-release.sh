@@ -6,7 +6,7 @@
 # usually, to run locally you want to rely on VERSION=1.0.0-some-user-some-purpose.someiterationnum and not on semver count, as it will overwrite itself on each iteration
 # VERSION=1.0.0-antontest.1 ./build-release.sh
 
-set -e
+set -ex
 
 #npx semantic-release --dry-run # this  goes into github actions as separate step to set VERSION for this step
 if [ -z "$VERSION" ]; then
@@ -18,10 +18,6 @@ echo "Building version $VERSION"
 #so if we need helm and go outside of the image, no reason to build binary within docker
 #eventual reason might be caching, and well, repeatable environment, but then it needs to include helm as well,
 #and it should be possible to build multiple artifacts with same cache, without duplicating dockerfiles
-export CGO_ENABLED=0
-export GOOS=linux
-# multi-arch should be simple, but, weka image not packaged yet for arm, and is messy, so omitting for now
-export GOARCH=amd64
 
 echo "Generating code and building binary"
 go generate ./...
@@ -29,6 +25,12 @@ make generate
 make rbac
 make crd
 go vet ./...
+
+export CGO_ENABLED=0
+export GOOS=linux
+# multi-arch should be simple, but, weka image not packaged yet for arm, and is messy, so omitting for now
+export GOARCH=amd64
+
 go build -o dist/weka-operator cmd/manager/main.go
 
 echo "Building helm chart"
