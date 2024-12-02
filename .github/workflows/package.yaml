@@ -7,6 +7,12 @@ on:
       - main
       - release/*
 
+  workflow_dispatch:
+    inputs:
+      version-name:
+        description: 'Name of the version to be released'
+        required: true
+
 permissions:
   contents: write
   issues: write
@@ -88,19 +94,26 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Install dependencies
+        if: github.event_name != 'workflow_dispatch'
         run: npm install
       - name: Generating version
+        if: github.event_name != 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release -- --dry-run
+      - name: Read VERSION from inputs
+        id: version_input
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "VERSION=${{ github.event.inputs.version-name }}" >> $GITHUB_ENV
       - name: Read VERSION file
         id: version
+        if: github.event_name != 'workflow_dispatch'
         run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
       - name: build version
         if: ${{ env.VERSION != '' }}
         run: VERSION=${{ env.VERSION }} ./build-release.sh
       - name: Create release
-        if: ${{ env.VERSION != '' }}
+        if: ${{ env.VERSION != '' }} && github.event_name != 'workflow_dispatch'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
