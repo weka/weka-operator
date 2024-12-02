@@ -114,10 +114,13 @@ type DiscoverDrivesPayload struct {
 }
 
 type RemoteTracesSessionConfig struct {
-	Cluster                  ObjectReference   `json:"cluster,omitempty"`
-	NodeSelector             map[string]string `json:"nodeSelector,omitempty"`
-	Duration                 metav1.Duration   `json:"duration,omitempty"`
-	WekahomeEndpointOverride string            `json:"wekahomeEndpointOverride,omitempty"`
+	Cluster                       ObjectReference   `json:"cluster,omitempty"`
+	NodeSelector                  map[string]string `json:"nodeSelector,omitempty"`
+	Duration                      metav1.Duration   `json:"duration,omitempty"`
+	WekahomeEndpointOverride      string            `json:"wekahomeEndpointOverride,omitempty"`
+	AllowHttpWekahomeEndpoint     bool              `json:"allowHttpWekahomeEndpoint,omitempty"`
+	AllowInsecureWekahomeEndpoint bool              `json:"allowInsecureWekahomeEndpoint,omitempty"`
+	WekahomeCaSecret              string            `json:"wekahomeCaSecret,omitempty"`
 }
 
 func init() {

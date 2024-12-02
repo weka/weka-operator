@@ -146,6 +146,10 @@ spec:
                     type: object
                   remoteTracesSessionPayload:
                     properties:
+                      allowHttpWekahomeEndpoint:
+                        type: boolean
+                      allowInsecureWekahomeEndpoint:
+                        type: boolean
                       cluster:
                         properties:
                           name:
@@ -162,6 +166,8 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                      wekahomeCaSecret:
+                        type: string
                       wekahomeEndpointOverride:
                         type: string
                     type: object
