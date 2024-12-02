@@ -103,6 +103,7 @@ type Metrics struct {
 		Enabled     bool
 		PollingRate time.Duration
 	}
+	NodeAgentSecretName string
 }
 
 var Consts struct {
@@ -161,6 +162,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
+	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 }
 
 func getEnvOrFail(envKey string) string {

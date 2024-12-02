@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -2322,6 +2321,17 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	if err != nil {
 		return err
 	}
+
+	if len(pods) == 0 {
+		logger.Info("No metrics pod found")
+		return nil
+	}
+
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return err
+	}
+
 	for _, pod := range pods {
 		if pod.Status.Phase == v1.PodRunning {
 			// if multiple found - register on each one of them
@@ -2336,12 +2346,12 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 				continue
 			}
 
-			// Create the POST request
-			resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: token})
 			if err != nil {
 				logger.Error(err, "Error sending register request")
 				continue
 			}
+
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
 				logger.Error(err, "Error sending register request", "status", resp.Status)
@@ -2351,4 +2361,42 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	}
 
 	return nil
+}
+
+// a hack putting this global, but also not a harmful one
+var nodeAgentToken string
+var nodeAgentLastPull time.Time
+
+func (r *containerReconcilerLoop) getNodeAgentToken(ctx context.Context) (string, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeAgentToken")
+	defer end()
+
+	if nodeAgentToken != "" && time.Since(nodeAgentLastPull) < time.Minute {
+		return nodeAgentToken, nil
+	}
+
+	ns, err := util.GetPodNamespace()
+	if err != nil {
+		return "", err
+	}
+
+	secret, err := r.KubeService.GetSecret(ctx, config.Config.Metrics.NodeAgentSecretName, ns)
+	if err != nil {
+		return "", err
+	}
+	if secret == nil {
+		logger.Info("No secret found")
+		return "", errors.New("No secret found")
+	}
+
+	tokenRaw := secret.Data["token"]
+	token := string(tokenRaw)
+	if token == "" {
+		logger.Info("No token found")
+		return "", errors.New("No token found")
+	}
+	nodeAgentToken = token
+	nodeAgentLastPull = time.Now()
+
+	return token, nil
 }

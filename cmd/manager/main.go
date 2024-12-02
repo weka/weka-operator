@@ -23,6 +23,7 @@ import (
 	"github.com/weka/weka-operator/internal/node_agent"
 	"io"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/uuid"
 
@@ -185,6 +186,20 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 		// Run GC for each controller (if implemented)
 		go c.RunGC(ctx)
 	}
+
+	// run one-time operations until completion
+	go func() {
+		for {
+			err = node_agent.EnsureNodeAgentSecret(ctx, mgr)
+			if err != nil {
+				logger.Error(err, "Failed to ensure node agent secret")
+				time.Sleep(1 * time.Second)
+			} else {
+				return // only run successfully once
+			}
+
+		}
+	}()
 
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
 	if enableClusterApi {

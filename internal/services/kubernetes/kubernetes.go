@@ -94,7 +94,11 @@ func (s *ApiKubeService) GetSecret(ctx context.Context, secretName, namespace st
 func (s *ApiKubeService) EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error {
 	existing := &v1.Secret{}
 	err := s.Client.Get(ctx, client.ObjectKey{Namespace: secret.ObjectMeta.Namespace, Name: secret.ObjectMeta.Name}, existing)
-	if err != nil && apierrors.IsNotFound(err) {
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
 		if owner != nil {
 			err := ctrl.SetControllerReference(owner.Obj, secret, owner.Scheme)
 			if err != nil {

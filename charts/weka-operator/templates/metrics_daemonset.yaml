@@ -61,6 +61,9 @@ spec:
         - name: weka-persistence
           hostPath:
             path: {{ .Values.nodeAgent.persistencePaths }}
+        - name: token
+          secret:
+              secretName: "weka-node-agent-secret"
 
       containers:
         - command:
@@ -96,6 +99,9 @@ spec:
               name: tmpdir
             - mountPath: {{ .Values.nodeAgent.persistencePaths }}
               name: weka-persistence
+            - mountPath: /var/run/secrets/kubernetes.io/token
+              name: token
+              readOnly: true
           name: node-agent
           securityContext:
             allowPrivilegeEscalation: false

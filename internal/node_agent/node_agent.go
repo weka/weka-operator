@@ -9,12 +9,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 	"github.com/weka/weka-operator/pkg/util"
 	"golang.org/x/exp/rand"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net"
 	"net/http"
 	"os"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"slices"
 	"sync"
 	"time"
@@ -23,6 +27,8 @@ import (
 type NodeAgent struct {
 	logger         logr.Logger
 	containersData containersData
+	token          string
+	lastTokenPull  time.Time
 }
 
 type ContainerInfo struct {
@@ -206,10 +212,31 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 	_, _ = writer.Write([]byte(promResponse.String()))
 }
 
+func (a *NodeAgent) getCurrentToken() string {
+	// if token is older than 1 minutes, read again
+	if a.lastTokenPull.Add(1 * time.Minute).Before(time.Now()) {
+		token, err := os.ReadFile("/var/run/secrets/kubernetes.io/token/token")
+		if err != nil {
+			a.logger.Error(err, "Failed to read token")
+			os.Exit(1)
+		}
+		a.token = string(token)
+		a.lastTokenPull = time.Now()
+	}
+	return a.token
+}
+
 func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	//TODO: Add secret-based token auth, i.e secret created by operator and shared with node agent
 	_, logger, end := instrumentation.GetLogSpan(r.Context(), "RegisterHandler")
 	defer end()
+
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != fmt.Sprintf("Token %s", a.getCurrentToken()) {
+		logger.Errorf("Unauthorized request")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -332,4 +359,33 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 	container.cpuInfoLastPoll = time.Now()
 
 	return nil
+}
+
+func EnsureNodeAgentSecret(ctx context.Context, mgr ctrl.Manager) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNodeAgentSecret")
+	defer end()
+
+	secretName := config.Config.Metrics.NodeAgentSecretName
+	secretNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return err
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: secretNamespace,
+		},
+		StringData: map[string]string{
+			"token": util.GeneratePassword(64),
+		},
+	}
+
+	kubeService := kubernetes.NewKubeService(mgr.GetClient())
+	err = kubeService.EnsureSecret(ctx, secret, nil)
+	if err != nil {
+		logger.SetError(err, "Failed to ensure secret")
+		return err
+	}
+	return err
 }
