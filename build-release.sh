@@ -19,19 +19,20 @@ echo "Building version $VERSION"
 #eventual reason might be caching, and well, repeatable environment, but then it needs to include helm as well,
 #and it should be possible to build multiple artifacts with same cache, without duplicating dockerfiles
 
-echo "Generating code and building binary"
+echo "Generating code and building binary, a local operation"
 go generate ./...
 make generate
 make rbac
 make crd
 go vet ./...
 
-export CGO_ENABLED=0
-export GOOS=linux
-# multi-arch should be simple, but, weka image not packaged yet for arm, and is messy, so omitting for now
-export GOARCH=amd64
-
-go build -o dist/weka-operator cmd/manager/main.go
+# NOTE: moved into image.Dockerfile
+#export CGO_ENABLED=0
+#export GOOS=linux
+## multi-arch should be simple, but, weka image not packaged yet for arm, and is messy, so omitting for now
+#export GOARCH=amd64
+#
+#go build -o dist/weka-operator cmd/manager/main.go
 
 echo "Building helm chart"
 make chart VERSION=v$VERSION

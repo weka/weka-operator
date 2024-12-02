@@ -1,4 +1,23 @@
-ARG UBI_HASH=9ac75c1a392429b4a087971cdf9190ec42a854a169b6835bc9e25eecaf851258
-FROM registry.access.redhat.com/ubi9/ubi@sha256:${UBI_HASH}
-ADD dist/weka-operator /weka-operator
+FROM docker.io/library/golang:1.23.3 as builder
+# right now this image is not in use, might be in future when whole release process runs as docker build
+# and when used probably will be heavily re-done
+
+WORKDIR /workspace
+# Copy the Go Modules manifests
+COPY go.mod go.mod
+COPY go.sum go.sum
+COPY pkg/weka-k8s-api/go.mod pkg/weka-k8s-api/go.mod
+COPY pkg/weka-k8s-api/go.sum pkg/weka-k8s-api/go.sum
+# cache deps before building and copying source so that we don't need to re-download as much
+# and so that source changes don't invalidate our downloaded layer
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+  go mod download
+
+COPY ./ /workspace
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go build -o /dist/weka-operator cmd/manager/main.go
+
+FROM registry.access.redhat.com/ubi9/ubi@sha256:9ac75c1a392429b4a087971cdf9190ec42a854a169b6835bc9e25eecaf851258 as final
+COPY --from=builder /dist/weka-operator /weka-operator
 ENTRYPOINT ["/weka-operator"]
