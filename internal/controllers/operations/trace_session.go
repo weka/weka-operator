@@ -159,8 +159,12 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 									Value: "/var/run/secrets/weka-operator/trace-session/token",
 								},
 								{
+									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_VERIFY_TLS",
+									Value: util.BoolToShellString(!o.payload.AllowInsecureWekahomeEndpoint),
+								},
+								{
 									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_TLS",
-									Value: "false",
+									Value: util.BoolToShellString(!o.payload.AllowHttpWekahomeEndpoint),
 								},
 								{
 									Name:  "TASKMON_NODE_AND_CONTAINER_SERVER_DISCOVERY_TYPE",

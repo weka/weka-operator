@@ -14,3 +14,6 @@ spec:
         namespace: weka-operator-system
       duration: 5m
       wekahomeEndpointOverride: 10.0.30.81:30052 # direct port of nodeport service, TBD to wrap via envoy and then ALB ingress
+      allowHttpWekahomeEndpoint: true
+      allowInsecureWekahomeEndpoint: true
+#      wekahomeCaSecret: wekahome-cacert-file
