@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 	"github.com/weka/weka-operator/pkg/util"
@@ -19,7 +20,6 @@ import (
 	"net/http"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"slices"
 	"sync"
 	"time"
 )
@@ -167,43 +167,28 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			},
 		)
 
-		//var min, max, avg float64
-		//max = 100
-		//min = 0
-		cpuValues := []float64{}
-		totalValue := 0.0
-
-		for _, cpuStats := range container.cpuInfo.Result {
+		for nodeIdStr, cpuStats := range container.cpuInfo.Result {
 			// do we care about the node id? should we report per node or containers totals? will stay with totals for now
 			value := cpuStats.Cpu[0].Stats.Utilization // we expect always to get just one element in this list, as this is reuse of code that returns time series
-			cpuValues = append(cpuValues, value)
-			totalValue += value
-		}
 
-		if len(cpuValues) == 0 {
-			continue
-		}
+			processId, err := resources.NodeIdToProcessId(nodeIdStr)
+			if err != nil {
+				a.logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
+				continue
+			}
+			processIdStr := fmt.Sprintf("%d", processId)
 
-		promResponse.AddMetric(metrics2.PromMetric{
-			Metric: "weka_cpu_utilization",
-			Help:   "Weka container CPU utilization",
-		}, []metrics2.TaggedValue{
-			{
-				Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"aggfunc": "avg"}),
-				Value:     totalValue / float64(len(cpuValues)),
-				Timestamp: container.cpuInfoLastPoll,
-			},
-			{
-				Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"aggfunc": "max"}),
-				Value:     slices.Max(cpuValues),
-				Timestamp: container.cpuInfoLastPoll,
-			},
-			{
-				Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"aggfunc": "min"}),
-				Value:     slices.Min(cpuValues),
-				Timestamp: container.cpuInfoLastPoll,
-			},
-		})
+			promResponse.AddMetric(metrics2.PromMetric{
+				Metric: "weka_cpu_utilization",
+				Help:   "Weka container CPU utilization",
+			}, []metrics2.TaggedValue{
+				{
+					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"process_id": processIdStr}),
+					Value:     value,
+					Timestamp: container.cpuInfoLastPoll,
+				},
+			})
+		}
 	}
 
 	// Write the response

@@ -402,6 +402,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 						return slices.Contains(
 							[]string{
 								weka.WekaContainerModeCompute,
+								weka.WekaContainerModeClient,
 								weka.WekaContainerModeS3,
 								weka.WekaContainerModeDrive,
 								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
