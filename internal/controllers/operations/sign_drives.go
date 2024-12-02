@@ -125,7 +125,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		labels := map[string]string{
 			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
 		}
-		labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+		labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
 		containerName := fmt.Sprintf("weka-adhoc-%s-%s", o.ownerRef.GetName(), node.GetUID())
 		newContainer := &weka.WekaContainer{

@@ -172,7 +172,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
 	}
-	labels = util.MergeLabels(o.containerDetails.Labels, labels)
+	labels = util.MergeMaps(o.containerDetails.Labels, labels)
 
 	loaderContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{

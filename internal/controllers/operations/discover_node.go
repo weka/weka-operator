@@ -178,7 +178,7 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDiscovery,
 	}
-	labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+	labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
 	containerName := fmt.Sprintf("weka-dsc-%s", o.node.Name)
 	discoveryContainer := &weka.WekaContainer{

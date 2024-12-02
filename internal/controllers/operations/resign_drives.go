@@ -122,7 +122,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 	labels := map[string]string{
 		"weka.io/mode": v1alpha1.WekaContainerModeAdhocOpWC,
 	}
-	labels = util2.MergeLabels(o.ownerRef.GetLabels(), labels)
+	labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
 	instrunctionsMap := map[string]v1alpha1.ForceResignDrivesPayload{
 		"force-resign-drives": *o.payload,
