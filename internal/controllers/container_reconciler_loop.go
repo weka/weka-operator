@@ -220,6 +220,16 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.handleImageUpdate,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return container.Spec.Image != container.Status.LastAppliedImage
+					},
+					lifecycle.IsNotFunc(loop.PodNotSet),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.EnsureDrivers,
 				Predicates: lifecycle.Predicates{
 					container.RequiresDrivers,
@@ -270,6 +280,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.WaitForRunning},
+
 			{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
@@ -329,6 +340,13 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				OnFail:                    loop.setErrorStatus,
 			},
 			{
+				Run: loop.applyCurrentImage,
+				Predicates: lifecycle.Predicates{func() bool {
+					return container.Status.LastAppliedImage != container.Spec.Image
+				}},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition: condition.CondJoinedCluster,
 				Run:       loop.reconcileClusterStatus,
 				Predicates: lifecycle.Predicates{
@@ -366,15 +384,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Predicates: lifecycle.Predicates{
 					container.IsNfsContainer,
 					container.HasJoinIps,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Run: loop.handleImageUpdate,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						return container.Spec.Image != container.Status.LastAppliedImage
-					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1648,19 +1657,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			logger.Info("Pod is being deleted, waiting")
 			return errors.New("Pod is being deleted, waiting")
 		}
-
-		if pod.Status.Phase != v1.PodRunning {
-			logger.Info("Pod is not running yet")
-			return errors.New("Pod is not running yet")
-		}
-
-		if container.Status.Status != ContainerStatusRunning {
-			logger.Info("Container is not running yet")
-			return errors.New("Container is not running yet")
-		}
-
-		container.Status.LastAppliedImage = container.Spec.Image
-		return r.Status().Update(ctx, container)
 	}
 	return nil
 }
@@ -2403,4 +2399,25 @@ func (r *containerReconcilerLoop) getNodeAgentToken(ctx context.Context) (string
 	nodeAgentLastPull = time.Now()
 
 	return token, nil
+}
+
+func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCurrentImage")
+	defer end()
+
+	pod := r.pod
+	container := r.container
+
+	if pod.Status.Phase != v1.PodRunning {
+		logger.Info("Pod is not running yet")
+		return errors.New("Pod is not running yet")
+	}
+
+	if container.Status.Status != ContainerStatusRunning {
+		logger.Info("Container is not running yet")
+		return errors.New("Container is not running yet")
+	}
+
+	container.Status.LastAppliedImage = container.Spec.Image
+	return r.Status().Update(ctx, container)
 }
