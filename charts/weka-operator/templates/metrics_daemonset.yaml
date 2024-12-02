@@ -94,7 +94,7 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmpdir
-            - mountPath: /opt/k8s-weka
+            - mountPath: {{ .Values.nodeAgent.persistencePaths }}
               name: weka-persistence
           name: node-agent
           securityContext:
