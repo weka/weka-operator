@@ -6,7 +6,7 @@ FROM docker.io/library/golang:1.23.3 as builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client
 ENV GOPRIVATE=github.com/weka
 
-ADD dockerfile_files/.gitconfig /root/.gitconfig
+COPY dockerfile_files /root/
 RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 WORKDIR /workspace
@@ -17,7 +17,7 @@ COPY pkg/weka-k8s-api/go.mod pkg/weka-k8s-api/go.mod
 COPY pkg/weka-k8s-api/go.sum pkg/weka-k8s-api/go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=ssh --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
   go mod download
 
 COPY ./ /workspace

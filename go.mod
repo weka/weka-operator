@@ -12,7 +12,6 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-password v0.3.1
 	github.com/thessem/zap-prettyconsole v0.5.2
-	github.com/weka/go-cloud-lib v0.0.0-20241121111254-108c4c653f1f
 	github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c
 	github.com/weka/weka-k8s-api v0.0.0
 	go.opentelemetry.io/otel v1.28.0
