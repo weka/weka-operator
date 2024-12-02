@@ -268,7 +268,8 @@ async def ensure_drivers():
             drivers.append("uio_pci_generic")
     driver_mode = await is_legacy_driver_cmd()
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
-    if not await is_legacy_driver_cmd() and MODE in ["client", "s3", "nfs"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
+    # FORCING LEGACY MODE due to bug in drivers ready
+    if False and not await is_legacy_driver_cmd() and MODE in ["client", "s3", "nfs"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
             version = await get_weka_version()
             stdout, stderr, ec = await run_command(f"weka driver ready --without-agent --version {version}")
@@ -481,6 +482,8 @@ async def load_drivers():
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
         ]
         load_cmds = [
+            (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed", "unloading wekafsio"),
+            (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed", "unloading wekafsgw"),
             (f"weka driver install --without-agent --version {version}", "loading drivers"),
         ]
     if not should_skip_uio_pci_generic():

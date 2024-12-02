@@ -220,6 +220,13 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.EnsureDrivers,
+				Predicates: lifecycle.Predicates{
+					container.RequiresDrivers,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotSet,
@@ -284,18 +291,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run: loop.updateAdhocOpStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsAdhocOpContainer,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Condition: condition.CondEnsureDrivers,
-				Run:       loop.EnsureDrivers,
-				Predicates: lifecycle.Predicates{
-					container.RequiresDrivers,
-					// TODO: We are basing on condition, so entering operation per container
-					// TODO: While we have multiple containers on the same host, so they are doing redundant work
-					// If we base logic on what pod reports(not our logic here anymore) - it wont help, as all of them will report
-					// Either we move this to global entity, like WekaNodeController(yayk), or just pay the price, for now paying the price of redundant gets
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1286,13 +1281,17 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		details.Image = r.container.Spec.DriversLoaderImage
 	}
 
-	err := r.updateStatusWaitForDrivers(ctx)
-	if err != nil {
-		return err
+	if !operations.DriversLoaded(r.node, details.Image, r.container.HasFrontend()) {
+		err := r.updateStatusWaitForDrivers(ctx)
+		if err != nil {
+			return err
+		}
+	} else {
+		return nil
 	}
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
-	err = operations.ExecuteOperation(ctx, driversLoader)
+	err := operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
 	}

@@ -131,8 +131,6 @@ github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsT
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/thessem/zap-prettyconsole v0.5.2 h1:knusxXGhmkD5Ho+WiI4IzD16Dz9PEcOIKdK+uX4oTPA=
 github.com/thessem/zap-prettyconsole v0.5.2/go.mod h1:3qfsE7y+bLOq7EQ+fMZHD3HYEp24ULFf5nhLSx6rjrE=
-github.com/weka/go-cloud-lib v0.0.0-20241121111254-108c4c653f1f h1:oTveR7UcBF3mIfJFS1Iu2N1GpGzRQKXrv+uyl+Kjmaw=
-github.com/weka/go-cloud-lib v0.0.0-20241121111254-108c4c653f1f/go.mod h1:FCQuk2bLvtDHe2Kjsu0oInJP1VOVsuxqPGHGMmVIPMg=
 github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c h1:oJqUAJdXXOWLTHuVxJRGypIUxEhndEK18NfQnR4LZ2c=
 github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c/go.mod h1:kjA4Lij9vLauDwKo+3/n32gTHa7n6YyIVD/IzAOnRHA=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
