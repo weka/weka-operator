@@ -2,6 +2,13 @@ FROM docker.io/library/golang:1.23.3 as builder
 # right now this image is not in use, might be in future when whole release process runs as docker build
 # and when used probably will be heavily re-done
 
+# git is required to fetch go dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client
+ENV GOPRIVATE=github.com/weka
+
+ADD dockerfile_files/.gitconfig /root/.gitconfig
+RUN mkdir -p -m 0700 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+
 WORKDIR /workspace
 # Copy the Go Modules manifests
 COPY go.mod go.mod

@@ -39,7 +39,7 @@ make chart VERSION=v$VERSION
 
 # docker build here is merely packaging and uploading
 echo "Building docker image and pushing"
-docker buildx build --platform linux/amd64 --tag quay.io/weka.io/weka-operator:v$VERSION --push -f image.Dockerfile . || echo "docker build failed, ensure login and re-run whole flow"
+docker buildx build --platform linux/amd64 --tag quay.io/weka.io/weka-operator:v$VERSION --push -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 
 # helm chart push
 if ! helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm; then
