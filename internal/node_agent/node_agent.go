@@ -149,12 +149,12 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 		},
 			[]metrics2.TaggedValue{
 				{
-					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"state": "up"}),
+					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
 					Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
 					Timestamp: container.containerStateLastPull,
 				},
 				{
-					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"state": "down"}),
+					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
 					Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
 					Timestamp: container.containerStateLastPull,
 				},
