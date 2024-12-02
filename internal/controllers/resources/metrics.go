@@ -36,7 +36,7 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_num_drives",
+		Metric: "weka_drives",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "desired"}, Value: float64(cluster.Status.Metrics.Drives.DriveCounters.Desired.Value)},
 			{Tags: metrics2.TagMap{"type": "active"}, Value: float64(cluster.Status.Metrics.Drives.DriveCounters.Active.Value)},
@@ -46,7 +46,7 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_num_containers",
+		Metric: "weka_containers",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Metrics.Containers.Compute.Containers.Active.Value)},
 			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Metrics.Containers.Drive.Containers.Active.Value)},
