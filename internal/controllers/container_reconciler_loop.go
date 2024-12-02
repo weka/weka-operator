@@ -2350,7 +2350,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 				continue
 			}
 
-			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: token})
+			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
 			if err != nil {
 				logger.Error(err, "Error sending register request")
 				continue
