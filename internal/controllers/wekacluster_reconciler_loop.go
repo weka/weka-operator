@@ -982,7 +982,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeCompute(ctx context.Context
 	}
 
 	cmd := `
-wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli status --json | grep upgrade_phase | grep -i compute ||  wekaauthcli debug jrpc upgrade_phase_finish
 wekaauthcli debug jrpc upgrade_phase_start target_phase_type=ComputeRollingPhase target_version_name=` + targetVersion + `
 `
 
