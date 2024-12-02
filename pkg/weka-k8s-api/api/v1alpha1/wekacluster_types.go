@@ -181,6 +181,7 @@ type WekaClusterSpec struct {
 	Image              string            `json:"image"`
 	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
+	DriversLoaderImage string            `json:"driversLoaderImage,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	RoleNodeSelector   RoleNodeSelector  `json:"roleNodeSelector,omitempty"`
 	// label used for spreading the weka containers across different failure domains (if set)

@@ -93,6 +93,8 @@ spec:
                 type: boolean
               driversDistService:
                 type: string
+              driversLoaderImage:
+                type: string
               dynamicTemplate:
                 properties:
                   computeContainers:
