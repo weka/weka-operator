@@ -43,8 +43,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
       - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -55,6 +53,12 @@ jobs:
       - name: Setup access for private go modules
         run: |
           git config --global url."ssh://git@github.com/".insteadOf https://github.com/
+      # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
+      - name: Collect Git and SSH config files in a directory that is part of the Docker build context
+        run: |
+          mkdir -p dockerfile_files
+          cp -r ~/.gitconfig ~/.ssh dockerfile_files/
+          sed 's|/home/runner|/root|g' -i.bak dockerfile_files/.ssh/config
       - name: Install submodules
         run: git submodule update --init --recursive
       - name: Cache Go modules
@@ -65,11 +69,11 @@ jobs:
             ~/.local/share/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('package-lock.json') }}
+            ${{ runner.os }}-go-
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21.3"
+          go-version: "1.23.3"
       - name: Cache npm modules
         uses: actions/cache@v3
         with:
@@ -113,7 +117,7 @@ jobs:
         if: ${{ env.VERSION != '' }}
         run: VERSION=${{ env.VERSION }} ./build-release.sh
       - name: Create release
-        if: ${{ env.VERSION != '' }} && github.event_name != 'workflow_dispatch'
+        if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
