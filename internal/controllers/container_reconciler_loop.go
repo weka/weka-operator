@@ -1027,6 +1027,12 @@ func (r *containerReconcilerLoop) ContainerNodeIsAlive() bool {
 	if node == nil {
 		return false
 	}
+
+	// check if node is drained
+	if node.Spec.Unschedulable {
+		return false
+	}
+
 	// check if the node has a NodeReady condition set to True
 	isNodeReady := false
 	for _, condition := range node.Status.Conditions {
