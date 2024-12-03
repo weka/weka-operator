@@ -32,13 +32,18 @@ spec:
       name: Node
       type: string
     - description: Number of processes per state
-      jsonPath: .status.printerColumns.processes.value
+      jsonPath: .status.printer.processes
       name: Processes
       priority: 1
       type: string
     - description: Number of drives per state
-      jsonPath: .status.printerColumns.drives.value
+      jsonPath: .status.printer.drives
       name: Drives
+      priority: 1
+      type: string
+    - description: CPU Utilization
+      jsonPath: .status.stats.cpuUtilization
+      name: CPU
       priority: 1
       type: string
     - description: Time since creation
@@ -1554,110 +1559,6 @@ spec:
                 type: string
               message:
                 type: string
-              metrics:
-                properties:
-                  cpuUsage:
-                    properties:
-                      avg:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            type: string
-                        type: object
-                      max:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            type: string
-                        type: object
-                      min:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            type: string
-                        type: object
-                    type: object
-                  drives:
-                    properties:
-                      driveCounters:
-                        properties:
-                          active:
-                            properties:
-                              timestamp:
-                                format: date-time
-                                type: string
-                              value:
-                                format: int64
-                                type: integer
-                            type: object
-                          created:
-                            properties:
-                              timestamp:
-                                format: date-time
-                                type: string
-                              value:
-                                format: int64
-                                type: integer
-                            type: object
-                          desired:
-                            properties:
-                              timestamp:
-                                format: date-time
-                                type: string
-                              value:
-                                format: int64
-                                type: integer
-                            type: object
-                        type: object
-                      driveFailures:
-                        properties:
-                          containerName:
-                            type: string
-                          nodeName:
-                            type: string
-                          serialId:
-                            type: string
-                          wekaDriveId:
-                            type: string
-                        type: object
-                    type: object
-                  processes:
-                    properties:
-                      active:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            format: int64
-                            type: integer
-                        type: object
-                      created:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            format: int64
-                            type: integer
-                        type: object
-                      desired:
-                        properties:
-                          timestamp:
-                            format: date-time
-                            type: string
-                          value:
-                            format: int64
-                            type: integer
-                        type: object
-                    type: object
-                type: object
               nodeAffinity:
                 description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
                   a type captures intent and helps make sure that the node name\nis
@@ -1681,24 +1582,12 @@ spec:
                   this is _not_ always the same as the hostname: if\n\twe are using
                   a custom DHCP domain it won't be."
                 type: string
-              printerColumns:
+              printer:
                 properties:
                   drives:
-                    properties:
-                      timestamp:
-                        format: date-time
-                        type: string
-                      value:
-                        type: string
-                    type: object
+                    type: string
                   processes:
-                    properties:
-                      timestamp:
-                        format: date-time
-                        type: string
-                      value:
-                        type: string
-                    type: object
+                    type: string
                 type: object
               result:
                 type: string
@@ -1706,6 +1595,50 @@ spec:
                 type: boolean
               skipDrivesForceResign:
                 type: boolean
+              stats:
+                properties:
+                  cpuUtilization:
+                    type: string
+                  drives:
+                    properties:
+                      counters:
+                        properties:
+                          active:
+                            format: int64
+                            type: integer
+                          created:
+                            format: int64
+                            type: integer
+                          desired:
+                            format: int64
+                            type: integer
+                        type: object
+                      failures:
+                        items:
+                          properties:
+                            serialId:
+                              type: string
+                            wekaDriveId:
+                              type: string
+                          type: object
+                        type: array
+                    type: object
+                  lastUpdate:
+                    format: date-time
+                    type: string
+                  processes:
+                    properties:
+                      active:
+                        format: int64
+                        type: integer
+                      created:
+                        format: int64
+                        type: integer
+                      desired:
+                        format: int64
+                        type: integer
+                    type: object
+                type: object
               status:
                 type: string
               timestamps:

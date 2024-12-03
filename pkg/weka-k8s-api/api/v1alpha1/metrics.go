@@ -3,55 +3,39 @@ package v1alpha1
 import (
 	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
+	"strconv"
 )
 
-type IntMetric struct {
-	Value int64       `json:"value,omitempty"`
-	Time  metav1.Time `json:"timestamp,omitempty"`
+type IntMetric int64
+
+func (in IntMetric) String() string {
+	return fmt.Sprintf("%d", in)
 }
 
-func (c *IntMetric) SetValue(v int64, t time.Time) bool {
-	if c.Value != v || t.Sub(c.Time.Time) > time.Second*30 {
-		c.Value = v
-		c.Time = metav1.NewTime(t)
-		return true
-	}
-	return false
-}
+type FloatMetric string
 
-func (in *IntMetric) String() string {
-	return fmt.Sprintf("%d", in.Value)
-}
-
-type FloatMetric struct {
-	Value string      `json:"value,omitempty"` // CRD Gen discourages use of float64
-	Time  metav1.Time `json:"timestamp,omitempty"`
-}
-
-func (c *FloatMetric) SetValue(v float64, t time.Time) bool {
+func (c *FloatMetric) SetValue(v float64) {
 	newVal := fmt.Sprintf("%.2f", v)
-	if newVal != c.Value || t.Sub(c.Time.Time) > time.Second*30 {
-		c.Value = newVal
-		c.Time = metav1.NewTime(t)
-		return true
-	}
-	return false
+	*c = FloatMetric(newVal)
 }
 
-type StringMetric struct {
-	Value string      `json:"value,omitempty"`
-	Time  metav1.Time `json:"timestamp,omitempty"`
+func NewFloatMetric(v float64) FloatMetric {
+	newVal := fmt.Sprintf("%.2f", v)
+	return FloatMetric(newVal)
 }
 
-func (c *StringMetric) SetValue(v string, t time.Time) bool {
-	if c.Value != v || t.Sub(c.Time.Time) > time.Second*30 {
-		c.Value = v
-		c.Time = metav1.NewTime(t)
-		return true
+func (c *FloatMetric) GetValue() float64 {
+	// load string as float64
+	rawVal := *c
+	value, err := strconv.ParseFloat(string(rawVal), 64)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return 0
 	}
-	return false
+	return value
 }
+
+type StringMetric string
 
 type EntityStatefulNum struct {
 	Active  IntMetric `json:"active,omitempty"`
@@ -66,13 +50,13 @@ type MinMaxAvgPercent struct {
 }
 
 type ContainerMetrics struct {
-	Containers EntityStatefulNum `json:"numContainers,omitempty"`
-	Processes  EntityStatefulNum `json:"processes,omitempty"`
-	CpuUsage   MinMaxAvgPercent  `json:"cpuUsage,omitempty"`
+	Containers     EntityStatefulNum `json:"numContainers,omitempty"`
+	Processes      EntityStatefulNum `json:"processes,omitempty"`
+	CpuUtilization FloatMetric       `json:"cpuUtilization,omitempty"`
 }
 
 func (c *EntityStatefulNum) String() string {
-	return fmt.Sprintf("%d/%d/%d", c.Active.Value, c.Created.Value, c.Desired.Value)
+	return fmt.Sprintf("%d/%d/%d", c.Active, c.Created, c.Desired)
 }
 
 type ContainersMetrics struct {
@@ -83,15 +67,13 @@ type ContainersMetrics struct {
 }
 
 type DriveFailures struct {
-	SerialId      string `json:"serialId,omitempty"`
-	NodeName      string `json:"nodeName,omitempty"`
-	WekaDriveId   string `json:"wekaDriveId,omitempty"`
-	ContainerName string `json:"containerName,omitempty"`
+	SerialId    string `json:"serialId,omitempty"`
+	WekaDriveId string `json:"wekaDriveId,omitempty"`
 }
 
 type DriveMetrics struct {
-	DriveCounters EntityStatefulNum `json:"driveCounters,omitempty"`
-	DriveFailures DriveFailures     `json:"driveFailures,omitempty"`
+	DriveCounters EntityStatefulNum `json:"counters,omitempty"`
+	DriveFailures []DriveFailures   `json:"failures,omitempty"`
 }
 
 type IoStats struct {
@@ -103,6 +85,7 @@ type ClusterMetrics struct {
 	Containers ContainersMetrics `json:"containers,omitempty"`
 	IoStats    IoStats           `json:"ioStats,omitempty"`
 	Drives     DriveMetrics      `json:"drives,omitempty"`
+	LastUpdate metav1.Time       `json:"lastUpdate,omitempty"`
 }
 
 type ClusterPrinterColumns struct {
@@ -119,11 +102,11 @@ type StatusThroughput struct {
 }
 
 func (c *StatusThroughput) String() string {
-	return fmt.Sprintf("%d/%d", c.Read.Value, c.Write.Value)
+	return fmt.Sprintf("%d/%d", c.Read, c.Write)
 }
 
 func (c *StatusThroughput) Total() string {
-	return fmt.Sprintf("%d", c.Read.Value+c.Write.Value)
+	return fmt.Sprintf("%d", c.Read+c.Write)
 }
 
 type StatusIops struct {

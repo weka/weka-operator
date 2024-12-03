@@ -245,8 +245,8 @@ type WekaClusterStatus struct {
 	LastAppliedImage string                 `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
 	LastAppliedSpec  string                 `json:"lastAppliedSpec,omitempty"`
 	Ports            ClusterPorts           `json:"ports,omitempty"`
-	Metrics          ClusterMetrics         `json:"metrics,omitempty"`
-	PrinterColumns   ClusterPrinterColumns  `json:"printerColumns,omitempty"`
+	Stats            *ClusterMetrics        `json:"stats,omitempty"`
+	PrinterColumns   ClusterPrinterColumns  `json:"printer,omitempty"`
 	Timestamps       map[string]metav1.Time `json:"timestamps,omitempty"`
 
 	// +kubebuilder:validation:Type=string
@@ -260,11 +260,11 @@ type WekaClusterStatus struct {
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status of the cluster",priority=0
 // +kubebuilder:printcolumn:name="Cluster ID",type="string",JSONPath=".status.clusterID",description="Weka cluster GUID",priority=0
-// +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printerColumns.computeContainers.value",description="Number of compute containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printerColumns.driveContainers.value",description="Number of drive containers: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printerColumns.drives.value",description="Number of Drives: Active/Created/Desired",priority=0
-// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printerColumns.iops.value",description="IOPS Read/Write/Metadata",priority=1
-// +kubebuilder:printcolumn:name="THRPT(R/W)",type="string",JSONPath=".status.printerColumns.throughput.value",description="Throughput Read/Write",priority=1
+// +kubebuilder:printcolumn:name="CCT(A/C/D)",type="string",JSONPath=".status.printer.computeContainers",description="Number of compute containers: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="DCT(A/C/D)",type="string",JSONPath=".status.printer.driveContainers",description="Number of drive containers: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printer.drives",description="Number of Drives: Active/Created/Desired",priority=0
+// +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printer.iops",description="IOPS Read/Write/Metadata",priority=1
+// +kubebuilder:printcolumn:name="THRPT(R/W)",type="string",JSONPath=".status.printer.throughput",description="Throughput Read/Write",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`

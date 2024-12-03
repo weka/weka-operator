@@ -19,8 +19,9 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
 // +kubebuilder:printcolumn:name="Management IP",type="string",JSONPath=".status.managementIP",description="Management IP",priority=0
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
-// +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printerColumns.processes.value",description="Number of processes per state",priority=1
-// +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printerColumns.drives.value",description="Number of drives per state",priority=1
+// +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
+// +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
+// +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".status.stats.cpuUtilization",description="CPU Utilization",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
 // +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=1
 // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=1
@@ -147,9 +148,10 @@ type ContainerAllocations struct {
 }
 
 type WekaContainerMetrics struct {
-	Processes EntityStatefulNum `json:"processes,omitempty"`
-	CpuUsage  MinMaxAvgPercent  `json:"cpuUsage,omitempty"`
-	Drives    DriveMetrics      `json:"drives,omitempty"`
+	Processes  EntityStatefulNum `json:"processes,omitempty"`
+	CpuUsage   FloatMetric       `json:"cpuUtilization,omitempty"`
+	Drives     DriveMetrics      `json:"drives,omitempty"`
+	LastUpdate metav1.Time       `json:"lastUpdate,omitempty"`
 }
 
 type ContainerPrinterColumns struct {
@@ -158,21 +160,21 @@ type ContainerPrinterColumns struct {
 }
 
 type WekaContainerStatus struct {
-	Status                string                  `json:"status"`
-	Message               string                  `json:"message,omitempty"`
-	ManagementIP          string                  `json:"managementIP,omitempty"`
-	ClusterContainerID    *int                    `json:"containerID,omitempty"`
-	ClusterID             string                  `json:"clusterID,omitempty"`
-	Conditions            []metav1.Condition      `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage      string                  `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	NodeAffinity          NodeName                `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
-	ExecutionResult       *string                 `json:"result,omitempty"`
-	Allocations           *ContainerAllocations   `json:"allocations,omitempty"`
-	SkipDeactivate        bool                    `json:"skipDeactivate,omitempty"`
-	SkipDrivesForceResign bool                    `json:"skipDrivesForceResign,omitempty"`
-	Metrics               WekaContainerMetrics    `json:"metrics,omitempty"`
-	PrinterColumns        ContainerPrinterColumns `json:"printerColumns,omitempty"`
-	Timestamps            map[string]metav1.Time  `json:"timestamps,omitempty"`
+	Status                string                   `json:"status"`
+	Message               string                   `json:"message,omitempty"`
+	ManagementIP          string                   `json:"managementIP,omitempty"`
+	ClusterContainerID    *int                     `json:"containerID,omitempty"`
+	ClusterID             string                   `json:"clusterID,omitempty"`
+	Conditions            []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage      string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	NodeAffinity          NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	ExecutionResult       *string                  `json:"result,omitempty"`
+	Allocations           *ContainerAllocations    `json:"allocations,omitempty"`
+	SkipDeactivate        bool                     `json:"skipDeactivate,omitempty"`
+	SkipDrivesForceResign bool                     `json:"skipDrivesForceResign,omitempty"`
+	Stats                 *WekaContainerMetrics    `json:"stats,omitempty"`
+	PrinterColumns        *ContainerPrinterColumns `json:"printer,omitempty"`
+	Timestamps            map[string]metav1.Time   `json:"timestamps,omitempty"`
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
