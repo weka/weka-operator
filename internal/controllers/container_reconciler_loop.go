@@ -1,9 +1,11 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -401,7 +403,17 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
-					container.IsWekaContainer,
+					func() bool {
+						return slices.Contains(
+							[]string{
+								weka.WekaContainerModeCompute,
+								weka.WekaContainerModeClient,
+								weka.WekaContainerModeS3,
+								weka.WekaContainerModeNfs,
+								weka.WekaContainerModeDrive,
+								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
+							}, container.Spec.Mode)
+					},
 				},
 				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
@@ -417,6 +429,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 								weka.WekaContainerModeCompute,
 								weka.WekaContainerModeClient,
 								weka.WekaContainerModeS3,
+								weka.WekaContainerModeNfs,
 								weka.WekaContainerModeDrive,
 								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
 							}, container.Spec.Mode)
@@ -2186,6 +2199,7 @@ func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 		logger.Warn("Error getting pod metrics", "error", err)
 		return nil // we ignore error, as this is not mandatory functionality
 	}
+
 	logger.SetAttributes(
 		attribute.Float64("cpu_usage", metrics.CpuUsage),
 		attribute.Int64("memory_usage", metrics.MemoryUsage),
@@ -2195,18 +2209,22 @@ func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 		attribute.Int64("memory_limit", metrics.MemoryLimit),
 	)
 
+	if r.container.Status.Stats == nil {
+		return nil
+	}
+
 	if r.container.IsBackend() {
 		logger.SetAttributes(
-			attribute.Int64("desired_processes", r.container.Status.Metrics.Processes.Desired.Value),
-			attribute.Int64("created_processes", r.container.Status.Metrics.Processes.Desired.Value),
-			attribute.Int64("active_processes", r.container.Status.Metrics.Processes.Active.Value),
+			attribute.Int64("desired_processes", int64(r.container.Status.Stats.Processes.Desired)),
+			attribute.Int64("created_processes", int64(r.container.Status.Stats.Processes.Desired)),
+			attribute.Int64("active_processes", int64(r.container.Status.Stats.Processes.Active)),
 		)
 	}
 	if r.container.IsDriveContainer() {
 		logger.SetAttributes(
-			attribute.Int64("desired_drives", r.container.Status.Metrics.Drives.DriveCounters.Desired.Value),
-			attribute.Int64("created_drives", r.container.Status.Metrics.Drives.DriveCounters.Created.Value),
-			attribute.Int64("active_drives", r.container.Status.Metrics.Drives.DriveCounters.Active.Value),
+			attribute.Int64("desired_drives", int64(r.container.Status.Stats.Drives.DriveCounters.Desired)),
+			attribute.Int64("created_drives", int64(r.container.Status.Stats.Drives.DriveCounters.Created)),
+			attribute.Int64("active_drives", int64(r.container.Status.Stats.Drives.DriveCounters.Active)),
 		)
 	}
 
@@ -2220,62 +2238,81 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetStatusMetrics")
 	defer end()
 
-	wekaService := services.NewWekaService(r.ExecService, r.container)
-	changed := false
+	// submit http request to metrics pod
+	pods, err2 := r.getNodeAgentPods(ctx)
+	if err2 != nil {
+		return err2
+	}
 
-	changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Desired.SetValue(int64(r.container.Spec.NumDrives), time.Now())
-	changed = changed || r.container.Status.Metrics.Processes.Desired.SetValue(int64(r.container.Spec.NumCores+1), time.Now())
+	if len(pods) == 0 {
+		logger.Info("No metrics pod found")
+		return nil
+	}
 
-	if r.container.Spec.Mode == weka.WekaContainerModeDrive {
-		if r.container.Status.ClusterContainerID == nil {
-			return nil
-		}
-		driveListoptions := services.DriveListOptions{
-			ContainerId: r.container.Status.ClusterContainerID,
-		}
-		drives, err := wekaService.ListDrives(ctx, driveListoptions)
-		if err == nil {
-			var active int64 = 0
-			for _, drive := range drives {
-				if drive.Status == "ACTIVE" {
-					active++
-				}
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	payload := node_agent.GetContainerInfoRequest{ContainerId: string(r.container.GetUID())}
+
+	var response node_agent.ContainerInfoResponse
+	foundAlive := false
+	for _, pod := range pods {
+		if pod.Status.Phase == v1.PodRunning {
+			// if multiple found - register on each one of them
+			// make post request to metrics pod
+
+			url := "http://" + pod.Status.PodIP + ":8090/getContainerInfo"
+
+			// Convert the payload to JSON
+			jsonData, err := json.Marshal(payload)
+			if err != nil {
+				return err
 			}
-			changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Active.SetValue(active, time.Now())
-			changed = changed || r.container.Status.Metrics.Drives.DriveCounters.Created.SetValue(int64(len(drives)), time.Now())
-		} else {
-			logger.Error(err, "Error listing drives")
-		}
 
-		changed = changed || r.container.Status.PrinterColumns.Drives.SetValue(r.container.Status.Metrics.Drives.DriveCounters.String(), time.Now())
-	}
-
-	if r.container.IsBackend() {
-		processListOptions := services.ProcessListOptions{
-			ContainerId: r.container.Status.ClusterContainerID,
-		}
-		processes, err := wekaService.ListProcesses(ctx, processListOptions)
-		if err == nil {
-			var active int64 = 0
-			for _, process := range processes {
-				if process.Status == "UP" {
-					active++
-				}
+			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+			if err != nil {
+				return err
 			}
-			changed = changed || r.container.Status.Metrics.Processes.Active.SetValue(active, time.Now())
-			// TODO: Desired/Created probably have better place to be set
-			changed = changed || r.container.Status.Metrics.Processes.Created.SetValue(int64(len(processes)), time.Now())
-		} else {
-			logger.Error(err, "Error listing processes")
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+			err = json.NewDecoder(bytes.NewReader(body)).Decode(&response)
+			if err != nil {
+				logger.Error(err, "Error decoding response body", "body", string(body))
+				return err
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				return errors.New("Error sending register request")
+			}
+
+			foundAlive = true
+			break // trying just one pod, even if have multiple, for simplicity of error propagation
 		}
-
-		changed = changed || r.container.Status.PrinterColumns.Processes.SetValue(r.container.Status.Metrics.Processes.String(), time.Now())
 	}
 
-	if changed {
-		return r.Status().Update(ctx, r.container)
+	if !foundAlive {
+		return errors.New("No response from metrics pod")
 	}
-	return nil
+
+	r.container.Status.Stats = &response.ContainerMetrics
+	if r.container.Status.PrinterColumns == nil {
+		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
+	}
+
+	r.container.Status.Stats.Processes.Desired = weka.IntMetric(int64(r.container.Spec.NumCores) + 1)
+	if r.container.IsDriveContainer() {
+		r.container.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(int64(r.container.Spec.NumDrives))
+		r.container.Status.PrinterColumns.Drives = weka.StringMetric(r.container.Status.Stats.Drives.DriveCounters.String())
+	}
+	r.container.Status.PrinterColumns.Processes = weka.StringMetric(r.container.Status.Stats.Processes.String())
+	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
+
+	return r.Status().Update(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
@@ -2330,11 +2367,9 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		Mode:              r.container.Spec.Mode,
 	}
 	// submit http request to metrics pod
-	pods, err := r.KubeService.GetPods(ctx, r.container.Namespace, r.node.Name, map[string]string{
-		"app.kubernetes.io/component": "weka-node-agent",
-	})
-	if err != nil {
-		return err
+	pods, err2 := r.getNodeAgentPods(ctx)
+	if err2 != nil {
+		return err2
 	}
 
 	if len(pods) == 0 {
@@ -2376,6 +2411,16 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
+	pods, err := r.KubeService.GetPods(ctx, r.container.Namespace, r.node.Name, map[string]string{
+		"app.kubernetes.io/component": "weka-node-agent",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pods, nil
 }
 
 // a hack putting this global, but also not a harmful one

@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -43,6 +44,18 @@ type ContainerInfo struct {
 	containerName          string
 	containerId            string
 	mode                   string
+}
+
+func (i *ContainerInfo) getMaxCpu() float64 {
+	var maxCpu float64
+	for _, cpuStats := range i.cpuInfo.Result {
+		for _, cpu := range cpuStats.Cpu {
+			if cpu.Stats.Utilization > maxCpu {
+				maxCpu = cpu.Stats.Utilization
+			}
+		}
+	}
+	return maxCpu
 }
 
 type containersData struct {
@@ -102,7 +115,7 @@ func (a *NodeAgent) Run(ctx context.Context) error {
 	// start http server
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", a.metricsHandler)
-	//mux.HandleFunc("/containers/", a.containerHandler) // TODO: Implement this and replace in-container-reconcile exec with polling this endpoint
+	mux.HandleFunc("/getContainerInfo", a.getContainerInfo) // TODO: Implement this and replace in-container-reconcile exec with polling this endpoint
 	mux.HandleFunc("/register", a.registerHandler)
 
 	bindTo := config.Config.BindAddress.NodeAgent
@@ -216,10 +229,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	_, logger, end := instrumentation.GetLogSpan(r.Context(), "RegisterHandler")
 	defer end()
 
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != fmt.Sprintf("Token %s", a.getCurrentToken()) {
-		logger.Errorf("Unauthorized request")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	if a.validateAuth(w, r, logger) {
 		return
 	}
 
@@ -237,7 +247,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	a.containersData.lock.Lock()
 	defer a.containersData.lock.Unlock()
 
-	a.containersData.data[payload.ContainerName] = &ContainerInfo{
+	a.containersData.data[payload.ContainerId] = &ContainerInfo{
 		labels:            payload.Labels,
 		persistencePath:   payload.PersistencePath,
 		wekaContainerName: payload.WekaContainerName,
@@ -246,12 +256,22 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 		mode:              payload.Mode,
 	}
 
-	logger.Info("Container registered", "container_name", payload.ContainerName)
+	logger.Info("Container registered", "container_name", payload.ContainerName, "container_id", payload.ContainerId)
 
 	response := map[string]string{"message": "Container registered successfully"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger *instrumentation.SpanLogger) bool {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != fmt.Sprintf("Token %s", a.getCurrentToken()) {
+		logger.Errorf("Unauthorized request")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return true
+	}
+	return false
 }
 
 func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
@@ -323,6 +343,8 @@ type LocalCpuUtilizationResponse struct {
 }
 
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
+	// WARNING: no lock here, while calling in parallel from multiple places
+
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "fetchAndPopulateMetrics")
 	defer end()
 
@@ -344,6 +366,97 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 	container.cpuInfoLastPoll = time.Now()
 
 	return nil
+}
+
+type ContainerInfoResponse struct {
+	ContainerMetrics weka.WekaContainerMetrics `json:"container_metrics,omitempty"`
+}
+
+type GetContainerInfoRequest struct {
+	ContainerId string `json:"container_id"`
+}
+
+func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
+	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "ContainerHandler")
+	defer end()
+
+	if a.validateAuth(w, r, logger) {
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed, current method: "+r.Method, http.StatusMethodNotAllowed)
+		return
+	}
+
+	// polls and returns information about specific container
+	// get container id from request body
+	var containerInfoRequest GetContainerInfoRequest
+	if err := json.NewDecoder(r.Body).Decode(&containerInfoRequest); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	a.containersData.lock.RLock() // TODO: Replace with syncmap
+	container, ok := a.containersData.data[containerInfoRequest.ContainerId]
+	a.containersData.lock.RUnlock()
+	if !ok {
+		http.Error(w, "container not found", http.StatusNotFound)
+		return
+	}
+
+	// fetch container info
+	err := a.fetchAndPopulateMetrics(ctx, container)
+	if err != nil {
+		http.Error(w, "failed to fetch container info", http.StatusInternalServerError)
+		return
+	}
+
+	// prepare response
+	response := ContainerInfoResponse{
+		ContainerMetrics: weka.WekaContainerMetrics{},
+	}
+	// populate metrics
+	response.ContainerMetrics.Processes = weka.EntityStatefulNum{
+		Active:  weka.IntMetric(int64(container.containerState.Result.ProcessesSummary.Total.Up)),
+		Created: weka.IntMetric(int64(container.containerState.Result.ProcessesSummary.Total.Total)),
+	}
+
+	cpuUsage := weka.FloatMetric("")
+	response.ContainerMetrics.CpuUsage = cpuUsage
+	response.ContainerMetrics.CpuUsage.SetValue(container.getMaxCpu())
+
+	totalDrives := 0
+	activeDrives := 0
+	failedDrives := []weka.DriveFailures{}
+
+	//TODO: Expand prom metrics with failed disks metrics
+	for _, disk := range container.containerState.Result.DisksSummary {
+		totalDrives++
+		if disk.Status == "ACTIVE" {
+			activeDrives++
+		} else {
+			failedDrives = append(failedDrives, weka.DriveFailures{
+				SerialId:    disk.SerialNumber,
+				WekaDriveId: disk.Uid,
+			})
+		}
+	}
+
+	if container.mode == weka.WekaContainerModeDrive {
+		response.ContainerMetrics.Drives = weka.DriveMetrics{
+			DriveCounters: weka.EntityStatefulNum{
+				Active:  weka.IntMetric(int64(activeDrives)),
+				Created: weka.IntMetric(int64(totalDrives)),
+			},
+			DriveFailures: failedDrives,
+		}
+	}
+
+	// write response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func EnsureNodeAgentSecret(ctx context.Context, mgr ctrl.Manager) error {

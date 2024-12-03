@@ -1204,6 +1204,12 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	roleCreatedCounts := &sync.Map{}
 	roleActiveCounts := &sync.Map{}
 	driveCreatedCounts := &sync.Map{}
+	maxCpu := map[string]float64{}
+
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
 
 	// Idea to bubble up from containers, TODO: Actually use metrics and not accumulated status
 	for _, container := range containers {
@@ -1218,57 +1224,72 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))
 			}
 		}
-	}
 
-	changed := false
+		if container.Status.Stats.CpuUsage.GetValue() > 0.0 {
+			if container.Status.Stats.CpuUsage.GetValue() > maxCpu[container.Spec.Mode] {
+				maxCpu[container.Spec.Mode] = container.Status.Stats.CpuUsage.GetValue()
+			}
+		}
+	}
 
 	// calculate desired counts
-	changed = changed || cluster.Status.Metrics.Containers.Compute.Containers.Desired.SetValue(int64(*cluster.Spec.Dynamic.ComputeContainers), time.Now())
-	changed = changed || cluster.Status.Metrics.Containers.Drive.Containers.Desired.SetValue(int64(*cluster.Spec.Dynamic.DriveContainers), time.Now())
+	cluster.Status.Stats.Containers.Compute.Containers.Desired = wekav1alpha1.IntMetric(*cluster.Spec.Dynamic.ComputeContainers)
+	cluster.Status.Stats.Containers.Drive.Containers.Desired = wekav1alpha1.IntMetric(*cluster.Spec.Dynamic.DriveContainers)
 	if cluster.Spec.Dynamic.S3Containers != 0 {
-		if cluster.Status.Metrics.Containers.S3 == nil {
-			cluster.Status.Metrics.Containers.S3 = &wekav1alpha1.ContainerMetrics{}
+		if cluster.Status.Stats.Containers.S3 == nil {
+			cluster.Status.Stats.Containers.S3 = &wekav1alpha1.ContainerMetrics{}
 		}
-		changed = changed || cluster.Status.Metrics.Containers.S3.Containers.Desired.SetValue(int64(cluster.Spec.Dynamic.S3Containers), time.Now())
+		cluster.Status.Stats.Containers.S3.Containers.Desired = wekav1alpha1.IntMetric(cluster.Spec.Dynamic.S3Containers)
 	}
 	if cluster.Spec.Dynamic.NfsContainers != 0 {
-		if cluster.Status.Metrics.Containers.Nfs == nil {
-			cluster.Status.Metrics.Containers.Nfs = &wekav1alpha1.ContainerMetrics{}
+		if cluster.Status.Stats.Containers.Nfs == nil {
+			cluster.Status.Stats.Containers.Nfs = &wekav1alpha1.ContainerMetrics{}
 		}
-		changed = changed || cluster.Status.Metrics.Containers.Nfs.Containers.Desired.SetValue(int64(cluster.Spec.Dynamic.NfsContainers), time.Now())
+		cluster.Status.Stats.Containers.Nfs.Containers.Desired = wekav1alpha1.IntMetric(cluster.Spec.Dynamic.NfsContainers)
 	}
 
-	changed = changed || cluster.Status.Metrics.Drives.DriveCounters.Desired.SetValue(int64(max(cluster.Spec.Dynamic.NumDrives, 1)**cluster.Spec.Dynamic.DriveContainers), time.Now())
-	//=
+	cluster.Status.Stats.Drives.DriveCounters.Desired = wekav1alpha1.IntMetric(template.DriveContainers * template.NumDrives)
 
 	// convert to new metrics accessor
-	changed = changed || cluster.Status.Metrics.Containers.Compute.Processes.Desired.SetValue(max(int64(cluster.Spec.Dynamic.ComputeCores), 1)*int64(*cluster.Spec.Dynamic.ComputeContainers), time.Now())
-	changed = changed || cluster.Status.Metrics.Containers.Drive.Processes.Desired.SetValue(max(int64(cluster.Spec.Dynamic.DriveCores), 1)*int64(*cluster.Spec.Dynamic.DriveContainers), time.Now())
+	cluster.Status.Stats.Containers.Compute.Processes.Desired = wekav1alpha1.IntMetric(max(int64(template.ComputeCores), 1) * int64(template.ComputeContainers))
+	cluster.Status.Stats.Containers.Drive.Processes.Desired = wekav1alpha1.IntMetric(max(int64(template.DriveCores), 1) * int64(template.DriveContainers))
 
 	// propagate "created" counters
-	changed = changed || cluster.Status.Metrics.Containers.Compute.Containers.Created.SetValue(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute), time.Now())
-	changed = changed || cluster.Status.Metrics.Containers.Drive.Containers.Created.SetValue(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive), time.Now())
+	cluster.Status.Stats.Containers.Compute.Containers.Created = wekav1alpha1.IntMetric(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute))
+	cluster.Status.Stats.Containers.Drive.Containers.Created = wekav1alpha1.IntMetric(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive))
 
 	// propagate "active" counters
-	changed = changed || cluster.Status.Metrics.Containers.Compute.Containers.Active.SetValue(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute), time.Now())
-	changed = changed || cluster.Status.Metrics.Containers.Drive.Containers.Active.SetValue(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive), time.Now())
+	cluster.Status.Stats.Containers.Compute.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute))
+	cluster.Status.Stats.Containers.Drive.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive))
 	if cluster.Spec.Dynamic.S3Containers != 0 {
-		changed = changed || cluster.Status.Metrics.Containers.S3.Containers.Active.SetValue(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3), time.Now())
+		cluster.Status.Stats.Containers.S3.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3))
 	}
 	if cluster.Spec.Dynamic.NfsContainers != 0 {
-		changed = changed || cluster.Status.Metrics.Containers.Nfs.Containers.Active.SetValue(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeNfs), time.Now())
+		cluster.Status.Stats.Containers.Nfs.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeNfs))
+	}
+
+	// fill in utilization
+	if maxCpu[wekav1alpha1.WekaContainerModeCompute] > 0 {
+		cluster.Status.Stats.Containers.Compute.CpuUtilization = wekav1alpha1.NewFloatMetric(maxCpu[wekav1alpha1.WekaContainerModeCompute])
+	}
+
+	if maxCpu[wekav1alpha1.WekaContainerModeDrive] > 0 {
+		cluster.Status.Stats.Containers.Drive.CpuUtilization = wekav1alpha1.NewFloatMetric(maxCpu[wekav1alpha1.WekaContainerModeDrive])
+	}
+
+	if maxCpu[wekav1alpha1.WekaContainerModeS3] > 0 {
+		cluster.Status.Stats.Containers.S3.CpuUtilization = wekav1alpha1.NewFloatMetric(maxCpu[wekav1alpha1.WekaContainerModeS3])
 	}
 
 	// prepare printerColumns
-	changed = changed || cluster.Status.PrinterColumns.ComputeContainers.SetValue(cluster.Status.Metrics.Containers.Compute.Containers.String(), time.Now())
-	changed = changed || cluster.Status.PrinterColumns.DriveContainers.SetValue(cluster.Status.Metrics.Containers.Drive.Containers.String(), time.Now())
-	changed = changed || cluster.Status.PrinterColumns.Drives.SetValue(cluster.Status.Metrics.Drives.DriveCounters.String(), time.Now())
+	cluster.Status.PrinterColumns.ComputeContainers = wekav1alpha1.StringMetric(cluster.Status.Stats.Containers.Compute.Containers.String())
+	cluster.Status.PrinterColumns.DriveContainers = wekav1alpha1.StringMetric(cluster.Status.Stats.Containers.Drive.Containers.String())
+	cluster.Status.PrinterColumns.Drives = wekav1alpha1.StringMetric(cluster.Status.Stats.Drives.DriveCounters.String())
 
-	// TODO: Due to global UpdateContainersCounters timestamp changed thing is less needed now, as doing update anyway to mark last polling time
-	cluster.Status.Timestamps["UpdateContainersCounters"] = metav1.NewTime(time.Now())
 	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -1276,16 +1297,14 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaStatusMetrics")
 	defer end()
 	cluster := r.cluster
-	defer func() {
-		cluster.Status.Timestamps["UpdateWekaStatusMetrics"] = metav1.NewTime(time.Now())
-		_ = r.getClient().Status().Update(ctx, cluster)
-	}()
 
 	if cluster.IsTerminating() || r.cluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
 		return nil
 	}
 
-	executor, err := r.ExecService.GetExecutor(ctx, r.containers[0])
+	activeContainer := discovery.SelectActiveContainer(r.containers)
+
+	executor, err := r.ExecService.GetExecutor(ctx, activeContainer)
 	if err != nil || executor == nil {
 		return errors.New("Failed to create executor")
 	}
@@ -1304,36 +1323,48 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
 	}
 
-	//TODO make updates return true/false indicating if they have changed
-	cluster.Status.Metrics.Containers.Compute.Processes.Active.SetValue(int64(wekaStatus.Containers.Computes.Active), time.Now())
-	cluster.Status.Metrics.Containers.Drive.Processes.Active.SetValue(int64(wekaStatus.Containers.Drives.Active), time.Now())
-	cluster.Status.Metrics.Drives.DriveCounters.Active.SetValue(int64(wekaStatus.Drives.Active), time.Now())
+	if cluster.Status.Stats == nil {
+		cluster.Status.Stats = &wekav1alpha1.ClusterMetrics{}
+	}
 
-	// change to new style
-	cluster.Status.Metrics.Containers.Compute.Processes.Created.SetValue(int64(wekaStatus.Containers.Computes.Total), time.Now())
-	cluster.Status.Metrics.Containers.Drive.Processes.Created.SetValue(int64(wekaStatus.Containers.Drives.Total), time.Now())
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
+
+	cluster.Status.Stats.Containers.Compute.Processes.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Computes.Active * template.ComputeCores))
+	cluster.Status.Stats.Containers.Drive.Processes.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Drives.Active * template.DriveCores))
+	cluster.Status.Stats.Drives.DriveCounters.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Drives.Active))
+
+	cluster.Status.Stats.Containers.Compute.Processes.Created = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Computes.Total * template.ComputeCores))
+	cluster.Status.Stats.Containers.Drive.Processes.Created = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Drives.Total * template.DriveCores))
 	// TODO: might be incorrect with bad drives, and better to buble up from containers
-	cluster.Status.Metrics.Drives.DriveCounters.Created.SetValue(int64(wekaStatus.Drives.Total), time.Now())
+	cluster.Status.Stats.Drives.DriveCounters.Created = wekav1alpha1.IntMetric(int64(wekaStatus.Drives.Total))
 	//TODO: this should go via template builder and not direct dynamic access
 	//if cluster.Spec.Dynamic.S3Containers != 0 {
 	//TODO: S3 cant be implemented this way, should buble up from containers instead(for all)
 	//}
 
-	cluster.Status.Metrics.IoStats.Throughput.Read.SetValue(int64(wekaStatus.Activity.SumBytesRead), time.Now())
-	cluster.Status.Metrics.IoStats.Throughput.Write.SetValue(int64(wekaStatus.Activity.SumBytesWritten), time.Now())
-	cluster.Status.Metrics.IoStats.Iops.Read.SetValue(int64(wekaStatus.Activity.NumReads), time.Now())
-	cluster.Status.Metrics.IoStats.Iops.Write.SetValue(int64(wekaStatus.Activity.NumWrites), time.Now())
-	cluster.Status.Metrics.IoStats.Iops.Metadata.SetValue(int64(wekaStatus.Activity.NumOps-wekaStatus.Activity.NumReads-wekaStatus.Activity.NumWrites), time.Now())
-	cluster.Status.Metrics.IoStats.Iops.Total.SetValue(int64(wekaStatus.Activity.NumOps), time.Now())
+	cluster.Status.Stats.IoStats.Throughput.Read = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.SumBytesRead))
+	cluster.Status.Stats.IoStats.Throughput.Write = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.SumBytesWritten))
+	cluster.Status.Stats.IoStats.Iops.Read = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumReads))
+	cluster.Status.Stats.IoStats.Iops.Write = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumWrites))
+	cluster.Status.Stats.IoStats.Iops.Metadata = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites))
+	cluster.Status.Stats.IoStats.Iops.Total = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumOps))
 
 	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
 	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)
-	cluster.Status.PrinterColumns.Throughput.SetValue(fmt.Sprintf("%s/%s", tpsRead, tpsWrite), time.Now())
+	cluster.Status.PrinterColumns.Throughput = wekav1alpha1.StringMetric(fmt.Sprintf("%s/%s", tpsRead, tpsWrite))
 
 	iopsRead := util2.HumanReadableIops(wekaStatus.Activity.NumReads)
 	iopsWrite := util2.HumanReadableIops(wekaStatus.Activity.NumWrites)
 	iopsOther := util2.HumanReadableIops(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites)
-	cluster.Status.PrinterColumns.Iops.SetValue(fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther), time.Now())
+	cluster.Status.PrinterColumns.Iops = wekav1alpha1.StringMetric(fmt.Sprintf("%s/%s/%s", iopsRead, iopsWrite, iopsOther))
+	cluster.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
+
+	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
+		return err
+	}
 
 	return nil
 }

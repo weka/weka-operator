@@ -37,13 +37,13 @@ func HumanReadableIops(iops float64) string {
 	)
 	switch {
 	case iops >= T:
-		return fmt.Sprintf("%.1fT", iops)
+		return fmt.Sprintf("%.1fT", iops/T)
 	case iops >= G:
-		return fmt.Sprintf("%.1fG", iops)
+		return fmt.Sprintf("%.1fG", iops/G)
 	case iops >= M:
-		return fmt.Sprintf("%.1fM", iops)
+		return fmt.Sprintf("%.1fM", iops/M)
 	case iops >= K:
-		return fmt.Sprintf("%.1fK", iops)
+		return fmt.Sprintf("%.1fK", iops/K)
 	case iops < 1:
 		return "--"
 	default:
