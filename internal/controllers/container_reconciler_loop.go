@@ -233,6 +233,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run: loop.EnsureDrivers,
 				Predicates: lifecycle.Predicates{
 					container.RequiresDrivers,
+					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -255,6 +256,14 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Condition: condition.CondContainerAffinitySet,
 				Predicates: lifecycle.Predicates{
 					loop.container.MustHaveNodeAffinity,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.EnsureDrivers, //drivers might be off at this point if we had to wait for node affinity
+				Predicates: lifecycle.Predicates{
+					container.RequiresDrivers,
+					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2420,4 +2429,8 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 	container.Status.LastAppliedImage = container.Spec.Image
 	return r.Status().Update(ctx, container)
+}
+
+func (r *containerReconcilerLoop) HasNodeAffinity() bool {
+	return r.container.GetNodeAffinity() != ""
 }
