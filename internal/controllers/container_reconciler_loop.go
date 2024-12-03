@@ -350,9 +350,9 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 			},
 			{
 				Run: loop.applyCurrentImage,
-				Predicates: lifecycle.Predicates{func() bool {
-					return container.Status.LastAppliedImage != container.Spec.Image
-				}},
+				Predicates: lifecycle.Predicates{
+					loop.IsNotAlignedImage,
+				},
 				ContinueOnPredicatesFalse: true,
 			},
 			{
@@ -2416,6 +2416,14 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 	pod := r.pod
 	container := r.container
+
+	wekaContainer, err := r.getWekaPodContainer(pod)
+	if err != nil {
+		return err
+	}
+	if wekaContainer.Image != container.Spec.Image {
+		return nil
+	}
 
 	if pod.Status.Phase != v1.PodRunning {
 		logger.Info("Pod is not running yet")
