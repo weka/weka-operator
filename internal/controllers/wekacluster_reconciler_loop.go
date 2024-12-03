@@ -875,6 +875,14 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if status.Status != "OK" {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK, waiting to stabilize. status:" + status.Status))
 		}
+		if status.Drives.Active < status.Drives.Total {
+			err := fmt.Errorf("waiting for all drives to be active. Active: %d, Total: %d", status.Drives.Active, status.Drives.Total)
+			return lifecycle.NewWaitError(err)
+		}
+		if status.Containers.Active < status.Containers.Total {
+			err := fmt.Errorf("waiting for all containers to be active. Active: %d, Total: %d", status.Containers.Active, status.Containers.Total)
+			return lifecycle.NewWaitError(err)
+		}
 
 		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)

@@ -33,7 +33,7 @@ WH_CACERT_SECRET ?= ""
 ENABLE_CLUSTER_API ?= false
 SKIP_CRD_INSTALL ?= false
 RECONCILE_TIMEOUT ?= 10m
-KUBE_EXEC_TIMEOUT ?= 5m
+KUBE_EXEC_TIMEOUT ?= 2m
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
