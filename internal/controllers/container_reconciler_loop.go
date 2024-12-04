@@ -2414,7 +2414,11 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
-	pods, err := r.KubeService.GetPods(ctx, r.container.Namespace, r.node.Name, map[string]string{
+	ns, err := util.GetPodNamespace()
+	if err != nil {
+		return nil, err
+	}
+	pods, err := r.KubeService.GetPods(ctx, ns, r.node.Name, map[string]string{
 		"app.kubernetes.io/component": "weka-node-agent",
 	})
 	if err != nil {
