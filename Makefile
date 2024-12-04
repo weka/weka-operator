@@ -34,6 +34,8 @@ ENABLE_CLUSTER_API ?= false
 SKIP_CRD_INSTALL ?= false
 RECONCILE_TIMEOUT ?= 10m
 KUBE_EXEC_TIMEOUT ?= 2m
+METRICS_CLUSTERS_ENABLED ?= true
+METRICS_CONTAINERS_ENABLED ?= true
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
@@ -188,6 +190,8 @@ runcontroller: ## Run a controller from your host.
 	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
 	RECONCILE_TIMEOUT=$(RECONCILE_TIMEOUT) \
 	KUBE_EXEC_TIMEOUT=$(KUBE_EXEC_TIMEOUT) \
+	METRICS_CLUSTERS_ENABLED=$(METRICS_CLUSTERS_ENABLED) \
+	METRICS_CONTAINERS_ENABLED=$(METRICS_CONTAINERS_ENABLED) \
 	OPERATOR_METRICS_BIND_ADDRESS=":8080" \
 	HEALTH_PROBE_BIND_ADDRESS=":8081" \
 	go run ./cmd/manager/main.go
@@ -240,7 +244,7 @@ NAMESPACE="weka-operator-system"
 VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
 
 .PHONY: deploy
-deploy: generate manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	$(HELM) upgrade --install weka-operator charts/weka-operator \
 		--namespace $(NAMESPACE) \
 		--values charts/weka-operator/values.yaml \
