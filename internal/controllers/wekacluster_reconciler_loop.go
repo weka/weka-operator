@@ -1211,6 +1211,10 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		return errors.New("Failed to get template")
 	}
 
+	if cluster.Status.Stats == nil {
+		cluster.Status.Stats = &wekav1alpha1.ClusterMetrics{}
+	}
+
 	// Idea to bubble up from containers, TODO: Actually use metrics and not accumulated status
 	for _, container := range containers {
 		// count Active containers
@@ -1223,6 +1227,10 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 			if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))
 			}
+		}
+
+		if container.Status.Stats == nil {
+			continue
 		}
 
 		if container.Status.Stats.CpuUsage.GetValue() > 0.0 {
@@ -1378,6 +1386,7 @@ func (r *wekaClusterReconcilerLoop) InitStatuses(ctx context.Context) error {
 		// cleanup old names
 		delete(r.cluster.Status.Timestamps, "func6") // this was dev artifact, however can be used in future if we drop some timestamp from accounting, to keep custom resource clean
 	}
+
 	return nil
 }
 
