@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"slices"
 	"sync"
 	"time"
 )
@@ -202,6 +203,28 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				},
 			})
 		}
+
+		for _, disk := range container.containerState.Result.DisksSummary {
+			if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) {
+				promResponse.AddMetric(metrics2.PromMetric{
+					Metric: "weka_inactive_drives",
+					Help:   "Weka processes",
+				},
+					[]metrics2.TaggedValue{
+						{
+							Tags: util.MergeMaps(containerLabels, metrics2.TagMap{
+								"status":   disk.Status,
+								"serial":   disk.SerialNumber,
+								"weka_uid": disk.Uid,
+							}),
+							Value:     1,
+							Timestamp: container.containerStateLastPull,
+						},
+					},
+				)
+			}
+		}
+
 	}
 
 	// Write the response
