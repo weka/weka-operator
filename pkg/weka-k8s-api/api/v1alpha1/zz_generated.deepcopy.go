@@ -1527,11 +1527,6 @@ func (in *WekaContainerSpec) DeepCopyInto(out *WekaContainerSpec) {
 		copy(*out, *in)
 	}
 	in.Network.DeepCopyInto(&out.Network)
-	if in.RemovePotentialDrives != nil {
-		in, out := &in.RemovePotentialDrives, &out.RemovePotentialDrives
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	in.WekaSecretRef.DeepCopyInto(&out.WekaSecretRef)
 	if in.JoinIps != nil {
 		in, out := &in.JoinIps, &out.JoinIps

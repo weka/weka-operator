@@ -101,7 +101,6 @@ type WekaContainerSpec struct {
 	HugepagesOffset       int                  `json:"hugepagesOffset,omitempty"`
 	HugepagesSize         string               `json:"hugepagesSize,omitempty"`
 	HugepagesOverride     string               `json:"hugepagesSizeOverride,omitempty"`
-	RemovePotentialDrives []string             `json:"driveOptions,omitempty"` // Whole reason of this struct is not having persistent handler for drives
 	NumDrives             int                  `json:"numDrives,omitempty"`
 	DriversDistService    string               `json:"driversDistService,omitempty"`
 	DriversLoaderImage    string               `json:"driversLoaderImage,omitempty"`

@@ -1024,10 +1024,6 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
-              driveOptions:
-                items:
-                  type: string
-                type: array
               driversDistService:
                 type: string
               driversLoaderImage:
