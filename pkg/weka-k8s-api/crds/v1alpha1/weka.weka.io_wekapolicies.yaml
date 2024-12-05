@@ -122,6 +122,11 @@ spec:
                         - vendorId
                         type: object
                       type:
+                        enum:
+                        - aws-all
+                        - device-identifiers
+                        - device-paths
+                        - all-not-root
                         type: string
                     required:
                     - type

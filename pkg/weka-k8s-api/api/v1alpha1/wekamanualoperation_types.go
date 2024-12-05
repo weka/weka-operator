@@ -80,6 +80,7 @@ type EnsureNICsPayload struct {
 }
 
 type SignDrivesPayload struct {
+	// +kubebuilder:validation:Enum=aws-all;device-identifiers;device-paths;all-not-root
 	Type         string            `json:"type"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	DevicePaths  []string          `json:"devicePaths,omitempty"`
