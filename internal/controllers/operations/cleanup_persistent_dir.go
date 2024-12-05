@@ -6,8 +6,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -79,7 +81,14 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 
 	ttl := int32(60)
 	jobName := o.getJobName()
-	namespace := o.ownerRef.GetNamespace()
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get pod namespace")
+	}
+
+	serviceAccountName := config.Config.MaintenanceSaName
+	maintenanceImage := config.Config.MaintenanceImage
+	maintenanceImagePullSecret := config.Config.MaintenanceImagePullSecret
 	hostPathType := corev1.HostPathDirectory
 
 	persistencePath := o.payload.PersistencePath
@@ -104,15 +113,13 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					NodeSelector: nodeSelector,
-					Tolerations:  o.tolerations,
-					ImagePullSecrets: []corev1.LocalObjectReference{
-						{Name: o.pullSecret},
-					},
+					NodeSelector:       nodeSelector,
+					Tolerations:        o.tolerations,
+					ServiceAccountName: serviceAccountName,
 					Containers: []corev1.Container{
 						{
 							Name:  "cleanup-persistent-dir",
-							Image: o.image,
+							Image: maintenanceImage,
 							Command: []string{
 								"sh",
 								"-c",
@@ -145,9 +152,12 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		},
 	}
 
-	err := ctrl.SetControllerReference(o.ownerRef, job, o.scheme)
-	if err != nil {
-		return err
+	if maintenanceImagePullSecret != "" {
+		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
+			{
+				Name: maintenanceImagePullSecret,
+			},
+		}
 	}
 
 	err = o.client.Create(ctx, job)
@@ -166,9 +176,14 @@ func (o *CleanupPersistentDirOperation) getJobName() string {
 func (o *CleanupPersistentDirOperation) GetJob(ctx context.Context) error {
 	name := o.getJobName()
 
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get pod namespace")
+	}
+
 	existing := &v1.Job{}
-	err := o.client.Get(ctx, types.NamespacedName{
-		Namespace: o.ownerRef.GetNamespace(),
+	err = o.client.Get(ctx, types.NamespacedName{
+		Namespace: namespace,
 		Name:      name,
 	}, existing)
 	if err != nil && apierrors.IsNotFound(err) {
