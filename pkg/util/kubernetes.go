@@ -161,6 +161,9 @@ func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 }
 
 func GetPodNamespace() (string, error) {
+	if config.Config.OperatorPodNamespace != "" {
+		return config.Config.OperatorPodNamespace, nil
+	}
 	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 	if err != nil {
 		if os.IsNotExist(err) && config.Config.DevMode {

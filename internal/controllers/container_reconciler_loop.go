@@ -1438,7 +1438,6 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	// TODO: Not validating part of added drives and trying all over
 	for _, drive := range container.Status.Allocations.Drives {
-		//for driveCursor < len(container.Spec.RemovePotentialDrives) {
 		l := logger.WithValues("drive_name", drive)
 		l.Info("Attempting to configure drive")
 

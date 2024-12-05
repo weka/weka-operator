@@ -81,6 +81,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: OTEL_DEPLOYMENT_IDENTIFIER
               value: "{{ .Values.deploymentIdentifier }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

@@ -3,10 +3,11 @@ package config
 import (
 	"context"
 	"fmt"
-	"k8s.io/utils/env"
 	"os"
 	"strconv"
 	"time"
+
+	"k8s.io/utils/env"
 
 	"k8s.io/klog/v2"
 )
@@ -72,7 +73,8 @@ const (
 
 var Config struct {
 	Version                    string
-	PodUID                     string
+	OperatorPodUID             string
+	OperatorPodNamespace       string
 	BindAddress                BindAddress
 	EnableLeaderElection       bool
 	EnableClusterApi           bool
@@ -117,7 +119,8 @@ func init() {
 func ConfigureEnv(ctx context.Context) {
 	Config.Version = getEnvOrFail("VERSION")
 	Config.Mode = OperatorMode(env.GetString("OPERATOR_MODE", string(OperatorModeManager)))
-	Config.PodUID = os.Getenv("POD_UID")
+	Config.OperatorPodUID = os.Getenv("POD_UID")
+	Config.OperatorPodNamespace = os.Getenv("POD_NAMESPACE")
 	if Config.Mode == OperatorModeManager {
 		Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
 		Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")

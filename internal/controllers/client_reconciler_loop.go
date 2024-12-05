@@ -60,6 +60,7 @@ func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *v1alpha1.WekaClient) lif
 		StatusObject: loop.wekaClient,
 		Conditions:   &loop.wekaClient.Status.Conditions,
 		Steps: []lifecycle.Step{
+			{Run: loop.getCurrentContainers},
 			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
@@ -85,7 +86,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	}
 
 	if err := c.finalizeClient(ctx); err != nil {
-		return errors.Wrap(err, "failed to finalize wekaClient")
+		return err
 	}
 
 	controllerutil.RemoveFinalizer(c.wekaClient, WekaFinalizer)
@@ -132,7 +133,28 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
+	// make sure to delete all weka containers
+	for _, container := range c.containers {
+		if container.IsMarkedForDeletion() {
+			continue
+		}
+		err := c.Delete(ctx, container)
+		if err != nil {
+			return errors.Wrap(err, "failed to delete weka container")
+		}
+	}
+
+	if len(c.containers) > 0 {
+		return lifecycle.NewWaitError(errors.New("waiting for client weka containers to be deleted"))
+	}
+
 	c.Logger.Info("Successfully finalized WekaClient")
+	return nil
+}
+
+func (c *clientReconcilerLoop) getCurrentContainers(ctx context.Context) error {
+	currentContainers := discovery.GetClientContainers(ctx, c.Client, c.wekaClient)
+	c.containers = currentContainers
 	return nil
 }
 
@@ -142,13 +164,22 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		return err
 	}
 
-	foundContainers := []*v1alpha1.WekaContainer{}
-	size := len(nodes)
-	if size == 0 {
+	if len(nodes) == 0 {
+		// No nodes to deploy on
 		return nil
 	}
 
+	nodeToContainer := make(map[string]string)
+	for _, container := range c.containers {
+		nodeName := string(container.Spec.NodeAffinity)
+		nodeToContainer[nodeName] = container.Name
+	}
+
 	for _, node := range nodes {
+		if _, ok := nodeToContainer[node.Name]; ok {
+			continue
+		}
+
 		wekaContainer, err := c.buildClientWekaContainer(ctx, node.Name)
 		if err != nil {
 			return errors.Wrap(err, "failed to build client weka container")
@@ -175,13 +206,8 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 			if err != nil {
 				return errors.Wrap(err, "failed to create weka container")
 			}
-
-			foundContainers = append(foundContainers, wekaContainer)
-		} else {
-			foundContainers = append(foundContainers, found)
 		}
 	}
-	c.containers = foundContainers
 	return nil
 }
 
@@ -236,7 +262,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 	containerLabels := map[string]string{
 		"app":                 "weka-client",
 		"weka.io/client-name": wekaClient.ObjectMeta.Name,
-		"weka.io/mode":        "client",
+		"weka.io/mode":        v1alpha1.WekaContainerModeClient,
 	}
 	labels := util2.MergeMaps(wekaClient.ObjectMeta.GetLabels(), containerLabels)
 
@@ -258,7 +284,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
-			Mode:                "client",
+			Mode:                v1alpha1.WekaContainerModeClient,
 			NumCores:            numCores,
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,

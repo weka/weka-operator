@@ -80,7 +80,7 @@ func main() {
 	// TODO: Make this part of config loading, as this is common for everything
 	deploymentIdentifier := config.Config.Otel.DeploymentIdentifier
 	if deploymentIdentifier == "" {
-		deploymentIdentifier = config.Config.PodUID
+		deploymentIdentifier = config.Config.OperatorPodUID
 	}
 	if deploymentIdentifier == "" {
 		// local mode? Generating new one with dev- prefix

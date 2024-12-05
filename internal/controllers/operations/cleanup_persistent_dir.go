@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	v1 "k8s.io/api/batch/v1"
@@ -81,10 +80,6 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	ttl := int32(60)
 	jobName := o.getJobName()
 	namespace := o.ownerRef.GetNamespace()
-
-	serviceAccountName := config.Config.MaintenanceSaName
-	maintenanceImage := config.Config.MaintenanceImage
-	maintenanceImagePullSecret := config.Config.MaintenanceImagePullSecret
 	hostPathType := corev1.HostPathDirectory
 
 	persistencePath := o.payload.PersistencePath
@@ -109,13 +104,15 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 			TTLSecondsAfterFinished: &ttl,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					NodeSelector:       nodeSelector,
-					Tolerations:        o.tolerations,
-					ServiceAccountName: serviceAccountName,
+					NodeSelector: nodeSelector,
+					Tolerations:  o.tolerations,
+					ImagePullSecrets: []corev1.LocalObjectReference{
+						{Name: o.pullSecret},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "cleanup-persistent-dir",
-							Image: maintenanceImage,
+							Image: o.image,
 							Command: []string{
 								"sh",
 								"-c",
@@ -146,14 +143,6 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 				},
 			},
 		},
-	}
-
-	if maintenanceImagePullSecret != "" {
-		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
-			{
-				Name: maintenanceImagePullSecret,
-			},
-		}
 	}
 
 	err := ctrl.SetControllerReference(o.ownerRef, job, o.scheme)

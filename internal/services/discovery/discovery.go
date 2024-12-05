@@ -211,6 +211,26 @@ func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.We
 	return containers
 }
 
+func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.WekaClient) []*weka.WekaContainer {
+	containersList := weka.WekaContainerList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(wekaClient.Namespace),
+		client.MatchingFields{"metadata.ownerReferences.uid": string(wekaClient.UID)},
+		client.MatchingLabels{"weka.io/mode": weka.WekaContainerModeClient},
+	}
+
+	err := c.List(ctx, &containersList, listOpts...)
+	if err != nil {
+		return nil
+	}
+
+	containers := make([]*weka.WekaContainer, len(containersList.Items))
+	for i := range containersList.Items {
+		containers[i] = &containersList.Items[i]
+	}
+	return containers
+}
+
 func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {
 	for _, container := range containers {
 		if container.IsMarkedForDeletion() {
