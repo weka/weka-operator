@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
-
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,13 +27,13 @@ type SignDrivesOperation struct {
 	payload         *weka.SignDrivesPayload
 	image           string
 	pullSecret      string
-	result          map[string]nodeResult
 	containers      []*weka.WekaContainer
 	ownerRef        client.Object
-	results         SignDrivesResult
+	results         DiscoverDrivesResult
 	ownerStatus     string
 	mgr             ctrl.Manager
 	successCallback lifecycle.StepFunc
+	force           bool
 	tolerations     []v1.Toleration
 }
 
@@ -45,17 +44,7 @@ func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	}
 }
 
-type SignDrivesResult struct {
-	Err     error                 `json:"err,omitempty"`
-	Results map[string]nodeResult `json:"results"`
-}
-
-type nodeResult struct {
-	Err    error    `json:"err"`
-	Drives []string `json:"drives"`
-}
-
-func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *SignDrivesOperation {
+func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
 	kclient := mgr.GetClient()
 	return &SignDrivesOperation{
 		mgr:             mgr,
@@ -65,11 +54,11 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
-		result:          make(map[string]nodeResult),
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
 		successCallback: successCallback,
+		force:           force,
 	}
 }
 
@@ -80,6 +69,7 @@ func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 		{Name: "EnsureContainers", Run: o.EnsureContainers},
 		{Name: "PollResults", Run: o.PollResults},
 		{Name: "ProcessResult", Run: o.ProcessResult},
+		{Name: "UpdateNodeAnnotations", Run: o.UpdateNodeAnnotations},
 		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
@@ -122,12 +112,19 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			continue
 		}
 
+		// if data exists and not force - skip
+		if !o.force {
+			if node.Annotations["weka.io/weka-drives"] != "" {
+				continue
+			}
+		}
+
 		labels := map[string]string{
 			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
 		}
 		labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
-		containerName := fmt.Sprintf("weka-adhoc-%s-%s", o.ownerRef.GetName(), node.GetUID())
+		containerName := fmt.Sprintf("weka-sign-and-discover-drives-%s", node.Name)
 		newContainer := &weka.WekaContainer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      containerName,
@@ -179,39 +176,18 @@ func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) ProcessResult(ctx context.Context) error {
-	results := make(map[string]nodeResult)
-	errorCount := 0
-
-	for _, container := range o.containers {
-		var opResult nodeResult
-		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
-		if err != nil {
-			errs := err.Error()
-			results[string(container.GetNodeAffinity())] = nodeResult{
-				Err: fmt.Errorf("failed to unmarshal execution result: %s", errs),
-			}
-			continue
-		}
-		results[string(container.GetNodeAffinity())] = opResult
-		if opResult.Err != nil {
-			errorCount++
-		}
+	res, err := processResult(ctx, o.containers)
+	if res != nil {
+		o.results = *res
 	}
-
-	finalResult := SignDrivesResult{
-		Results: results,
-	}
-
-	if errorCount > 0 {
-		errs := fmt.Sprintf("operation failed on %d nodes", errorCount)
-		finalResult.Err = fmt.Errorf(errs)
-	}
-
-	o.results = finalResult
-	return nil
+	return err
 }
 
-func (o *SignDrivesOperation) GetResult() SignDrivesResult {
+func (o *SignDrivesOperation) UpdateNodeAnnotations(ctx context.Context) error {
+	return updateNodeAnnotations(ctx, o.client, &o.results)
+}
+
+func (o *SignDrivesOperation) GetResult() DiscoverDrivesResult {
 	return o.results
 }
 
@@ -221,11 +197,6 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 }
 
 func (o *SignDrivesOperation) DeleteContainers(ctx context.Context) error {
-	err := o.GetContainers(ctx)
-	if err != nil {
-		return err
-	}
-
 	for _, container := range o.containers {
 		if container == nil {
 			continue
@@ -241,13 +212,6 @@ func (o *SignDrivesOperation) DeleteContainers(ctx context.Context) error {
 
 func (o *SignDrivesOperation) IsDone() bool {
 	return o.ownerStatus == "Done"
-}
-
-func (o *SignDrivesOperation) Cleanup() lifecycle.Step {
-	return lifecycle.Step{
-		Name: "DeleteContainers",
-		Run:  o.DeleteContainers,
-	}
 }
 
 func (o *SignDrivesOperation) SuccessUpdate(ctx context.Context) error {

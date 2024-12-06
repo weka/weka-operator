@@ -91,6 +91,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			},
 			wekaManualOperation.Status.Status,
 			onSuccess,
+			true,
 		)
 		loop.Op = signDrivesOp
 	case "force-resign-drives":
@@ -127,7 +128,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			},
 			wekaManualOperation.Status.Status,
 			onSuccess,
-			true,
+			false,
 		)
 		loop.Op = discoverDrivesOp
 	case "remote-traces-session":

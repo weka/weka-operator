@@ -111,6 +111,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
+			true,
 		)
 		loop.Op = signDrivesOp
 	case "discover-drives":
@@ -126,7 +127,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
-			true,
+			false,
 		)
 		loop.Op = discoverDrivesOp
 	default:

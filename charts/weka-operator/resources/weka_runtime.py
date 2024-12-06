@@ -81,7 +81,7 @@ logging.basicConfig(
 )
 
 
-async def sign_drives_by_pci_info(vendor_id: str, device_id: str):
+async def sign_drives_by_pci_info(vendor_id: str, device_id: str) -> List[str]:
     logging.info("Signing drives. Vendor ID: %s, Device ID: %s", vendor_id, device_id)
 
     if not vendor_id or not device_id:
@@ -102,13 +102,10 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str):
             continue
         signed_drives.append(device)
         # TODO: Find serial id already here? it is adhocy non mandatory operation, so does not make sense to populate some db at this point, despite us having info
-    write_results(dict(
-        err=None,
-        drives=signed_drives
-    ))
+    return signed_drives
 
 
-async def sign_not_mounted():
+async def sign_not_mounted() -> List[str]:
     """
     [root@wekabox18 sdc] 2024-08-21 19:14:58 $ cat /run/udev/data/b`cat /sys/block/sdc/dev` | grep ID_SERIAL=
         E:ID_SERIAL=TOSHIBA_THNSN81Q92CSE_86DS107ATB4V
@@ -132,13 +129,10 @@ async def sign_not_mounted():
                 logging.error(f"Failed to sign drive {device}: {stderr}")
                 continue
             signed_drives.append(device)
-    write_results(dict(
-        err=None,
-        drives=signed_drives
-    ))
+    return signed_drives
 
 
-async def sign_device_paths(devices_paths):
+async def sign_device_paths(devices_paths) -> List[str]:
     signed_drives = []
     for device_path in devices_paths:
         stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device_path}")
@@ -146,10 +140,27 @@ async def sign_device_paths(devices_paths):
             logging.error(f"Failed to sign drive {device_path}: {stderr}")
             continue
         signed_drives.append(device_path)
-    write_results(dict(
-        err=None,
-        drives=signed_drives
-    ))
+    return signed_drives
+
+
+async def sign_drives(instruction: dict) -> List[str]:
+    type = instruction['type']
+    if type == "aws-all":
+        return await sign_drives_by_pci_info(
+            vendor_id=AWS_VENDOR_ID,
+            device_id=AWS_DEVICE_ID,
+        )
+    elif type == "device-identifiers":
+        return await sign_drives_by_pci_info(
+            vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
+            device_id=instruction.get('pciDevices', {}).get('deviceId'),
+        )
+    elif type == "all-not-root":
+        return await sign_not_mounted()
+    elif type == "device-paths":
+        return await sign_device_paths(instruction['devicePaths'])
+    else:
+        raise ValueError(f"Unknown instruction type: {type}")
 
 
 async def force_resign_drives_by_paths(devices_paths: List[str]):
@@ -1823,20 +1834,10 @@ async def main():
                 await force_resign_drives_by_paths(device_paths)
             elif device_serials:
                 await force_resign_drives_by_serials(device_serials)
-        elif instruction['type'] == "aws-all":
-            await sign_drives_by_pci_info(
-                vendor_id=AWS_VENDOR_ID,
-                device_id=AWS_DEVICE_ID,
-            )
-        elif instruction['type'] == "device-identifiers":
-            await sign_drives_by_pci_info(
-                vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
-                device_id=instruction.get('pciDevices', {}).get('deviceId'),
-            )
-        elif instruction['type'] == "all-not-root":
-            await sign_not_mounted()
-        elif instruction['type'] == "device-paths":
-            await sign_device_paths(instruction['devicePaths'])
+        elif instruction.get('type'):
+            signed_drives = await sign_drives(instruction)
+            logging.info(f"signed_drives: {signed_drives}")
+            await discover_drives()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return
