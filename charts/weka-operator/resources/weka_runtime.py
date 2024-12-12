@@ -1965,6 +1965,57 @@ async def takeover_shutdown():
     await run_command("weka local stop --force", capture_stdout=False)
 
 
+
+def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
+    """Get the number of active mounts from the specified file.
+    Return -1 if the number of active mounts cannot be determined.
+    """
+    try:
+        with open(file_path, "r") as file:
+            for line in file:
+                if line.startswith("Active mounts:"):
+                    # Extract the number after "Active mounts:"
+                    return int(line.split(":")[1].strip())
+    except FileNotFoundError:
+        logging.error(f"File '{file_path}' not found.")
+    except ValueError:
+        logging.error(f"Failed to parse the number of active mounts.")
+    except Exception as e:
+        logging.error(f"Failed to get the number of active mounts: {e}")
+    return -1
+
+
+async def wait_for_shutdown_instruction():
+    while True:
+        if exists("/tmp/.allow-force-stop"):
+            logging.info("Received 'allow-force-stop' instruction")
+            return
+        if exists("/tmp/.upgrade-initiated"):
+            logging.info("Received 'upgrade-initiated' instruction")
+            #TODO: Might be not needed in 4.4.1
+            stdout, stderr, ec = await run_command("echo prepare-upgrade > /proc/wekafs/interface", capture_stdout=False)
+            if ec != 0:
+                logging.error(f"Failed to prepare for upgrade: {stderr}")
+                await asyncio.sleep(5)
+                continue
+            return
+        if exists("/tmp/.node-unschedulable"):
+            logging.info("Received 'node-unschedulable' instruction")
+
+            active_mounts = get_active_mounts()
+            logging.info(f"Active mounts: {active_mounts}")
+            if active_mounts > 0:
+                logging.info("Active mounts detected, waiting for them to be unmounted")
+                await asyncio.sleep(5)
+                continue
+        
+            logging.info("No active mounts detected, proceeding with shutdown")
+            return
+        
+        logging.info("Waiting for shutdown instruction...")
+        await asyncio.sleep(5)
+
+    
 async def shutdown():
     global exiting
     while not (exiting or is_wrong_generation()):
@@ -1975,10 +2026,7 @@ async def shutdown():
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
     if MODE in ["client", "s3", "nfs"]:
-        #TODO: Might be not needed in 4.4.1
-        stdout, stderr, ec = await run_command("echo prepare-upgrade > /proc/wekafs/interface", capture_stdout=False)
-        if ec != 0:
-            logging.error(f"Failed to prepare for upgrade: {stderr}")
+        await wait_for_shutdown_instruction()
 
     if MODE not in ["drivers-loader", "discovery"]:
         force_stop = False

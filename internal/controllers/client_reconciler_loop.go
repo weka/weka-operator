@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -34,7 +33,6 @@ func NewClientReconcileLoop(mgr ctrl.Manager) *clientReconcilerLoop {
 		Client:      kClient,
 		Scheme:      mgr.GetScheme(),
 		Recorder:    mgr.GetEventRecorderFor("weka-operator"),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("WekaClient"),
 		KubeService: kubernetes.NewKubeService(kClient),
 		Manager:     mgr,
 	}
@@ -43,7 +41,6 @@ func NewClientReconcileLoop(mgr ctrl.Manager) *clientReconcilerLoop {
 type clientReconcilerLoop struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	Logger      logr.Logger
 	KubeService kubernetes.KubeService
 	Manager     ctrl.Manager
 	Recorder    record.EventRecorder
@@ -147,8 +144,6 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	if len(c.containers) > 0 {
 		return lifecycle.NewWaitError(errors.New("waiting for client weka containers to be deleted"))
 	}
-
-	c.Logger.Info("Successfully finalized WekaClient")
 	return nil
 }
 
