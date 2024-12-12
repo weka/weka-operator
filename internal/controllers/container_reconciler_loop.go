@@ -204,6 +204,17 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
 			{
+				Run: loop.handlePodTermination,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.PodNotSet),
+					loop.container.HasFrontend,
+					func() bool {
+						return loop.pod.DeletionTimestamp != nil
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.cleanupFinishedOneOff,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
@@ -632,6 +643,80 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 
 	err := operations.ExecuteOperation(ctx, op)
 	return err
+}
+
+func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	node := r.node
+	pod := r.pod
+	container := r.container
+
+	// node drain or cordon detected
+	if node.Spec.Unschedulable {
+		logger.Info("Node is unschedulable")
+		err := r.writeNodeUnschedulableInstruction(ctx)
+		if err != nil {
+			return errors.Wrap(err, "Failed to write node-unschedulable instruction")
+		}
+	}
+
+	// upgrade detected
+	if container.Spec.Image != container.Status.LastAppliedImage {
+		var wekaPodContainer v1.Container
+		wekaPodContainer, err := r.getWekaPodContainer(pod)
+		if err != nil {
+			return err
+		}
+
+		if wekaPodContainer.Image != container.Spec.Image {
+			logger.Info("Upgrade detected")
+			err := r.writeUpgradeInstruction(ctx)
+			if err != nil {
+				return errors.Wrap(err, "Failed to write upgrade instruction")
+			}
+		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) writeNodeUnschedulableInstruction(ctx context.Context) error {
+	pod := r.pod
+
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+
+	}
+	_, _, err = executor.ExecNamed(
+		ctx, "WriteNodeUnschedulableInstruction", []string{"bash", "-ce", "touch /tmp/.node-unschedulable"},
+	)
+	if err != nil {
+		if !strings.Contains(err.Error(), "container not found") {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) writeUpgradeInstruction(ctx context.Context) error {
+	pod := r.pod
+
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+
+	}
+	_, _, err = executor.ExecNamed(
+		ctx, "WriteUpgradeInstruction", []string{"bash", "-ce", "touch /tmp/.upgrade-initiated"},
+	)
+	if err != nil {
+		if !strings.Contains(err.Error(), "container not found") {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
@@ -1664,6 +1749,11 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
 				if err != nil {
 					logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
+					return err
+				}
+				_, stderr, err = executor.ExecNamed(ctx, "WriteUpgradeInstruction", []string{"bash", "-ce", "touch /tmp/.upgrade-initiated"})
+				if err != nil {
+					logger.Error(err, "Error writing upgrade instruction", "stderr", stderr.String())
 					return err
 				}
 			}
