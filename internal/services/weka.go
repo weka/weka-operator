@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"strconv"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/controllers/resources"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -142,7 +143,10 @@ type WekaService interface {
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	ConfigureNfs(ctx context.Context, nfsParams NFSParams) error
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
+	ListS3ClusterContainers(ctx context.Context) ([]int, error)
+	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
+	RemoveFromS3Cluster(ctx context.Context, containerId int) error
 	JoinNfsInterfaceGroups(ctx context.Context, containerId int) error
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
@@ -391,7 +395,7 @@ func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error)
 }
 
 func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "JoinS3Cluster")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinS3Cluster")
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
@@ -417,8 +421,29 @@ func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) err
 	return nil
 }
 
+func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromS3Cluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "containers", "remove", strconv.Itoa(containerId),
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveFromS3Cluster", cmd)
+	if err != nil {
+		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String())
+		return err
+	}
+	return nil
+}
+
 func (c *CliWekaService) JoinNfsInterfaceGroups(ctx context.Context, containerId int) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "JoinNfsInterfaceGroups")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinNfsInterfaceGroups")
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
@@ -459,7 +484,7 @@ func (c *CliWekaService) JoinNfsInterfaceGroups(ctx context.Context, containerId
 }
 
 func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "CreateS3Cluster")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateS3Cluster")
 	defer end()
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
@@ -488,8 +513,57 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 	return nil
 }
 
+func (c *CliWekaService) ListS3ClusterContainers(ctx context.Context) ([]int, error) {
+	// weka s3 cluster containers list --json
+	// [
+	// 	"HostId<0>",
+	// 	"HostId<8>"
+	// ]
+	var hostIdStrings []string
+
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "containers", "list", "--json",
+	}
+	err := c.RunJsonCmd(ctx, cmd, "ListS3ClusterContainers", &hostIdStrings)
+	if err != nil {
+		err = fmt.Errorf("failed to list S3 cluster containers: %w", err)
+		return nil, err
+	}
+
+	containerIds := make([]int, 0, len(hostIdStrings))
+	for _, hostIdStr := range hostIdStrings {
+		id, err := resources.HostIdToContainerId(hostIdStr)
+		if err != nil {
+			return nil, err
+		}
+		containerIds = append(containerIds, id)
+	}
+	return containerIds, nil
+}
+
+func (c *CliWekaService) DeleteS3Cluster(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteS3Cluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "destroy", "-f",
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "DeleteS3Cluster", cmd)
+	if err != nil {
+		logger.Error(err, "Failed to delete S3 cluster", "stderr", stderr.String())
+		return err
+	}
+	return nil
+}
+
 func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureNfs")
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
@@ -543,7 +617,7 @@ func commaSeparatedInts(ids []int) string {
 }
 
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
@@ -596,7 +670,7 @@ func (c *CliWekaService) GetWekaStatus(ctx context.Context) (response WekaStatus
 }
 
 func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name string, data any) error {
-	_, _, end := instrumentation.GetLogSpan(ctx, name)
+	ctx, _, end := instrumentation.GetLogSpan(ctx, name)
 	defer end()
 
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)

@@ -128,6 +128,16 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},
 			{
+				Condition:  condition.CondRemovedFromS3Cluster,
+				CondReason: "Deletion",
+				Run:        loop.RemoveFromS3Cluster,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.CanSkipRemoveFromS3Cluster),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:  condition.CondContainerDrivesDeactivated,
 				CondReason: "Deletion",
 				Run:        loop.DeactivateDrives,
@@ -476,6 +486,31 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	return nil
 }
 
+func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		return errors.New("Container ID is not set")
+	}
+
+	executeInContainer := r.container
+
+	if !r.ContainerNodeIsAlive() {
+		containers, err := r.getClusterContainers(ctx)
+		if err != nil {
+			return err
+		}
+		executeInContainer = discovery.SelectActiveContainer(containers)
+	}
+
+	logger.Info("Removing container from S3 cluster", "container_id", *containerId)
+
+	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
+	return wekaService.RemoveFromS3Cluster(ctx, *containerId)
+}
+
 func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -660,6 +695,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		if err != nil {
 			return errors.Wrap(err, "Failed to write node-unschedulable instruction")
 		}
+		return nil
 	}
 
 	// upgrade detected
@@ -676,7 +712,16 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			if err != nil {
 				return errors.Wrap(err, "Failed to write upgrade instruction")
 			}
+			return nil
 		}
+	}
+
+	// nothing above is detected
+	logger.Info("Pod is terminating, writing allow force stop instruction")
+	err := r.writeAllowForceStopInstruction(ctx, pod, false)
+	if err != nil {
+		logger.Error(err, "Error writing allow force stop instruction")
+		return err
 	}
 	return nil
 }
@@ -711,6 +756,27 @@ func (r *containerReconcilerLoop) writeUpgradeInstruction(ctx context.Context) e
 	_, _, err = executor.ExecNamed(
 		ctx, "WriteUpgradeInstruction", []string{"bash", "-ce", "touch /tmp/.upgrade-initiated"},
 	)
+	if err != nil {
+		if !strings.Contains(err.Error(), "container not found") {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, killSignal bool) error {
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+
+	}
+
+	cmd := "touch /tmp/.allow-force-stop"
+	if killSignal {
+		cmd = "touch /tmp/.allow-force-stop && kill 1"
+	}
+
+	_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", cmd})
 	if err != nil {
 		if !strings.Contains(err.Error(), "container not found") {
 			return err
@@ -1171,7 +1237,8 @@ func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*
 		return nil, err
 	}
 
-	logger.Debug("Found %d containers in cluster", len(clusterContainers), "cluster", cluster.Name)
+	msg := fmt.Sprintf("Found %d containers in cluster", len(clusterContainers))
+	logger.Debug(msg, "cluster", cluster.Name)
 	r.clusterContainers = clusterContainers
 	return clusterContainers, nil
 }
@@ -1195,18 +1262,12 @@ func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
 	}
 
 	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
-		executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+		// setting for forceful termination, as we are in container delete flow
+		logger.Info("Deleting pod", "pod", pod.Name)
+		err := r.writeAllowForceStopInstruction(ctx, pod, true)
 		if err != nil {
-			logger.Error(err, "Error creating executor")
+			logger.Error(err, "Error writing allow force stop instruction")
 			return err
-
-		}
-		// setting for forceful termination ,as we are in container delete flow
-		_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop && kill 1"})
-		if err != nil {
-			if !strings.Contains(err.Error(), "container not found") {
-				return err
-			}
 		}
 	}
 
@@ -2416,6 +2477,16 @@ func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
 		return true
 	}
 	return r.container.Status.SkipDeactivate
+}
+
+func (r *containerReconcilerLoop) CanSkipRemoveFromS3Cluster() bool {
+	if !r.container.IsS3Container() {
+		return true
+	}
+	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedS3Cluster) {
+		return true
+	}
+	return r.CanSkipDeactivate()
 }
 
 func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
