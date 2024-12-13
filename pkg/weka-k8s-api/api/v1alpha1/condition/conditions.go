@@ -31,6 +31,8 @@ const (
 	CondContainerRemoved             = "ContainerRemoved"
 	CondContainerDrivesResigned      = "ContainerDrivesResigned"
 	CondContainerDrivesRemoved       = "ContainerDriveRemoved"
+	CondRemovedFromS3Cluster         = "RemovedFromS3Cluster"
+	CondS3ClusterDestroyed           = "S3ClusterDestroyed"
 	CondContainerAffinitySet         = "ContainerAffinitySet"
 	CondClusterReady                 = "ClusterIsReady"
 )

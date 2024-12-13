@@ -219,6 +219,7 @@ type WekaClusterSpec struct {
 	// https://github.com/kubernetes/apimachinery/issues/131
 	// https://github.com/kubernetes/apiextensions-apiserver/issues/56
 	GracefulDestroyDuration metav1.Duration `json:"gracefulDestroyDuration,omitempty"`
+	AllowS3ClusterDestroy   bool            `json:"allowS3ClusterDestroy,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

@@ -80,6 +80,8 @@ spec:
                   s3:
                     type: integer
                 type: object
+              allowS3ClusterDestroy:
+                type: boolean
               cpuPolicy:
                 default: auto
                 enum:
