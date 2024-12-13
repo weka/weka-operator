@@ -743,6 +743,72 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
+	if !r.cluster.Spec.AllowS3ClusterDestroy {
+		return false
+	}
+
+	// if spec contains desired S3 containers, do not destroy the cluster
+	if r.cluster.Spec.Dynamic.S3Containers > 0 {
+		return false
+	}
+
+	containers := r.SelectS3Containers(r.containers)
+
+	// if there are more that 1 S3 container, we should not destroy the cluster
+	if len(containers) > 1 {
+		return false
+	}
+
+	// if S3 cluster was not created, we should not destroy it
+	if !meta.IsStatusConditionTrue(r.cluster.Status.Conditions, condition.CondS3ClusterCreated) {
+		return false
+	}
+
+	return true
+}
+
+func (r *wekaClusterReconcilerLoop) DestroyS3Cluster(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := discovery.SelectActiveContainer(r.containers)
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+
+	s3ContainerIds, err := wekaService.ListS3ClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("S3 cluster containers", "containers", s3ContainerIds)
+
+	if len(s3ContainerIds) > 1 {
+		err := fmt.Errorf("more than one container in S3 cluster: %v", s3ContainerIds)
+		return lifecycle.NewWaitError(err)
+	}
+
+	logger.Info("Destroying S3 cluster")
+	err = wekaService.DeleteS3Cluster(ctx)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to delete S3 cluster")
+		return err
+	}
+
+	// invalidate S3 cluster created condition
+	changed := meta.SetStatusCondition(&r.cluster.Status.Conditions, metav1.Condition{
+		Type:   condition.CondS3ClusterCreated,
+		Status: metav1.ConditionFalse,
+		Reason: "DestroyS3Cluster",
+	})
+	if changed {
+		err := r.getClient().Status().Update(ctx, r.cluster)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfs")
 	defer end()
@@ -1087,7 +1153,7 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 }
 
 func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
-	return len(r.SelectS3Containers(r.containers)) > 0
+	return r.cluster.Spec.Dynamic.S3Containers > 0 && len(r.SelectS3Containers(r.containers)) > 0
 }
 
 func (r *wekaClusterReconcilerLoop) HasNfsContainers() bool {

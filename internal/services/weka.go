@@ -733,6 +733,10 @@ func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int) e
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveContainer", cmd)
 	if err != nil {
+		// error: Host HostId<15> not found\n\x00
+		if strings.Contains(stderr.String(), "not found") {
+			return nil
+		}
 		err = errors.Wrapf(err, "Failed to remove container %d: %s", containerId, stderr.String())
 		return err
 	}

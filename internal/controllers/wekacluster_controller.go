@@ -249,6 +249,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.DestroyS3Cluster,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldDestroyS3Cluster,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition: condition.CondS3ClusterCreated,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
