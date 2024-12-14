@@ -1446,6 +1446,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 								location / {
 									root /data;
 									autoindex on;
+									default_type text/plain;
 								}
 							}' > /etc/nginx/conf.d/default.conf &&
 							nginx -g 'daemon off;'`,
