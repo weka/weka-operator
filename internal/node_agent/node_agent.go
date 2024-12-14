@@ -159,10 +159,6 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 		defaultLabels := make(map[string]string)
 		for _, key := range container.labels {
 			label := metrics2.NormalizeLabelName(key)
-			if label == "cluster_id" {
-				// to be consistent with other metrics
-				label = "cluster_guid"
-			}
 			defaultLabels[label] = container.labels[key]
 		}
 

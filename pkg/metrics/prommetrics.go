@@ -86,9 +86,9 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	return &ret
 }
 
-// NormalizeLabelName replaces all invalid characters in a label name with underscores and removes the weka.io/ prefix
+// NormalizeLabelName replaces all invalid characters in a label name with underscores
 func NormalizeLabelName(str string) string {
-	str = strings.ReplaceAll(str, "weka.io/", "")
+	str = strings.ReplaceAll(str, "/", "_")
 	str = strings.ReplaceAll(str, "-", "_")
 	str = strings.ReplaceAll(str, ".", "_")
 	return str
