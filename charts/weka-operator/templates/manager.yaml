@@ -19,6 +19,9 @@ spec:
     metadata:
       annotations:
         kubectl.kubernetes.io/default-container: manager
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
       labels:
         control-plane: controller-manager
     spec:
@@ -72,6 +75,10 @@ spec:
                 - ALL
         - command:
             - /weka-operator
+          ports:
+              - containerPort: 8080
+                name: metrics
+                protocol: TCP
           env:
             - name: POD_NAME
               valueFrom:
