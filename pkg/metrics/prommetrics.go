@@ -41,7 +41,8 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	}
 
 	for k, v := range util.MapOrdered(m.Tags) {
-		tags = append(tags, fmt.Sprintf("%s=\"%s\"", k, v))
+		label := NormalizeLabelName(k)
+		tags = append(tags, fmt.Sprintf("%s=\"%s\"", label, v))
 	}
 
 	mtype := m.Type
@@ -83,4 +84,12 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	ret = ret + strings.Join(parts, "\n")
 
 	return &ret
+}
+
+// NormalizeLabelName replaces all invalid characters in a label name with underscores and removes the weka.io/ prefix
+func NormalizeLabelName(str string) string {
+	str = strings.ReplaceAll(str, "weka.io/", "")
+	str = strings.ReplaceAll(str, "-", "_")
+	str = strings.ReplaceAll(str, ".", "_")
+	return str
 }

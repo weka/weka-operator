@@ -156,8 +156,17 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 		if container.containerStateLastPull.Add(5 * time.Minute).Before(time.Now()) {
 			continue
 		}
+		defaultLabels := make(map[string]string)
+		for _, key := range container.labels {
+			label := metrics2.NormalizeLabelName(key)
+			if label == "cluster_id" {
+				// to be consistent with other metrics
+				label = "cluster_guid"
+			}
+			defaultLabels[label] = container.labels[key]
+		}
 
-		containerLabels := util.MergeMaps(container.labels,
+		containerLabels := util.MergeMaps(defaultLabels,
 			metrics2.TagMap{
 				"container_name": container.containerName,
 				"mode":           container.mode,
