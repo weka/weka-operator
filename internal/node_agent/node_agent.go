@@ -157,9 +157,9 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			continue
 		}
 		defaultLabels := make(map[string]string)
-		for _, key := range container.labels {
+		for key, value := range container.labels {
 			label := metrics2.NormalizeLabelName(key)
-			defaultLabels[label] = container.labels[key]
+			defaultLabels[label] = value
 		}
 
 		containerLabels := util.MergeMaps(defaultLabels,
