@@ -724,6 +724,10 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	wekaService := services.NewWekaService(r.ExecService, container)
 	containerIds := []int{}
 	for _, c := range containers {
+		if c.Status.ClusterContainerID == nil {
+			err := fmt.Errorf("container %s does not have a cluster container id", c.Name)
+			return err
+		}
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
 	}
 

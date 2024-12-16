@@ -569,6 +569,14 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	executeInContainer := r.container
 
 	if !r.ContainerNodeIsAlive() {
+		// TODO: temporary check caused by weka s3 container remove behavior
+		if r.container.IsS3Container() {
+			// before deacitvating S3 container, we need to make sure, that local s3 container is removed
+			// if node is not available, we can't execute `weka local ps` operation
+			err := errors.New("node is not available, can't check if local s3 container is running")
+			return err
+		}
+
 		containers, err := r.getClusterContainers(ctx)
 		if err != nil {
 			return err
@@ -576,9 +584,30 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 		executeInContainer = discovery.SelectActiveContainer(containers)
 	}
 
+	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
+
+	// TODO: temporary check caused by weka s3 container remove behavior
+	if r.container.IsS3Container() {
+		// check that local s3 container does not exist anymore
+		// if it does, wait for it to be removed
+		localContainers, err := wekaService.ListLocalContainers(ctx)
+		if err != nil {
+			err = errors.Wrap(err, "Failed to list weka local containers")
+			return err
+		}
+
+		logger.Debug("weka local ps", "containers", localContainers)
+
+		for _, localContainer := range localContainers {
+			if localContainer.Type == "s3" {
+				err := errors.New("local s3 container still exists")
+				return err
+			}
+		}
+	}
+
 	logger.Info("Deactivating container", "container_id", *containerId)
 
-	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 	return wekaService.DeactivateContainer(ctx, *containerId)
 }
 
@@ -791,7 +820,7 @@ func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
 
 	newStatus := strings.ToUpper(string(weka.ContainerStatePaused))
 	if r.container.Status.Status != newStatus {
-		err := r.ensureNoPod(ctx)
+		err := r.stopForceAndEnsureNoPod(ctx)
 		if err != nil {
 			return err
 		}
@@ -1041,7 +1070,7 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	container := r.container
 
 	// first ensure no pod exists
-	err := r.ensureNoPod(ctx)
+	err := r.stopForceAndEnsureNoPod(ctx)
 	if err != nil {
 		return err
 	}
@@ -1243,7 +1272,7 @@ func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*
 	return clusterContainers, nil
 }
 
-func (r *containerReconcilerLoop) ensureNoPod(ctx context.Context) error {
+func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) error {
 	//TODO: Can we search pods by ownership?
 
 	container := r.container
@@ -1435,7 +1464,7 @@ func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
 		return nil
 	}
 
-	err := r.ensureNoPod(ctx)
+	err := r.stopForceAndEnsureNoPod(ctx)
 	if err != nil {
 		return err
 	}
@@ -2002,7 +2031,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 				return err
 			}
 			if ownerContainer.Status.NodeAffinity != "" {
-				deleteErr := r.ensureNoPod(ctx)
+				deleteErr := r.stopForceAndEnsureNoPod(ctx)
 				if deleteErr != nil {
 					return deleteErr
 				} else {

@@ -99,6 +99,13 @@ type WekaUserResponse struct {
 	Username string `json:"username"`
 }
 
+type WekaLocalContainer struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	RunStatus string `json:"runStatus"`
+	IsRunning bool   `json:"isRunning"`
+}
+
 type Process struct {
 	Status   string   `json:"status"`
 	NodeId   string   `json:"node_id"`
@@ -160,6 +167,7 @@ type WekaService interface {
 	RemoveContainer(ctx context.Context, containerId int) error
 	DeactivateDrive(ctx context.Context, driveUuid string) error
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
+	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -772,4 +780,17 @@ func (c *CliWekaService) DeactivateDrive(ctx context.Context, driveUuid string) 
 		return err
 	}
 	return nil
+}
+
+func (c *CliWekaService) ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error) {
+	cmd := []string{
+		"weka", "local", "ps", "--json",
+	}
+
+	var containers []WekaLocalContainer
+	err := c.RunJsonCmd(ctx, cmd, "WekaLocalPs", &containers)
+	if err != nil {
+		return nil, err
+	}
+	return containers, nil
 }
