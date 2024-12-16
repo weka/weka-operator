@@ -1997,6 +1997,17 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
 
 async def wait_for_shutdown_instruction():
     while True:
+        if exists("/tmp/.pre-shutdown-script"):
+            logging.info("Received 'pre-shutdown-script' instruction")
+            # execute pre-shutdown script
+            _, stderr, ec = await run_command("sh /tmp/.pre-shutdown-script", capture_stdout=False)
+            if ec == 0:
+                logging.info("Pre-shutdown script executed successfully, removing the instruction file")
+                os.remove("/tmp/.pre-shutdown-script")
+            else:
+                logging.error(f"Failed to execute pre-shutdown script: {stderr}")
+                await asyncio.sleep(5)
+                continue
         if exists("/tmp/.allow-force-stop"):
             logging.info("Received 'allow-force-stop' instruction")
             return
