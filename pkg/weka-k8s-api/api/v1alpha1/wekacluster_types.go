@@ -37,6 +37,7 @@ const (
 type NetworkSelector struct {
 	EthSlots  []string `json:"ethSlots,omitempty"`
 	EthDevice string   `json:"ethDevice,omitempty"`
+	Gateway   string   `json:"gateway,omitempty"`
 	UdpMode   bool     `json:"udpMode,omitempty"`
 }
 

@@ -134,6 +134,7 @@ type Network struct {
 	EthDevice  string     `json:"ethDevice,omitempty"`
 	UdpMode    bool       `json:"udpMode,omitempty"`
 	AWS        AWSNetwork `json:"aws,omitempty"`
+	Gateway    string     `json:"gateway,omitempty"`
 }
 
 type ContainerAllocations struct {

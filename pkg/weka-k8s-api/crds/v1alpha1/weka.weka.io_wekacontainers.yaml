@@ -1091,6 +1091,8 @@ spec:
                     items:
                       type: string
                     type: array
+                  gateway:
+                    type: string
                   udpMode:
                     type: boolean
                 type: object
