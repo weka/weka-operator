@@ -766,7 +766,11 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
 	}
 
 	// if spec contains desired S3 containers, do not destroy the cluster
-	if r.cluster.Spec.Dynamic.S3Containers > 0 {
+	template, ok := allocator.GetTemplateByName(r.cluster.Spec.Template, *r.cluster)
+	if !ok {
+		return false
+	}
+	if template.S3Containers > 0 {
 		return false
 	}
 
@@ -1170,7 +1174,13 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 }
 
 func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
-	if r.cluster.Spec.Dynamic.S3Containers == 0 {
+	cluster := r.cluster
+
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return false
+	}
+	if template.S3Containers == 0 {
 		return false
 	}
 
@@ -1333,19 +1343,19 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	}
 
 	// calculate desired counts
-	cluster.Status.Stats.Containers.Compute.Containers.Desired = wekav1alpha1.IntMetric(*cluster.Spec.Dynamic.ComputeContainers)
-	cluster.Status.Stats.Containers.Drive.Containers.Desired = wekav1alpha1.IntMetric(*cluster.Spec.Dynamic.DriveContainers)
-	if cluster.Spec.Dynamic.S3Containers != 0 {
+	cluster.Status.Stats.Containers.Compute.Containers.Desired = wekav1alpha1.IntMetric(template.ComputeContainers)
+	cluster.Status.Stats.Containers.Drive.Containers.Desired = wekav1alpha1.IntMetric(template.DriveContainers)
+	if template.S3Containers != 0 {
 		if cluster.Status.Stats.Containers.S3 == nil {
 			cluster.Status.Stats.Containers.S3 = &wekav1alpha1.ContainerMetrics{}
 		}
-		cluster.Status.Stats.Containers.S3.Containers.Desired = wekav1alpha1.IntMetric(cluster.Spec.Dynamic.S3Containers)
+		cluster.Status.Stats.Containers.S3.Containers.Desired = wekav1alpha1.IntMetric(template.S3Containers)
 	}
-	if cluster.Spec.Dynamic.NfsContainers != 0 {
+	if template.NfsContainers != 0 {
 		if cluster.Status.Stats.Containers.Nfs == nil {
 			cluster.Status.Stats.Containers.Nfs = &wekav1alpha1.ContainerMetrics{}
 		}
-		cluster.Status.Stats.Containers.Nfs.Containers.Desired = wekav1alpha1.IntMetric(cluster.Spec.Dynamic.NfsContainers)
+		cluster.Status.Stats.Containers.Nfs.Containers.Desired = wekav1alpha1.IntMetric(template.NfsContainers)
 	}
 
 	cluster.Status.Stats.Drives.DriveCounters.Desired = wekav1alpha1.IntMetric(template.DriveContainers * template.NumDrives)
@@ -1361,10 +1371,10 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	// propagate "active" counters
 	cluster.Status.Stats.Containers.Compute.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute))
 	cluster.Status.Stats.Containers.Drive.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive))
-	if cluster.Spec.Dynamic.S3Containers != 0 {
+	if template.S3Containers != 0 {
 		cluster.Status.Stats.Containers.S3.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3))
 	}
-	if cluster.Spec.Dynamic.NfsContainers != 0 {
+	if template.NfsContainers != 0 {
 		cluster.Status.Stats.Containers.Nfs.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeNfs))
 	}
 
