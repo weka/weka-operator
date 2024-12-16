@@ -86,8 +86,8 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		for k := range allocator.WekaClusterTemplates {
 			keys = append(keys, k)
 		}
-		err := fmt.Errorf("Template not found")
-		logger.Error(err, "Template not found", "template", cluster.Spec.Template, "keys", keys)
+		err := errors.New("template not found")
+		logger.Error(err, "", "template", cluster.Spec.Template, "keys", keys)
 		return err
 	}
 
@@ -718,12 +718,25 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	defer end()
 
 	cluster := r.cluster
-	containers := r.SelectS3Containers(r.containers)
 
-	container := discovery.SelectActiveContainer(containers)
-	wekaService := services.NewWekaService(r.ExecService, container)
+	execInContainer := discovery.SelectActiveContainer(r.containers)
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+
+	// check if s3 cluster already exists
+	s3Cluster, err := wekaService.GetS3Cluster(ctx)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to get S3 cluster")
+		return err
+	}
+
+	if s3Cluster.Active || len(s3Cluster.S3Hosts) > 0 {
+		logger.Info("S3 cluster already exists")
+		return nil
+	}
+
+	s3Containers := r.SelectS3Containers(r.containers)
 	containerIds := []int{}
-	for _, c := range containers {
+	for _, c := range s3Containers {
 		if c.Status.ClusterContainerID == nil {
 			err := fmt.Errorf("container %s does not have a cluster container id", c.Name)
 			return err
@@ -731,7 +744,7 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
 	}
 
-	err := wekaService.CreateS3Cluster(ctx, services.S3Params{
+	err = wekaService.CreateS3Cluster(ctx, services.S3Params{
 		EnvoyPort:      cluster.Status.Ports.LbPort,
 		EnvoyAdminPort: cluster.Status.Ports.LbAdminPort,
 		S3Port:         cluster.Status.Ports.S3Port,
@@ -1157,7 +1170,16 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 }
 
 func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
-	return r.cluster.Spec.Dynamic.S3Containers > 0 && len(r.SelectS3Containers(r.containers)) > 0
+	if r.cluster.Spec.Dynamic.S3Containers == 0 {
+		return false
+	}
+
+	for _, container := range r.containers {
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *wekaClusterReconcilerLoop) HasNfsContainers() bool {

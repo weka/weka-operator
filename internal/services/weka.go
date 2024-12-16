@@ -83,6 +83,15 @@ type S3Params struct {
 	ContainerIds   []int
 }
 
+type S3Cluster struct {
+	// indicates if the S3 cluster exists
+	Active       bool     `json:"active"`
+	S3Hosts      []string `json:"s3_hosts"`
+	Port         string   `json:"port"`
+	InternalPort string   `json:"internal_port"`
+	Filesystem   string   `json:"filesystem_name"`
+}
+
 type NFSParams struct {
 	ConfigFilesystem  string
 	SupportedVersions []string
@@ -149,6 +158,7 @@ type WekaService interface {
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	ConfigureNfs(ctx context.Context, nfsParams NFSParams) error
+	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
 	DeleteS3Cluster(ctx context.Context) error
@@ -793,4 +803,18 @@ func (c *CliWekaService) ListLocalContainers(ctx context.Context) ([]WekaLocalCo
 		return nil, err
 	}
 	return containers, nil
+}
+
+func (c *CliWekaService) GetS3Cluster(ctx context.Context) (*S3Cluster, error) {
+	// weka s3 cluster --json
+	cmd := []string{
+		"wekaauthcli", "s3", "cluster", "--json",
+	}
+
+	var s3Cluster S3Cluster
+	err := c.RunJsonCmd(ctx, cmd, "GetS3Cluster", &s3Cluster)
+	if err != nil {
+		return nil, err
+	}
+	return &s3Cluster, nil
 }
