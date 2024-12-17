@@ -233,7 +233,6 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	defer end()
 
 	cluster := r.cluster
-	containers := r.containers
 
 	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusGracePeriod {
 		cluster.Status.Status = wekav1alpha1.WekaClusterStatusGracePeriod
@@ -244,22 +243,59 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 		}
 	}
 
-	for _, container := range containers {
-		if container.Spec.State == wekav1alpha1.ContainerStatePaused {
-			continue
-		}
-		container.Spec.State = wekav1alpha1.ContainerStatePaused
-		err := r.getClient().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Failed to update container state")
-			return err
-		}
+	err := r.ensureContainersPaused(ctx, wekav1alpha1.WekaContainerModeS3)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureContainersPaused(ctx, wekav1alpha1.WekaContainerModeNfs)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureContainersPaused(ctx, "")
+	if err != nil {
+		return err
 	}
 
 	gracefulDestroyDuration := r.cluster.GetGracefulDestroyDuration()
 	deletionTime := cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
 
 	logger.Info("Cluster is in graceful deletion", "deletionTime", deletionTime)
+	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, mode string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainersPaused", "mode", mode)
+	defer end()
+
+	containers := r.containers
+
+	pausedStatus := strings.ToUpper(string(wekav1alpha1.ContainerStatePaused))
+	var notPausedContainers []string
+
+	for _, container := range containers {
+		if mode != "" && container.Spec.Mode != mode {
+			continue
+		}
+		if container.Spec.State != wekav1alpha1.ContainerStatePaused {
+			container.Spec.State = wekav1alpha1.ContainerStatePaused
+			err := r.getClient().Update(ctx, container)
+			if err != nil {
+				logger.Error(err, "Failed to update container state")
+				return err
+			}
+		}
+
+		if container.Status.Status != pausedStatus {
+			notPausedContainers = append(notPausedContainers, container.Name)
+		}
+	}
+
+	if len(notPausedContainers) != 0 {
+		err := fmt.Errorf("not all %s containers are in %s status, missing: %v", mode, pausedStatus, notPausedContainers)
+		return err
+	}
 	return nil
 }
 
@@ -867,6 +903,10 @@ func (r *wekaClusterReconcilerLoop) applyClientLoginCredentials(ctx context.Cont
 
 	container := discovery.SelectActiveContainer(containers)
 	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetClientSecretName())
+	if err != nil {
+		err = fmt.Errorf("failed to get client login credentials: %w", err)
+		return err
+	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 	err = wekaService.EnsureUser(ctx, username, password, "regular")
@@ -887,6 +927,10 @@ func (r *wekaClusterReconcilerLoop) applyCSILoginCredentials(ctx context.Context
 
 	container := discovery.SelectActiveContainer(containers)
 	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCSISecretName())
+	if err != nil {
+		err = fmt.Errorf("failed to get client login credentials: %w", err)
+		return err
+	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 	err = wekaService.EnsureUser(ctx, username, password, "clusteradmin")
