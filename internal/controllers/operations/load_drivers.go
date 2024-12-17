@@ -78,6 +78,7 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		{Name: "GetCurrentContainer", Run: o.GetCurrentContainers},
+		{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: lifecycle.Predicates{o.imageHasChanged}, ContinueOnPredicatesFalse: true},
 		{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}, ContinueOnPredicatesFalse: true},
 		{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
 		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
@@ -138,6 +139,23 @@ func (o *LoadDrivers) GetExpectedDriversVersion() string {
 }
 
 func (o *LoadDrivers) ExitIfLoaded(ctx context.Context) error {
+	return nil
+}
+
+func (o *LoadDrivers) imageHasChanged() bool {
+	if o.container == nil {
+		return false
+	}
+	return o.container.Spec.Image != o.containerDetails.Image
+}
+
+func (o *LoadDrivers) UpdateContainerImage(ctx context.Context) error {
+	o.container.Spec.Image = o.containerDetails.Image
+	o.container.Spec.ImagePullSecret = o.containerDetails.ImagePullSecret
+	err := o.client.Update(ctx, o.container)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

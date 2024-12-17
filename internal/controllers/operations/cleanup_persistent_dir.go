@@ -89,7 +89,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
 	maintenanceImage := config.Config.MaintenanceImage
 	maintenanceImagePullSecret := config.Config.MaintenanceImagePullSecret
-	hostPathType := corev1.HostPathDirectory
+	hostPathType := corev1.HostPathDirectoryOrCreate
 
 	persistencePath := o.payload.PersistencePath
 	containerId := o.payload.ContainerId
