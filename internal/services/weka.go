@@ -696,13 +696,15 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 		return err
 	}
 
-	output, _, err := executor.ExecNamed(ctx, name, cmd)
+	output, stderr, err := executor.ExecNamed(ctx, name, cmd)
 	if err != nil {
+		err = fmt.Errorf("failed to run command %s: %v - %s", strings.Join(cmd, " "), err, stderr.String())
 		return err
 	}
 
 	err = json.Unmarshal(output.Bytes(), data)
 	if err != nil {
+		err = fmt.Errorf("failed to unmarshal json: %v", err)
 		return err
 	}
 

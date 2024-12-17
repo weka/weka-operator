@@ -523,7 +523,8 @@ func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
 		kubeExecTimeout = 10 * time.Minute
 	}
 
-	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, containers[0], &kubeExecTimeout)
+	execInContainer := discovery.SelectActiveContainer(containers)
+	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, execInContainer, &kubeExecTimeout)
 	if err != nil {
 		return errors.Wrap(err, "Error creating executor")
 	}
@@ -836,8 +837,8 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 
 	containers := r.SelectNfsContainers(r.containers)
 
-	container := containers[0]
-	wekaService := services.NewWekaService(r.ExecService, container)
+	execInContainer := discovery.SelectActiveContainer(containers)
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 	containerIds := []int{}
 	for _, c := range containers {
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
@@ -1404,8 +1405,6 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "UpdateWekaStatusMetrics")
-	defer end()
 	cluster := r.cluster
 
 	if cluster.IsTerminating() || r.cluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
@@ -1414,23 +1413,10 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 
 	activeContainer := discovery.SelectActiveContainer(r.containers)
 
-	executor, err := r.ExecService.GetExecutor(ctx, activeContainer)
-	if err != nil || executor == nil {
-		return errors.New("Failed to create executor")
-	}
-	cmd := "weka status -J"
-	stdout, stderr, err := executor.ExecNamed(ctx, "FetchWekaClusterStats", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.SetError(err, "Failed to fetch weka status", "stderr", stderr.String())
-		return errors.Wrapf(err, "Failed to fetch weka status: %s", stderr.String())
-	}
-
-	containers := r.containers
-	wekaService := services.NewWekaService(r.ExecService, containers[0])
-
+	wekaService := services.NewWekaService(r.ExecService, activeContainer)
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "Failed to fetch weka status: %s", stdout.String())
+		return errors.Wrap(err, "Failed to get Weka status")
 	}
 
 	if cluster.Status.Stats == nil {
