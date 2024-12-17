@@ -14,6 +14,9 @@ func GetContainerNetwork(selector wekav1alpha1.NetworkSelector) (wekav1alpha1.Ne
 	if selector.UdpMode {
 		network.UdpMode = true
 	}
+	if selector.Gateway != "" {
+		network.Gateway = selector.Gateway
+	}
 
 	return network, nil
 }

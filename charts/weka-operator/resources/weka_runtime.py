@@ -35,6 +35,7 @@ NODE_NAME = os.environ["NODE_NAME"]
 FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
+NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -1069,6 +1070,15 @@ async def ensure_weka_container():
         if node['dedicate_core']:
             node['core_id'] = full_cores[cores_cursor]
             cores_cursor += 1
+
+    # fix/add gateway
+    if NET_GATEWAY:
+        if NETWORK_DEVICE not in ['udp', ""]:
+            #TODO: Multi-nic support with custom gateways
+            if len(resources['net_devices']) != 1:
+                logging.error("Gateway configuration is not supported with multiple or zero NICs")
+            resources['net_devices'][0]['gateway'] = NET_GATEWAY
+
     # save resources
     with open("/tmp/weka-resources.json", "w") as f:
         json.dump(resources, f)

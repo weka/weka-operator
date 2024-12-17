@@ -76,6 +76,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 
 	netDevice := "udp"
 	udpMode := "false"
+	gateway := f.container.Spec.Network.Gateway
 	if f.container.Spec.Network.EthDevice != "" {
 		netDevice = f.container.Spec.Network.EthDevice
 	}
@@ -210,6 +211,10 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "NETWORK_DEVICE",
 							Value: netDevice,
+						},
+						{
+							Name:  "NET_GATEWAY",
+							Value: gateway,
 						},
 						{
 							Name:  "UDP_MODE",
