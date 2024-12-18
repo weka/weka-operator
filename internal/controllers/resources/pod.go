@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strconv"
 	"strings"
@@ -1014,13 +1016,24 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	clusterId := f.container.GetParentClusterId()
 	if f.container.IsAllocatable() && !f.container.Spec.NoAffinityConstraints {
 		term := corev1.PodAffinityTerm{
-			LabelSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"weka.io/cluster-id": clusterId,
-					"weka.io/mode":       f.container.Spec.Mode,
+			LabelSelector: &metav1.LabelSelector{},
+			TopologyKey:   "kubernetes.io/hostname",
+		}
+		if !f.container.IsProtocolContainer() {
+			// S3: we dont want to allow more then one s3 container per node
+			// Other types of containers we validate to be once for cluster
+			term.LabelSelector.MatchLabels = client.MatchingLabels{
+				domain.WekaLabelClusterId: clusterId,
+				domain.WekaLabelMode:      f.container.Spec.Mode,
+			}
+		} else {
+			term.LabelSelector.MatchExpressions = []metav1.LabelSelectorRequirement{
+				{
+					Key:      domain.WekaLabelMode,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   domain.ContainerModesWithFrontend,
 				},
-			},
-			TopologyKey: "kubernetes.io/hostname",
+			}
 		}
 
 		// generalize above code using mode

@@ -5,7 +5,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,7 +21,8 @@ type K8sOwnerRef struct {
 type KubeService interface {
 	GetNode(ctx context.Context, nodeName types.NodeName) (*v1.Node, error)
 	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
-	GetPods(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error)
+	GetPodsSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error)
+	GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
 	EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error
 }
@@ -34,7 +37,55 @@ type ApiKubeService struct {
 	Client client.Client
 }
 
-func (s *ApiKubeService) GetPods(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error) {
+type GetPodsOptions struct {
+	Namespace string
+	Node      string
+	Labels    map[string]string
+	LabelsIn  map[string][]string
+}
+
+func (s *ApiKubeService) GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error) {
+	pods := &v1.PodList{}
+
+	listOptions := []client.ListOption{}
+
+	// Create a list of options to pass to the List method
+	if options.Namespace != "" {
+		listOptions = []client.ListOption{
+			client.InNamespace(options.Namespace),
+		}
+	}
+
+	if len(options.Labels) != 0 {
+		listOptions = append(listOptions, client.MatchingLabels(options.Labels))
+	}
+
+	// Add node name filtering if the node parameter is not empty
+	if options.Node != "" {
+		listOptions = append(listOptions, client.MatchingFields{"spec.nodeName": options.Node})
+	}
+
+	if len(options.LabelsIn) != 0 {
+		selector := labels.NewSelector()
+		for k, v := range options.LabelsIn {
+			req, err := labels.NewRequirement(k, selection.In, v)
+			if err != nil {
+				return nil, err
+			}
+			selector = selector.Add(*req)
+		}
+		listOptions = append(listOptions, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	// List the pods with the given options
+	err := s.Client.List(ctx, pods, listOptions...)
+	if err != nil {
+		return []v1.Pod{}, err
+	}
+	return pods.Items, nil
+}
+
+func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error) {
 	pods := &v1.PodList{}
 
 	// Create a list of options to pass to the List method
