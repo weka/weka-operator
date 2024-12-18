@@ -2,9 +2,10 @@ package util
 
 import (
 	"cmp"
-	"golang.org/x/exp/maps"
 	"iter"
 	"slices"
+
+	"golang.org/x/exp/maps"
 )
 
 func MapOrdered[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
@@ -28,6 +29,17 @@ func MergeMaps(originalMap map[string]string, newMap map[string]string) map[stri
 	}
 	for k, v := range newMap {
 		retMap[k] = v
+	}
+	return retMap
+}
+
+// MapMissingItems returns a map containing the items that are in the newMap but not in the originalMap
+func MapMissingItems(originalMap map[string]string, newMap map[string]string) map[string]string {
+	retMap := make(map[string]string)
+	for k, v := range newMap {
+		if _, ok := originalMap[k]; !ok {
+			retMap[k] = v
+		}
 	}
 	return retMap
 }

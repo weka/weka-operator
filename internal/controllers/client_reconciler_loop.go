@@ -201,6 +201,33 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 			if err != nil {
 				return errors.Wrap(err, "failed to create weka container")
 			}
+		} else if err == nil {
+			// container already exists, but we did not have it in our nodeToContainer map
+			// try to update labels
+			err := c.updateClientLabels(ctx, wekaContainer, found)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected, found *v1alpha1.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	missingLabels := util2.MapMissingItems(found.Labels, expected.Labels)
+	// if there are missing labels, we need to update the client
+	if len(missingLabels) > 0 {
+		logger.Info("Updating client missing labels", "client", found.Name)
+		for k, v := range missingLabels {
+			found.Labels[k] = v
+		}
+		err := c.Update(ctx, found)
+		if err != nil {
+			err = fmt.Errorf("failed to update client %s labels: %w", found.Name, err)
+			return err
 		}
 	}
 	return nil
