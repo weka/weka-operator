@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"io"
 	"net/http"
 	"slices"
@@ -2012,10 +2013,26 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		lock.Lock()
 		defer lock.Unlock()
 
-		pods, err := r.KubeService.GetPods(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
-		if err != nil {
-			return err
+		pods := []v1.Pod{}
+		var err error = nil
+		if !r.container.IsProtocolContainer() {
+			pods, err = r.KubeService.GetPodsSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
+			if err != nil {
+				return err
+			}
+		} else {
+			pods, err = r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
+				Node: node,
+				LabelsIn: map[string][]string{
+					// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
+					// There is also a possible gap of deploying clients on top of S3
+					// But since we do want to allow multiple clients to multiple clusters it becomes much complex
+					// So  for now mostly solving case of scheduling of protocol on top of clients, and protocol on top of another protocol
+					domain.WekaLabelMode: domain.ContainerModesWithFrontend,
+				},
+			})
 		}
+
 		for _, pod := range pods {
 			if pod.UID == r.pod.UID {
 				continue // that's us, skipping
@@ -2607,7 +2624,7 @@ func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Po
 	if err != nil {
 		return nil, err
 	}
-	pods, err := r.KubeService.GetPods(ctx, ns, r.node.Name, map[string]string{
+	pods, err := r.KubeService.GetPodsSimple(ctx, ns, r.node.Name, map[string]string{
 		"app.kubernetes.io/component": "weka-node-agent",
 	})
 	if err != nil {

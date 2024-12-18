@@ -20,11 +20,11 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	role, name string,
 ) (*wekav1alpha1.WekaContainer, error) {
 	labels := map[string]string{
-		"app":                  "weka",
-		"weka.io/cluster-id":   string(cluster.UID),
-		"weka.io/mode":         role, // in addition to spec for indexing on k8s side for filtering by mode
-		"weka.io/cluster-name": cluster.Name,
+		"app":                     "weka",
+		domain.WekaLabelClusterId: string(cluster.UID),
+		domain.WekaLabelMode:      role, // in addition to spec for indexing on k8s side for filtering by mode
 	}
+
 	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
 
 	var hugePagesNum int
