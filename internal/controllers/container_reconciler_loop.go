@@ -14,7 +14,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
@@ -35,6 +34,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -245,14 +245,18 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.handleImageUpdate,
+				Condition:  condition.CondContainerImageUpdated,
+				CondReason: "ImageUpdate",
+				Run:        loop.handleImageUpdate,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return container.Spec.Image != container.Status.LastAppliedImage
+						return container.Status.LastAppliedImage != ""
 					},
+					loop.IsNotAlignedImage,
 					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
 				ContinueOnPredicatesFalse: true,
+				SkipOwnConditionCheck:     true,
 			},
 			{
 				Run: loop.EnsureDrivers,
@@ -730,7 +734,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	}
 
 	// upgrade detected
-	if container.Spec.Image != container.Status.LastAppliedImage {
+	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
 		var wekaPodContainer v1.Container
 		wekaPodContainer, err := r.getWekaPodContainer(pod)
 		if err != nil {
@@ -843,20 +847,6 @@ func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
 func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	if r.container.Status.Conditions == nil {
 		r.container.Status.Conditions = []metav1.Condition{}
-	}
-
-	changes := false
-
-	if r.container.Status.LastAppliedImage == "" {
-		r.container.Status.LastAppliedImage = r.container.Spec.Image
-		changes = true
-	}
-
-	if changes {
-		err := r.Status().Update(ctx, r.container)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -1363,6 +1353,9 @@ func (r *containerReconcilerLoop) setNodeAffinity(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	container := r.container
 
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
@@ -1374,7 +1367,15 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx)
+	image := container.Spec.Image
+	// do not create pod with spec image if we know in advance that we cannot upgrade
+	canUpgrade, err := r.upgradeConditionsPass(ctx)
+	if err != nil || !canUpgrade {
+		logger.Info("Cannot upgrade to new image, using last applied", "image", image, "error", err)
+		image = container.Status.LastAppliedImage
+	}
+
+	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
@@ -1486,6 +1487,9 @@ func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	if r.node == nil {
 		return errors.New("node not found")
 	}
@@ -1493,6 +1497,13 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	details := r.container.ToContainerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
 		details.Image = r.container.Spec.DriversLoaderImage
+	} else if r.IsNotAlignedImage() {
+		// do not create pod with spec image if we know in advance that we cannot upgrade
+		canUpgrade, err := r.upgradeConditionsPass(ctx)
+		if err != nil || !canUpgrade {
+			logger.Info("Cannot upgrade to new image, using last applied", "image", details.Image, "error", err)
+			details.Image = r.container.Status.LastAppliedImage
+		}
 	}
 
 	if !operations.DriversLoaded(r.node, details.Image, r.container.HasFrontend()) {
@@ -1503,6 +1514,8 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	} else {
 		return nil
 	}
+
+	logger.Info("Loading drivers", "image", details.Image)
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
 	err := operations.ExecuteOperation(ctx, driversLoader)
@@ -1811,6 +1824,109 @@ func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) er
 	return nil
 }
 
+func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
+	pods, err := r.getNodeAgentPods(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pods) == 0 {
+		err := errors.New("no node agent pods found")
+		return nil, err
+	}
+
+	pod := pods[0]
+
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		err = errors.Wrap(err, "error getting node agent token")
+		return nil, err
+	}
+
+	url := "http://" + pod.Status.PodIP + ":8090/getActiveMounts"
+
+	resp, err := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		err = errors.Wrap(err, "error sending getActiveMountsget request")
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		err := errors.New("getActiveMounts request failed")
+		return nil, err
+	}
+
+	var activeMountsResp struct {
+		ActiveMounts int `json:"active_mounts"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&activeMountsResp)
+	if err != nil {
+		err = errors.Wrap(err, "error decoding response")
+		return nil, err
+	}
+
+	return &activeMountsResp.ActiveMounts, nil
+}
+
+func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bool, error) {
+	// Necessary conditions for FE upgrade:
+	// 1. all FE containers on single host should have same image
+	// 2. check active mounts == 0
+	if !r.container.HasFrontend() {
+		return true, nil
+	}
+
+	if r.container.Status.LastAppliedImage == "" {
+		// first time, no image to compare
+		return true, nil
+	}
+
+	if r.container.Spec.AllowForceUpgrade {
+		return true, nil
+	}
+
+	nodeName := r.container.GetNodeAffinity()
+	// get all frontend pods on same node
+	pods, err := r.getFrontendPodsOnNode(ctx, string(nodeName))
+	if err != nil {
+		return false, err
+	}
+
+	// check if all pods have same image
+	for _, pod := range pods {
+		for _, podContainer := range pod.Spec.Containers {
+			if r.pod != nil && pod.UID == r.pod.UID {
+				// skip self
+				continue
+			}
+			if podContainer.Name == "weka-container" {
+				if podContainer.Image != r.container.Spec.Image {
+					err := fmt.Errorf("pod %s on same node %s has different image %s", pod.Name, nodeName, podContainer.Image)
+					return false, err
+				}
+			}
+		}
+	}
+
+	// do not check active mounts for s3 containers
+	if r.container.IsS3Container() {
+		return true, nil
+	}
+
+	activeMounts, err := r.getActiveMounts(ctx)
+	if err != nil {
+		err = fmt.Errorf("error getting active mounts: %w", err)
+		return false, err
+	}
+
+	if *activeMounts != 0 {
+		err := fmt.Errorf("active mounts: %d", *activeMounts)
+		return false, err
+	}
+
+	return true, nil
+}
+
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImageUpdate")
 	defer end()
@@ -1824,8 +1940,14 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	}
 
 	if container.Spec.Image != container.Status.LastAppliedImage {
+		canUpgrade, err := r.upgradeConditionsPass(ctx)
+		if err != nil || !canUpgrade {
+			err := fmt.Errorf("cannot upgrade: %w", err)
+			return err
+		}
+
 		var wekaPodContainer v1.Container
-		wekaPodContainer, err := r.getWekaPodContainer(pod)
+		wekaPodContainer, err = r.getWekaPodContainer(pod)
 		if err != nil {
 			return err
 		}
@@ -1849,7 +1971,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 					return err
 				}
 			}
-			if container.Spec.Mode == "client" && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
+			if container.Spec.Mode == weka.WekaContainerModeClient && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
 				// leaving client delete operation to user and we will apply lastappliedimage if pod got restarted
 				return nil
 			}
@@ -2014,24 +2136,18 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		lock.Lock()
 		defer lock.Unlock()
 
-		pods := []v1.Pod{}
-		var err error = nil
+		var pods []v1.Pod
+		var err error
 		if !r.container.IsProtocolContainer() {
 			pods, err = r.KubeService.GetPodsSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
 			if err != nil {
 				return err
 			}
 		} else {
-			pods, err = r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
-				Node: node,
-				LabelsIn: map[string][]string{
-					// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
-					// There is also a possible gap of deploying clients on top of S3
-					// But since we do want to allow multiple clients to multiple clusters it becomes much complex
-					// So  for now mostly solving case of scheduling of protocol on top of clients, and protocol on top of another protocol
-					domain.WekaLabelMode: domain.ContainerModesWithFrontend,
-				},
-			})
+			pods, err = r.getFrontendPodsOnNode(ctx, node)
+			if err != nil {
+				return err
+			}
 		}
 
 		for _, pod := range pods {
@@ -2062,6 +2178,19 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 	r.container.Status.NodeAffinity = weka.NodeName(node)
 	logger.Info("binding to node", "node", node, "container_name", r.container.Name)
 	return r.Status().Update(ctx, r.container)
+}
+
+func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nodeName string) ([]v1.Pod, error) {
+	return r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
+		Node: nodeName,
+		LabelsIn: map[string][]string{
+			// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
+			// There is also a possible gap of deploying clients on top of S3
+			// But since we do want to allow multiple clients to multiple clusters it becomes much complex
+			// So  for now mostly solving case of scheduling of protocol on top of clients, and protocol on top of another protocol
+			domain.WekaLabelMode: domain.ContainerModesWithFrontend,
+		},
+	})
 }
 
 func (r *containerReconcilerLoop) handleWekaLocalPsResponse(ctx context.Context, stdout []byte, psErr error) (response []resources.WekaLocalPs, err error) {

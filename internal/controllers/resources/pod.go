@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/domain"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 
@@ -66,10 +67,15 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 	}
 }
 
-func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
+func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
+	// if podImage is not nil, use it instead of the image from the container spec
+	// NOTE: used for the cases when it's not allowed to upgrade weka image
+	if podImage != nil {
+		image = *podImage
+	}
 
 	imagePullSecrets := []corev1.LocalObjectReference{}
 	if f.container.Spec.ImagePullSecret != "" {
