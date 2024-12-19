@@ -10,6 +10,10 @@ func GetContainerNetwork(selector wekav1alpha1.NetworkSelector) (wekav1alpha1.Ne
 	// Network selector might be "Aws" or "auto" and that will prepare EthDevice for container-level, which will be simpler
 	if selector.EthDevice != "" {
 		network.EthDevice = selector.EthDevice
+		// TODO: Convert single device to a reuse of a list of devices instead of double handling
+	}
+	if len(selector.EthDevices) > 0 {
+		network.EthDevices = selector.EthDevices
 	}
 	if selector.UdpMode {
 		network.UdpMode = true

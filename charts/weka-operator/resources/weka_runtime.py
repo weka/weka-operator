@@ -902,12 +902,10 @@ async def create_container():
             join_secret_flag = "--join-token"
         join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
 
-    net_str = f"--net {NETWORK_DEVICE}"
     if "aws_" in NETWORK_DEVICE:
         devices = NETWORK_DEVICE.split(",")
         devices = [await resolve_aws_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
-
     elif is_rhcos():
         # Weka does not know how to resolve the network device when address is assigned via DHCP etc.
         # and we want to limit this behavior only to RHCOS now.
@@ -915,6 +913,10 @@ async def create_container():
         devices = NETWORK_DEVICE.split(",")
         devices = [await resolve_dhcp_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
+    elif ',' in NETWORK_DEVICE:
+        net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
+    else:
+        net_str = f"--net {NETWORK_DEVICE}"
 
     failure_domain = FAILURE_DOMAIN
 
