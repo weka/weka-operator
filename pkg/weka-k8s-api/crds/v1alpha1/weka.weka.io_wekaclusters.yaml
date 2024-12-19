@@ -187,6 +187,10 @@ spec:
                 properties:
                   ethDevice:
                     type: string
+                  ethDevices:
+                    items:
+                      type: string
+                    type: array
                   ethSlots:
                     items:
                       type: string

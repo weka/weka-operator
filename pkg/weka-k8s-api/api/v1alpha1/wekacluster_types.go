@@ -35,10 +35,11 @@ const (
 )
 
 type NetworkSelector struct {
-	EthSlots  []string `json:"ethSlots,omitempty"`
-	EthDevice string   `json:"ethDevice,omitempty"`
-	Gateway   string   `json:"gateway,omitempty"`
-	UdpMode   bool     `json:"udpMode,omitempty"`
+	EthSlots   []string `json:"ethSlots,omitempty"`
+	EthDevice  string   `json:"ethDevice,omitempty"`
+	EthDevices []string `json:"ethDevices,omitempty"`
+	Gateway    string   `json:"gateway,omitempty"`
+	UdpMode    bool     `json:"udpMode,omitempty"`
 }
 
 type AdditionalMemory struct {
