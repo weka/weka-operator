@@ -1852,6 +1852,11 @@ func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			err := errors.New("wekafs driver not found")
+			return nil, err
+		}
+
 		err := errors.New("getActiveMounts request failed")
 		return nil, err
 	}
@@ -1914,12 +1919,12 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 	}
 
 	activeMounts, err := r.getActiveMounts(ctx)
-	if err != nil {
+	if err != nil && err.Error() != "wekafs driver not found" {
 		err = fmt.Errorf("error getting active mounts: %w", err)
 		return false, err
 	}
 
-	if *activeMounts != 0 {
+	if activeMounts != nil && *activeMounts != 0 {
 		err := fmt.Errorf("active mounts: %d", *activeMounts)
 		return false, err
 	}
@@ -1961,6 +1966,15 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			}
 			if container.HasFrontend() {
 				stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+				if err != nil && strings.Contains(stderr.String(), "No such file or directory") {
+					logger.Info("No wekafs driver found, force terminating pod")
+					err := r.writeAllowForceStopInstruction(ctx, pod, true)
+					if err != nil {
+						logger.Error(err, "Error writing allow force stop instruction")
+						return err
+					}
+					return r.Delete(ctx, pod)
+				}
 				if err != nil {
 					logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
 					return err

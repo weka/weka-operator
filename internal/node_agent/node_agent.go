@@ -503,6 +503,11 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	filePath := "/proc/wekafs/interface"
 
 	file, err := os.Open(filePath)
+	if err != nil && os.IsNotExist(err) {
+		// file does not exist, respond with not found
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		err = fmt.Errorf("failed to open file: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
