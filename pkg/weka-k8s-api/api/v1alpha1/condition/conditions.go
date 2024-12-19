@@ -34,5 +34,6 @@ const (
 	CondRemovedFromS3Cluster         = "RemovedFromS3Cluster"
 	CondS3ClusterDestroyed           = "S3ClusterDestroyed"
 	CondContainerAffinitySet         = "ContainerAffinitySet"
+	CondContainerImageUpdated        = "ContainerImageUpdated"
 	CondClusterReady                 = "ClusterIsReady"
 )

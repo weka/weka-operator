@@ -1011,6 +1011,10 @@ spec:
                 type: object
               agentPort:
                 type: integer
+              allowForceUpgrade:
+                description: skip checks that should pass before updating applied
+                  image
+                type: boolean
               coreIds:
                 items:
                   type: integer
