@@ -3,9 +3,9 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"sigs.k8s.io/controller-runtime/pkg/client"

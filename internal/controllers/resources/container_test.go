@@ -63,7 +63,7 @@ func TestCreate(t *testing.T) {
 	}
 	defer shutdown(ctx)
 
-	pod, err := factory.Create(ctx)
+	pod, err := factory.Create(ctx, nil)
 	if err != nil {
 		t.Errorf("FormCluster() returned error: %v", err)
 		return

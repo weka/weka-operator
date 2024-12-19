@@ -1,10 +1,19 @@
 package node_agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -17,13 +26,7 @@ import (
 	"golang.org/x/exp/rand"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"net"
-	"net/http"
-	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"slices"
-	"sync"
-	"time"
 )
 
 type NodeAgent struct {
@@ -117,6 +120,7 @@ func (a *NodeAgent) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", a.metricsHandler)
 	mux.HandleFunc("/getContainerInfo", a.getContainerInfo) // TODO: Implement this and replace in-container-reconcile exec with polling this endpoint
+	mux.HandleFunc("/getActiveMounts", a.getActiveMounts)
 	mux.HandleFunc("/register", a.registerHandler)
 
 	bindTo := config.Config.BindAddress.NodeAgent
@@ -336,7 +340,7 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 		return err
 	}
 
-	req, err := http.NewRequest("POST", "http://localhost/api/v1", bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1", bytes.NewReader(payloadBytes))
 	if err != nil {
 		return err
 	}
@@ -485,6 +489,53 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
+	_, logger, end := instrumentation.GetLogSpan(r.Context(), "GetActiveMounts")
+	defer end()
+
+	if a.validateAuth(w, r, logger) {
+		return
+	}
+
+	// path to driver interface file
+	filePath := "/proc/wekafs/interface"
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		err = fmt.Errorf("failed to open file: %w", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	var activeMounts int
+
+	// Create a scanner to read the file line by line
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Active mounts:") {
+			_, err := fmt.Sscanf(line, "Active mounts: %d", &activeMounts)
+			if err != nil {
+				err = fmt.Errorf("failed to parse active mounts: %w", err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		err = fmt.Errorf("failed to scan file: %w", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// write response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts})
 }
 
 func EnsureNodeAgentSecret(ctx context.Context, mgr ctrl.Manager) error {
