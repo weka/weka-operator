@@ -110,17 +110,33 @@ func main() {
 	case config.OperatorModeManager:
 		startAsManager(ctx, logger, deploymentIdentifier)
 	case config.OperatorModeNodeAgent:
-		startAsNodeAgent(ctx, logger, deploymentIdentifier)
+		startAsNodeAgent(ctx, logger)
 	default:
 		logger.Error(fmt.Errorf("unknown mode: %s", config.Config.Mode), "Failed to start operator")
 		os.Exit(1)
 	}
 }
 
-func startAsNodeAgent(ctx context.Context, logger logr.Logger, identifier string) {
-	//initialize node agent
+func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
+	// initialize node agent
 	agent := node_agent.NewNodeAgent(logger)
-	err := agent.Run(ctx)
+
+	httpServer, err := agent.ConfigureHttpServer(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to configure http server")
+		os.Exit(1)
+	}
+
+	go func() {
+		<-ctx.Done()
+		logger.Info("Received interrupt signal, shutting down")
+		if err := httpServer.Shutdown(ctx); err != nil {
+			logger.Error(err, "Failed to shutdown http server")
+			os.Exit(1)
+		}
+	}()
+
+	err = agent.Run(ctx, httpServer)
 	if err != nil {
 		logger.Error(err, "Failed to start node agent")
 		os.Exit(1)

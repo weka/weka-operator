@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
@@ -114,23 +116,57 @@ func NewNodeAgent(logger logr.Logger) *NodeAgent {
 	}
 }
 
-func (a *NodeAgent) Run(ctx context.Context) error {
-	//TODO: Explicit server struct and handling of ctx close to call server.Shutdown
-	// start http server
+func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				e := fmt.Errorf("panic: %v", err)
+				a.logger.Error(e, string(debug.Stack()))
+			}
+		}()
+		next.ServeHTTP(w, req)
+	})
+}
+
+func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
+	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
+		name := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
+		_, logger := instrumentation.GetLoggerForContext(r.Context(), &a.logger, name)
+
+		logger.V(0).Info("", "status", status, "size", size, "duration", duration)
+	})(next)
+}
+
+func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", a.metricsHandler)
 	mux.HandleFunc("/getContainerInfo", a.getContainerInfo) // TODO: Implement this and replace in-container-reconcile exec with polling this endpoint
 	mux.HandleFunc("/getActiveMounts", a.getActiveMounts)
 	mux.HandleFunc("/register", a.registerHandler)
 
+	// Use custom middleware to log requests and recover from panics
+	wrappedMux := a.PanicRecovery(a.LoggingMiddleware(mux))
+
 	bindTo := config.Config.BindAddress.NodeAgent
 	a.logger.Info("Server is binding to " + bindTo)
-	return http.ListenAndServe(bindTo, mux)
+
+	httpServer := &http.Server{
+		Addr:    bindTo,
+		Handler: wrappedMux,
+	}
+	return httpServer, nil
+}
+
+func (a *NodeAgent) Run(ctx context.Context, server *http.Server) error {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Request) {
-	ctx := request.Context()
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "Metrics")
+	ctx, logger, end := instrumentation.GetLogSpan(request.Context(), "Metrics")
 	defer end()
 	a.containersData.lock.RLock()
 	wg := sync.WaitGroup{}
@@ -196,7 +232,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 
 			processId, err := resources.NodeIdToProcessId(nodeIdStr)
 			if err != nil {
-				a.logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
+				logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
 				continue
 			}
 			processIdStr := fmt.Sprintf("%d", processId)
