@@ -59,14 +59,17 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 	for _, container := range containers {
 		// delete object
 		// check if not already being deleted
+		if !container.Status.SkipDeactivate {
+			container.Status.SkipDeactivate = true
+			err := r.Client.Status().Update(ctx, container)
+			if err != nil {
+				logger.Error(err, "Failed to update container status with skip deactivate", "container", container.Name)
+				return err
+			}
+		}
+
 		if container.GetDeletionTimestamp() != nil {
 			continue
-		}
-		container.Status.SkipDeactivate = true
-		err := r.Client.Status().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Failed to update container status with skip deactivate", "container", container.Name)
-			return err
 		}
 
 		err = r.Client.Delete(ctx, container)
