@@ -829,6 +829,15 @@ async def resolve_aws_net(device):
     return net
 
 
+async def resolve_ipv4_addr(device):
+    # example: "ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
+    cmd = f"ip addr show dev {device} | grep 'inet ' | awk '{{print $2}}' | cut -d/ -f1"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to get IP address for device {device}: {stderr}")
+    return stdout.decode('utf-8').strip()
+
+
 async def resolve_dhcp_net(device):
     def subnet_mask_to_prefix_length(subnet_mask):
         # Convert subnet mask to binary representation
@@ -1066,6 +1075,17 @@ async def ensure_weka_container():
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
     resources['auto_discovery_enabled'] = False
+    # TODO: support ipv6? up till this point we had no need of ipv6 knowledge in this context
+    if ',' in NETWORK_DEVICE and 'aws_' not in NETWORK_DEVICE:
+        # we might want to revert here to resources.json syntax at this point
+        # but does it have any info about management physical device(aka mlnx) that can be used for ha sharing nic accross processes?
+
+        # so, we might want to generalize explicit use of management ip, for now this is a first need
+        # if we use multiple physical network devices we want to use them in HA mode
+        # enumerating devices like this is only applicable to such physical environment in the moment,
+        # hence this is an only place that uses management ip for now
+        # TODO: support ipv6? up till this point we had no need of ipv6 knowledge in this context
+        resources["ips"] = [await resolve_ipv4_addr(device) for device in NETWORK_DEVICE.split(",")]
 
     cores_cursor = 0
     for node_id, node in resources['nodes'].items():
