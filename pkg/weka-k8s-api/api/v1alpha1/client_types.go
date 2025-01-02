@@ -91,9 +91,10 @@ type WekaClientSpec struct {
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	//DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version
-	WekaHomeConfig WekahomeClientConfig  `json:"wekaHomeConfig,omitempty"`
-	WekaHome       *WekahomeClientConfig `json:"wekaHome,omitempty"`
-	UpgradePolicy  UpgradePolicy         `json:"upgradePolicy,omitempty"`
+	WekaHomeConfig  WekahomeClientConfig  `json:"wekaHomeConfig,omitempty"`
+	WekaHome        *WekahomeClientConfig `json:"wekaHome,omitempty"`
+	UpgradePolicy   UpgradePolicy         `json:"upgradePolicy,omitempty"`
+	AllowHotUpgrade bool                  `json:"allowHotUpgrade,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient

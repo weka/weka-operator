@@ -122,9 +122,8 @@ type WekaContainerSpec struct {
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
 	// +kubebuilder:validation:Enum=active;paused
 	// +kubebuilder:default=active
-	State ContainerState `json:"state,omitempty"`
-	// skip checks that should pass before updating applied image
-	AllowForceUpgrade bool `json:"allowForceUpgrade,omitempty"`
+	State           ContainerState `json:"state,omitempty"`
+	AllowHotUpgrade bool           `json:"allowHotUpgrade,omitempty"`
 }
 
 type AWSNetwork struct {

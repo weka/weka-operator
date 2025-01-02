@@ -62,6 +62,8 @@ spec:
               agentPort:
                 description: if not set (0), weka will find a free port from the portRange
                 type: integer
+              allowHotUpgrade:
+                type: boolean
               coreIds:
                 items:
                   type: integer
