@@ -219,7 +219,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run: loop.handlePodTermination,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.PodNotSet),
-					loop.container.HasFrontend,
 					func() bool {
 						return loop.pod.DeletionTimestamp != nil
 					},
@@ -723,55 +722,116 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	pod := r.pod
 	container := r.container
 
-	// node drain or cordon detected
-	if node.Spec.Unschedulable {
-		logger.Info("Node is unschedulable")
-		err := r.writeNodeUnschedulableInstruction(ctx)
-		if err != nil {
-			return errors.Wrap(err, "Failed to write node-unschedulable instruction")
-		}
-		return nil
-	}
+	if container.HasFrontend() {
+		// node drain or cordon detected
+		if node.Spec.Unschedulable {
+			logger.Info("Node is unschedulable, checking active mounts")
 
-	// upgrade detected
-	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
-		var wekaPodContainer v1.Container
-		wekaPodContainer, err := r.getWekaPodContainer(pod)
-		if err != nil {
-			return err
-		}
-
-		if wekaPodContainer.Image != container.Spec.Image {
-			logger.Info("Upgrade detected")
-			err := r.writeUpgradeInstruction(ctx)
+			ok, err := r.noActiveMountsRestriction(ctx)
 			if err != nil {
-				return errors.Wrap(err, "Failed to write upgrade instruction")
+				return err
 			}
-			return nil
+			if !ok {
+				err := errors.New("Node is unschedulable and has active mounts")
+				return err
+			}
+		}
+
+		// upgrade detected
+		if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
+			var wekaPodContainer v1.Container
+			wekaPodContainer, err := r.getWekaPodContainer(pod)
+			if err != nil {
+				return err
+			}
+
+			if wekaPodContainer.Image != container.Spec.Image {
+				logger.Info("Upgrade detected")
+				err = r.runPrepareUpgrade(ctx)
+				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
+					logger.Info("No wekafs driver found, skip prepare-upgrade")
+				} else if err != nil {
+					return err
+				}
+			}
 		}
 	}
 
-	// nothing above is detected
-	logger.Info("Pod is terminating, writing allow force stop instruction")
-	err := r.writeAllowForceStopInstruction(ctx, pod, false)
+	err := r.writeAllowStopInstruction(ctx, pod)
 	if err != nil {
-		logger.Error(err, "Error writing allow force stop instruction")
+		logger.Error(err, "Error writing allow stop instruction")
 		return err
+	}
+
+	// stop weka local if container has agent
+	if r.container.HasAgent() {
+		// check instruction in pod
+		forceStop, err := r.checkAllowForceStopInstruction(ctx, pod)
+		if err != nil {
+			return err
+		}
+
+		logger.Debug("Stopping weka local", "force", forceStop)
+
+		if forceStop {
+			logger.Info("Force stop instruction found")
+			err = r.runWekaLocalStop(ctx, pod, true)
+		} else {
+			err = r.runWekaLocalStop(ctx, pod, false)
+		}
+
+		if err != nil {
+			logger.Error(err, "Error stopping weka local")
+			return err
+		}
 	}
 	return nil
 }
 
-func (r *containerReconcilerLoop) writeNodeUnschedulableInstruction(ctx context.Context) error {
-	pod := r.pod
+func (r *containerReconcilerLoop) checkAllowForceStopInstruction(ctx context.Context, pod *v1.Pod) (bool, error) {
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return false, err
+	}
 
+	_, _, err = executor.ExecNamed(ctx, "CheckAllowForceStop", []string{"bash", "-ce", "test -f /tmp/.allow-force-stop"})
+	if err != nil {
+		return false, nil
+	}
+	// if file exists, we can force stop
+	return true, nil
+}
+
+func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.Pod, force bool) error {
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
-
 	}
-	_, _, err = executor.ExecNamed(
-		ctx, "WriteNodeUnschedulableInstruction", []string{"bash", "-ce", "touch /tmp/.node-unschedulable"},
-	)
+
+	args := []string{"weka", "local", "stop"}
+
+	// TODO: remove later - temporary workaround for weka clients
+	// we need to use --force flag
+	if force || r.container.HasFrontend() {
+		args = append(args, "--force")
+	} else {
+		args = append(args, "-g")
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "WekaLocalStop", args)
+	if err != nil {
+		err = fmt.Errorf("error stopping weka local: %s, %v", stderr.String(), err)
+	}
+	return err
+}
+
+func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod) error {
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "container not found") {
 			return err
@@ -780,38 +840,13 @@ func (r *containerReconcilerLoop) writeNodeUnschedulableInstruction(ctx context.
 	return nil
 }
 
-func (r *containerReconcilerLoop) writeUpgradeInstruction(ctx context.Context) error {
-	pod := r.pod
-
+func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod) error {
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
-
-	}
-	_, _, err = executor.ExecNamed(
-		ctx, "WriteUpgradeInstruction", []string{"bash", "-ce", "touch /tmp/.upgrade-initiated"},
-	)
-	if err != nil {
-		if !strings.Contains(err.Error(), "container not found") {
-			return err
-		}
-	}
-	return nil
-}
-
-func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, killSignal bool) error {
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
-	if err != nil {
-		return err
-
 	}
 
-	cmd := "touch /tmp/.allow-force-stop"
-	if killSignal {
-		cmd = "touch /tmp/.allow-force-stop && kill 1"
-	}
-
-	_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", cmd})
+	_, _, err = executor.ExecNamed(ctx, "AllowStop", []string{"bash", "-ce", "touch /tmp/.allow-stop"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "container not found") {
 			return err
@@ -1285,9 +1320,18 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
 		// setting for forceful termination, as we are in container delete flow
 		logger.Info("Deleting pod", "pod", pod.Name)
-		err := r.writeAllowForceStopInstruction(ctx, pod, true)
+		err := r.writeAllowForceStopInstruction(ctx, pod)
 		if err != nil {
 			logger.Error(err, "Error writing allow force stop instruction")
+			return err
+		}
+	}
+
+	if r.container.HasAgent() {
+		logger.Debug("Force-stopping weka local")
+		err = r.runWekaLocalStop(ctx, pod, true)
+		if err != nil {
+			logger.Error(err, "Error force-stopping weka local")
 			return err
 		}
 	}
@@ -1299,57 +1343,6 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	}
 	logger.AddEvent("Pod deleted")
 	return lifecycle.NewWaitError(errors.New("Pod deleted, reconciling for retry"))
-}
-
-func (r *containerReconcilerLoop) setNodeAffinity(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	container := r.container
-	actualPod := r.pod
-
-	setAffinity := container.GetNodeAffinity()
-	if actualPod == nil && setAffinity == "" {
-		nodes, err := r.KubeService.GetNodes(ctx, container.Spec.NodeSelector)
-		if err != nil {
-			logger.Error(err, "Error getting nodes")
-			return err
-		}
-
-		if len(nodes) == 0 {
-			return errors.New("No nodes found")
-		}
-
-		// arbitrary select first node
-		// TODO: Select lowest utilziation instead
-		setAffinity = weka.NodeName(nodes[0].ObjectMeta.Name)
-		container.Status.NodeAffinity = setAffinity
-		err = r.Status().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error updating container status")
-			return err
-		}
-	}
-
-	if actualPod == nil {
-		if setAffinity != "" {
-			return nil
-		}
-	}
-
-	setAffinity = container.GetNodeAffinity()
-
-	if weka.NodeName(actualPod.Spec.NodeName) != setAffinity {
-		// Note: This makes an assumption on "never re-allocate" WekaContainer, i.e if there is a pod - pod knows better
-		container.Status.NodeAffinity = weka.NodeName(actualPod.Spec.NodeName)
-		err := r.Status().Update(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error updating container status")
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
@@ -1368,11 +1361,14 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	}
 
 	image := container.Spec.Image
-	// do not create pod with spec image if we know in advance that we cannot upgrade
-	canUpgrade, err := r.upgradeConditionsPass(ctx)
-	if err != nil || !canUpgrade {
-		logger.Info("Cannot upgrade to new image, using last applied", "image", image, "error", err)
-		image = container.Status.LastAppliedImage
+
+	if r.IsNotAlignedImage() {
+		// do not create pod with spec image if we know in advance that we cannot upgrade
+		canUpgrade, err := r.upgradeConditionsPass(ctx)
+		if err != nil || !canUpgrade {
+			logger.Info("Cannot upgrade to new image, using last applied", "image", image, "error", err)
+			image = container.Status.LastAppliedImage
+		}
 	}
 
 	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
@@ -1886,7 +1882,8 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 		return true, nil
 	}
 
-	if r.container.Spec.AllowForceUpgrade {
+	// skip all checks if hot upgrade is allowed
+	if r.container.Spec.AllowHotUpgrade {
 		return true, nil
 	}
 
@@ -1913,6 +1910,10 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 		}
 	}
 
+	return r.noActiveMountsRestriction(ctx)
+}
+
+func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context) (bool, error) {
 	// do not check active mounts for s3 containers
 	if r.container.IsS3Container() {
 		return true, nil
@@ -1960,15 +1961,11 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		if wekaPodContainer.Image != container.Spec.Image {
 			logger.Info("Deleting pod to apply new image")
 
-			executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
-			if err != nil {
-				return err
-			}
 			if container.HasFrontend() {
-				stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
-				if err != nil && strings.Contains(stderr.String(), "No such file or directory") {
+				err = r.runPrepareUpgrade(ctx)
+				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
-					err := r.writeAllowForceStopInstruction(ctx, pod, true)
+					err := r.writeAllowForceStopInstruction(ctx, pod)
 					if err != nil {
 						logger.Error(err, "Error writing allow force stop instruction")
 						return err
@@ -1976,12 +1973,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 					return r.Delete(ctx, pod)
 				}
 				if err != nil {
-					logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
-					return err
-				}
-				_, stderr, err = executor.ExecNamed(ctx, "WriteUpgradeInstruction", []string{"bash", "-ce", "touch /tmp/.upgrade-initiated"})
-				if err != nil {
-					logger.Error(err, "Error writing upgrade instruction", "stderr", stderr.String())
 					return err
 				}
 			}
@@ -1989,6 +1980,13 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				// leaving client delete operation to user and we will apply lastappliedimage if pod got restarted
 				return nil
 			}
+
+			err := r.writeAllowStopInstruction(ctx, pod)
+			if err != nil {
+				logger.Error(err, "Error writing allow stop instruction")
+				return err
+			}
+
 			// delete pod
 			err = r.Delete(ctx, pod)
 			if err != nil {
@@ -2002,6 +2000,31 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			logger.Info("Pod is being deleted, waiting")
 			return errors.New("Pod is being deleted, waiting")
 		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) runPrepareUpgrade(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runPrepareUpgrade")
+	defer end()
+
+	pod := r.pod
+
+	logger.Info("Running prepare upgrade")
+
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+	if err != nil && strings.Contains(stderr.String(), "No such file or directory") {
+		err = &NoWekaFsDriverFound{}
+		return err
+	}
+	if err != nil {
+		logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
 	}
 	return nil
 }
@@ -2493,10 +2516,6 @@ func (r *containerReconcilerLoop) updateDriversBuilderStatus(ctx context.Context
 
 func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 	return r.container.Status.LastAppliedImage != r.container.Spec.Image
-}
-
-func (r *containerReconcilerLoop) IsManualUpgradeMode() bool {
-	return r.container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual
 }
 
 func (r *containerReconcilerLoop) ensurePodNotRunningState(ctx context.Context) error {

@@ -321,6 +321,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			AdditionalMemory:    wekaClient.Spec.AdditionalMemory,
 			AdditionalSecrets:   additionalSecrets,
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
+			AllowHotUpgrade:     wekaClient.Spec.AllowHotUpgrade,
 			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
 		},
 	}
@@ -527,6 +528,7 @@ type UpdatableClientSpec struct {
 	WekaSecretRef      string
 	AdditionalMemory   int
 	UpgradePolicy      v1alpha1.UpgradePolicy
+	AllowHotUpgrade    bool
 	DriversLoaderImage string
 	Port               int
 	AgentPort          int
@@ -543,6 +545,7 @@ func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec) *UpdatableClientSpec 
 		WekaSecretRef:      spec.WekaSecretRef,
 		AdditionalMemory:   spec.AdditionalMemory,
 		UpgradePolicy:      spec.UpgradePolicy,
+		AllowHotUpgrade:    spec.AllowHotUpgrade,
 		DriversLoaderImage: spec.DriversLoaderImage,
 		Port:               spec.Port,
 		AgentPort:          spec.AgentPort,

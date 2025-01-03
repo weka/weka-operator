@@ -2006,40 +2006,11 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
 
 async def wait_for_shutdown_instruction():
     while True:
-        if exists("/tmp/.pre-shutdown-script"):
-            logging.info("Received 'pre-shutdown-script' instruction")
-            # execute pre-shutdown script
-            _, stderr, ec = await run_command("sh /tmp/.pre-shutdown-script", capture_stdout=False)
-            if ec == 0:
-                logging.info("Pre-shutdown script executed successfully, removing the instruction file")
-                os.remove("/tmp/.pre-shutdown-script")
-            else:
-                logging.error(f"Failed to execute pre-shutdown script: {stderr}")
-                await asyncio.sleep(5)
-                continue
         if exists("/tmp/.allow-force-stop"):
             logging.info("Received 'allow-force-stop' instruction")
             return
-        if exists("/tmp/.upgrade-initiated"):
-            logging.info("Received 'upgrade-initiated' instruction")
-            #TODO: Might be not needed in 4.4.1
-            stdout, stderr, ec = await run_command("echo prepare-upgrade > /proc/wekafs/interface", capture_stdout=False)
-            if ec != 0:
-                logging.error(f"Failed to prepare for upgrade: {stderr}")
-                await asyncio.sleep(5)
-                continue
-            return
-        if exists("/tmp/.node-unschedulable"):
-            logging.info("Received 'node-unschedulable' instruction")
-
-            active_mounts = get_active_mounts()
-            logging.info(f"Active mounts: {active_mounts}")
-            if active_mounts > 0:
-                logging.info("Active mounts detected, waiting for them to be unmounted")
-                await asyncio.sleep(5)
-                continue
-
-            logging.info("No active mounts detected, proceeding with shutdown")
+        if exists("/tmp/.allow-stop"):
+            logging.info("Received 'allow-stop' instruction")
             return
 
         logging.info("Waiting for shutdown instruction...")
@@ -2055,16 +2026,14 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
-    if MODE in ["client", "s3", "nfs"]:
-        await wait_for_shutdown_instruction()
-
     if MODE not in ["drivers-loader", "discovery"]:
+        if MODE in ["client", "s3", "nfs", "drive", "compute"]:
+            await wait_for_shutdown_instruction()
+
         force_stop = False
         if exists("/tmp/.allow-force-stop"):
             force_stop = True
         if is_wrong_generation():
-            force_stop = True
-        if "4.2.7.64" in IMAGE_NAME:
             force_stop = True
         if MODE not in ["s3", "drive", "compute", "nfs"]:
             force_stop = True
