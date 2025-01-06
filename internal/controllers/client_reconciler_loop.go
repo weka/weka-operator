@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -288,6 +290,8 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 	}
 	labels := util2.MergeMaps(wekaClient.ObjectMeta.GetLabels(), containerLabels)
 
+	name := allocator.NewContainerName(v1alpha1.WekaContainerModeClient)
+
 	container := &v1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -305,7 +309,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			PortRange:           portRange,
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
-			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
+			WekaContainerName:   strings.Replace(name, "-", "x", -1),
 			Mode:                v1alpha1.WekaContainerModeClient,
 			NumCores:            numCores,
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
