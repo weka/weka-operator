@@ -73,6 +73,7 @@ rules:
   - get
   - list
   - update
+  - watch
 - apiGroups:
   - metrics.k8s.io
   resources:
