@@ -9,6 +9,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -81,6 +82,12 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
+	// NOTE: throttling map should be initialized before we define ReconciliationSteps,
+	// otherwise the throttling will not work as expected
+	if loop.cluster.Status.Timestamps == nil {
+		loop.cluster.Status.Timestamps = make(map[string]v1.Time)
+	}
+
 	//// TODO: This seems buggy, lots of lost spans, dropped for now, needs re-visit
 	//ctx, err = r.GetProvisionContext(ctx, loop.cluster)
 	//if err != nil {
@@ -100,9 +107,6 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		Conditions:    &loop.cluster.Status.Conditions,
 		ThrottlingMap: loop.cluster.Status.Timestamps,
 		Steps: []lifecycle.Step{
-			{
-				Run: loop.InitStatuses,
-			},
 			{
 				Run: loop.getCurrentContainers,
 			},

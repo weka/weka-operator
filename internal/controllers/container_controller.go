@@ -16,6 +16,7 @@ import (
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -92,6 +93,12 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	// NOTE: throttling map should be initialized before we define ReconciliationSteps,
+	// otherwise the throttling will not work as expected
+	if container.Status.Timestamps == nil {
+		container.Status.Timestamps = make(map[string]metav1.Time)
 	}
 
 	logger.SetValues("mode", container.Spec.Mode, "uuid", string(container.GetUID()))

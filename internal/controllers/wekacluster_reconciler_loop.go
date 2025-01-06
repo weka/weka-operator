@@ -1509,19 +1509,6 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) InitStatuses(ctx context.Context) error {
-	// Not refactoring into initState as they work differently, state working with finalizer and making it order-dependant with deletion
-	// while things that should just be initialized to work with, like this map, can be be always safely done in the beginning
-	if r.cluster.Status.Timestamps == nil {
-		r.cluster.Status.Timestamps = make(map[string]metav1.Time)
-	} else {
-		// cleanup old names
-		delete(r.cluster.Status.Timestamps, "func6") // this was dev artifact, however can be used in future if we drop some timestamp from accounting, to keep custom resource clean
-	}
-
-	return nil
-}
-
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
 	// TODO: Re-wrap as operation
 	labels := map[string]string{

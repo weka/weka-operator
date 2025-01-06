@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"io"
 	"net/http"
 	"slices"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
@@ -123,9 +123,10 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 	loop.container = container
 
 	return lifecycle.ReconciliationSteps{
-		Client:       loop.Client,
-		StatusObject: loop.container,
-		Conditions:   &loop.container.Status.Conditions,
+		Client:        loop.Client,
+		StatusObject:  loop.container,
+		ThrottlingMap: loop.container.Status.Timestamps,
+		Conditions:    &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},
 			{
