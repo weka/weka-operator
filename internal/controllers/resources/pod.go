@@ -53,6 +53,8 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
+const globalPersistenceMountPath = "/opt/weka-global-persistence"
+
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
@@ -193,6 +195,10 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 						{
 							Name:  "AGENT_PORT",
 							Value: strconv.Itoa(f.container.GetAgentPort()),
+						},
+						{
+							Name:  "WEKA_CONTAINER_ID",
+							Value: string(f.container.GetUID()),
 						},
 						{
 							Name:  "NAME",
@@ -344,21 +350,27 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			Name:      "weka-container-persistence-dir",
 			MountPath: containerPathPersistence,
 		})
+
+		// TODO: For now we are keeping ephmeral /opt/k8s-weka data along with global
+
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
 			MountPath: "/var/log",
 			SubPath:   "var/log",
 		})
+
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
 			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/boot-level",
 			SubPath:   "tmpfss/boot-level",
 		})
+
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-cluster-persistence-dir",
 			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/node-cluster",
 			SubPath:   "shared-configs",
 		})
+
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-container-persistence-dir",
 			VolumeSource: corev1.VolumeSource{
@@ -368,6 +380,7 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 				},
 			},
 		})
+
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-cluster-persistence-dir",
 			VolumeSource: corev1.VolumeSource{
@@ -382,6 +395,26 @@ func (f *PodFactory) Create(ctx context.Context) (*corev1.Pod, error) {
 			Value: containerPathPersistence,
 		})
 
+		if config.Config.LocalDataPvc != "" {
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "weka-container-global-persistence-dir",
+				MountPath: globalPersistenceMountPath,
+			})
+			// Global PVC for all weka nodes
+			pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+				Name: "weka-container-global-persistence-dir",
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: config.Config.LocalDataPvc,
+					},
+				},
+			})
+			// lets inform runtime via env var on expected behaviour
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "WEKA_PERSISTENCE_MODE",
+				Value: "global",
+			})
+		}
 	}
 
 	if f.container.IsDiscoveryContainer() {

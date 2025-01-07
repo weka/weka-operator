@@ -45,13 +45,20 @@ OS_NAME_REDHAT_COREOS = "rhcos"
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
 
+WEKA_CONTAINER_ID = os.environ.get("WEKA_CONTAINER_ID", "")
 WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
+WEKA_PERSISTENCE_MODE = os.environ.get("WEKA_PERSISTENCE_MODE", "global")
+WEKA_PERSISTENCE_GLOBAL_DIR = "/opt/weka-global-persistence"
+if WEKA_PERSISTENCE_MODE == "global":
+    WEKA_PERSISTENCE_DIR = os.path.join(WEKA_PERSISTENCE_GLOBAL_DIR, "containers", WEKA_CONTAINER_ID)
+
 
 WEKA_COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
 WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING",
                                                                "false") == "true" else False
 WEKA_COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
 WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_COUNT", 4000))
+
 
 AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
@@ -87,7 +94,7 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str) -> List[str]:
 
     if not vendor_id or not device_id:
         raise ValueError("Vendor ID and Device ID are required")
-    
+
     cmd = f"lspci -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
@@ -680,7 +687,7 @@ def find_full_cores(n):
 
 async def await_agent():
     start = time.time()
-    agent_timeout = 60
+    agent_timeout = 60 if WEKA_PERSISTENCE_MODE!="global" else 1500 # global usually is remote storage and pre-create of logs file might take much longer
     while start + agent_timeout > time.time():
         _, _, ec = await run_command("weka local ps")
         if ec == 0:
@@ -935,7 +942,7 @@ async def create_container():
     if ec != 0:
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
-    
+
 
 async def configure_traces():
     # {
@@ -1564,11 +1571,11 @@ async def is_port_free(port: int) -> bool:
 
             logging.error(f"Failed to bind to port {port}: {e}")
             return False
-    
+
 
 async def get_free_subrange_in_port_range(
-    base_port: int, 
-    max_port: int, 
+    base_port: int,
+    max_port: int,
     subrange_size: int,
     exclude_ports: Optional[List[int]] = None
 ) -> Tuple[int, int]:
@@ -1619,7 +1626,7 @@ async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[L
         if await is_port_free(port):
             logging.info(f"Found free port: {port}")
             return port
-        
+
     raise RuntimeError(f"Failed to find free port in range {base_port}-{max_port}")
 
 
@@ -1630,7 +1637,7 @@ async def ensure_client_ports():
     if parse_port(PORT) > 0 and parse_port(AGENT_PORT) > 0:  # we got resources via env, so no need to wait here
         await save_weka_ports_data()
         return
-    
+
     base_port = parse_port(BASE_PORT)
     port_range = parse_port(PORT_RANGE)
     assert base_port > 0, "BASE_PORT is not set"
@@ -1677,7 +1684,7 @@ async def wait_for_resources():
 
     if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy']:
         return
-    
+
     logging.info("waiting for controller to set resources")
 
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
@@ -1697,7 +1704,7 @@ async def wait_for_resources():
         PORT = data["wekaPort"]
     if parse_port(AGENT_PORT) == 0:
         AGENT_PORT = data["agentPort"]
-    
+
     await save_weka_ports_data()
 
 
@@ -1916,18 +1923,18 @@ async def main():
 async def get_kernel_signature(weka_pack_supported=False, weka_drivers_handling=False):
     if not weka_drivers_handling:
         return ""
-    
+
     cmd = ""
     if weka_pack_supported:
         cmd = "weka driver kernel 2>&1 | awk '{printf \"%s\", $NF}'"
     else:
         # tr -d '\0' is needed to remove null character from the end of output
         cmd = "weka driver kernel-sig 2>&1 | awk '{printf \"%s\", $NF}' | tr -d '\\0'"
-    
+
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to get kernel signature: {stderr}")
-    
+
     res = stdout.decode().strip()
     assert res, "Kernel signature not found"
     return res
@@ -2031,14 +2038,14 @@ async def wait_for_shutdown_instruction():
                 logging.info("Active mounts detected, waiting for them to be unmounted")
                 await asyncio.sleep(5)
                 continue
-        
+
             logging.info("No active mounts detected, proceeding with shutdown")
             return
-        
+
         logging.info("Waiting for shutdown instruction...")
         await asyncio.sleep(5)
 
-    
+
 async def shutdown():
     global exiting
     while not (exiting or is_wrong_generation()):

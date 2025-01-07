@@ -58,12 +58,18 @@ spec:
       volumes:
         - name: tmpdir
           emptyDir: { }
-        - name: weka-persistence
-          hostPath:
-            path: {{ .Values.nodeAgent.persistencePaths }}
         - name: token
           secret:
               secretName: "weka-node-agent-secret"
+        {{if not (empty .Values.localDataPvc)}}
+        - name: weka-persistence
+          persistentVolumeClaim:
+            claimName: {{ .Values.localDataPvc }}
+        {{else}}
+        - name: weka-persistence
+          hostPath:
+            path: {{ .Values.nodeAgent.persistencePaths }}
+        {{end}}
 
       containers:
         - command:

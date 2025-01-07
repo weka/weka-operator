@@ -122,3 +122,5 @@ metrics:
   containers:
     enabled: true
     pollingRate: 60s
+localDataStorageClass: ""
+localDataPvc: ""
