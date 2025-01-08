@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -165,6 +166,20 @@ func (e RetryableError) Error() string {
 	return fmt.Sprintf("retryable error: %v, retry after: %s", e.Err, e.RetryAfter)
 }
 
+// ExpectedError is an error that is expected to happen during
+// reconciliation and should not result in step failure and retry.
+type ExpectedError struct {
+	Err error
+}
+
+func (e *ExpectedError) Error() string {
+	return fmt.Sprintf("expected error: %v", e.Err)
+}
+
+func NewExpectedError(err error) error {
+	return &ExpectedError{Err: err}
+}
+
 // -- ReconciliationSteps -------------------------------------------------------
 
 func (r *ReconciliationSteps) Run(ctx context.Context) error {
@@ -238,9 +253,19 @@ STEPS:
 		}
 
 		if err := step.Run(stepCtx); err != nil {
+			// if the error is not expected error, we should stop the reconciliation,
+			// otherwise - continue to the next step
+			var expectedError *ExpectedError
+			if errors.As(err, &expectedError) {
+				stepLogger.Error(err, "Expected error running step")
+				stepEnd()
+				continue STEPS
+			}
+
 			if step.Condition != "" {
 				setCondError := r.setConditions(stepCtx, metav1.Condition{
-					Type: step.Condition, Status: metav1.ConditionFalse,
+					Type:    step.Condition,
+					Status:  metav1.ConditionFalse,
 					Reason:  "Error",
 					Message: err.Error(),
 				})
@@ -270,7 +295,7 @@ STEPS:
 			}
 		}
 
-		// Update condition
+		// Update condition in case of success
 		if step.Condition != "" {
 			reason := step.CondReason
 			if reason == "" {
