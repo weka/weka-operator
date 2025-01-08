@@ -1497,7 +1497,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		// do not create pod with spec image if we know in advance that we cannot upgrade
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
-			logger.Info("Cannot upgrade to new image, using last applied", "image", details.Image, "error", err)
+			logger.Debug("Cannot upgrade to new image, using last applied", "image", details.Image, "error", err)
 			details.Image = r.container.Status.LastAppliedImage
 		}
 	}
@@ -1887,6 +1887,11 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 		return true, nil
 	}
 
+	ok, err := r.noActiveMountsRestriction(ctx)
+	if !ok || err != nil {
+		return false, err
+	}
+
 	nodeName := r.container.GetNodeAffinity()
 	// get all frontend pods on same node
 	pods, err := r.getFrontendPodsOnNode(ctx, string(nodeName))
@@ -1909,8 +1914,7 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 			}
 		}
 	}
-
-	return r.noActiveMountsRestriction(ctx)
+	return true, nil
 }
 
 func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context) (bool, error) {
@@ -1949,6 +1953,17 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
 			err := fmt.Errorf("cannot upgrade: %w", err)
+
+			// if we are in all-at-once upgrade mode, check if we already
+			// have CondContainerImageUpdated set to false with the same reason
+			// In this case, consider this as expected error
+			if container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeAllAtOnce {
+				cond := meta.FindStatusCondition(container.Status.Conditions, condition.CondContainerImageUpdated)
+				if cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == err.Error() {
+					return lifecycle.NewExpectedError(err)
+				}
+			}
+
 			return err
 		}
 

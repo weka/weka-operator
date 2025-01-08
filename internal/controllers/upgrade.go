@@ -53,7 +53,7 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 		}
 	}
 	if !u.AreUpgraded() {
-		return lifecycle.NewWaitError(errors.New("container upgrade not finished yet"))
+		return lifecycle.NewExpectedError(errors.New("container upgrade not finished yet"))
 	}
 	return nil
 }
