@@ -88,7 +88,6 @@ func (c *ClientController) GetClient(ctx context.Context, req ctrl.Request) (*we
 func (r *ClientController) SetupWithManager(mgr ctrl.Manager, wrappedReconiler reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaClient{}).
-		Owns(&wekav1alpha1.WekaContainer{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaClient}).
 		Complete(wrappedReconiler)
 }

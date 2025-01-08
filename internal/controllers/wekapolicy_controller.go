@@ -174,7 +174,6 @@ func (r *policyLoop) DurationTillNext() time.Duration {
 func (r *WekaPolicyReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&weka.WekaPolicy{}).
-		Owns(&weka.WekaContainer{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaPolicy}).
 		Complete(wrappedReconcile)
 }

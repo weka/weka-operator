@@ -192,7 +192,6 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *WekaManualOperationReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&weka.WekaManualOperation{}).
-		Owns(&weka.WekaContainer{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaManualOperation}).
 		Complete(wrappedReconcile)
 }

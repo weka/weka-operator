@@ -349,7 +349,6 @@ func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context,
 func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconcile reconcile.Reconciler) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&wekav1alpha1.WekaCluster{}).
-		Owns(&wekav1alpha1.WekaContainer{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaCluster}).
 		Complete(wrappedReconcile)
 }
