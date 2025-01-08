@@ -13,6 +13,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -77,7 +78,7 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetCurrentContainer", Run: o.GetCurrentContainers},
+		{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
 		{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: lifecycle.Predicates{o.imageHasChanged}, ContinueOnPredicatesFalse: true},
 		{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}, ContinueOnPredicatesFalse: true},
 		{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
@@ -159,24 +160,28 @@ func (o *LoadDrivers) UpdateContainerImage(ctx context.Context) error {
 	return nil
 }
 
-func (o *LoadDrivers) GetCurrentContainers(ctx context.Context) error {
-	primaryNamespace, err := util.GetPodNamespace()
+func (o *LoadDrivers) getContainerName() string {
+	return fmt.Sprintf("weka-drivers-loader-%s", o.node.UID)
+}
+
+func (o *LoadDrivers) GetCurrentContainer(ctx context.Context) error {
+	name := o.getContainerName()
+	ref := weka.ObjectReference{
+		Name:      name,
+		Namespace: o.namespace,
+	}
+
+	existing, err := discovery.GetContainerByName(ctx, o.client, ref)
+	if err != nil && apierrors.IsNotFound(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	containers, err := discovery.GetOwnedContainers(ctx, o.client, o.node.GetUID(), primaryNamespace, weka.WekaContainerModeDriversLoader)
-	if err != nil {
-		return err
+	if existing == nil {
+		return fmt.Errorf("no weka container with name %s was found", name)
 	}
-
-	if len(containers) == 1 {
-		o.container = containers[0]
-	} else {
-		if len(containers) > 1 {
-			return fmt.Errorf("more than one loader container found")
-		}
-	}
-
+	o.container = existing
 	return nil
 }
 
@@ -186,6 +191,7 @@ func (o *LoadDrivers) HasNotContainer() bool {
 
 func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
+	name := o.getContainerName()
 
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
@@ -194,7 +200,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 
 	loaderContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("weka-drivers-loader-%s", o.node.UID),
+			Name:      name,
 			Namespace: o.namespace,
 			Labels:    labels,
 		},
@@ -210,12 +216,8 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 			ServiceAccountName:  serviceAccountName,
 		},
 	}
-	err := ctrl.SetControllerReference(o.node, loaderContainer, o.scheme)
-	if err != nil {
-		return err
-	}
 
-	err = o.client.Create(ctx, loaderContainer)
+	err := o.client.Create(ctx, loaderContainer)
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			return lifecycle.NewWaitError(fmt.Errorf("container already exists"))
