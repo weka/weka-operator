@@ -1074,6 +1074,8 @@ async def ensure_weka_container():
     resources['excluded_drivers'] = ["igb_uio"]
     resources['auto_discovery_enabled'] = False
 
+    resources["mask_interrupts"] = True
+
     cores_cursor = 0
     for node_id, node in resources['nodes'].items():
         if node['dedicate_core']:
