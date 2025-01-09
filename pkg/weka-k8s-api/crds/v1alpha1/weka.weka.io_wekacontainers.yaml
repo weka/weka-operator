@@ -41,6 +41,11 @@ spec:
       name: Drives
       priority: 1
       type: string
+    - description: Number of active mounts
+      jsonPath: .status.printer.activeMounts
+      name: Mounts
+      priority: 1
+      type: string
     - description: CPU Utilization
       jsonPath: .status.stats.cpuUtilization
       name: CPU
@@ -1584,6 +1589,8 @@ spec:
                 type: string
               printer:
                 properties:
+                  activeMounts:
+                    type: string
                   drives:
                     type: string
                   processes:
@@ -1597,6 +1604,9 @@ spec:
                 type: boolean
               stats:
                 properties:
+                  activeMounts:
+                    format: int64
+                    type: integer
                   cpuUtilization:
                     type: string
                   drives:

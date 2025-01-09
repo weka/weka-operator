@@ -21,6 +21,7 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
+// +kubebuilder:printcolumn:name="Mounts",type="string",JSONPath=".status.printer.activeMounts",description="Number of active mounts",priority=1
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".status.stats.cpuUtilization",description="CPU Utilization",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
 // +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=1
@@ -149,15 +150,17 @@ type ContainerAllocations struct {
 }
 
 type WekaContainerMetrics struct {
-	Processes  EntityStatefulNum `json:"processes,omitempty"`
-	CpuUsage   FloatMetric       `json:"cpuUtilization,omitempty"`
-	Drives     DriveMetrics      `json:"drives,omitempty"`
-	LastUpdate metav1.Time       `json:"lastUpdate,omitempty"`
+	Processes    EntityStatefulNum `json:"processes,omitempty"`
+	CpuUsage     FloatMetric       `json:"cpuUtilization,omitempty"`
+	Drives       DriveMetrics      `json:"drives,omitempty"`
+	ActiveMounts IntMetric         `json:"activeMounts,omitempty"`
+	LastUpdate   metav1.Time       `json:"lastUpdate,omitempty"`
 }
 
 type ContainerPrinterColumns struct {
-	Processes StringMetric `json:"processes,omitempty"`
-	Drives    StringMetric `json:"drives,omitempty"`
+	Processes    StringMetric `json:"processes,omitempty"`
+	Drives       StringMetric `json:"drives,omitempty"`
+	ActiveMounts StringMetric `json:"activeMounts,omitempty"`
 }
 
 type WekaContainerStatus struct {
