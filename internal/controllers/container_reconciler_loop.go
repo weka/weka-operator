@@ -101,6 +101,8 @@ type containerReconcilerLoop struct {
 	// field used in cases when we can assume current container
 	// is in deletion process or its node is not available
 	clusterContainers []*weka.WekaContainer
+	// values shared between steps
+	activeMounts *int
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -209,6 +211,13 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
+			},
+			{
+				Run: loop.getAndStoreActiveMounts,
+				Predicates: lifecycle.Predicates{
+					container.HasFrontend,
+				},
+				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.initState},
 			{Run: loop.deleteIfNoNode},
@@ -1820,6 +1829,22 @@ func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) er
 	return nil
 }
 
+func (r *containerReconcilerLoop) getAndStoreActiveMounts(ctx context.Context) error {
+	activeMounts, err := r.getActiveMounts(ctx)
+	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
+		// if no weka fs driver found, we can assume that there are no active mounts
+		val := 0
+		r.activeMounts = &val
+		return nil
+	}
+	if err != nil {
+		err = fmt.Errorf("error getting active mounts: %w", err)
+		return err
+	}
+	r.activeMounts = activeMounts
+	return nil
+}
+
 func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
 	pods, err := r.getNodeAgentPods(ctx)
 	if err != nil {
@@ -1849,8 +1874,7 @@ func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, er
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound {
-			err := errors.New("wekafs driver not found")
-			return nil, err
+			return nil, &NoWekaFsDriverFound{}
 		}
 
 		err := errors.New("getActiveMounts request failed")
@@ -1923,11 +1947,8 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 		return true, nil
 	}
 
-	activeMounts, err := r.getActiveMounts(ctx)
-	if err != nil && err.Error() != "wekafs driver not found" {
-		err = fmt.Errorf("error getting active mounts: %w", err)
-		return false, err
-	}
+	// NOTE: active mounts are fetched from node agent pod as the separate step in the flow
+	activeMounts := r.activeMounts
 
 	if activeMounts != nil && *activeMounts != 0 {
 		err := fmt.Errorf("active mounts: %d", *activeMounts)
@@ -2676,6 +2697,11 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.Stats = &response.ContainerMetrics
 	if r.container.Status.PrinterColumns == nil {
 		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
+	}
+
+	if r.container.HasFrontend() && r.activeMounts != nil {
+		r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *r.activeMounts))
+		r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*r.activeMounts))
 	}
 
 	r.container.Status.Stats.Processes.Desired = weka.IntMetric(int64(r.container.Spec.NumCores) + 1)
