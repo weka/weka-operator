@@ -111,10 +111,13 @@ type Metrics struct {
 
 var Consts struct {
 	DevModeNamespace string
+	// sleep between container self-update allocations attempts
+	ContainerUpdateAllocationsSleep time.Duration
 }
 
 func init() {
 	Consts.DevModeNamespace = "weka-operator-system"
+	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 }
 
 func ConfigureEnv(ctx context.Context) {

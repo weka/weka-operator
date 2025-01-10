@@ -2122,6 +2122,7 @@ func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) err
 	defer end()
 
 	container := r.container
+	sleepBetween := config.Consts.ContainerUpdateAllocationsSleep
 
 	cs, err := allocator.NewConfigMapStore(ctx, r.Client)
 	if err != nil {
@@ -2130,14 +2131,14 @@ func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) err
 
 	allAllocations, err := cs.GetAllocations(ctx)
 	if err != nil {
-		return lifecycle.NewWaitError(errors.New("allocations are not set yet"))
+		return lifecycle.NewWaitErrorWithDuration(errors.New("allocations are not set yet"), sleepBetween)
 	}
 
 	owner := container.GetOwnerReferences()
 	nodeName := container.GetNodeAffinity()
 	nodeAlloc, ok := allAllocations.NodeMap[nodeName]
 	if !ok {
-		return lifecycle.NewWaitError(errors.New("node allocations are not set yet"))
+		return lifecycle.NewWaitErrorWithDuration(errors.New("node allocations are not set yet"), sleepBetween)
 	}
 
 	allocOwner := allocator.Owner{
@@ -2151,12 +2152,12 @@ func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) err
 
 	allocatedDrives, ok := nodeAlloc.Drives[allocOwner]
 	if !ok && container.IsDriveContainer() {
-		return lifecycle.NewWaitError(fmt.Errorf("no drives allocated for owner %v", allocOwner))
+		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("no drives allocated for owner %v", allocOwner), sleepBetween)
 	}
 
 	currentRanges, ok := nodeAlloc.AllocatedRanges[allocOwner]
 	if !ok {
-		return lifecycle.NewWaitError(fmt.Errorf("no ranges allocated for owner %v", allocOwner))
+		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("no ranges allocated for owner %v", allocOwner), sleepBetween)
 	}
 	wekaPort := currentRanges["weka"].Base
 	agentPort := currentRanges["agent"].Base
