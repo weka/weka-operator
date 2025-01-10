@@ -756,7 +756,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 
 			if wekaPodContainer.Image != container.Spec.Image {
 				logger.Info("Upgrade detected")
-				err = r.runPrepareUpgrade(ctx)
+				err = r.runPreUpgradeSteps(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, skip prepare-upgrade")
 				} else if err != nil {
@@ -1995,10 +1995,8 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
-			logger.Info("Deleting pod to apply new image")
-
 			if container.HasFrontend() {
-				err = r.runPrepareUpgrade(ctx)
+				err = r.runPreUpgradeSteps(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
 					err := r.writeAllowForceStopInstruction(ctx, pod)
@@ -2023,6 +2021,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return err
 			}
 
+			logger.Info("Deleting pod to apply new image")
 			// delete pod
 			err = r.Delete(ctx, pod)
 			if err != nil {
@@ -2040,26 +2039,49 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) runPrepareUpgrade(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runPrepareUpgrade")
+func (r *containerReconcilerLoop) runPreUpgradeSteps(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runPreUpgradeSteps")
 	defer end()
 
+	container := r.container
 	pod := r.pod
-
-	logger.Info("Running prepare upgrade")
 
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
 	}
 
-	stdout, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+	logger.Info("Running prepare-upgrade")
+	err = r.runPrepareUpgrade(ctx, executor)
+	if err != nil {
+		return err
+	}
+
+	if !container.Spec.AllowHotUpgrade {
+		logger.Debug("Hot upgrade is not enabled, force-stopping weka local")
+		err := r.runWekaLocalStop(ctx, pod, true)
+		if err != nil {
+			return err
+		}
+
+		logger.Debug("Removing wekafsio and wekafsgw drivers")
+		_, stderr, err := executor.ExecNamed(ctx, "RemoveWekaFsDrivers", []string{"bash", "-ce", "rmmod wekafsio && rmmod wekafsgw"})
+		if err != nil {
+			err = fmt.Errorf("error removing wekafsio and wekafsgw drivers: %w, stderr: %s", err, stderr.String())
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) runPrepareUpgrade(ctx context.Context, executor util.Exec) error {
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
 	if err != nil && strings.Contains(stderr.String(), "No such file or directory") {
 		err = &NoWekaFsDriverFound{}
 		return err
 	}
 	if err != nil {
-		logger.Error(err, "Error preparing for upgrade", "stderr", stderr.String(), "stdout", stdout.String())
+		err = fmt.Errorf("error running prepare-upgrade: %w, stderr: %s", err, stderr.String())
 		return err
 	}
 	return nil
