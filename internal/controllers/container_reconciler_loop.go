@@ -833,6 +833,10 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 	if err != nil && strings.Contains(stderr.String(), "error: weka-agent isn't running") {
 		return nil
 	}
+	// hanlde the case when there is no weka-container on the pod
+	if err != nil && strings.Contains(stderr.String(), "container not found") {
+		return nil
+	}
 	if err != nil {
 		err = fmt.Errorf("error stopping weka local: %s, %v", stderr.String(), err)
 	}
