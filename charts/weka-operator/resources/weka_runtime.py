@@ -922,13 +922,6 @@ async def create_container():
         devices = NETWORK_DEVICE.split(",")
         devices = [await resolve_aws_net(dev) for dev in devices]
         net_str = " ".join([f"--net {d}" for d in devices])
-    elif is_rhcos():
-        # Weka does not know how to resolve the network device when address is assigned via DHCP etc.
-        # and we want to limit this behavior only to RHCOS now.
-        # TODO: either allow this for all OSes or replace this logic to be inside Weka...
-        devices = NETWORK_DEVICE.split(",")
-        devices = [await resolve_dhcp_net(dev) for dev in devices]
-        net_str = " ".join([f"--net {d}" for d in devices])
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
     else:
