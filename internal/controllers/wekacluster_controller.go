@@ -196,10 +196,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Condition: condition.CondClusterCreated,
 				Run:       loop.FormCluster,
 			},
-			//TODO: Very fat function, that will prevent us from continuing on any bad container
 			{
-				Run:       loop.updateContainersJoinIps,
-				Throttled: time.Minute * 3,
+				Run: loop.refreshContainersJoinIps,
 			},
 			{
 				Condition: condition.CondJoinedCluster,

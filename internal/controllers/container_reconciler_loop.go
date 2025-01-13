@@ -834,7 +834,7 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 		return nil
 	}
 	// hanlde the case when there is no weka-container on the pod
-	if err != nil && strings.Contains(stderr.String(), "container not found") {
+	if err != nil && strings.Contains(err.Error(), "container not found") {
 		return nil
 	}
 	if err != nil {
@@ -1386,6 +1386,20 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		if err != nil || !canUpgrade {
 			logger.Info("Cannot upgrade to new image, using last applied", "image", image, "error", err)
 			image = container.Status.LastAppliedImage
+		}
+	}
+
+	// refresh container join ips (if there are any)
+	if len(container.Spec.JoinIps) > 0 {
+		ownerRef := container.GetOwnerReferences()
+		if len(ownerRef) == 0 {
+			return errors.New("no owner reference found")
+		}
+		owner := ownerRef[0]
+
+		joinIps, _ := services.ClustersJoinIps.GetJoinIps(ctx, owner.Name, container.Namespace)
+		if len(joinIps) > 0 {
+			container.Spec.JoinIps = joinIps
 		}
 	}
 

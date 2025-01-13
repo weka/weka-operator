@@ -90,6 +90,10 @@ func SelectJoinIps(containers []*weka.WekaContainer, fdLabel *string) ([]string,
 	maxContainers := 5
 	usedFds := map[string]bool{}
 	for _, container := range containers {
+		// use compute containers ips
+		if container.Spec.Mode != weka.WekaContainerModeCompute {
+			continue
+		}
 		if container.Status.ClusterContainerID == nil {
 			continue
 		}
@@ -116,28 +120,6 @@ func SelectJoinIps(containers []*weka.WekaContainer, fdLabel *string) ([]string,
 		if len(joinIpPortPairs) >= maxContainers {
 			break
 		}
-	}
-	if len(joinIpPortPairs) == 0 {
-		return nil, errors.New("No join IP port pairs found")
-	}
-	return joinIpPortPairs, nil
-}
-
-func GetJoinIps(ctx context.Context, c client.Client, cluster *weka.WekaCluster) ([]string, error) {
-	containers := GetClusterContainers(ctx, c, cluster, "compute")
-	if len(containers) == 0 {
-		return nil, errors.New("No compute containers found")
-	}
-
-	joinIpPortPairs := []string{}
-	for _, container := range containers {
-		if container.Status.ClusterContainerID == nil {
-			continue
-		}
-		if container.Status.ManagementIP == "" {
-			continue
-		}
-		joinIpPortPairs = append(joinIpPortPairs, WrapIpv6Brackets(container.Status.ManagementIP)+":"+strconv.Itoa(container.GetPort()))
 	}
 	if len(joinIpPortPairs) == 0 {
 		return nil, errors.New("No join IP port pairs found")

@@ -134,10 +134,15 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	var joinIps []string
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || cluster.IsExpand() {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
-		joinIps, err = discovery.GetJoinIps(ctx, r.getClient(), cluster)
 		allowExpansion := false
+		err := services.ClustersJoinIps.RefreshJoinIps(ctx, currentContainers, cluster)
 		if err != nil {
-			allowExpansion = strings.Contains(err.Error(), "No join IP port pairs found") || strings.Contains(err.Error(), "No compute containers found")
+			allowExpansion = true
+		}
+		joinIps, err = services.ClustersJoinIps.GetJoinIps(ctx, cluster.Name, cluster.Namespace)
+		// at this point we should have join ips, if not, we should allow expansion
+		if len(joinIps) == 0 {
+			allowExpansion = true
 		}
 		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { //TO
 			joinIps = cluster.Spec.ExpandEndpoints
@@ -1253,72 +1258,19 @@ func (r *wekaClusterReconcilerLoop) MarkAsReady(ctx context.Context) error {
 	return nil
 }
 
-func getJoinIpsCondition(container *wekav1alpha1.WekaContainer) *metav1.Condition {
-	for _, cond := range container.Status.Conditions {
-		if cond.Type == condition.CondJoinIpsSet {
-			return &cond
-		}
-	}
-	return nil
-}
-
-func joinIpsUpdated(joinIpsCondition *metav1.Condition) bool {
-	if joinIpsCondition == nil {
-		return false
-	}
-	if joinIpsCondition.Status == metav1.ConditionTrue {
-		if time.Since(joinIpsCondition.LastTransitionTime.Time) > 30*time.Minute {
-			return false
-		}
-	}
-	return true
-}
-
-func (r *wekaClusterReconcilerLoop) updateContainersJoinIps(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersJoinIps")
+func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	containers := r.containers
-	//TODO: Parallelize
-	for _, c := range containers {
-		// check if was updated in last 30 minutes, and if not - re-update
-		joinIpsCondition := getJoinIpsCondition(c)
-		if joinIpsUpdated(joinIpsCondition) {
-			continue
-		}
+	cluster := r.cluster
 
-		newJoinIps, err := discovery.SelectJoinIps(r.containers, r.cluster.Spec.FailureDomainLabel)
+	_, err := services.ClustersJoinIps.GetJoinIps(ctx, cluster.Name, cluster.Namespace)
+	if err != nil {
+		logger.Debug("Failed to get join ips", "error", err)
+		err := services.ClustersJoinIps.RefreshJoinIps(ctx, containers, cluster)
 		if err != nil {
-			return err
-		}
-
-		logger.Info("Updating container join ips", "container", c.Name, "newJoinIps", newJoinIps, "oldJoinIps", c.Spec.JoinIps)
-
-		if joinIpsCondition != nil && joinIpsCondition.Status == metav1.ConditionTrue {
-			// set condition status to false, as otherwise LastTransitionTime will not be updated
-			// and we need this separate update, because we cannot manually update LastTransitionTime
-			_ = meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
-				Type:   condition.CondJoinIpsSet,
-				Status: metav1.ConditionFalse,
-				Reason: "PeriodicUpdate",
-			})
-			if err := r.getClient().Status().Update(ctx, c); err != nil {
-				return err
-			}
-		}
-
-		// separate update for spec
-		c.Spec.JoinIps = newJoinIps
-		if err := r.getClient().Update(ctx, c); err != nil {
-			return err
-		}
-		// update status with new condition
-		_ = meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
-			Type:   condition.CondJoinIpsSet,
-			Status: metav1.ConditionTrue,
-			Reason: "PeriodicUpdate",
-		})
-		if err := r.getClient().Status().Update(ctx, c); err != nil {
+			logger.Error(err, "Failed to refresh join ips")
 			return err
 		}
 	}

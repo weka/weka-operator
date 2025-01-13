@@ -12,6 +12,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -187,9 +188,6 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		found := &v1alpha1.WekaContainer{}
 		err = c.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
 		if err != nil && apierrors.IsNotFound(err) {
-			// TODO: Wasteful approach right now, each client fetches separately
-			// We should have some small time-based cache here
-			// try using informer (?)
 			err := c.resolveJoinIps(ctx)
 			if err != nil {
 				return errors.Wrap(err, "failed to resolve join ips")
@@ -359,16 +357,11 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 		return nil
 	}
 
-	cluster, err := discovery.GetCluster(ctx, c.Client, c.wekaClient.Spec.TargetCluster)
+	joinIps, err := services.ClustersJoinIps.GetJoinIps(ctx, c.wekaClient.Spec.TargetCluster.Name, c.wekaClient.Spec.TargetCluster.Namespace)
 	if err != nil {
+		logger.Error(err, "Need to refresh join ips", "cluster", c.wekaClient.Spec.TargetCluster.Name)
 		return err
 	}
-
-	joinIps, err := discovery.GetJoinIps(ctx, c.Client, cluster)
-	if err != nil {
-		return err
-	}
-	logger.Info("Resolved join ips", "joinIps", joinIps)
 
 	c.wekaClient.Spec.JoinIps = joinIps
 	// not commiting on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
