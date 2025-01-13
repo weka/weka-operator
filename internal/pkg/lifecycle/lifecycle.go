@@ -224,10 +224,6 @@ STEPS:
 			}
 		}
 
-		stepCtx, stepLogger, spanEnd := instrumentation.GetLogSpan(ctx, step.Name)
-		stepEnd = spanEnd
-		defer spanEnd() // in case we dont handle it will in terms of closing in for loop
-
 		// Check if step is already done or if the condition should be able to run again
 		if step.Condition != "" && !step.SkipOwnConditionCheck {
 			if meta.IsStatusConditionTrue(*r.Conditions, step.Condition) {
@@ -242,7 +238,6 @@ STEPS:
 		for _, predicate := range step.Predicates {
 			if !predicate() {
 				if step.ContinueOnPredicatesFalse {
-					stepEnd()
 					continue STEPS
 				} else {
 					stopErr := &AbortedByPredicate{fmt.Errorf("aborted: predicate %v is false for step %s", predicate, step.Name)}
@@ -251,6 +246,10 @@ STEPS:
 				}
 			}
 		}
+
+		stepCtx, stepLogger, spanEnd := instrumentation.GetLogSpan(ctx, step.Name)
+		stepEnd = spanEnd
+		defer spanEnd() // in case we dont handle it will in terms of closing in for loop
 
 		if err := step.Run(stepCtx); err != nil {
 			// if the error is not expected error, we should stop the reconciliation,
