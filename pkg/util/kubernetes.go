@@ -60,12 +60,15 @@ func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod NamespacedOb
 }
 
 func NewExecInPod(client rest.Interface, cfg *rest.Config, pod *v1.Pod) (Exec, error) {
+	return NewExecInPodWithTimeout(client, cfg, pod, nil)
+}
+
+func NewExecInPodWithTimeout(client rest.Interface, cfg *rest.Config, pod *v1.Pod, timeout *time.Duration) (Exec, error) {
 	namespacedObject := NamespacedObject{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
-
-	return NewExecWithConfig(client, cfg, namespacedObject, nil, "weka-container")
+	return NewExecWithConfig(client, cfg, namespacedObject, timeout, "weka-container")
 }
 
 func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string) (Exec, error) {

@@ -1331,22 +1331,22 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		return err
 	}
 
-	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
-		// setting for forceful termination, as we are in container delete flow
-		logger.Info("Deleting pod", "pod", pod.Name)
-		err := r.writeAllowForceStopInstruction(ctx, pod)
-		if err != nil {
-			logger.Error(err, "Error writing allow force stop instruction")
-			return err
-		}
+	// setting for forceful termination, as we are in container delete flow
+	logger.Info("Deleting pod", "pod", pod.Name)
+	err = r.writeAllowForceStopInstruction(ctx, pod)
+	if err != nil {
+		// do not return error, as we are deleting pod anyway
+		logger.Error(err, "Error writing allow force stop instruction")
 	}
 
-	if r.container.HasAgent() {
-		logger.Debug("Force-stopping weka local")
-		err = r.runWekaLocalStop(ctx, pod, true)
-		if err != nil {
-			logger.Error(err, "Error force-stopping weka local")
-			return err
+	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
+		if r.container.HasAgent() {
+			logger.Debug("Force-stopping weka local")
+			err = r.runWekaLocalStop(ctx, pod, true)
+			if err != nil {
+				logger.Error(err, "Error force-stopping weka local")
+				return err
+			}
 		}
 	}
 
@@ -2336,7 +2336,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	container := r.container
 	pod := r.pod
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	wekaLocalPsTimeout := 10 * time.Second
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &wekaLocalPsTimeout)
 	if err != nil {
 		return err
 	}
