@@ -216,6 +216,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run: loop.getAndStoreActiveMounts,
 				Predicates: lifecycle.Predicates{
 					container.HasFrontend,
+					loop.NodeIsSet,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2123,6 +2124,10 @@ func (r *containerReconcilerLoop) PodNotSet() bool {
 	return r.pod == nil
 }
 
+func (r *containerReconcilerLoop) NodeIsSet() bool {
+	return r.node != nil
+}
+
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
 	fdLabel := r.container.Spec.FailureDomainLabel
 	if fdLabel == nil || *fdLabel == "" {
@@ -2871,6 +2876,10 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
+	if r.node == nil {
+		return nil, errors.New("Node is not set")
+	}
+
 	ns, err := util.GetPodNamespace()
 	if err != nil {
 		return nil, err
