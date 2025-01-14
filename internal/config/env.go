@@ -115,12 +115,15 @@ var Consts struct {
 	ContainerUpdateAllocationsSleep time.Duration
 	// TTL for join ips cache
 	JoinIpsCacheTTL time.Duration
+	// Limit for the number of contianers to be created during one reconcile loop
+	NewContainersLimit int
 }
 
 func init() {
 	Consts.DevModeNamespace = "weka-operator-system"
 	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
+	Consts.NewContainersLimit = 10
 }
 
 func ConfigureEnv(ctx context.Context) {
