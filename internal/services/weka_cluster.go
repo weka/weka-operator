@@ -62,8 +62,20 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 		// delete object
 		// check if not already being deleted
 		if !container.Status.SkipDeactivate {
+			// refresh container info before updating
+			ref := wekav1alpha1.ObjectReference{
+				Name:      container.Name,
+				Namespace: container.Namespace,
+			}
+			container, err := discovery.GetContainerByName(ctx, r.Client, ref)
+			if err != nil {
+				logger.Debug("Failed to get container", "container", container.Name, "error", err)
+				failedUpdates = append(failedUpdates, container.Name)
+				continue
+			}
+
 			container.Status.SkipDeactivate = true
-			err := r.Client.Status().Update(ctx, container)
+			err = r.Client.Status().Update(ctx, container)
 			if err != nil {
 				logger.Debug("Failed to update container status with skip deactivate", "container", container.Name, "error", err)
 				failedUpdates = append(failedUpdates, container.Name)
