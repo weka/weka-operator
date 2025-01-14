@@ -56,6 +56,8 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 		return err
 	}
 
+	var failedUpdates []string
+	var failedDeletes []string
 	for _, container := range containers {
 		// delete object
 		// check if not already being deleted
@@ -63,8 +65,9 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 			container.Status.SkipDeactivate = true
 			err := r.Client.Status().Update(ctx, container)
 			if err != nil {
-				logger.Error(err, "Failed to update container status with skip deactivate", "container", container.Name)
-				return err
+				logger.Debug("Failed to update container status with skip deactivate", "container", container.Name, "error", err)
+				failedUpdates = append(failedUpdates, container.Name)
+				continue
 			}
 		}
 
@@ -74,10 +77,21 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 
 		err = r.Client.Delete(ctx, container)
 		if err != nil {
-			logger.Error(err, "Failed to delete container", "container", container.Name)
-			return err
+			logger.Debug("Failed to delete container", "container", container.Name, "error", err)
+			failedDeletes = append(failedDeletes, container.Name)
 		}
+	}
 
+	if len(failedUpdates) > 0 {
+		err := fmt.Errorf("failed to update containers status with skip deactivate")
+		logger.Error(err, "", "containers", failedUpdates)
+		return err
+	}
+
+	if len(failedDeletes) > 0 {
+		err := fmt.Errorf("failed to delete containers")
+		logger.Error(err, "", "containers", failedDeletes)
+		return err
 	}
 
 	if len(containers) != 0 {
