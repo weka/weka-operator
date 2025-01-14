@@ -79,7 +79,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		return nil
 	}
 
-	ttl := int32(60)
+	ttl := int32(60 * 5) // 5 minutes
 	jobName := o.getJobName()
 	namespace, err := util.GetPodNamespace()
 	if err != nil {
@@ -213,7 +213,8 @@ func (o *CleanupPersistentDirOperation) DeleteJob(ctx context.Context) error {
 
 func (o *CleanupPersistentDirOperation) PollStatus(ctx context.Context) error {
 	if o.job.Status.Succeeded == 0 {
-		return lifecycle.NewWaitError(errors.New("job is not done yet"))
+		err := fmt.Errorf("job is not done yet - %s", o.job.Name)
+		return lifecycle.NewWaitError(err)
 	}
 	return nil
 }
