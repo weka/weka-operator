@@ -82,6 +82,8 @@ spec:
                 type: object
               allowS3ClusterDestroy:
                 type: boolean
+              bucketRaftSize:
+                type: integer
               cpuPolicy:
                 default: auto
                 enum:
@@ -183,6 +185,8 @@ spec:
                 type: string
               ipv6:
                 type: boolean
+              leadershipRaftSize:
+                type: integer
               network:
                 properties:
                   ethDevice:

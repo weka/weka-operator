@@ -1304,6 +1304,16 @@ func (in *WekaClusterSpec) DeepCopyInto(out *WekaClusterSpec) {
 		(*in).DeepCopyInto(*out)
 	}
 	in.NetworkSelector.DeepCopyInto(&out.NetworkSelector)
+	if in.LeadershipSize != nil {
+		in, out := &in.LeadershipSize, &out.LeadershipSize
+		*out = new(int)
+		**out = **in
+	}
+	if in.BucketRaftSize != nil {
+		in, out := &in.BucketRaftSize, &out.BucketRaftSize
+		*out = new(int)
+		**out = **in
+	}
 	out.GracefulDestroyDuration = in.GracefulDestroyDuration
 }
 
