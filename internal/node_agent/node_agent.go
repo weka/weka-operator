@@ -54,11 +54,9 @@ type ContainerInfo struct {
 
 func (i *ContainerInfo) getMaxCpu() float64 {
 	var maxCpu float64
-	for _, cpuStats := range i.cpuInfo.Result {
-		for _, cpu := range cpuStats.Cpu {
-			if cpu.Stats.Utilization > maxCpu {
-				maxCpu = cpu.Stats.Utilization
-			}
+	for _, cpuLoad := range i.cpuInfo.Result {
+		if cpuLoad.Value != nil && *cpuLoad.Value > maxCpu {
+			maxCpu = *cpuLoad.Value
 		}
 	}
 	return maxCpu
@@ -226,9 +224,8 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			},
 		)
 
-		for nodeIdStr, cpuStats := range container.cpuInfo.Result {
+		for nodeIdStr, cpuLoad := range container.cpuInfo.Result {
 			// do we care about the node id? should we report per node or containers totals? will stay with totals for now
-			value := cpuStats.Cpu[0].Stats.Utilization // we expect always to get just one element in this list, as this is reuse of code that returns time series
 
 			processId, err := resources.NodeIdToProcessId(nodeIdStr)
 			if err != nil {
@@ -236,6 +233,16 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				continue
 			}
 			processIdStr := fmt.Sprintf("%d", processId)
+
+			value := 0.0
+			if cpuLoad.Err != nil && *cpuLoad.Err != "" {
+				logger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
+				continue
+			} else {
+				if cpuLoad.Value != nil {
+					value = *cpuLoad.Value
+				}
+			}
 
 			promResponse.AddMetric(metrics2.PromMetric{
 				Metric: "weka_cpu_utilization",
@@ -401,12 +408,8 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 
 type LocalCpuUtilizationResponse struct {
 	Result map[string]struct {
-		Cpu []struct {
-			Stats struct {
-				Utilization float64 `json:"CPU_UTILIZATION"`
-			} `json:"stats"`
-			Timestamp string `json:"timestamp"` // format: 2024-11-28T16:03:00Z (is it parsed correctly?), more correct to use this timestamp rather then current time
-		} `json:"cpu"`
+		Value *float64 `json:"value"`
+		Err   *string  `json:"err"`
 	} `json:"result"`
 }
 
@@ -426,7 +429,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 	container.containerStateLastPull = time.Now()
 
 	var cpuResponse LocalCpuUtilizationResponse
-	err = jrpcCall(ctx, container, "get_local_cpu_utilization", &cpuResponse)
+	err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
 	if err != nil {
 		return err
 	}
