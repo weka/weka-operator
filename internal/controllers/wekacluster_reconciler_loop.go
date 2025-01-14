@@ -285,11 +285,22 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 			continue
 		}
 		if container.Spec.State != wekav1alpha1.ContainerStatePaused {
-			container.Spec.State = wekav1alpha1.ContainerStatePaused
-			err := r.getClient().Update(ctx, container)
+			// refresh container info before updating
+			ref := wekav1alpha1.ObjectReference{
+				Name:      container.Name,
+				Namespace: container.Namespace,
+			}
+			container, err := discovery.GetContainerByName(ctx, r.getClient(), ref)
 			if err != nil {
-				logger.Error(err, "Failed to update container state")
-				return err
+				logger.Debug("Failed to get container", "container", container.Name, "error", err)
+				notPausedContainers = append(notPausedContainers, container.Name)
+				continue
+			}
+
+			container.Spec.State = wekav1alpha1.ContainerStatePaused
+			err = r.getClient().Update(ctx, container)
+			if err != nil {
+				logger.Debug("Failed to update container state", "container", container.Name, "error", err)
 			}
 		}
 
