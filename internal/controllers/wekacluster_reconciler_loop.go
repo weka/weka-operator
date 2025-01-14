@@ -418,9 +418,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
-			tolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
-			if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
-				container.Spec.Tolerations = tolerations
+			newTolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
+			oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
+			if !reflect.DeepEqual(oldTolerations, newTolerations) {
+				container.Spec.Tolerations = newTolerations
 				changed = true
 			}
 
