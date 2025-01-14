@@ -31,3 +31,10 @@ func ExpandTolerations(tolerations []v1.Toleration, simpleTolerations []string, 
 	}
 	return tolerations
 }
+
+func NormalizeTolerations(tolerations []v1.Toleration) []v1.Toleration {
+	if tolerations == nil {
+		return []v1.Toleration{}
+	}
+	return tolerations
+}
