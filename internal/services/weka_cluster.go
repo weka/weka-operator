@@ -113,7 +113,11 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
-	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password`", strings.Join(hostnamesList, " "), hostIpsStr)
+	leadershipSizeStr := ""
+	if r.Cluster.Spec.LeadershipSize != nil {
+		leadershipSizeStr = fmt.Sprintf("--leadership-size %d", *r.Cluster.Spec.LeadershipSize)
+	}
+	cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s --join-secret=`cat /var/run/secrets/weka-operator/operator-user/join-secret` --admin-password `cat /var/run/secrets/weka-operator/operator-user/password` %s", strings.Join(hostnamesList, " "), hostIpsStr, leadershipSizeStr)
 	logger.Info("Creating cluster", "cmd", cmd)
 
 	executor, err := r.ExecService.GetExecutor(ctx, containers[0])
@@ -159,6 +163,15 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetDataDrives", []string{"bash", "-ce", cmd})
 		if err != nil {
 			return errors.Wrapf(err, "Failed to set stripe width (--data-drives): %s", stderr.String())
+		}
+	}
+
+	if r.Cluster.Spec.BucketRaftSize != nil {
+		logger.Debug("Setting bucket raft size")
+		cmd = fmt.Sprintf("weka cluster update --bucket-raft-size %d", *r.Cluster.Spec.BucketRaftSize)
+		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetBucketRaftSize", []string{"bash", "-ce", cmd})
+		if err != nil {
+			return errors.Wrapf(err, "Failed to set bucket raft size (--bucket-raft-size): %s", stderr.String())
 		}
 	}
 
