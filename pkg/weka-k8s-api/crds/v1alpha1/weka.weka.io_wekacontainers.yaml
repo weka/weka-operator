@@ -1140,6 +1140,7 @@ spec:
                 enum:
                 - active
                 - paused
+                - destroying
                 type: string
               tolerations:
                 items:

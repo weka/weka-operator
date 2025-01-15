@@ -71,6 +71,8 @@ type ContainerState string
 const (
 	ContainerStateActive ContainerState = "active"
 	ContainerStatePaused ContainerState = "paused"
+	// ContainerStateDestroying state indicates that the cluster is being destroyed
+	ContainerStateDestroying ContainerState = "destroying"
 )
 
 type WekaContainerSpec struct {
@@ -121,7 +123,7 @@ type WekaContainerSpec struct {
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
 	// +kubebuilder:default=manual
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
-	// +kubebuilder:validation:Enum=active;paused
+	// +kubebuilder:validation:Enum=active;paused;destroying
 	// +kubebuilder:default=active
 	State           ContainerState `json:"state,omitempty"`
 	AllowHotUpgrade bool           `json:"allowHotUpgrade,omitempty"`
@@ -429,8 +431,16 @@ func (c *WekaContainer) IsMarkedForDeletion() bool {
 	return !c.GetDeletionTimestamp().IsZero()
 }
 
+func (c *WekaContainer) IsActive() bool {
+	return c.Spec.State == ContainerStateActive
+}
+
 func (c *WekaContainer) IsPaused() bool {
 	return c.Spec.State == ContainerStatePaused
+}
+
+func (c *WekaContainer) IsDestroying() bool {
+	return c.Spec.State == ContainerStateDestroying
 }
 
 func (c *WekaContainer) IsDeactivated() bool {
