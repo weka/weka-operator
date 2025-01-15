@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -30,6 +31,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -284,21 +286,22 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 		if mode != "" && container.Spec.Mode != mode {
 			continue
 		}
-		if container.Spec.State != wekav1alpha1.ContainerStatePaused {
-			// refresh container info before updating
-			ref := wekav1alpha1.ObjectReference{
-				Name:      container.Name,
-				Namespace: container.Namespace,
+
+		if !container.IsPaused() {
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"state": wekav1alpha1.ContainerStatePaused,
+				},
 			}
-			container, err := discovery.GetContainerByName(ctx, r.getClient(), ref)
+
+			patchBytes, err := json.Marshal(patch)
 			if err != nil {
-				logger.Debug("Failed to get container", "container", container.Name, "error", err)
+				logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
 				notPausedContainers = append(notPausedContainers, container.Name)
 				continue
 			}
 
-			container.Spec.State = wekav1alpha1.ContainerStatePaused
-			err = r.getClient().Update(ctx, container)
+			err = r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
 			if err != nil {
 				logger.Debug("Failed to update container state", "container", container.Name, "error", err)
 			}

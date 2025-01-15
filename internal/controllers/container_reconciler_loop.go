@@ -1344,7 +1344,7 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		logger.Error(err, "Error writing allow force stop instruction")
 	}
 
-	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning {
+	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
 			err = r.runWekaLocalStop(ctx, pod, true)
@@ -2772,6 +2772,11 @@ func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
 }
 
 func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
+	if r.container.IsDestroying() {
+		// if container state is 'destroying', it means that cluster is being destroyed
+		// and we can skip deactivation flow
+		return true
+	}
 	if !r.container.IsBackend() {
 		return true
 	}

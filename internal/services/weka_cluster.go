@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -59,34 +61,34 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 	var failedUpdates []string
 	var failedDeletes []string
 	for _, container := range containers {
-		// delete object
 		// check if not already being deleted
-		if !container.Status.SkipDeactivate {
-			// refresh container info before updating
-			ref := wekav1alpha1.ObjectReference{
-				Name:      container.Name,
-				Namespace: container.Namespace,
-			}
-			container, err := discovery.GetContainerByName(ctx, r.Client, ref)
-			if err != nil {
-				logger.Debug("Failed to get container", "container", container.Name, "error", err)
-				failedUpdates = append(failedUpdates, container.Name)
-				continue
-			}
-
-			container.Status.SkipDeactivate = true
-			err = r.Client.Status().Update(ctx, container)
-			if err != nil {
-				logger.Debug("Failed to update container status with skip deactivate", "container", container.Name, "error", err)
-				failedUpdates = append(failedUpdates, container.Name)
-				continue
-			}
-		}
-
 		if container.GetDeletionTimestamp() != nil {
 			continue
 		}
 
+		if !container.IsDestroying() {
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"state": wekav1alpha1.ContainerStateDestroying,
+				},
+			}
+
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
+				failedUpdates = append(failedUpdates, container.Name)
+				continue
+			}
+
+			err = r.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
+			if err != nil {
+				logger.Debug("Failed to patch container spec state as 'destroying'", "container", container.Name, "error", err)
+				failedUpdates = append(failedUpdates, container.Name)
+				continue
+			}
+		}
+
+		// delete the container
 		err = r.Client.Delete(ctx, container)
 		if err != nil {
 			logger.Debug("Failed to delete container", "container", container.Name, "error", err)
