@@ -5,8 +5,58 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"fmt"
+	"sort"
 )
 
+type hashMapEntry struct {
+	Key   string
+	Value string
+}
+
+// HashableMap is a struct that can replace a map in order to be hashed
+// Create a new HashableMap instance with NewHashableMap from a map[string]string and use it in place of a map
+type HashableMap struct {
+	Entries []hashMapEntry
+}
+
+// Allows to compare two HashableMap instances
+func (hm *HashableMap) Equals(other *HashableMap) bool {
+	if len(hm.Entries) != len(other.Entries) {
+		return false
+	}
+	for i, entry := range hm.Entries {
+		if entry.Key != other.Entries[i].Key {
+			return false
+		}
+		if entry.Value != other.Entries[i].Value {
+			return false
+		}
+	}
+	return true
+}
+
+func NewHashableMap(m map[string]string) *HashableMap {
+	hm := &HashableMap{
+		Entries: make([]hashMapEntry, 0, len(m)),
+	}
+	for k, v := range m {
+		e := hashMapEntry{
+			Key:   k,
+			Value: v,
+		}
+		hm.Entries = append(hm.Entries, e)
+	}
+
+	// sort the keys alphabetically to ensure the order is deterministic
+	sort.Slice(hm.Entries, func(i, j int) bool {
+		return hm.Entries[i].Key < hm.Entries[j].Key
+	})
+	return hm
+}
+
+// HashStruct generates a hash of a struct
+// NOTE: This function is not deterministic for the cases when the struct contains maps.
+// For deterministic hashing of structs with maps, use HashableMap instead.
 func HashStruct(s any) (string, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)

@@ -10,6 +10,7 @@ import (
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
@@ -279,11 +280,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		}
 	}
 
-	containerLabels := map[string]string{
-		"app":                 "weka-client",
-		"weka.io/client-name": wekaClient.ObjectMeta.Name,
-		"weka.io/mode":        v1alpha1.WekaContainerModeClient,
-	}
+	containerLabels := factory.RequiredWekaClientLabels(wekaClient.ObjectMeta.Name)
 	labels := util2.MergeMaps(wekaClient.ObjectMeta.GetLabels(), containerLabels)
 
 	container := &v1alpha1.WekaContainer{
@@ -373,7 +370,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	updatableSpec := NewUpdatableClientSpec(&c.wekaClient.Spec)
+	updatableSpec := NewUpdatableClientSpec(&c.wekaClient.Spec, &c.wekaClient.ObjectMeta)
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
@@ -388,7 +385,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 			}
 		}
 
-		logger.Info("Updating last applied spec", "currentSpecHash", specHash, "lastAppliedSpecHash", c.wekaClient.Status.LastAppliedSpec)
+		logger.Info("Updating last applied spec", "newSpecHash", specHash, "lastAppliedSpecHash", c.wekaClient.Status.LastAppliedSpec)
 		c.wekaClient.Status.LastAppliedSpec = specHash
 		err = c.Status().Update(ctx, c.wekaClient)
 		if err != nil {
@@ -470,9 +467,20 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		}
 	}
 
-	tolerations := util.ExpandTolerations([]v1.Toleration{}, newClientSpec.Tolerations, newClientSpec.RawTolerations)
-	if !reflect.DeepEqual(container.Spec.Tolerations, tolerations) {
-		container.Spec.Tolerations = tolerations
+	newTolerations := util.ExpandTolerations([]v1.Toleration{}, newClientSpec.Tolerations, newClientSpec.RawTolerations)
+	oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
+	if !reflect.DeepEqual(oldTolerations, newTolerations) {
+		container.Spec.Tolerations = newTolerations
+		changed = true
+	}
+
+	// desired labels = existing labels + cluster labels + required labels
+	// priority-wise, required labels have the highest priority
+	requiredLables := factory.RequiredWekaClientLabels(c.wekaClient.ObjectMeta.Name)
+	newLabels := util2.MergeMaps(container.Labels, c.wekaClient.ObjectMeta.GetLabels())
+	newLabels = util2.MergeMaps(newLabels, requiredLables)
+	if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
+		container.Labels = newLabels
 		changed = true
 	}
 
@@ -529,9 +537,12 @@ type UpdatableClientSpec struct {
 	CoresNumber        int
 	Tolerations        []string
 	RawTolerations     []v1.Toleration
+	Labels             *util2.HashableMap
 }
 
-func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec) *UpdatableClientSpec {
+func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
+	labels := util2.NewHashableMap(meta.Labels)
+
 	return &UpdatableClientSpec{
 		DriversDistService: spec.DriversDistService,
 		ImagePullSecret:    spec.ImagePullSecret,
@@ -546,5 +557,6 @@ func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec) *UpdatableClientSpec 
 		CoresNumber:        spec.CoresNumber,
 		Tolerations:        spec.Tolerations,
 		RawTolerations:     spec.RawTolerations,
+		Labels:             labels,
 	}
 }

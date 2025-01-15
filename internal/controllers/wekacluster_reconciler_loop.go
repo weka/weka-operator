@@ -416,7 +416,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	cluster := r.cluster
 	containers := r.containers
 
-	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec)
+	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta)
 	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
@@ -446,6 +446,16 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 			if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
 				container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
+				changed = true
+			}
+
+			// desired labels = existing labels + cluster labels + required labels
+			// priority-wise, required labels have the highest priority
+			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
+			newLabels := util2.MergeMaps(container.Labels, cluster.ObjectMeta.GetLabels())
+			newLabels = util2.MergeMaps(newLabels, requiredLables)
+			if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
+				container.Labels = newLabels
 				changed = true
 			}
 
@@ -1692,14 +1702,18 @@ type UpdatableClusterSpec struct {
 	RawTolerations     []v1.Toleration
 	DriversDistService string
 	ImagePullSecret    string
+	Labels             *util2.HashableMap
 }
 
-func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec) *UpdatableClusterSpec {
+func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
+	labels := util2.NewHashableMap(meta.Labels)
+
 	return &UpdatableClusterSpec{
 		AdditionalMemory:   spec.AdditionalMemory,
 		Tolerations:        spec.Tolerations,
 		RawTolerations:     spec.RawTolerations,
 		DriversDistService: spec.DriversDistService,
 		ImagePullSecret:    spec.ImagePullSecret,
+		Labels:             labels,
 	}
 }
