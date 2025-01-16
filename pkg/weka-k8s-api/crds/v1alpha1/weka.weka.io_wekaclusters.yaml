@@ -95,10 +95,6 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
-              disregardRedundancy:
-                description: disregard redundancy constraints, useful for testing,
-                  should not be used in production as misaligns failure domains
-                type: boolean
               driversDistService:
                 description: endpoint for distribution service, global https://drivers.weka.io
                   or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
@@ -236,6 +232,10 @@ spec:
               overrides:
                 properties:
                   allowS3ClusterDestroy:
+                    type: boolean
+                  disregardRedundancy:
+                    description: disregard redundancy constraints, useful for testing,
+                      should not be used in production as misaligns failure domains
                     type: boolean
                 type: object
               podConfig:

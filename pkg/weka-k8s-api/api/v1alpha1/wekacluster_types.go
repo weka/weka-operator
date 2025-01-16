@@ -221,8 +221,6 @@ type WekaClusterSpec struct {
 	AdditionalMemory AdditionalMemory `json:"additionalMemory,omitempty"`
 	// port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports
 	Ports ClusterPorts `json:"ports,omitempty"`
-	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
-	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
 	// reference to the secret containing the weka system credentials used by operator, used in flow of migration
 	OperatorSecretRef string `json:"operatorSecretRef,omitempty"`
 	// endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration
@@ -267,6 +265,8 @@ func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
 
 type WekaClusterSpecOverrides struct {
 	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
+	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
+	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
