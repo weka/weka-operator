@@ -829,7 +829,7 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 }
 
 func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
-	if !r.cluster.Spec.AllowS3ClusterDestroy {
+	if !r.cluster.Spec.GetOverrides().AllowS3ClusterDestroy {
 		return false
 	}
 
