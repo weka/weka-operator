@@ -203,7 +203,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		}
 	}
 
-	if r.Cluster.Spec.ForceAio {
+	if r.Cluster.Spec.GetOverrides().ForceAio {
 		cmd = "weka debug config override clusterInfo.nvmeEnabled false"
 		_, stderr, err = executor.ExecNamed(ctx, "WekaClusterSetForceAio", []string{"bash", "-ce", cmd})
 		if err != nil {
