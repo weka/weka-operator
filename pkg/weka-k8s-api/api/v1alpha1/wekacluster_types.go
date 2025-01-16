@@ -253,8 +253,20 @@ type WekaClusterSpec struct {
 	// https://bugzilla.redhat.com/show_bug.cgi?id=2050332
 	// https://github.com/kubernetes/apimachinery/issues/131
 	// https://github.com/kubernetes/apiextensions-apiserver/issues/56
-	GracefulDestroyDuration metav1.Duration `json:"gracefulDestroyDuration,omitempty"`
-	AllowS3ClusterDestroy   bool            `json:"allowS3ClusterDestroy,omitempty"`
+	GracefulDestroyDuration metav1.Duration           `json:"gracefulDestroyDuration,omitempty"`
+	Overrides               *WekaClusterSpecOverrides `json:"overrides,omitempty"`
+}
+
+func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
+	if c.Overrides == nil {
+		return &WekaClusterSpecOverrides{}
+	} else {
+		return c.Overrides
+	}
+}
+
+type WekaClusterSpecOverrides struct {
+	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

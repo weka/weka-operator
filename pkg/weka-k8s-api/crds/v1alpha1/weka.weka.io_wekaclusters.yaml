@@ -81,8 +81,6 @@ spec:
                   s3:
                     type: integer
                 type: object
-              allowS3ClusterDestroy:
-                type: boolean
               bucketRaftSize:
                 description: size of raft for buckets, defaults to 5, 5/9 are supported
                 type: integer
@@ -235,6 +233,11 @@ spec:
                 description: reference to the secret containing the weka system credentials
                   used by operator, used in flow of migration
                 type: string
+              overrides:
+                properties:
+                  allowS3ClusterDestroy:
+                    type: boolean
+                type: object
               podConfig:
                 description: advanced pod affinities configuration
                 properties:
