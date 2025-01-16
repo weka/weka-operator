@@ -1116,6 +1116,15 @@ spec:
                 type: integer
               numDrives:
                 type: integer
+              overrides:
+                properties:
+                  skipCleanupPersistentDir:
+                    type: boolean
+                  skipDeactivate:
+                    type: boolean
+                  skipDrivesForceResign:
+                    type: boolean
+                type: object
               port:
                 type: integer
               portRange:
@@ -1599,10 +1608,6 @@ spec:
                 type: object
               result:
                 type: string
-              skipDeactivate:
-                type: boolean
-              skipDrivesForceResign:
-                type: boolean
               stats:
                 properties:
                   activeMounts:

@@ -253,11 +253,6 @@ type WekaClusterStatus struct {
 	Stats            *ClusterMetrics        `json:"stats,omitempty"`
 	PrinterColumns   ClusterPrinterColumns  `json:"printer,omitempty"`
 	Timestamps       map[string]metav1.Time `json:"timestamps,omitempty"`
-
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
-	// has priority over the spec `gracefulDestroyDuration` value (if set)
-	OverrideGracefulDestroyDuration *metav1.Duration `json:"overrideGracefulDestroyDuration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -362,13 +357,7 @@ func (c *WekaCluster) IsExpand() bool {
 }
 
 func (c *WekaCluster) GetGracefulDestroyDuration() time.Duration {
-	gracefulDestroyDuration := c.Spec.GracefulDestroyDuration.Duration
-
-	if c.Status.OverrideGracefulDestroyDuration != nil {
-		overrideDuration := c.Status.OverrideGracefulDestroyDuration.Duration
-		return overrideDuration
-	}
-	return gracefulDestroyDuration
+	return c.Spec.GracefulDestroyDuration.Duration
 }
 
 func init() {
