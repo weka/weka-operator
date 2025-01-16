@@ -76,8 +76,11 @@ const (
 )
 
 type WekaContainerSpecOverrides struct {
-	SkipDeactivate           bool `json:"skipDeactivate,omitempty"`
-	SkipDrivesForceResign    bool `json:"skipDrivesForceResign,omitempty"`
+	// skips deactivation of container, this is unsafe operation that should be used only when this container will never be back into cluster
+	SkipDeactivate bool `json:"skipDeactivate,omitempty"`
+	// skips resign of drives, if we did not resign drives on removal of drive container we will not be able to reuse them, and manual operation with force resign will be required
+	SkipDrivesForceResign bool `json:"skipDrivesForceResign,omitempty"`
+	// skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions)
 	SkipCleanupPersistentDir bool `json:"skipCleanupPersistentDir,omitempty"`
 }
 
