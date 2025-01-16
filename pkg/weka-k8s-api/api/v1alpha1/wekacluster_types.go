@@ -227,8 +227,6 @@ type WekaClusterSpec struct {
 	Dynamic *WekaConfig `json:"dynamicTemplate,omitempty"`
 	// weka cluster network configuration
 	NetworkSelector NetworkSelector `json:"network,omitempty"`
-	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
-	ForceAio bool `json:"forceAio,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
 	// See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
 	// +kubebuilder:default=0
@@ -267,6 +265,8 @@ type WekaClusterSpecOverrides struct {
 	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
 	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
 	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
+	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
+	ForceAio bool `json:"forceAio,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
