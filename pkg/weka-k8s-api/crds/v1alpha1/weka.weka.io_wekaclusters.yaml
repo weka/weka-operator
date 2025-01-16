@@ -70,6 +70,7 @@ spec:
             description: WekaClusterSpec defines the desired state of WekaCluster
             properties:
               additionalMemory:
+                description: additional memory to allocate for weka containers
                 properties:
                   compute:
                     type: integer
@@ -83,9 +84,12 @@ spec:
               allowS3ClusterDestroy:
                 type: boolean
               bucketRaftSize:
+                description: size of raft for buckets, defaults to 5, 5/9 are supported
                 type: integer
               cpuPolicy:
                 default: auto
+                description: cpu policy to use for scheduling cores for weka, unless
+                  instructed by weka team, keep default of auto
                 enum:
                 - auto
                 - shared
@@ -94,12 +98,19 @@ spec:
                 - manual
                 type: string
               disregardRedundancy:
+                description: disregard redundancy constraints, useful for testing,
+                  should not be used in production as misaligns failure domains
                 type: boolean
               driversDistService:
+                description: endpoint for distribution service, global https://drivers.weka.io
+                  or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
                 type: string
               driversLoaderImage:
+                description: image to be used for loading drivers, do not use unless
+                  explicitly instructed by Weka team
                 type: string
               dynamicTemplate:
+                description: weka cluster topology configuration
                 properties:
                   computeContainers:
                     type: integer
@@ -153,6 +164,9 @@ spec:
                     type: integer
                 type: object
               expandEndpoints:
+                description: endpoint of existing weka cluster, containers created
+                  for this k8s-driver cluster will join existing weka cluster, used
+                  in flow of migration
                 items:
                   type: string
                 type: array
@@ -162,6 +176,9 @@ spec:
                   nodes that have the same value for this label will be considered as a single failure domain
                 type: string
               forceAio:
+                description: force weka to use drives in aio mode and not direct nvme
+                  (impacts performance, but might serve as a fallback in case of incompatible
+                  device)
                 type: boolean
               gracefulDestroyDuration:
                 default: 24h
@@ -180,14 +197,19 @@ spec:
                   See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
                 type: integer
               image:
+                description: full container image name in format of quay.io/weka.io/weka-in-container:VERSION
                 type: string
               imagePullSecret:
+                description: image pull secret to use for pulling the image
                 type: string
               ipv6:
+                description: use ipv6 for weka cluster networking configuration
                 type: boolean
               leadershipRaftSize:
+                description: size of raft for leadership, defaults to 5, 5/9 are supported
                 type: integer
               network:
+                description: weka cluster network configuration
                 properties:
                   ethDevice:
                     type: string
@@ -207,10 +229,14 @@ spec:
               nodeSelector:
                 additionalProperties:
                   type: string
+                description: node selector for the weka containers
                 type: object
               operatorSecretRef:
+                description: reference to the secret containing the weka system credentials
+                  used by operator, used in flow of migration
                 type: string
               podConfig:
+                description: advanced pod affinities configuration
                 properties:
                   affinity:
                     description: advanced scheduling constraints
@@ -5756,6 +5782,9 @@ spec:
                     type: array
                 type: object
               ports:
+                description: port allocation for weka containers, if not set, free
+                  range will be auto selected. Currently allocated ports can be seen
+                  in wekacluster.status.ports
                 properties:
                   basePort:
                     description: |-
@@ -5772,6 +5801,7 @@ spec:
                     type: integer
                 type: object
               rawTolerations:
+                description: tolerations in standard k8s format
                 items:
                   description: |-
                     The pod this Toleration is attached to tolerates any taint that matches
@@ -5810,37 +5840,53 @@ spec:
                   type: object
                 type: array
               redundancyLevel:
+                description: storage capacity dedicated to system protection (2/4).
+                  https://docs.weka.io/weka-system-overview/ssd-capacity-management#protection-level
                 type: integer
               roleNodeSelector:
+                description: node selector for the weka containers per role, overrides
+                  global nodeSelector
                 properties:
                   compute:
                     additionalProperties:
                       type: string
+                    description: node selector for compute weka containers
                     type: object
                   drive:
                     additionalProperties:
                       type: string
+                    description: node selector for drive weka containers
                     type: object
                   nfs:
                     additionalProperties:
                       type: string
+                    description: node selector for nfs weka containers
                     type: object
                   s3:
                     additionalProperties:
                       type: string
+                    description: node selector for s3 weka containers, envoy will
+                      be scheduled by affinity to s3 and not explicit node selector
                     type: object
                 type: object
               stripeWidth:
+                description: stripe width is the number of blocks within a common
+                  protection set, ranging from 3 to 16 https://docs.weka.io/weka-system-overview/ssd-capacity-management#stripe-width
                 type: integer
               template:
+                default: dynamic
+                description: A template/strategy of how to build a cluster, right
+                  now only "dynamic" supported, explicitly specifying config of a
+                  cluster
                 type: string
               tolerations:
+                description: simplified tolerations, checked only by key existence,
+                  expanding to NoExecute|NoSchedule tolerations
                 items:
                   type: string
                 type: array
               tracesConfiguration:
-                description: TraceConfiguration defines the configuration for the
-                  traces, accepts parameters in gigabytes
+                description: traces capacities configuration for weka containers
                 properties:
                   ensureFreeSpace:
                     default: 20
@@ -5850,6 +5896,7 @@ spec:
                     type: integer
                 type: object
               wekaHome:
+                description: weka home configuration
                 properties:
                   allowInsecure:
                     type: boolean
@@ -5862,7 +5909,6 @@ spec:
                 type: object
             required:
             - image
-            - template
             type: object
           status:
             description: WekaClusterStatus defines the observed state of WekaCluster

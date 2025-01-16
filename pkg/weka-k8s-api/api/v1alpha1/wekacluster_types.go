@@ -100,10 +100,14 @@ type WekaHomeConfig struct {
 }
 
 type RoleNodeSelector struct {
+	// node selector for compute weka containers
 	Compute map[string]string `json:"compute,omitempty"`
-	Drive   map[string]string `json:"drive,omitempty"`
-	S3      map[string]string `json:"s3,omitempty"`
-	Nfs     map[string]string `json:"nfs,omitempty"`
+	// node selector for drive weka containers
+	Drive map[string]string `json:"drive,omitempty"`
+	// node selector for s3 weka containers, envoy will be scheduled by affinity to s3 and not explicit node selector
+	S3 map[string]string `json:"s3,omitempty"`
+	// node selector for nfs weka containers
+	Nfs map[string]string `json:"nfs,omitempty"`
 }
 
 func (s RoleNodeSelector) ForRole(role string) map[string]string {
@@ -179,41 +183,68 @@ type PodConfiguration struct {
 
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
-	Template           string            `json:"template"`
-	Image              string            `json:"image"`
-	ImagePullSecret    string            `json:"imagePullSecret,omitempty"`
-	DriversDistService string            `json:"driversDistService,omitempty"`
-	DriversLoaderImage string            `json:"driversLoaderImage,omitempty"`
-	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
-	RoleNodeSelector   RoleNodeSelector  `json:"roleNodeSelector,omitempty"`
+	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
+	// +kubebuilder:default=dynamic
+	Template string `json:"template,omitempty"`
+	// full container image name in format of quay.io/weka.io/weka-in-container:VERSION
+	Image string `json:"image"`
+	// image pull secret to use for pulling the image
+	ImagePullSecret string `json:"imagePullSecret,omitempty"`
+	// endpoint for distribution service, global https://drivers.weka.io or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
+	DriversDistService string `json:"driversDistService,omitempty"`
+	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
+	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
+	// node selector for the weka containers
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// node selector for the weka containers per role, overrides global nodeSelector
+	RoleNodeSelector RoleNodeSelector `json:"roleNodeSelector,omitempty"`
 	// label used for spreading the weka containers across different failure domains (if set)
 	// nodes that have the same value for this label will be considered as a single failure domain
-	FailureDomainLabel *string           `json:"failureDomainLabel,omitempty"`
-	PodConfig          *PodConfiguration `json:"podConfig,omitempty"`
+	FailureDomainLabel *string `json:"failureDomainLabel,omitempty"`
+	// advanced pod affinities configuration
+	PodConfig *PodConfiguration `json:"podConfig,omitempty"`
+	// cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto
 	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
-	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
+	// traces capacities configuration for weka containers
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
-	Tolerations         []string             `json:"tolerations,omitempty"`
-	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
-	WekaHome            *WekaHomeConfig      `json:"wekaHome,omitempty"`
-	Ipv6                bool                 `json:"ipv6,omitempty"`
-	AdditionalMemory    AdditionalMemory     `json:"additionalMemory,omitempty"`
-	Ports               ClusterPorts         `json:"ports,omitempty"`
-	DisregardRedundancy bool                 `json:"disregardRedundancy,omitempty"`
-	OperatorSecretRef   string               `json:"operatorSecretRef,omitempty"`
-	ExpandEndpoints     []string             `json:"expandEndpoints,omitempty"`
-	Dynamic             *WekaConfig          `json:"dynamicTemplate,omitempty"`
-	NetworkSelector     NetworkSelector      `json:"network,omitempty"`
-	ForceAio            bool                 `json:"forceAio,omitempty"`
+	// simplified tolerations, checked only by key existence, expanding to NoExecute|NoSchedule tolerations
+	Tolerations []string `json:"tolerations,omitempty"`
+	// tolerations in standard k8s format
+	RawTolerations []v1.Toleration `json:"rawTolerations,omitempty"`
+	// weka home configuration
+	WekaHome *WekaHomeConfig `json:"wekaHome,omitempty"`
+	// use ipv6 for weka cluster networking configuration
+	Ipv6 bool `json:"ipv6,omitempty"`
+	// additional memory to allocate for weka containers
+	AdditionalMemory AdditionalMemory `json:"additionalMemory,omitempty"`
+	// port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports
+	Ports ClusterPorts `json:"ports,omitempty"`
+	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
+	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
+	// reference to the secret containing the weka system credentials used by operator, used in flow of migration
+	OperatorSecretRef string `json:"operatorSecretRef,omitempty"`
+	// endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration
+	ExpandEndpoints []string `json:"expandEndpoints,omitempty"`
+	// weka cluster topology configuration
+	Dynamic *WekaConfig `json:"dynamicTemplate,omitempty"`
+	// weka cluster network configuration
+	NetworkSelector NetworkSelector `json:"network,omitempty"`
+	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
+	ForceAio bool `json:"forceAio,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
 	// See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
 	// +kubebuilder:default=0
-	HotSpare        int  `json:"hotSpare,omitempty"`
-	RedundancyLevel int  `json:"redundancyLevel,omitempty"`
-	StripeWidth     int  `json:"stripeWidth,omitempty"`
-	LeadershipSize  *int `json:"leadershipRaftSize,omitempty"`
-	BucketRaftSize  *int `json:"bucketRaftSize,omitempty"`
+	HotSpare int `json:"hotSpare,omitempty"`
+	// storage capacity dedicated to system protection (2/4). https://docs.weka.io/weka-system-overview/ssd-capacity-management#protection-level
+	RedundancyLevel int `json:"redundancyLevel,omitempty"`
+	// stripe width is the number of blocks within a common protection set, ranging from 3 to 16 https://docs.weka.io/weka-system-overview/ssd-capacity-management#stripe-width
+	StripeWidth int `json:"stripeWidth,omitempty"`
+	// size of raft for leadership, defaults to 5, 5/9 are supported
+	LeadershipSize *int `json:"leadershipRaftSize,omitempty"`
+	// size of raft for buckets, defaults to 5, 5/9 are supported
+	BucketRaftSize *int `json:"bucketRaftSize,omitempty"`
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +kubebuilder:default="24h"
