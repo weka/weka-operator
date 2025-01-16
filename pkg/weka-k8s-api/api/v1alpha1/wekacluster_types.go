@@ -192,8 +192,6 @@ type WekaClusterSpec struct {
 	ImagePullSecret string `json:"imagePullSecret,omitempty"`
 	// endpoint for distribution service, global https://drivers.weka.io or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
 	DriversDistService string `json:"driversDistService,omitempty"`
-	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
-	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
 	// node selector for the weka containers
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// node selector for the weka containers per role, overrides global nodeSelector
@@ -267,6 +265,8 @@ type WekaClusterSpecOverrides struct {
 	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
 	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
 	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
+	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
+	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

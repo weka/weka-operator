@@ -99,10 +99,6 @@ spec:
                 description: endpoint for distribution service, global https://drivers.weka.io
                   or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
                 type: string
-              driversLoaderImage:
-                description: image to be used for loading drivers, do not use unless
-                  explicitly instructed by Weka team
-                type: string
               dynamicTemplate:
                 description: weka cluster topology configuration
                 properties:
@@ -237,6 +233,10 @@ spec:
                     description: disregard redundancy constraints, useful for testing,
                       should not be used in production as misaligns failure domains
                     type: boolean
+                  driversLoaderImage:
+                    description: image to be used for loading drivers, do not use
+                      unless explicitly instructed by Weka team
+                    type: string
                 type: object
               podConfig:
                 description: advanced pod affinities configuration
