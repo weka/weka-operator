@@ -1146,6 +1146,11 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 	container := r.container
 
+	if container.Spec.Overrides != nil && container.Spec.Overrides.SkipCleanupPersistentDir {
+		logger.Info("Skip cleanup persistent dir")
+		return nil
+	}
+
 	if container.GetNodeAffinity() == "" {
 		logger.Info("Container has no node affinity, skipping", "container", container.Name)
 		return nil
@@ -1154,11 +1159,6 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 	if !container.HasPersistentStorage() {
 		logger.Debug("Container has no persistent storage, skipping", "container", container.Name)
 		return nil
-	}
-
-	if !r.ContainerNodeIsAlive() {
-		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
-		return err
 	}
 
 	nodeInfo, err := r.GetNodeInfo(ctx)
@@ -1175,6 +1175,11 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 			return nil
 		}
 		logger.Error(err, "Error getting node discovery")
+		return err
+	}
+
+	if !r.ContainerNodeIsAlive() {
+		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 		return err
 	}
 
@@ -2772,8 +2777,8 @@ func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
 }
 
 func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
-	if r.container.IsDestroying() {
-		// if container state is 'destroying', it means that cluster is being destroyed
+	if !r.container.IsActive() {
+		// if container state is paused/destroying, it means that cluster is being deleted
 		// and we can skip deactivation flow
 		return true
 	}
@@ -2783,7 +2788,10 @@ func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
 	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedCluster) {
 		return true
 	}
-	return r.container.Status.SkipDeactivate
+	if r.container.Spec.Overrides == nil {
+		return false
+	}
+	return r.container.Spec.Overrides.SkipDeactivate
 }
 
 func (r *containerReconcilerLoop) CanSkipRemoveFromS3Cluster() bool {
@@ -2797,7 +2805,10 @@ func (r *containerReconcilerLoop) CanSkipRemoveFromS3Cluster() bool {
 }
 
 func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
-	return r.container.Status.SkipDrivesForceResign
+	if r.container.Spec.Overrides == nil {
+		return false
+	}
+	return r.container.Spec.Overrides.SkipDrivesForceResign
 }
 
 func (r *containerReconcilerLoop) CanProceedDeletion() bool {
