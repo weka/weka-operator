@@ -425,7 +425,9 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	if specHash != cluster.Status.LastAppliedSpec {
 		logger.Info("Cluster spec has changed, updating containers")
 		for _, container := range containers {
+			patch := client.MergeFrom(container.DeepCopy())
 			changed := false
+
 			additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
 			if container.Spec.AdditionalMemory != additionalMemory {
 				container.Spec.AdditionalMemory = additionalMemory
@@ -460,9 +462,11 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			}
 
 			if changed {
-				if err := r.getClient().Update(ctx, container); err != nil {
-					return err
+				err := r.getClient().Patch(ctx, container, patch)
+				if err != nil {
+					return errors.Wrap(err, "failed to patch weka container")
 				}
+				logger.Debug("Container updated", "container", container.Name)
 			}
 		}
 

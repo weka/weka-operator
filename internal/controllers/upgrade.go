@@ -2,12 +2,14 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -28,8 +30,20 @@ func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaConta
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
 	if container.Status.LastAppliedImage != u.TargetImage {
 		if container.Spec.Image != u.TargetImage {
-			container.Spec.Image = u.TargetImage
-			if err := u.Client.Update(ctx, container); err != nil {
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"image": u.TargetImage,
+				},
+			}
+
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				err = fmt.Errorf("failed to marshal patch for %s: %w", container.Name, err)
+				return err
+			}
+
+			if err := u.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
+				err = fmt.Errorf("failed to patch container %s with new image %s: %w", container.Name, u.TargetImage, err)
 				return err
 			}
 		}

@@ -400,6 +400,7 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
+	patch := client.MergeFrom(container.DeepCopy())
 	changed := false
 
 	if container.Spec.DriversDistService != newClientSpec.DriversDistService {
@@ -485,11 +486,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	}
 
 	if changed {
-		err := c.Update(ctx, container)
+		err := c.Patch(ctx, container, patch)
 		if err != nil {
-			return errors.Wrap(err, "failed to update weka container")
+			return errors.Wrap(err, "failed to patch weka container")
 		}
-		logger.Info("Updated weka container", "container", container.Name)
+		logger.Debug("Client container updated", "container", container.Name)
 	}
 	return nil
 }
