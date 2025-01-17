@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -24,6 +25,18 @@ const driversLoadedAnnotation = "weka.io/drivers-loaded"
 
 func getExpectedDriversVersion(image, bootId string) string {
 	return fmt.Sprintf("%s:%s", image, bootId)
+}
+
+type DriversNotLoadedError struct {
+	Err error
+}
+
+func NewDriversNotLoadedError(err error) *DriversNotLoadedError {
+	return &DriversNotLoadedError{Err: err}
+}
+
+func (e *DriversNotLoadedError) Error() string {
+	return fmt.Sprintf("DriversNotLoadedError: %v", e.Err)
 }
 
 func DriversLoaded(node *v1.Node, image string, isFrontend bool) bool {
@@ -230,7 +243,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 
 func (o *LoadDrivers) PollResults(ctx context.Context) error {
 	if o.container.Status.ExecutionResult == nil {
-		return lifecycle.NewWaitError(fmt.Errorf("container execution result is not ready"))
+		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("container execution result is not ready"), time.Second*10)
 	}
 	return nil
 }
@@ -248,14 +261,14 @@ func (o *LoadDrivers) ProcessResult(ctx context.Context) error {
 	}
 
 	if loadResults.Err != "" {
-		ret := fmt.Errorf("error loading drivers: %s, re-creating container", loadResults.Err)
+		ret := fmt.Errorf("%s, re-create container", loadResults.Err)
 		_ = o.DeleteContainers(ctx)
-		return ret
+		return NewDriversNotLoadedError(ret)
 	}
 
 	if !loadResults.Loaded {
 		_ = o.DeleteContainers(ctx)
-		return fmt.Errorf("drivers not loaded, with no err set")
+		return NewDriversNotLoadedError(nil)
 	}
 
 	annotations := o.node.Annotations

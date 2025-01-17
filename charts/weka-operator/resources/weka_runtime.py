@@ -2007,13 +2007,14 @@ async def main():
                 loaded = True
                 return
             except Exception as e:
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
                 if time.time() > end_time:
                     write_results(dict(
                         err=getattr(e, 'message', repr(e)),
                         drivers_loaded=False,
                     ))
-                    raise e
+                    # return (not raise) to avoid infinite container restarts in the pod
+                    return
                 logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
         if not loaded:
             raise Exception("Failed to load drivers")

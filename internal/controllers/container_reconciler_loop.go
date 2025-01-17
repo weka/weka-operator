@@ -273,6 +273,19 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.uploadedDriversPeriodicCheck,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsOneOff,
+					loop.ResultsAreProcessed,
+					loop.container.IsDriversBuilder,
+				},
+				ContinueOnPredicatesFalse: true,
+				Throttled:                 config.Consts.CheckDriversInterval,
+				ThrolltingSettings: util.ThrolltingSettings{
+					EnsureStepSuccess: true,
+				},
+			},
+			{
 				Run: loop.cleanupFinishedOneOff,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
@@ -280,15 +293,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
-			},
-			{
-				Run: loop.Noop,
-				Predicates: lifecycle.Predicates{
-					loop.container.IsOneOff,
-					loop.ResultsAreProcessed,
-				},
-				FinishOnSuccess:           true,
-				ContinueOnPredicatesFalse: true,
 			},
 			{
 				Condition:  condition.CondContainerImageUpdated,
@@ -1403,36 +1407,42 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 	return err
 }
 
+func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, error) {
+	// HACK: Since we don't really know the node affinity, we will try to discover it by labels
+	// Assuming, that supplied labels represent unique type of machines
+	// this puts a requirement on user to separate machines by labels, which is common approach
+	nodes, err := r.KubeService.GetNodes(ctx, r.container.Spec.NodeSelector)
+	if err != nil {
+		return nil, err
+	}
+	if len(nodes) == 0 {
+		return nil, errors.New("no matching nodes found")
+	}
+
+	// if container has affinity, try to find node that satisfies it
+	if r.container.Spec.Affinity != nil {
+		for _, node := range nodes {
+			if kubernetes.NodeSatisfiesAffinity(&node, r.container.Spec.Affinity) {
+				return &node, nil
+			}
+		}
+	} else {
+		// if no affinity, return first node from the list
+		return &nodes[0], nil
+	}
+
+	return nil, errors.New("no matching nodes found")
+}
+
 func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.DiscoveryNodeInfo, error) {
 	container := r.container
 	nodeAffinity := container.GetNodeAffinity()
 	if container.GetNodeAffinity() == "" {
-		// HACK: Since we don't really know the node affinity, we will try to discover it by labels
-		// Assuming, that supplied labels represent unique type of machines
-		// this puts a requirement on user to separate machines by labels, which is common approach
-		nodes, err := r.KubeService.GetNodes(ctx, container.Spec.NodeSelector)
+		node, err := r.pickMatchingNode(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if len(nodes) == 0 {
-			return nil, errors.New("no matching nodes found")
-		}
-		nodeAffinity = ""
-		// if container has affinity, try to find node that satisfies it
-		if r.container.Spec.Affinity != nil {
-			for _, node := range nodes {
-				if kubernetes.NodeSatisfiesAffinity(&node, r.container.Spec.Affinity) {
-					nodeAffinity = weka.NodeName(node.Name)
-					break
-				}
-			}
-		} else {
-			nodeAffinity = weka.NodeName(nodes[0].Name)
-		}
-
-		if nodeAffinity == "" {
-			return nil, errors.New("no matching nodes found")
-		}
+		nodeAffinity = weka.NodeName(node.Name)
 	}
 	discoverNodeOp := operations.NewDiscoverNodeOperation(
 		r.Manager,
@@ -2798,15 +2808,23 @@ type BuiltDriversResult struct {
 	Err                   string `json:"err"`
 }
 
-func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
+func (r *containerReconcilerLoop) getTargetContainer(ctx context.Context) (*weka.WekaContainer, error) {
 	target := r.container.Spec.UploadResultsTo
 	if target == "" {
-		return errors.New("uploadResultsTo is not set")
+		return nil, errors.New("uploadResultsTo is not set")
 	}
 
-	targetDistcontainer := &weka.WekaContainer{}
+	targetDistContainer := &weka.WekaContainer{}
 	// assuming same namespace
-	err := r.Get(ctx, client.ObjectKey{Name: target, Namespace: r.container.Namespace}, targetDistcontainer)
+	err := r.Get(ctx, client.ObjectKey{Name: target, Namespace: r.container.Namespace}, targetDistContainer)
+	if err != nil {
+		return nil, errors.Wrap(err, "error getting target dist container")
+	}
+	return targetDistContainer, nil
+}
+
+func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
+	targetDistContainer, err := r.getTargetContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -2819,7 +2837,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	// TODO: This is not a best solution, to download version, but, usable.
 	// Should replace this with ad-hocy downloader container, that will use newer version(as the one who built), to download using shared storage
 
-	executor, err := r.ExecService.GetExecutor(ctx, targetDistcontainer)
+	executor, err := r.ExecService.GetExecutor(ctx, targetDistContainer)
 	if err != nil {
 		return err
 	}
@@ -2892,8 +2910,79 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	return complete()
 }
 
-func (r *containerReconcilerLoop) Noop(ctx context.Context) error {
+// check if we actually can load drivers from dist service
+// trigger re-build + re-upload if not
+func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	if !r.container.IsDriversBuilder() {
+		return nil
+	}
+
+	details := r.container.ToContainerDetails()
+	logger.Info("Try loading drivers", "image", details.Image)
+
+	node := r.node
+	// Builder is not explicitly assigned to any node.
+	// Pick one and keep it in status.nodeAffinity.
+	// If node get deleted, r.node will be nil, and we will pick another one
+	if node == nil {
+		var err error
+		node, err = r.pickMatchingNode(ctx)
+		if err != nil {
+			return err
+		}
+
+		r.container.Status.NodeAffinity = weka.NodeName(node.Name)
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			err = fmt.Errorf("error updating nodeAffinity in status: %w", err)
+			return err
+		}
+	}
+
+	targetDistContainer, err := r.getTargetContainer(ctx)
+	if err != nil {
+		return err
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, targetDistContainer)
+	if err != nil {
+		return err
+	}
+	wekaVersion := strings.Split(r.container.Spec.Image, ":")[1]
+
+	// assuming `weka driver pack` is supported
+	downloadCmd := fmt.Sprintf("weka driver download --without-agent --version %s", wekaVersion)
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
+		[]string{"bash", "-ce", downloadCmd},
+	)
+	if err != nil {
+		err = fmt.Errorf("error downloading drivers: %w, stderr: %s", err, stderr.String())
+		logger.Debug(err.Error())
+
+		if strings.Contains(stderr.String(), "Failed to download the drivers") {
+			msg := "Cannot load drivers, trigger re-build and re-upload"
+			logger.Info(msg)
+
+			r.RecordEvent("", "DriversRebuild", msg)
+
+			if err := r.clearBuilderStatus(ctx); err != nil {
+				err = fmt.Errorf("error clearing builder results: %w", err)
+				return err
+			}
+		}
+		return err
+	}
+
+	logger.Debug("Drivers loaded successfully", "stdout", stdout.String())
 	return nil
+}
+
+func (r *containerReconcilerLoop) clearBuilderStatus(ctx context.Context) error {
+	r.container.Status = weka.WekaContainerStatus{}
+	return r.Status().Update(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) ResultsAreSet() bool {
