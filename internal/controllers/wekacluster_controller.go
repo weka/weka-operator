@@ -197,6 +197,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run:       loop.FormCluster,
 			},
 			{
+				Condition: condition.CondPostClusterFormedScript,
+				Run:       loop.RunPostFormClusterScript,
+				Predicates: lifecycle.Predicates{
+					loop.HasPostFormClusterScript,
+					lifecycle.IsNotFunc(loop.cluster.IsExpand),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.refreshContainersJoinIps,
 			},
 			{

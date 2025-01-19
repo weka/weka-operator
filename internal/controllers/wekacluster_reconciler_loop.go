@@ -1648,6 +1648,39 @@ mv /data/metrics.tmp /data/metrics
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) HasPostFormClusterScript() bool {
+	return r.cluster.Spec.GetOverrides().PostFormClusterScript != ""
+}
+
+func (r *wekaClusterReconcilerLoop) RunPostFormClusterScript(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RunPostFormClusterScript")
+	defer end()
+
+	activeContainer, err := discovery.SelectActiveContainerWithRole(ctx, r.containers, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
+	}
+	executor, err := r.ExecService.GetExecutor(ctx, activeContainer)
+	if err != nil {
+		return err
+	}
+
+	script := r.cluster.Spec.GetOverrides().PostFormClusterScript
+	cmd := []string{
+		"/bin/sh",
+		"-ec",
+		script, // TODO: Might need additional escaping
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "PostFormClusterScript", cmd)
+	if err != nil {
+		return errors.Wrapf(err, "Failed to run post-form cluster script: %s\n%s", stderr.String(), stdout.String())
+	}
+
+	logger.Info("Post-form cluster script executed")
+	return nil
+
+}
+
 func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer, limit int) ([]*wekav1alpha1.WekaContainer, error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
 	defer end()
