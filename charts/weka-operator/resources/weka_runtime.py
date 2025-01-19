@@ -218,25 +218,46 @@ async def find_weka_drives():
     drives = []
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
-    devices = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
-    logging.info(f"All found in kernel block devices: {devices}")
-    for block_device in devices:
+    devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True).decode().strip().split()
+    devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+
+    part_names = []
+    def resolve_to_part_name():
+        # TODO: A bit dirty, consolidate paths
+        for device in devices_by_path:
+            try:
+                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{device})", shell=True).decode().strip()
+            except subprocess.CalledProcessError:
+                logging.error(f"Failed to get part name for {device}")
+                continue
+            part_names.append(part_name)
+        for device in devices_by_id:
+            try:
+                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-id/{device})", shell=True).decode().strip()
+                if part_name in part_names:
+                    continue
+            except subprocess.CalledProcessError:
+                logging.error(f"Failed to get part name for {device}")
+                continue
+            part_names.append(part_name)
+    resolve_to_part_name()
+
+    logging.info(f"All found in kernel block devices: {part_names}")
+    for part_name in part_names:
         try:
-            type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/disk/by-path/{block_device}",
+            type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/{part_name}",
                                               shell=True).decode().strip()
         except subprocess.CalledProcessError:
-            logging.error(f"Failed to get PART_ENTRY_TYPE for {block_device}")
+            logging.error(f"Failed to get PART_ENTRY_TYPE for {part_name}")
             continue
 
         if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
             # TODO: Read and populate actual weka guid here
             weka_guid = ""
             # resolve block_device to serial id
-            partition_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{block_device})",
-                                                     shell=True).decode().strip()
-            pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{partition_name}",
+            pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{part_name}",
                                                       shell=True).decode().strip()
-            if "nvme" in block_device:
+            if "nvme" in part_name:
                 # 3 directories up is the serial id
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
                 serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
@@ -249,7 +270,7 @@ async def find_weka_drives():
                 serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
 
             drives.append({
-                "partition": "/dev/" + partition_name,
+                "partition": "/dev/" + part_name,
                 "block_device": device_path,
                 "serial_id": serial_id,
                 "weka_guid": weka_guid
