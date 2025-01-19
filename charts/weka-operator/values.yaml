@@ -44,11 +44,11 @@ kubeExecTimeout: 5m
 
 # -- maximum number of workers for each reconciler (for each resource type)
 maxWorkers:
-  wekaCluster: 1
-  wekaContainer: 10
-  wekaClient: 10
-  wekaManualOperation: 1
-  wekaPolicy: 1
+  wekaCluster: 5
+  wekaContainer: 50
+  wekaClient: 5
+  wekaManualOperation: 5
+  wekaPolicy: 5
 
 wekaAllocZombieDeleteAfter: 5m
 
