@@ -237,6 +237,8 @@ spec:
                       nvme (impacts performance, but might serve as a fallback in
                       case of incompatible device)
                     type: boolean
+                  postFormClusterScript:
+                    type: string
                 type: object
               podConfig:
                 description: advanced pod affinities configuration

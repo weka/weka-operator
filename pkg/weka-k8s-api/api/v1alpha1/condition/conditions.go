@@ -16,6 +16,7 @@ const (
 	CondNfsInterfaceGroupsConfigured = "NfsInterfaceGroupsConfigured"
 	CondPodsReady                    = "PodsReady"
 	CondClusterCreated               = "ClusterCreated"
+	CondPostClusterFormedScript      = "CondPostClusterFormedScript"
 	CondJoinIpsSet                   = "JoinIpsSet"
 	CondDrivesAdded                  = "DrivesAdded"
 	CondIoStarted                    = "IoStarted"
