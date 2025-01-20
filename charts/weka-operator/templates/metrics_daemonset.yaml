@@ -116,5 +116,5 @@ spec:
                 - "ALL"
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+      serviceAccountName: "{{ .Values.prefix }}-maintenance"
       terminationGracePeriodSeconds: 10
-
