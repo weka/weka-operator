@@ -182,6 +182,8 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 					dataMutex.Lock()
 					createErrs = append(createErrs, errors.Wrap(err, "failed to set controller reference"))
 					dataMutex.Unlock()
+					idx++
+					continue
 				}
 
 				err = o.client.Create(ctx, newContainer)
@@ -189,13 +191,12 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 					dataMutex.Lock()
 					createErrs = append(createErrs, errors.Wrap(err, "failed to create container"))
 					dataMutex.Unlock()
+				} else {
+					dataMutex.Lock()
+					o.containers = append(o.containers, newContainer)
+					newlyCreated += 1
+					dataMutex.Unlock()
 				}
-
-				dataMutex.Lock()
-				o.containers = append(o.containers, newContainer)
-				newlyCreated += 1
-				dataMutex.Unlock()
-
 				idx++
 			}
 		}(i)

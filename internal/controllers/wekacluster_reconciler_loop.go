@@ -94,8 +94,8 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 
 	currentContainers := r.containers
-	newContainersLimit := config.Consts.NewContainersLimit
-	missingContainers, err := BuildMissingContainers(ctx, cluster, template, currentContainers, newContainersLimit)
+	//newContainersLimit := config.Consts.NewContainersLimit
+	missingContainers, err := BuildMissingContainers(ctx, cluster, template, currentContainers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
 		return err
@@ -1681,17 +1681,13 @@ func (r *wekaClusterReconcilerLoop) RunPostFormClusterScript(ctx context.Context
 
 }
 
-func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer, limit int) ([]*wekav1alpha1.WekaContainer, error) {
+func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
 	defer end()
 
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
 	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs"} {
-		if len(containers) >= limit {
-			break
-		}
-
 		var numContainers int
 
 		switch role {
@@ -1715,9 +1711,6 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-			if len(containers) >= limit {
-				break
-			}
 
 			name := allocator.NewContainerName(role)
 			logger.Info("Building missing container", "role", role, "name", name)
