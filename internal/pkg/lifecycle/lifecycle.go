@@ -216,12 +216,14 @@ STEPS:
 				}
 			}
 			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
+			throttlingCtx, _, throttlingEnd := instrumentation.GetLogSpan(ctx, "ThrottlingUpdate", "step", step.Name)
 			// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
-			if err := r.Client.Status().Update(ctx, r.StatusObject); err != nil {
+			if err := r.Client.Status().Update(throttlingCtx, r.StatusObject); err != nil {
 				stopErr := NewWaitError(err)
 				runLogger.SetValues("stop_err", stopErr.Error())
 				return stopErr
 			}
+			throttlingEnd()
 		}
 
 		// Check if step is already done or if the condition should be able to run again
@@ -326,6 +328,8 @@ STEPS:
 }
 
 func (r *ReconciliationSteps) setConditions(ctx context.Context, condition metav1.Condition) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "setConditions", "condition", condition.Type)
+	defer end()
 	meta.SetStatusCondition(r.Conditions, condition)
 	if err := r.Client.Status().Update(ctx, r.StatusObject); err != nil {
 		return &ConditionUpdateError{Err: err, Subject: r.StatusObject, Condition: condition}

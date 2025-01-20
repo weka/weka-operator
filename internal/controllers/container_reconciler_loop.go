@@ -495,7 +495,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 			{
 				Name:                      "ReportOtelMetrics",
 				Run:                       lifecycle.ForceNoError(loop.ReportOtelMetrics),
-				Throttled:                 time.Minute,
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 		},

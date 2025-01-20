@@ -168,7 +168,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 }
 
 func (o *ResignDrivesOperation) getContainerName() string {
-	return fmt.Sprintf("weka-force-resign-drives-%s", o.payload.NodeName)
+	return fmt.Sprintf("weka-force-resign-drives-%s", o.ownerRef.GetUID())
 }
 
 func (o *ResignDrivesOperation) GetContainer(ctx context.Context) error {
