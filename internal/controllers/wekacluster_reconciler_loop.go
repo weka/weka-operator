@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/pkg/workers"
 	"reflect"
 	"strconv"
 	"strings"
@@ -93,9 +94,8 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return err
 	}
 
-	currentContainers := r.containers
 	//newContainersLimit := config.Consts.NewContainersLimit
-	missingContainers, err := BuildMissingContainers(ctx, cluster, template, currentContainers)
+	missingContainers, err := BuildMissingContainers(ctx, cluster, template, r.containers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
 		return err
@@ -118,7 +118,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 
 	k8sClient := r.Manager.GetClient()
-	if len(currentContainers) == 0 {
+	if len(r.containers) == 0 {
 		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
 		//TODO: should've be just own step function
 		err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
@@ -138,7 +138,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || cluster.IsExpand() {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		allowExpansion := false
-		err := services.ClustersJoinIps.RefreshJoinIps(ctx, currentContainers, cluster)
+		err := services.ClustersJoinIps.RefreshJoinIps(ctx, r.containers, cluster)
 		if err != nil {
 			allowExpansion = true
 		}
@@ -157,30 +157,24 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		}
 	}
 
-	errs := []error{}
-
-	allContainers := []*wekav1alpha1.WekaContainer{}
-
 	for _, container := range missingContainers {
 		if len(joinIps) != 0 {
 			container.Spec.JoinIps = joinIps
 		}
-		err = r.getClient().Create(ctx, container)
-		if err != nil {
-			logger.Error(err, "Failed to create container", "name", container.Name)
-			errs = append(errs, err)
-			continue
-		}
-		allContainers = append(allContainers, container)
 	}
-	allContainers = append(currentContainers, allContainers...)
-	r.containers = allContainers
 
-	if len(errs) != 0 {
-		err := fmt.Errorf("failed to create containers: %v", errs)
+	results := workers.ProcessConcurrently(ctx, missingContainers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		err := r.getClient().Create(ctx, container)
 		return err
+	})
+
+	for _, result := range results.Items {
+		if result.Err == nil {
+			r.containers = append(r.containers, result.Object)
+		}
 	}
-	return nil
+
+	return results.AsError()
 }
 
 func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) error {
