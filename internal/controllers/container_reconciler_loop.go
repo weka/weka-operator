@@ -1087,7 +1087,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 		return lifecycle.NewWaitError(errors.New("no value in response from weka local container-get-identity"))
 	}
 	if response.Value.ClusterId == "" || response.Value.ClusterId == "00000000-0000-0000-0000-000000000000" {
-		return lifecycle.NewWaitError(errors.New("cluster not ready"))
+		return lifecycle.NewWaitErrorWithDuration(errors.New("cluster not ready"), time.Second*15)
 	}
 
 	container.Status.ClusterContainerID = &response.Value.ContainerId

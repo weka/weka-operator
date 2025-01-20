@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"strings"
 
 	"github.com/weka/weka-operator/pkg/workers"
@@ -90,7 +91,15 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 		return nil
 	})
 
-	return results.AsError()
+	if results.AsError() != nil {
+		return results.AsError()
+	}
+
+	if len(containers) > 0 {
+		return lifecycle.NewWaitError(fmt.Errorf("not all containers were fully removed"))
+	} else {
+		return nil
+	}
 }
 
 func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {

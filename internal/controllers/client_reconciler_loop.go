@@ -3,11 +3,13 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/pkg/workers"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"reflect"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
@@ -18,7 +20,6 @@ import (
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -46,11 +47,11 @@ type clientReconcilerLoop struct {
 	KubeService kubernetes.KubeService
 	Manager     ctrl.Manager
 	Recorder    record.EventRecorder
-	containers  []*v1alpha1.WekaContainer
-	wekaClient  *v1alpha1.WekaClient
+	containers  []*weka.WekaContainer
+	wekaClient  *weka.WekaClient
 }
 
-func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *v1alpha1.WekaClient) lifecycle.ReconciliationSteps {
+func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
 	loop := NewClientReconcileLoop(mgr)
 	loop.wekaClient = wekaClient
 
@@ -172,21 +173,26 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		nodeToContainer[nodeName] = container.Name
 	}
 
+	toCreate := []*weka.WekaContainer{}
 	for _, node := range nodes {
 		if _, ok := nodeToContainer[node.Name]; ok {
 			continue
+		} else {
+			wekaContainer, err := c.buildClientWekaContainer(ctx, node.Name)
+			if err != nil {
+				return errors.Wrap(err, "failed to build client weka container")
+			}
+			toCreate = append(toCreate, wekaContainer)
 		}
+	}
 
-		wekaContainer, err := c.buildClientWekaContainer(ctx, node.Name)
-		if err != nil {
-			return errors.Wrap(err, "failed to build client weka container")
-		}
+	results := workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
 		err = ctrl.SetControllerReference(c.wekaClient, wekaContainer, c.Scheme)
 		if err != nil {
 			return errors.Wrap(err, "failed to set controller reference")
 		}
 
-		found := &v1alpha1.WekaContainer{}
+		found := &weka.WekaContainer{}
 		err = c.Get(ctx, client.ObjectKey{Namespace: wekaContainer.Namespace, Name: wekaContainer.Name}, found)
 		if err != nil && apierrors.IsNotFound(err) {
 			err := c.resolveJoinIps(ctx)
@@ -208,11 +214,12 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
+	return results.AsError()
 }
 
-func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected, found *v1alpha1.WekaContainer) error {
+func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected, found *weka.WekaContainer) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -232,7 +239,7 @@ func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected,
 	return nil
 }
 
-func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nodeName string) (*v1alpha1.WekaContainer, error) {
+func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nodeName string) (*weka.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "buildClientWekaContainer", "node", nodeName)
 	defer end()
 
@@ -274,7 +281,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 	// make sure that PortRange is set if one of the ports is 0
 	if wekaClient.Spec.AgentPort == 0 || wekaClient.Spec.Port == 0 {
 		if portRange == nil {
-			portRange = &v1alpha1.PortRange{
+			portRange = &weka.PortRange{
 				BasePort: defaultPortRangeBase,
 			}
 		}
@@ -283,7 +290,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 	containerLabels := factory.RequiredWekaClientLabels(wekaClient.ObjectMeta.Name)
 	labels := util2.MergeMaps(wekaClient.ObjectMeta.GetLabels(), containerLabels)
 
-	container := &v1alpha1.WekaContainer{
+	container := &weka.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
 			Kind:       "WekaContainer",
@@ -293,15 +300,15 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Namespace: wekaClient.Namespace,
 			Labels:    labels,
 		},
-		Spec: v1alpha1.WekaContainerSpec{
-			NodeAffinity:        v1alpha1.NodeName(nodeName),
+		Spec: weka.WekaContainerSpec{
+			NodeAffinity:        weka.NodeName(nodeName),
 			Port:                wekaClient.Spec.Port,
 			AgentPort:           wekaClient.Spec.AgentPort,
 			PortRange:           portRange,
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
-			Mode:                v1alpha1.WekaContainerModeClient,
+			Mode:                weka.WekaContainerModeClient,
 			NumCores:            numCores,
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
@@ -353,7 +360,7 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	emptyTarget := v1alpha1.ObjectReference{}
+	emptyTarget := weka.ObjectReference{}
 	if c.wekaClient.Spec.TargetCluster == emptyTarget {
 		return nil
 	}
@@ -400,7 +407,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *v1alpha1.WekaContainer, newClientSpec *UpdatableClientSpec) error {
+func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, container *weka.WekaContainer, newClientSpec *UpdatableClientSpec) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -516,9 +523,9 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	}
 
 	switch c.wekaClient.Spec.UpgradePolicy.Type {
-	case v1alpha1.UpgradePolicyTypeAllAtOnce:
+	case weka.UpgradePolicyTypeAllAtOnce:
 		return uController.AllAtOnceUpgrade(ctx)
-	case v1alpha1.UpgradePolicyTypeRolling:
+	case weka.UpgradePolicyTypeRolling:
 		return uController.RollingUpgrade(ctx)
 	default:
 		// we are relying on container to treat self-upgrade as manual(i.e not replacing pod) by propagating mode into it
@@ -526,7 +533,7 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	}
 }
 
-func isPortRangeEqual(a, b v1alpha1.PortRange) bool {
+func isPortRangeEqual(a, b weka.PortRange) bool {
 	return a.BasePort == b.BasePort && a.PortRange == b.PortRange
 }
 
@@ -535,19 +542,19 @@ type UpdatableClientSpec struct {
 	ImagePullSecret    string
 	WekaSecretRef      string
 	AdditionalMemory   int
-	UpgradePolicy      v1alpha1.UpgradePolicy
+	UpgradePolicy      weka.UpgradePolicy
 	AllowHotUpgrade    bool
 	DriversLoaderImage string
 	Port               int
 	AgentPort          int
-	PortRange          *v1alpha1.PortRange
+	PortRange          *weka.PortRange
 	CoresNumber        int
 	Tolerations        []string
 	RawTolerations     []v1.Toleration
 	Labels             *util2.HashableMap
 }
 
-func NewUpdatableClientSpec(spec *v1alpha1.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
+func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
 	labels := util2.NewHashableMap(meta.Labels)
 
 	return &UpdatableClientSpec{
