@@ -133,6 +133,14 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},
 			{
+				Run: loop.handleStateDestroying,
+				Predicates: lifecycle.Predicates{
+					container.IsDestroying,
+					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:  condition.CondRemovedFromS3Cluster,
 				CondReason: "Deletion",
 				Run:        loop.RemoveFromS3Cluster,
@@ -185,6 +193,15 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.stopForceAndEnsureNoPod,
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					loop.CanProceedDeletion,
+					container.IsDriveContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:  condition.CondContainerDrivesResigned,
 				CondReason: "Deletion",
 				Run:        loop.ResignDrives,
@@ -211,14 +228,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
-			},
-			{
-				Run: loop.handleStateDestroying,
-				Predicates: lifecycle.Predicates{
-					container.IsDestroying,
-					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
-				},
-				ContinueOnPredicatesFalse: true,
 			},
 			{
 				Run: loop.getAndStoreActiveMounts,
@@ -279,6 +288,7 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run: loop.EnsureDrivers,
 				Predicates: lifecycle.Predicates{
 					container.RequiresDrivers,
+					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
 					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 				},
 				ContinueOnPredicatesFalse: true,
@@ -1356,15 +1366,19 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 
 	// setting for forceful termination, as we are in container delete flow
 	logger.Info("Deleting pod", "pod", pod.Name)
+	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod)
 	if err != nil {
 		// do not return error, as we are deleting pod anyway
 		logger.Error(err, "Error writing allow force stop instruction")
 	}
 
-	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() {
+	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
+			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
+			// for versions that do not yet support graceful shutdown touch-flag, we will force stop weka local
+			// this might impact performance of shrink, but should not be affecting whole cluster deletion
 			err = r.runWekaLocalStop(ctx, pod, true)
 			if err != nil {
 				logger.Error(err, "Error force-stopping weka local")

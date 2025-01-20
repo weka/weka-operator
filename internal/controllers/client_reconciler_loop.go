@@ -140,6 +140,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		if container.IsMarkedForDeletion() {
 			continue
 		}
+		toDelete = append(toDelete, container)
 	}
 
 	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *weka.WekaContainer) error {
