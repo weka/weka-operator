@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -30,12 +31,44 @@ func (e *GetJoinIpsError) Error() string {
 }
 
 type JoinIpsResult struct {
-	JoinIps   []string
-	UpdatedAt time.Time
+	JoinIpsByFD map[string][]string
+	UpdatedAt   time.Time
+}
+
+func (r *JoinIpsResult) GetRandomJoinIps(num int) []string {
+	rndm := rand.New(rand.NewSource(time.Now().Unix()))
+
+	// from each FD, select a random join ip
+	joinIps := make([]string, 0, num)
+	// number of failure domains
+	fdNum := len(r.JoinIpsByFD)
+	// calculate how many ips to select from each FD (round up)
+	ipsPerFD := (num + fdNum - 1) / fdNum
+
+	for _, ips := range r.JoinIpsByFD {
+		used := make(map[int]struct{})
+		expectedIps := ipsPerFD
+		if len(ips) <= ipsPerFD {
+			expectedIps = len(ips)
+		}
+		for i := 0; i < expectedIps && len(joinIps) < num; i++ {
+			// select a random ip
+			rndmIndex := rndm.Intn(len(ips))
+			for _, ok := used[rndmIndex]; ok; _, ok = used[rndmIndex] {
+				rndmIndex = rndm.Intn(len(ips))
+			}
+			used[rndmIndex] = struct{}{}
+			joinIps = append(joinIps, ips[rndmIndex])
+		}
+	}
+
+	return joinIps
 }
 
 // ClustersJoinIpsService is a service that keeps cached join ips for clusters
 type ClustersJoinIpsService interface {
+	// Check if the cached join ips exist and are valid
+	JoinIpsAreValid(ctx context.Context, clusterName, namespace string) (bool, error)
 	// GetJoinIps returns the cached join ips for the cluster
 	// If the cache is expired or the cluster is not found, the GetJoinIpsError is returned
 	GetJoinIps(ctx context.Context, clusterName, namespace string) ([]string, error)
@@ -59,6 +92,24 @@ func NewClustersJoinIpsService() ClustersJoinIpsService {
 	}
 }
 
+func (s *clustersJoinIpsService) JoinIpsAreValid(ctx context.Context, clusterName, namespace string) (bool, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	key := s.getKey(clusterName, namespace)
+	joinIpsResult, ok := s.clusterJoinIps[key]
+	if !ok {
+		err := &GetJoinIpsError{ClusterName: clusterName, Issue: "cluster not found", Namespace: namespace}
+		return false, err
+	}
+
+	if time.Since(joinIpsResult.UpdatedAt) > s.ipsCacheTTL {
+		err := &GetJoinIpsError{ClusterName: clusterName, Issue: "cache expired", Namespace: namespace}
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterName, namespace string) ([]string, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -75,17 +126,17 @@ func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterName, na
 		return nil, err
 	}
 
-	return joinIpsResult.JoinIps, nil
+	return joinIpsResult.GetRandomJoinIps(5), nil
 }
 
 func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers []*weka.WekaContainer, cluster *weka.WekaCluster) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RefreshJoinIps")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "RefreshJoinIps")
 	defer end()
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	joinIps, err := discovery.SelectJoinIps(containers, cluster.Spec.FailureDomainLabel)
+	joinIpsByFD, err := discovery.SelectJoinIps(containers, cluster.Spec.FailureDomainLabel)
 	if err != nil {
 		err = fmt.Errorf("failed to get cluster join ips: %w", err)
 		return err
@@ -93,11 +144,11 @@ func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers 
 
 	key := s.getKey(cluster.Name, cluster.Namespace)
 	s.clusterJoinIps[key] = JoinIpsResult{
-		JoinIps:   joinIps,
-		UpdatedAt: time.Now(),
+		JoinIpsByFD: joinIpsByFD,
+		UpdatedAt:   time.Now(),
 	}
 
-	logger.Info("Refreshed cluster join ips", "join_ips", joinIps, "cluster", cluster.Name)
+	logger.Info("Refreshed cluster join ips", "cluster", cluster.Name)
 	return nil
 }
 

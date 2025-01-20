@@ -1290,7 +1290,7 @@ func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context
 	containers := r.containers
 	cluster := r.cluster
 
-	_, err := services.ClustersJoinIps.GetJoinIps(ctx, cluster.Name, cluster.Namespace)
+	_, err := services.ClustersJoinIps.JoinIpsAreValid(ctx, cluster.Name, cluster.Namespace)
 	if err != nil {
 		logger.Debug("Cannot get join ips", "msg", err.Error())
 		err := services.ClustersJoinIps.RefreshJoinIps(ctx, containers, cluster)
