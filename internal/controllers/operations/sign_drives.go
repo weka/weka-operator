@@ -221,12 +221,14 @@ func (o *SignDrivesOperation) GetResult() DiscoverDrivesResult {
 func (o *SignDrivesOperation) GetJsonResult() string {
 	total := 0
 	errs := []string{}
-	maxErrors := 30
+	maxErrors := 5
 
 	for _, nodeResults := range o.results.Results {
 		total += len(nodeResults.Drives)
-		if len(errs) < maxErrors {
-			errs = append(errs, nodeResults.Err.Error())
+		if nodeResults.Err != nil {
+			if len(errs) < maxErrors {
+				errs = append(errs, nodeResults.Err.Error())
+			}
 		}
 	}
 	ret := map[string]interface{}{
