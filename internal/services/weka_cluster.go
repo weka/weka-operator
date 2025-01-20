@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/pkg/workers"
 	"strings"
 
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -58,14 +59,16 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 		return err
 	}
 
-	var failedUpdates []string
-	var failedDeletes []string
+	toDelete := []*wekav1alpha1.WekaContainer{}
 	for _, container := range containers {
-		// check if not already being deleted
-		if container.GetDeletionTimestamp() != nil {
+		if !container.IsDestroying() {
 			continue
+		} else {
+			toDelete = append(toDelete, container)
 		}
+	}
 
+	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 		if !container.IsDestroying() {
 			patch := map[string]interface{}{
 				"spec": map[string]interface{}{
@@ -75,44 +78,21 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 
 			patchBytes, err := json.Marshal(patch)
 			if err != nil {
-				logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
-				failedUpdates = append(failedUpdates, container.Name)
-				continue
+				return err
 			}
 
 			err = r.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
 			if err != nil {
-				logger.Debug("Failed to patch container spec state as 'destroying'", "container", container.Name, "error", err)
-				failedUpdates = append(failedUpdates, container.Name)
-				continue
+				return err
 			}
 		}
 
-		// delete the container
+		// TODO: Remove, once containers will start act by themselves on state==destroying
 		err = r.Client.Delete(ctx, container)
-		if err != nil {
-			logger.Debug("Failed to delete container", "container", container.Name, "error", err)
-			failedDeletes = append(failedDeletes, container.Name)
-		}
-	}
+		return nil
+	})
 
-	if len(failedUpdates) > 0 {
-		err := fmt.Errorf("failed to update containers status with skip deactivate")
-		logger.Error(err, "", "containers", failedUpdates)
-		return err
-	}
-
-	if len(failedDeletes) > 0 {
-		err := fmt.Errorf("failed to delete containers")
-		logger.Error(err, "", "containers", failedDeletes)
-		return err
-	}
-
-	if len(containers) != 0 {
-		logger.Info("Deleted containers", "count", len(containers))
-		return errors.New("containers being deleted")
-	}
-	return nil
+	return results.AsError()
 }
 
 func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*wekav1alpha1.WekaContainer) error {
