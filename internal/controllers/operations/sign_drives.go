@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/go-weka-observability/instrumentation"
+	"sync"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -84,6 +86,9 @@ func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	payloadBytes, err := json.Marshal(o.payload)
 	if err != nil {
 		return err
@@ -108,14 +113,24 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
+	defer logger.SetValues("matchingNodes", len(matchingNodes), "existingContainers", len(existingContainerNodes))
+	logger.SetAttributes()
+
+	//TODO: Re-factor to all pieces of results will be a generic results structure, allowing to implement generic parallezation with callback funcs
+	newlyCreated := 0
+	skip := 0
+
+	toCreate := []*weka.WekaContainer{}
 	for _, node := range matchingNodes {
 		if existingContainerNodes[node.Name] {
 			continue
 		}
 
 		// if data exists and not force - skip
+		// TODO: Does it work? repeat runs do create repeate wekacontainers, so sounds like this check is broken
 		if !o.force {
 			if node.Annotations["weka.io/weka-drives"] != "" {
+				skip += 1
 				continue
 			}
 		}
@@ -143,19 +158,62 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Tolerations:     o.tolerations,
 			},
 		}
+		toCreate = append(toCreate, newContainer)
 
-		err = controllerutil.SetControllerReference(o.ownerRef, newContainer, o.scheme)
-		if err != nil {
-			return errors.Wrap(err, "failed to set controller reference")
-		}
-
-		err = o.client.Create(ctx, newContainer)
-		if err != nil {
-			return errors.Wrap(err, "failed to create container")
-		}
-
-		o.containers = append(o.containers, newContainer)
 	}
+
+	dataMutex := sync.Mutex{}
+	createErrs := []error{}
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(workerIndex int) {
+			defer wg.Done()
+			idx := 0
+			for {
+				cIdx := workerIndex + 32*idx
+				if cIdx >= len(toCreate) {
+					break
+				}
+				newContainer := toCreate[cIdx]
+				err = controllerutil.SetControllerReference(o.ownerRef, newContainer, o.scheme)
+				if err != nil {
+					dataMutex.Lock()
+					createErrs = append(createErrs, errors.Wrap(err, "failed to set controller reference"))
+					dataMutex.Unlock()
+				}
+
+				err = o.client.Create(ctx, newContainer)
+				if err != nil {
+					dataMutex.Lock()
+					createErrs = append(createErrs, errors.Wrap(err, "failed to create container"))
+					dataMutex.Unlock()
+				}
+
+				dataMutex.Lock()
+				o.containers = append(o.containers, newContainer)
+				newlyCreated += 1
+				dataMutex.Unlock()
+
+				idx++
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if len(createErrs) != 0 {
+		topErrors := []error{}
+		for i, err := range createErrs {
+			if i > 10 {
+				break
+			}
+			topErrors = append(topErrors, err)
+		}
+		logger.SetError(errors.New("failed to create containers"), fmt.Sprintf("%d failed", len(createErrs)), topErrors)
+	}
+
+	logger.SetValues("newlyCreated", newlyCreated, "skipNodes", skip)
 
 	return nil
 }
