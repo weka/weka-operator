@@ -124,13 +124,14 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 	}
 	labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
-	instrunctionsMap := map[string]v1alpha1.ForceResignDrivesPayload{
-		"force-resign-drives": *o.payload,
-	}
-
-	instructions, err := json.Marshal(instrunctionsMap)
+	payloadBytes, err := json.Marshal(o.payload)
 	if err != nil {
 		return err
+	}
+
+	instructions := &v1alpha1.Instructions{
+		Type:    "force-resign-drives",
+		Payload: string(payloadBytes),
 	}
 
 	containerName := o.getContainerName()
@@ -147,7 +148,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 			NodeAffinity:    v1alpha1.NodeName(o.payload.NodeName),
 			Image:           o.image,
 			ImagePullSecret: o.pullSecret,
-			Instructions:    string(instructions),
+			Instructions:    instructions,
 			Tolerations:     o.tolerations,
 		},
 	}

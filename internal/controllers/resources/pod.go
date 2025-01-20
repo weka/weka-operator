@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -445,9 +446,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.IsAdhocOpContainer() {
+		instructionsBytes, err := json.Marshal(f.container.Spec.Instructions)
+		if err != nil {
+			return nil, err
+		}
+
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "INSTRUCTIONS",
-			Value: f.container.Spec.Instructions,
+			Value: string(instructionsBytes),
 		})
 	}
 

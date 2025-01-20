@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -13,10 +14,8 @@ import (
 	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -47,14 +46,14 @@ type DriveInfo struct {
 	Partition  string `json:"partition"`
 }
 
-type driveNodeResults struct {
+type DriveNodeResults struct {
 	Err    error       `json:"err"`
 	Drives []DriveInfo `json:"drives"`
 }
 
 type DiscoverDrivesResult struct {
 	Err     error                       `json:"err,omitempty"`
-	Results map[string]driveNodeResults `json:"results"`
+	Results map[string]DriveNodeResults `json:"results"`
 }
 
 func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
@@ -90,7 +89,6 @@ func (o *DiscoverDrivesOperation) GetSteps() []lifecycle.Step {
 		{Name: "EnsureContainers", Run: o.EnsureContainers},
 		{Name: "PollResults", Run: o.PollResults},
 		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "UpdateNodeAnnotations", Run: o.UpdateNodeAnnotations},
 		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
@@ -106,7 +104,9 @@ func (o *DiscoverDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
-	instructions := "discover-drives"
+	instructions := &v1alpha1.Instructions{
+		Type: "discover-drives",
+	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
 	if err != nil {
@@ -202,16 +202,21 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer) (*
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
 	defer end()
 
-	results := make(map[string]driveNodeResults)
+	results := make(map[string]DriveNodeResults)
 	errorCount := 0
 
 	for _, container := range containers {
-		var opResult driveNodeResults
+		if container.Status.Status != "Completed" {
+			err := fmt.Errorf("container %s did not complete operation yet", container.Name)
+			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+		}
+
+		var opResult DriveNodeResults
 		err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
 		logger.Info("Processing container result", "container", container.Name, "result", opResult)
 		if err != nil {
 			errs := err.Error()
-			results[string(container.GetNodeAffinity())] = driveNodeResults{
+			results[string(container.GetNodeAffinity())] = DriveNodeResults{
 				Err: fmt.Errorf("failed to unmarshal execution result: %s", errs),
 			}
 			continue
@@ -232,76 +237,6 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer) (*
 	}
 
 	return &finalResult, nil
-}
-
-func (o *DiscoverDrivesOperation) UpdateNodeAnnotations(ctx context.Context) error {
-	return updateNodeAnnotations(ctx, o.client, &o.results)
-}
-
-func updateNodeAnnotations(ctx context.Context, k8sClient client.Client, result *DiscoverDrivesResult) error {
-	for nodeName, result := range result.Results {
-		node := &corev1.Node{}
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
-			return err
-		}
-
-		if node.Annotations == nil {
-			node.Annotations = make(map[string]string)
-		}
-
-		// Update weka.io/weka-drives annotation
-		previousDrives := []string{}
-		newDrivesFound := 0
-		if existingDrivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok {
-			_ = json.Unmarshal([]byte(existingDrivesStr), &previousDrives)
-		}
-
-		seenDrives := make(map[string]bool)
-		for _, drive := range previousDrives {
-			if drive == "" {
-				continue // clean bad records of empty serial ids
-			}
-			seenDrives[drive] = true
-		}
-
-		for _, drive := range result.Drives {
-			if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
-				continue
-			}
-			if _, ok := seenDrives[drive.SerialId]; !ok {
-				newDrivesFound++
-			}
-			seenDrives[drive.SerialId] = true
-		}
-
-		if newDrivesFound == 0 {
-			continue
-		}
-
-		updatedDrivesList := []string{}
-		for drive := range seenDrives {
-			updatedDrivesList = append(updatedDrivesList, drive)
-		}
-		newDrivesStr, _ := json.Marshal(updatedDrivesList)
-		node.Annotations["weka.io/weka-drives"] = string(newDrivesStr)
-
-		// Update weka.io/drives extended resource
-		blockedDrives := []string{}
-		if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
-			_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
-		}
-		availableDrives := len(seenDrives) - len(blockedDrives)
-		node.Status.Capacity["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
-
-		if err := k8sClient.Status().Update(ctx, node); err != nil {
-			return err
-		}
-
-		if err := k8sClient.Update(ctx, node); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (o *DiscoverDrivesOperation) GetResult() DiscoverDrivesResult {
