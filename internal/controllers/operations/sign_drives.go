@@ -69,7 +69,6 @@ func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 		{Name: "EnsureContainers", Run: o.EnsureContainers},
 		{Name: "PollResults", Run: o.PollResults},
 		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "UpdateNodeAnnotations", Run: o.UpdateNodeAnnotations},
 		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
 		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
@@ -85,13 +84,15 @@ func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
-	var instructions string
-
-	instructionsStr, err := json.Marshal(o.payload)
+	payloadBytes, err := json.Marshal(o.payload)
 	if err != nil {
 		return err
 	}
-	instructions = string(instructionsStr)
+
+	instructions := &weka.Instructions{
+		Type:    "sign-drives",
+		Payload: string(payloadBytes),
+	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
 	if err != nil {
@@ -181,10 +182,6 @@ func (o *SignDrivesOperation) ProcessResult(ctx context.Context) error {
 		o.results = *res
 	}
 	return err
-}
-
-func (o *SignDrivesOperation) UpdateNodeAnnotations(ctx context.Context) error {
-	return updateNodeAnnotations(ctx, o.client, &o.results)
 }
 
 func (o *SignDrivesOperation) GetResult() DiscoverDrivesResult {

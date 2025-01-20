@@ -1882,15 +1882,17 @@ async def main():
         await start_stem_container()
         await ensure_container_exec()
         instruction = json.loads(INSTRUCTIONS)
-        if instruction.get('force-resign-drives'):
-            device_paths = instruction['force-resign-drives'].get('device_paths', [])
-            device_serials = instruction['force-resign-drives'].get('device_serials', [])
+        if instruction.get('type') and instruction['type'] == 'force-resign-drives':
+            payload = json.loads(instruction['payload'])
+            device_paths = payload.get('device_paths', [])
+            device_serials = payload.get('device_serials', [])
             if device_paths:
                 await force_resign_drives_by_paths(device_paths)
             elif device_serials:
                 await force_resign_drives_by_serials(device_serials)
-        elif instruction.get('type'):
-            signed_drives = await sign_drives(instruction)
+        elif instruction.get('type') and instruction['type'] == 'sign-drives':
+            payload = json.loads(instruction['payload'])
+            signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
             await discover_drives()
         else:
@@ -1898,7 +1900,8 @@ async def main():
         return
 
     if MODE == "adhoc-op":
-        if INSTRUCTIONS == "discover-drives":
+        instruction = json.loads(INSTRUCTIONS)
+        if instruction.get('type') and instruction['type'] == "discover-drives":
             await discover_drives()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")

@@ -19,6 +19,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,7 +51,7 @@ const (
 	ContainerStatusRunning  = "Running"
 	ContainerStatusDegraded = "Degraded"
 	Error                   = "Error"
-	// for drivers-build container
+	// for drivers-build and adhoc-op-with-container (sign-dives) container
 	Completed = "Completed"
 	Building  = "Building"
 )
@@ -2450,13 +2451,106 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 	return nil
 }
 
+func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {
+	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOpWC && r.container.Spec.Instructions != nil {
+		return r.container.Spec.Instructions.Type == "sign-drives"
+	}
+	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {
+		return r.container.Spec.Instructions.Type == "discover-drives"
+	}
+	return false
+}
+
 func (r *containerReconcilerLoop) processResults(ctx context.Context) error {
 	switch {
 	case r.container.IsDriversBuilder():
 		return r.UploadBuiltDrivers(ctx)
+	case r.isSignOrDiscoverDrivesOperation(ctx):
+		return r.updateNodeAnnotations(ctx)
 	default:
 		return nil
 	}
+}
+
+func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateNodeAnnotations")
+	defer end()
+
+	container := r.container
+	node := r.node
+
+	if node == nil {
+		return errors.New("node is not set")
+	}
+
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+
+	var opResult *operations.DriveNodeResults
+	err := json.Unmarshal([]byte(*container.Status.ExecutionResult), &opResult)
+	if err != nil {
+		err = fmt.Errorf("error unmarshalling execution result: %w", err)
+		return err
+	}
+
+	// Update weka.io/weka-drives annotation
+	previousDrives := []string{}
+	newDrivesFound := 0
+	if existingDrivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok {
+		_ = json.Unmarshal([]byte(existingDrivesStr), &previousDrives)
+	}
+
+	seenDrives := make(map[string]bool)
+	for _, drive := range previousDrives {
+		if drive == "" {
+			continue // clean bad records of empty serial ids
+		}
+		seenDrives[drive] = true
+	}
+
+	for _, drive := range opResult.Drives {
+		if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
+			continue
+		}
+		if _, ok := seenDrives[drive.SerialId]; !ok {
+			newDrivesFound++
+		}
+		seenDrives[drive.SerialId] = true
+	}
+
+	if newDrivesFound == 0 {
+		logger.Info("No new drives found")
+		return nil
+	}
+
+	updatedDrivesList := []string{}
+	for drive := range seenDrives {
+		updatedDrivesList = append(updatedDrivesList, drive)
+	}
+	newDrivesStr, _ := json.Marshal(updatedDrivesList)
+	node.Annotations["weka.io/weka-drives"] = string(newDrivesStr)
+
+	// Update weka.io/drives extended resource
+	blockedDrives := []string{}
+	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
+		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+	}
+	availableDrives := len(seenDrives) - len(blockedDrives)
+	node.Status.Capacity["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+
+	if err := r.Status().Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node status: %w", err)
+		return err
+	}
+
+	if err := r.Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node annotations: %w", err)
+		return err
+	}
+
+	container.Status.Status = Completed
+	return r.Status().Update(ctx, container)
 }
 
 type BuiltDriversResult struct {
