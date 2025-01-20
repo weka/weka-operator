@@ -134,14 +134,23 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 
 func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	// make sure to delete all weka containers
+
+	toDelete := []*weka.WekaContainer{}
 	for _, container := range c.containers {
 		if container.IsMarkedForDeletion() {
 			continue
 		}
+	}
+
+	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *weka.WekaContainer) error {
 		err := c.Delete(ctx, container)
 		if err != nil {
 			return errors.Wrap(err, "failed to delete weka container")
 		}
+		return nil
+	})
+	if results.AsError() != nil {
+		return results.AsError()
 	}
 
 	if len(c.containers) > 0 {
