@@ -190,7 +190,6 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				Run:        loop.ResignDrives,
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
 					lifecycle.IsNotFunc(loop.CanSkipDrivesForceResign),
 					container.IsDriveContainer,
 				},
@@ -1708,29 +1707,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		}
 
 		if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
-			l.Info("Drive has Weka signature on it, verifying ownership")
-			isCurrentCluster, err := r.driveIsOwnedByCurrentCluster(ctx, stdout.String())
-			if err != nil {
-				return err
-			}
-
-			exists, err := r.isExistingCluster(ctx, stdout.String())
-			if err != nil {
-				return err
-			}
-			if exists && !isCurrentCluster {
-				return errors.New("Drive belongs to existing cluster (not current)")
-			} else if isCurrentCluster {
-				l.Info("Drive belongs to current cluster")
-			} else {
-				l.WithValues("another_cluster_guid", stdout.String()).Info("Drive belongs to non-existing cluster")
-			}
-
-			l.Info("Resigning drive")
-			err = r.forceResignDrive(ctx, executor, kDrives[drive].DevicePath) // This changes UUID, effectively making claim obsolete
-			if err != nil {
-				return err
-			}
+			l.Info("Drive has Weka signature on it, forbidding usage")
+			return errors.New("Drive has Weka signature on it, forbidding usage")
 		}
 
 		l.Info("Adding drive into system")
