@@ -123,7 +123,7 @@ func init() {
 	Consts.DevModeNamespace = "weka-operator-system"
 	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
-	Consts.NewContainersLimit = 10
+	Consts.NewContainersLimit = 1000 // virtually no limit for now
 }
 
 func ConfigureEnv(ctx context.Context) {
