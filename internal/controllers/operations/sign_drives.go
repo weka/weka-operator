@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
-	"sync"
-
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/workers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -162,61 +161,33 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 	}
 
-	dataMutex := sync.Mutex{}
-	createErrs := []error{}
-	wg := sync.WaitGroup{}
-
-	for i := 0; i < 32; i++ {
-		wg.Add(1)
-		go func(workerIndex int) {
-			defer wg.Done()
-			idx := 0
-			for {
-				cIdx := workerIndex + 32*idx
-				if cIdx >= len(toCreate) {
-					break
-				}
-				newContainer := toCreate[cIdx]
-				err = controllerutil.SetControllerReference(o.ownerRef, newContainer, o.scheme)
-				if err != nil {
-					dataMutex.Lock()
-					createErrs = append(createErrs, errors.Wrap(err, "failed to set controller reference"))
-					dataMutex.Unlock()
-					idx++
-					continue
-				}
-
-				err = o.client.Create(ctx, newContainer)
-				if err != nil {
-					dataMutex.Lock()
-					createErrs = append(createErrs, errors.Wrap(err, "failed to create container"))
-					dataMutex.Unlock()
-				} else {
-					dataMutex.Lock()
-					o.containers = append(o.containers, newContainer)
-					newlyCreated += 1
-					dataMutex.Unlock()
-				}
-				idx++
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	if len(createErrs) != 0 {
-		topErrors := []error{}
-		for i, err := range createErrs {
-			if i > 10 {
-				break
-			}
-			topErrors = append(topErrors, err)
+	results := workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+		err := controllerutil.SetControllerReference(o.ownerRef, container, o.scheme)
+		if err != nil {
+			return errors.Wrap(err, "failed to set controller reference")
 		}
-		logger.SetError(errors.New("failed to create containers"), fmt.Sprintf("%d failed", len(createErrs)), topErrors)
+
+		err = o.client.Create(ctx, container)
+		if err != nil {
+			return errors.Wrap(err, "failed to create container")
+		}
+		return nil
+	})
+
+	err = results.AsError()
+	if err != nil {
+		logger.SetError(err, fmt.Sprintf("%d failed", len(results.GetErrors())))
+		return err
+	} else {
+		for _, result := range results.Items {
+			if result.Err == nil {
+				o.containers = append(o.containers, result.Object)
+				newlyCreated += 1
+			}
+		}
+		logger.SetValues("newlyCreated", newlyCreated, "skipNodes", skip)
+		return nil
 	}
-
-	logger.SetValues("newlyCreated", newlyCreated, "skipNodes", skip)
-
-	return nil
 }
 
 func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
