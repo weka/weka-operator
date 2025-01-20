@@ -192,7 +192,22 @@ func (o *SignDrivesOperation) GetResult() DiscoverDrivesResult {
 }
 
 func (o *SignDrivesOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	total := 0
+	errs := []string{}
+	maxErrors := 30
+
+	for _, nodeResults := range o.results.Results {
+		total += len(nodeResults.Drives)
+		if len(errs) < maxErrors {
+			errs = append(errs, nodeResults.Err.Error())
+		}
+	}
+	ret := map[string]interface{}{
+		"result": fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results)),
+		"errors": errs,
+	}
+
+	resultJSON, _ := json.Marshal(ret)
 	return string(resultJSON)
 }
 
