@@ -1094,6 +1094,7 @@ async def ensure_weka_container():
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
+    resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
     # TODO: support ipv6? up till this point we had no need of ipv6 knowledge in this context
     if ',' in NETWORK_DEVICE and 'aws_' not in NETWORK_DEVICE:

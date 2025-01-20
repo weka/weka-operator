@@ -306,7 +306,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
 			Network:             network,
-			Hugepages:           1500 * numCores,
+			Hugepages:           getClientHugePages(numCores),
 			HugepagesSize:       "2Mi",
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
 			DriversDistService:  wekaClient.Spec.DriversDistService,
@@ -321,6 +321,10 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		},
 	}
 	return container, nil
+}
+
+func getClientHugePages(cores int) int {
+	return cores * 1500
 }
 
 func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeName string) (string, error) {
@@ -460,10 +464,12 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	}
 
 	if container.Spec.NumCores != newClientSpec.CoresNumber {
+		// TODO: validate that we are not updating on non-single IP interfaces, specifically not on EKS AWS DPDK
 		if newClientSpec.CoresNumber < container.Spec.NumCores {
 			logger.Error(errors.New("coresNum cannot be decreased"), "coresNum cannot be decreased, ignoring the change")
 		} else {
 			container.Spec.NumCores = newClientSpec.CoresNumber
+			container.Spec.Hugepages = getClientHugePages(newClientSpec.CoresNumber)
 			changed = true
 		}
 	}
