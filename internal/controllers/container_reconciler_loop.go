@@ -894,7 +894,11 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 
 func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
 	// self-delete
-	return r.Delete(ctx, r.container)
+	err := r.Delete(ctx, r.container)
+	if err != nil {
+		return err
+	}
+	return lifecycle.NewWaitError(errors.New("Container is being deleting, refetching"))
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
