@@ -1058,7 +1058,14 @@ spec:
               imagePullSecret:
                 type: string
               instructions:
-                type: string
+                properties:
+                  payload:
+                    type: string
+                  type:
+                    type: string
+                required:
+                - type
+                type: object
               ipv6:
                 type: boolean
               joinIpPorts:

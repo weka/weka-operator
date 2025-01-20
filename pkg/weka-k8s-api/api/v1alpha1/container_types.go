@@ -84,6 +84,11 @@ type WekaContainerSpecOverrides struct {
 	SkipCleanupPersistentDir bool `json:"skipCleanupPersistentDir,omitempty"`
 }
 
+type Instructions struct {
+	Type    string `json:"type"`
+	Payload string `json:"payload,omitempty"`
+}
+
 type WekaContainerSpec struct {
 	// name of the node where the container should run on
 	NodeAffinity NodeName `json:"nodeAffinity,omitempty"`
@@ -126,7 +131,7 @@ type WekaContainerSpec struct {
 	Group                 string               `json:"group,omitempty"`
 	ServiceAccountName    string               `json:"serviceAccountName,omitempty"`
 	AdditionalSecrets     map[string]string    `json:"additionalSecrets,omitempty"`
-	Instructions          string               `json:"instructions,omitempty"`
+	Instructions          *Instructions        `json:"instructions,omitempty"`
 	NoAffinityConstraints bool                 `json:"dropAffinityConstraints,omitempty"`
 	UploadResultsTo       string               `json:"uploadResultsTo,omitempty"`
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
