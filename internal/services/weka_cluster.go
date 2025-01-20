@@ -61,7 +61,7 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 
 	toDelete := []*wekav1alpha1.WekaContainer{}
 	for _, container := range containers {
-		if !container.IsDestroying() {
+		if container.IsDestroying() {
 			continue
 		} else {
 			toDelete = append(toDelete, container)
