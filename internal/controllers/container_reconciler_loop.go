@@ -214,6 +214,14 @@ func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, contai
 				FinishOnSuccess:           true,
 			},
 			{
+				Run: loop.handleStateDestroying,
+				Predicates: lifecycle.Predicates{
+					container.IsDestroying,
+					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.getAndStoreActiveMounts,
 				Predicates: lifecycle.Predicates{
 					container.HasFrontend,
@@ -873,6 +881,11 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 		}
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
+	// self-delete
+	return r.Delete(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {

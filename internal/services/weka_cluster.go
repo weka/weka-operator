@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/pkg/workers"
 	"strings"
+
+	"github.com/weka/weka-operator/pkg/workers"
 
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -86,9 +87,6 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 				return err
 			}
 		}
-
-		// TODO: Remove, once containers will start act by themselves on state==destroying
-		err = r.Client.Delete(ctx, container)
 		return nil
 	})
 
