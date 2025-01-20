@@ -2509,6 +2509,11 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		seenDrives[drive] = true
 	}
 
+	complete := func() error {
+		r.container.Status.Status = Completed
+		return r.Status().Update(ctx, r.container)
+	}
+
 	for _, drive := range opResult.Drives {
 		if drive.SerialId == "" { // skip drives without serial id if it was not set for whatever reason
 			continue
@@ -2521,7 +2526,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 
 	if newDrivesFound == 0 {
 		logger.Info("No new drives found")
-		return nil
+		return complete()
 	}
 
 	updatedDrivesList := []string{}
@@ -2548,9 +2553,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		err = fmt.Errorf("error updating node annotations: %w", err)
 		return err
 	}
-
-	container.Status.Status = Completed
-	return r.Status().Update(ctx, container)
+	return complete()
 }
 
 type BuiltDriversResult struct {
@@ -2673,7 +2676,7 @@ func (r *containerReconcilerLoop) ResultsAreProcessed() bool {
 }
 
 func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) error {
-	if r.container.IsDriversBuilder() {
+	if r.container.IsDriversBuilder() || r.isSignOrDiscoverDrivesOperation(ctx) {
 		if r.pod != nil {
 			return r.Client.Delete(ctx, r.pod)
 		}
