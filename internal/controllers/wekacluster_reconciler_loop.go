@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/pkg/workers"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/weka/weka-operator/pkg/workers"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -1291,7 +1292,7 @@ func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context
 
 	_, err := services.ClustersJoinIps.GetJoinIps(ctx, cluster.Name, cluster.Namespace)
 	if err != nil {
-		logger.Debug("Failed to get join ips", "error", err)
+		logger.Debug("Cannot get join ips", "msg", err.Error())
 		err := services.ClustersJoinIps.RefreshJoinIps(ctx, containers, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to refresh join ips")
