@@ -361,15 +361,18 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 }
 
 func (r *WekaClusterReconciler) GCLoop(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MainGcLoop")
-	//getlogspan
+	for {
+		r.gcIteration(ctx)
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (r *WekaClusterReconciler) gcIteration(ctx context.Context) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaClusterGCLoop")
 	defer end()
 
-	for {
-		err := r.GC(ctx)
-		if err != nil {
-			logger.Error(err, "gc failed")
-		}
-		time.Sleep(10 * time.Second)
+	err := r.GC(ctx)
+	if err != nil {
+		logger.Error(err, "gc failed")
 	}
 }
