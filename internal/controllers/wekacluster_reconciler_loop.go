@@ -40,26 +40,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-func NewWekaClusterReconcileLoop(mgr ctrl.Manager, restClient rest.Interface) *wekaClusterReconcilerLoop {
+func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcilerLoop {
+	mgr := r.Manager
 	config := mgr.GetConfig()
+	restClient := r.RestClient
 	execService := exec.NewExecService(restClient, config)
 	scheme := mgr.GetScheme()
 	return &wekaClusterReconcilerLoop{
-		Manager:        mgr,
-		ExecService:    execService,
-		SecretsService: services.NewSecretsService(mgr.GetClient(), scheme, execService),
-		RestClient:     restClient,
+		Manager:         mgr,
+		ExecService:     execService,
+		SecretsService:  services.NewSecretsService(mgr.GetClient(), scheme, execService),
+		RestClient:      restClient,
+		GlobalThrottler: r.ThrottlingMap,
 	}
 }
 
 type wekaClusterReconcilerLoop struct {
-	Manager        ctrl.Manager
-	ExecService    exec.ExecService
-	cluster        *wekav1alpha1.WekaCluster
-	clusterService services.WekaClusterService
-	containers     []*wekav1alpha1.WekaContainer
-	SecretsService services.SecretsService
-	RestClient     rest.Interface
+	Manager         ctrl.Manager
+	ExecService     exec.ExecService
+	cluster         *wekav1alpha1.WekaCluster
+	clusterService  services.WekaClusterService
+	containers      []*wekav1alpha1.WekaContainer
+	SecretsService  services.SecretsService
+	RestClient      rest.Interface
+	GlobalThrottler *util2.ThrottlingSyncMap
+	Throttler       util2.Throttler
 }
 
 func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.Request) error {
@@ -74,6 +79,7 @@ func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.R
 
 	r.cluster = wekaCluster
 	r.clusterService = services.NewWekaClusterService(r.Manager, r.RestClient, wekaCluster)
+	r.Throttler = r.GlobalThrottler.WithPartition("cluster/" + string(wekaCluster.GetUID()))
 
 	return err
 }

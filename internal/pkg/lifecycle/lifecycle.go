@@ -20,11 +20,11 @@ import (
 type StepFunc func(ctx context.Context) error
 
 type ReconciliationSteps struct {
-	Client        client.Client
-	StatusObject  client.Object
-	ThrottlingMap map[string]metav1.Time
-	Conditions    *[]metav1.Condition
-	Steps         []Step
+	Client       client.Client
+	StatusObject client.Object
+	Throttler    util.Throttler
+	Conditions   *[]metav1.Condition
+	Steps        []Step
 }
 
 type Step struct {
@@ -208,22 +208,10 @@ STEPS:
 		}
 
 		//Throttling handling
-		if step.Throttled > 0 && r.StatusObject != nil && r.ThrottlingMap != nil {
-			lastRun, ok := r.ThrottlingMap[step.Name]
-			if ok {
-				if time.Since(lastRun.Time) < step.Throttled {
-					continue STEPS
-				}
+		if step.Throttled > 0 && r.StatusObject != nil && r.Throttler != nil {
+			if !r.Throttler.ShouldRun(step.Name, step.Throttled) {
+				continue STEPS
 			}
-			r.ThrottlingMap[step.Name] = metav1.NewTime(time.Now())
-			throttlingCtx, _, throttlingEnd := instrumentation.GetLogSpan(ctx, "ThrottlingUpdate", "step", step.Name)
-			// when throttling: we dont care if we succeeded or not, we raise timestamp at the beginning before doing anything
-			if err := r.Client.Status().Update(throttlingCtx, r.StatusObject); err != nil {
-				stopErr := NewWaitError(err)
-				runLogger.SetValues("stop_err", stopErr.Error())
-				return stopErr
-			}
-			throttlingEnd()
 		}
 
 		// Check if step is already done or if the condition should be able to run again

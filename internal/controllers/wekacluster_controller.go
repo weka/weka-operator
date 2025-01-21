@@ -41,6 +41,7 @@ type WekaClusterReconciler struct {
 	SecretsService services.SecretsService
 
 	DetectedZombies map[util.NamespacedObject]time.Time
+	ThrottlingMap   *util.ThrottlingSyncMap
 }
 
 func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *WekaClusterReconciler {
@@ -56,6 +57,7 @@ func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *Weka
 		RestClient:     restClient,
 		Recorder:       mgr.GetEventRecorderFor("wekaCluster-controller"),
 		SecretsService: services.NewSecretsService(client, scheme, execService),
+		ThrottlingMap:  util.NewSyncMapThrottler(),
 	}
 	return ret
 }
@@ -71,7 +73,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)
 	defer cancel()
 
-	loop := NewWekaClusterReconcileLoop(r.Manager, r.RestClient)
+	loop := NewWekaClusterReconcileLoop(r)
 
 	err := loop.FetchCluster(ctx, req)
 	if err != nil {
@@ -102,10 +104,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	defer logger.Info("Reconciliation of WekaCluster finished")
 
 	reconSteps := lifecycle.ReconciliationSteps{
-		Client:        r.Client,
-		StatusObject:  loop.cluster,
-		Conditions:    &loop.cluster.Status.Conditions,
-		ThrottlingMap: loop.cluster.Status.Timestamps,
+		Client:       r.Client,
+		StatusObject: loop.cluster,
+		Conditions:   &loop.cluster.Status.Conditions,
+		Throttler:    loop.Throttler,
 		Steps: []lifecycle.Step{
 			{
 				Run: loop.getCurrentContainers,

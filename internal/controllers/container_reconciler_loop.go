@@ -56,8 +56,9 @@ const (
 	Building  = "Building"
 )
 
-func NewContainerReconcileLoop(mgr ctrl.Manager, restClient rest.Interface) *containerReconcilerLoop {
+func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface) *containerReconcilerLoop {
 	//TODO: We creating new client on every loop, we should reuse from reconciler, i.e pass it by reference
+	mgr := r.Manager
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
 	execService := exec.NewExecService(restClient, config)
@@ -73,6 +74,7 @@ func NewContainerReconcileLoop(mgr ctrl.Manager, restClient rest.Interface) *con
 		ExecService:    execService,
 		Manager:        mgr,
 		RestClient:     restClient,
+		ThrottlingMap:  r.ThrottlingMap,
 	}
 }
 
@@ -103,7 +105,8 @@ type containerReconcilerLoop struct {
 	// is in deletion process or its node is not available
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
-	activeMounts *int
+	activeMounts  *int
+	ThrottlingMap util.Throttler
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -121,15 +124,17 @@ func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.R
 	return nil
 }
 
-func ContainerReconcileSteps(mgr ctrl.Manager, restClient rest.Interface, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
-	loop := NewContainerReconcileLoop(mgr, restClient)
+func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
+	restClient := r.RestClient
+
+	loop := NewContainerReconcileLoop(r, restClient)
 	loop.container = container
 
 	return lifecycle.ReconciliationSteps{
-		Client:        loop.Client,
-		StatusObject:  loop.container,
-		ThrottlingMap: loop.container.Status.Timestamps,
-		Conditions:    &loop.container.Status.Conditions,
+		Client:       loop.Client,
+		StatusObject: loop.container,
+		Throttler:    r.ThrottlingMap.WithPartition("container/" + string(loop.container.GetUID())),
+		Conditions:   &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},
 			{

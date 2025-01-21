@@ -2,12 +2,12 @@ package controllers
 
 import (
 	"context"
-
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,24 +30,26 @@ func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *Contai
 	kClient := mgr.GetClient()
 	execService := exec.NewExecService(restClient, config)
 	return &ContainerController{
-		Client:      kClient,
-		Scheme:      mgr.GetScheme(),
-		Logger:      mgr.GetLogger().WithName("controllers").WithName("Container"),
-		KubeService: kubernetes.NewKubeService(mgr.GetClient()),
-		ExecService: execService,
-		Manager:     mgr,
-		RestClient:  restClient,
+		Client:        kClient,
+		Scheme:        mgr.GetScheme(),
+		Logger:        mgr.GetLogger().WithName("controllers").WithName("Container"),
+		KubeService:   kubernetes.NewKubeService(mgr.GetClient()),
+		ExecService:   execService,
+		Manager:       mgr,
+		RestClient:    restClient,
+		ThrottlingMap: util.NewSyncMapThrottler(),
 	}
 }
 
 type ContainerController struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	Logger      logr.Logger
-	KubeService kubernetes.KubeService
-	ExecService exec.ExecService
-	Manager     ctrl.Manager
-	RestClient  rest.Interface
+	Scheme        *runtime.Scheme
+	Logger        logr.Logger
+	KubeService   kubernetes.KubeService
+	ExecService   exec.ExecService
+	Manager       ctrl.Manager
+	RestClient    rest.Interface
+	ThrottlingMap *util.ThrottlingSyncMap // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
 }
 
 func (c *ContainerController) RunGC(ctx context.Context) {}
@@ -102,7 +104,7 @@ func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	logger.SetValues("mode", container.Spec.Mode, "uuid", string(container.GetUID()))
-	steps := ContainerReconcileSteps(r.Manager, r.RestClient, container)
+	steps := ContainerReconcileSteps(r, container)
 	return steps.RunAsReconcilerResponse(ctx)
 }
 
