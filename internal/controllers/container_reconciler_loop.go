@@ -133,7 +133,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 	return lifecycle.ReconciliationSteps{
 		Client:       loop.Client,
 		StatusObject: loop.container,
-		Throttler:    r.ThrottlingMap.WithPartition("container/" + string(loop.container.GetUID())),
+		Throttler:    r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
 		Conditions:   &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{Run: loop.GetNode},

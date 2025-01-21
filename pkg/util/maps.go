@@ -2,10 +2,11 @@ package util
 
 import (
 	"cmp"
-	"golang.org/x/exp/maps"
 	"iter"
 	"slices"
 	"sync"
+
+	"golang.org/x/exp/maps"
 )
 
 func MapOrdered[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {

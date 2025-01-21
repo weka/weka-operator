@@ -28,9 +28,9 @@ func NewSyncMapThrottler() *ThrottlingSyncMap {
 
 func (tsm *ThrottlingSyncMap) ShouldRun(key string, interval time.Duration) bool {
 	// interval defines throttling interval, i.e how often sometihng should be allowed to be done
-	key = tsm.partition + ":" + key
+	partKey := tsm.partition + ":" + key
 
-	if value, ok := tsm.syncMap.Load(key); ok {
+	if value, ok := tsm.syncMap.Load(partKey); ok {
 		if time.Since(value) > interval {
 			tsm.SetNow(key)
 			return true
@@ -42,7 +42,7 @@ func (tsm *ThrottlingSyncMap) ShouldRun(key string, interval time.Duration) bool
 		milliSeconds := interval.Milliseconds()
 		randomPreSetInterval := time.Duration(rand.Intn(int(milliSeconds)))
 		newTime := time.Now().Add(-randomPreSetInterval)
-		tsm.syncMap.LoadOrStore(key, newTime) // even if some other time set in parallel - safe to asume it would not allow us to run
+		tsm.syncMap.LoadOrStore(partKey, newTime) // even if some other time set in parallel - safe to asume it would not allow us to run
 		return false
 	}
 }
