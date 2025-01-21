@@ -77,6 +77,13 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.Status().Update(ctx, wekaManualOperation)
 	}
 
+	onFailure := func(ctx context.Context) error {
+		wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
+		wekaManualOperation.Status.CompletedAt = metav1.Now()
+		wekaManualOperation.Status.Status = "Failed"
+		return r.Status().Update(ctx, wekaManualOperation)
+	}
+
 	switch wekaManualOperation.Spec.Action {
 	case "sign-drives":
 		signDrivesOp := operations.NewSignDrivesOperation(
@@ -113,6 +120,9 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		blockDrivesOp := operations.NewBlockDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.BlockDrives,
+			&wekaManualOperation.Status.Status,
+			onSuccess,
+			onFailure,
 		)
 		loop.Op = blockDrivesOp
 	case "discover-drives":
@@ -170,14 +180,6 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	steps = append(steps, loop.Op.AsStep())
-	switch wekaManualOperation.Spec.Action {
-	case "block-drives":
-		// block drive operation does not have a success callback, as it also does not have cleanup
-		steps = append(steps, lifecycle.Step{
-			Name: "UpdateSuccess",
-			Run:  onSuccess,
-		})
-	}
 
 	reconSteps := lifecycle.ReconciliationSteps{
 		StatusObject: wekaManualOperation,
