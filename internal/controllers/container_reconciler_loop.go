@@ -2862,6 +2862,8 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 		return errors.New("No response from metrics pod")
 	}
 
+	patch := client.MergeFrom(r.container.DeepCopy())
+
 	r.container.Status.Stats = &response.ContainerMetrics
 	if r.container.Status.PrinterColumns == nil {
 		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
@@ -2880,7 +2882,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.PrinterColumns.Processes = weka.StringMetric(r.container.Status.Stats.Processes.String())
 	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
 
-	return r.Status().Update(ctx, r.container)
+	return r.Patch(ctx, r.container, patch)
 }
 
 func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
