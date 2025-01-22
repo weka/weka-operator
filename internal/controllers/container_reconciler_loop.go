@@ -51,6 +51,7 @@ const (
 	ContainerStatusRunning  = "Running"
 	ContainerStatusDegraded = "Degraded"
 	Error                   = "Error"
+	DrivesAdding            = "DrivesAdding"
 	// for drivers-build and adhoc-op-with-container (sign-dives) container
 	Completed = "Completed"
 	Building  = "Building"
@@ -436,6 +437,22 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					},
 				},
 				ContinueOnPredicatesFalse: true,
+				OnFail:                    loop.setDrivesErrorStatus,
+			},
+			{
+				Name: "PeriodicDrivesCheck",
+				Run:  loop.EnsureDrives,
+				Predicates: lifecycle.Predicates{
+					container.IsDriveContainer,
+					func() bool {
+						return len(loop.container.Status.Allocations.Drives) > 0
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+				OnFail:                    loop.setDrivesErrorStatus,
+				Throttled:                 config.Consts.PeriodicDrivesCheckInterval,
+				// TODO: add EnsureStepSuccess throttling setting once it is merged
+				// to record the last time only if the step was successful
 			},
 			{
 				Condition:   condition.CondJoinedS3Cluster,
@@ -1663,6 +1680,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDrives", "cluster_guid", container.Status.ClusterID, "container_id", container.Status.ClusterID)
 	defer end()
 
+	// should not happen, but just in case
+	if len(container.Status.Allocations.Drives) != container.Spec.NumDrives {
+		err := fmt.Errorf("allocated drives count %d does not match requested drives count %d", len(container.Status.Allocations.Drives), container.Spec.NumDrives)
+		return err
+	}
+
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
@@ -1677,40 +1700,47 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(drivesAdded) == container.Spec.NumDrives {
-		logger.InfoWithStatus(codes.Ok, "All drives are already added")
+
+	// get drives that were discovered
+	// (these drives are requested in allocations and exist in kernel)
+	var kDrives map[string]operations.DriveInfo
+	// NOTE: used closure not to execute this function if we don't need to add any drives
+	getKernelDrives := func() error {
+		if kDrives == nil {
+			kDrives, err = r.getKernelDrives(ctx, executor)
+			if err != nil {
+				return fmt.Errorf("error getting kernel drives: %v", err)
+			} else {
+				logger.Info("Kernel drives fetched", "drives", kDrives)
+			}
+		}
 		return nil
 	}
-
-	allowedMisses := r.container.Spec.NumDrives - len(drivesAdded)
-
-	kDrives, err := r.getKernelDrives(ctx, executor)
-	if err != nil {
-		return err
-	}
-
-	logger.Debug("Kernel drives", "drives", kDrives)
 
 	drivesAddedBySerial := make(map[string]bool)
 	for _, drive := range drivesAdded {
 		drivesAddedBySerial[drive.SerialNumber] = true
 	}
 
-	// TODO: Not validating part of added drives and trying all over
+	// Adding drives to weka one by one
 	for _, drive := range container.Status.Allocations.Drives {
 		l := logger.WithValues("drive_name", drive)
-		l.Info("Attempting to configure drive")
 
-		if _, ok := kDrives[drive]; !ok {
-			allowedMisses--
-			if allowedMisses < 0 {
-				return errors.New("Not enough drives found")
-			}
+		// check if drive is already added to weka
+		if _, ok := drivesAddedBySerial[drive]; ok {
+			l.Info("drive is already added to weka")
+			continue
 		}
 
-		if _, ok := drivesAddedBySerial[drive]; ok {
-			err := fmt.Errorf("drive %s is already added", drive)
-			l.Error(err, "")
+		l.Info("Attempting to configure drive")
+
+		err := getKernelDrives()
+		if err != nil {
+			return err
+		}
+		if _, ok := kDrives[drive]; !ok {
+			err := fmt.Errorf("drive %s not found in kernel", drive)
+			l.Error(err, "Error configuring drive")
 			return err
 		}
 
@@ -1725,13 +1755,13 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		cmd := fmt.Sprintf("hexdump -v -e '1/1 \"%%.2x\"' -s 8 -n 16 %s", kDrives[drive].Partition)
 		stdout, stderr, err := executor.ExecNamed(ctx, "GetPartitionSignature", []string{"bash", "-ce", cmd})
 		if err != nil {
-			// Force resign was here and needs new place. probably under wekaContainer delete, or tomsbtone delete, or claim delete
-			return nil
+			err = fmt.Errorf("Error getting partition signature for drive %s: %s, %v", drive, stderr.String(), err)
+			return err
 		}
 
 		if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
 			l.Info("Drive has Weka signature on it, forbidding usage")
-			return errors.New("Drive has Weka signature on it, forbidding usage")
+			return fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
 		}
 
 		l.Info("Adding drive into system")
@@ -1750,7 +1780,13 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		}
 	}
 
-	logger.InfoWithStatus(codes.Ok, "Drives added")
+	logger.InfoWithStatus(codes.Ok, "All drives added")
+
+	if r.container.Status.Status != ContainerStatusRunning {
+		r.container.Status.Status = ContainerStatusRunning
+		r.container.Status.Message = ""
+		return r.Status().Update(ctx, r.container)
+	}
 	return nil
 }
 
@@ -2420,6 +2456,11 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	}
 
 	status := response[0].RunStatus
+	// skip status update for DrivesAdding
+	if status == ContainerStatusRunning && container.Status.Status == DrivesAdding {
+		return nil
+	}
+
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
@@ -2441,6 +2482,18 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, err error)
 		return nil
 	}
 	container.Status.Status = Error
+	container.Status.Message = err.Error()
+	return r.Status().Update(ctx, container)
+}
+
+func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, err error) error {
+	container := r.container
+	msg := err.Error()
+
+	if container.Status.Status == DrivesAdding && container.Status.Message == msg {
+		return nil
+	}
+	container.Status.Status = DrivesAdding
 	container.Status.Message = err.Error()
 	return r.Status().Update(ctx, container)
 }
