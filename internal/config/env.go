@@ -117,6 +117,8 @@ var Consts struct {
 	JoinIpsCacheTTL time.Duration
 	// Limit for the number of contianers to be created during one reconcile loop
 	NewContainersLimit int
+	// Interval for periodic drives check on weka container
+	PeriodicDrivesCheckInterval time.Duration
 }
 
 func init() {
@@ -124,6 +126,7 @@ func init() {
 	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
+	Consts.PeriodicDrivesCheckInterval = 10 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {
