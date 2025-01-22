@@ -41,7 +41,9 @@ type WekaLocalContainerGetIdentityValue struct {
 	ContainerId int    `json:"host_id"`
 }
 type WekaLocalContainerGetIdentityResponse struct {
-	Value *WekaLocalContainerGetIdentityValue `json:"value"`
+	Value     *WekaLocalContainerGetIdentityValue `json:"value"`
+	HasValue  bool                                `json:"has_value"`
+	Exception *string                             `json:"exception,omitempty"`
 }
 
 type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
