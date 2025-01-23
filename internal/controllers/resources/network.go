@@ -21,6 +21,7 @@ func GetContainerNetwork(selector wekav1alpha1.NetworkSelector) (wekav1alpha1.Ne
 	if selector.Gateway != "" {
 		network.Gateway = selector.Gateway
 	}
+	network.DeviceSubnets = selector.DeviceSubnets
 
 	return network, nil
 }
