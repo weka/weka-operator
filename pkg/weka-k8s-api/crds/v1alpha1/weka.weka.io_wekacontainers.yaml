@@ -1118,6 +1118,12 @@ spec:
                           type: integer
                         type: array
                     type: object
+                  deviceSubnets:
+                    description: subnet that is used for devices auto-discovery
+                    items:
+                      pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                      type: string
+                    type: array
                   ethDevice:
                     type: string
                   ethDevices:
