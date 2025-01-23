@@ -182,7 +182,6 @@ type ContainerPrinterColumns struct {
 
 type WekaContainerStatus struct {
 	Status             string                   `json:"status"`
-	Message            string                   `json:"message,omitempty"`
 	ManagementIP       string                   `json:"managementIP,omitempty"`
 	ClusterContainerID *int                     `json:"containerID,omitempty"`
 	ClusterID          string                   `json:"clusterID,omitempty"`

@@ -5874,6 +5874,14 @@ spec:
                       be scheduled by affinity to s3 and not explicit node selector
                     type: object
                 type: object
+              startIoConditions:
+                description: conditions that must be met before starting IO
+                properties:
+                  minNumDrives:
+                    description: minumum number of drives that should be added to
+                      the cluster before starting IO
+                    type: integer
+                type: object
               stripeWidth:
                 description: stripe width is the number of blocks within a common
                   protection set, ranging from 3 to 16 https://docs.weka.io/weka-system-overview/ssd-capacity-management#stripe-width

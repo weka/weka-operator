@@ -181,6 +181,11 @@ type PodConfiguration struct {
 	RoleAffinity *RoleAffinity `json:"roleAffinity,omitempty"`
 }
 
+type StartIoConditions struct {
+	// minumum number of drives that should be added to the cluster before starting IO
+	MinNumDrives int `json:"minNumDrives,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -239,6 +244,8 @@ type WekaClusterSpec struct {
 	LeadershipSize *int `json:"leadershipRaftSize,omitempty"`
 	// size of raft for buckets, defaults to 5, 5/9 are supported
 	BucketRaftSize *int `json:"bucketRaftSize,omitempty"`
+	// conditions that must be met before starting IO
+	StartIoConditions *StartIoConditions `json:"startIoConditions,omitempty"`
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +kubebuilder:default="24h"
@@ -256,6 +263,14 @@ func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
 		return &WekaClusterSpecOverrides{}
 	} else {
 		return c.Overrides
+	}
+}
+
+func (c *WekaClusterSpec) GetStartIoConditions() *StartIoConditions {
+	if c.StartIoConditions == nil {
+		return &StartIoConditions{}
+	} else {
+		return c.StartIoConditions
 	}
 }
 
