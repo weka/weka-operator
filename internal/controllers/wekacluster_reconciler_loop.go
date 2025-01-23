@@ -246,16 +246,12 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 
 	cluster := r.cluster
 
-	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusGracePeriod {
-		cluster.Status.Status = wekav1alpha1.WekaClusterStatusGracePeriod
-		err := r.getClient().Status().Update(ctx, cluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return err
-		}
+	err := r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusGracePeriod)
+	if err != nil {
+		return err
 	}
 
-	err := r.ensureContainersPaused(ctx, wekav1alpha1.WekaContainerModeS3)
+	err = r.ensureContainersPaused(ctx, wekav1alpha1.WekaContainerModeS3)
 	if err != nil {
 		return err
 	}
@@ -331,14 +327,9 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	deletionTime := r.cluster.GetDeletionTimestamp().Time.Add(gracefulDestroyDuration)
 	logger.Debug("Not graceful deletion", "deletionTime", deletionTime, "now", time.Now(), "gracefulDestroyDuration", gracefulDestroyDuration)
 
-	cluster := r.cluster
-	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDestroying {
-		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDestroying
-		err := r.getClient().Status().Update(ctx, cluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return err
-		}
+	err := r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusDestroying)
+	if err != nil {
+		return err
 	}
 
 	if controllerutil.ContainsFinalizer(r.cluster, WekaFinalizer) {
@@ -388,13 +379,11 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 		return err
 	}
 
-	if cluster.Status.Status != wekav1alpha1.WekaClusterStatusDeallocating {
-		cluster.Status.Status = wekav1alpha1.WekaClusterStatusDeallocating
-		err := r.getClient().Status().Update(ctx, cluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return err
-		}
+	logger.Debug("All containers are removed, deallocating cluster resources")
+
+	err = r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusDeallocating)
+	if err != nil {
+		return err
 	}
 
 	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
@@ -568,6 +557,10 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
+	err := r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusWaitDrives)
+	if err != nil {
+		return err
+	}
 	// minimum required number of drives to be added to the cluster
 	var minDrivesNum int
 
@@ -608,6 +601,11 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	err := r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusStartingIO)
+	if err != nil {
+		return err
+	}
 
 	containers := r.containers
 
@@ -1765,6 +1763,18 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 		}
 	}
 	return containers, nil
+}
+
+func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.Context, newStatus wekav1alpha1.WekaClusterStatusEnum) error {
+	if r.cluster.Status.Status != newStatus {
+		r.cluster.Status.Status = newStatus
+		err := r.getClient().Status().Update(ctx, r.cluster)
+		if err != nil {
+			err := fmt.Errorf("failed to update cluster status: %w", err)
+			return err
+		}
+	}
+	return nil
 }
 
 type UpdatableClusterSpec struct {
