@@ -238,14 +238,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
 			},
-			{
-				Run: loop.getAndStoreActiveMounts,
-				Predicates: lifecycle.Predicates{
-					container.HasFrontend,
-					loop.NodeIsSet,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			{Run: loop.initState},
 			{Run: loop.deleteIfNoNode},
 			{Run: loop.ensureFinalizer},
@@ -1905,20 +1897,24 @@ func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) er
 	return nil
 }
 
-func (r *containerReconcilerLoop) getAndStoreActiveMounts(ctx context.Context) error {
+func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*int, error) {
+	if r.activeMounts != nil {
+		return r.activeMounts, nil
+	}
+
 	activeMounts, err := r.getActiveMounts(ctx)
 	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 		// if no weka fs driver found, we can assume that there are no active mounts
 		val := 0
 		r.activeMounts = &val
-		return nil
+		return r.activeMounts, nil
 	}
 	if err != nil {
 		err = fmt.Errorf("error getting active mounts: %w", err)
-		return err
+		return nil, err
 	}
 	r.activeMounts = activeMounts
-	return nil
+	return r.activeMounts, nil
 }
 
 func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
@@ -2023,8 +2019,10 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 		return true, nil
 	}
 
-	// NOTE: active mounts are fetched from node agent pod as the separate step in the flow
-	activeMounts := r.activeMounts
+	activeMounts, err := r.getCachedActiveMounts(ctx)
+	if err != nil {
+		return false, err
+	}
 
 	if activeMounts != nil && *activeMounts != 0 {
 		err := fmt.Errorf("active mounts: %d", *activeMounts)
@@ -2174,10 +2172,6 @@ func (r *containerReconcilerLoop) getWekaPodContainer(pod *v1.Pod) (v1.Container
 
 func (r *containerReconcilerLoop) PodNotSet() bool {
 	return r.pod == nil
-}
-
-func (r *containerReconcilerLoop) NodeIsSet() bool {
-	return r.node != nil
 }
 
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
@@ -2927,9 +2921,11 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
 	}
 
-	if r.container.HasFrontend() && r.activeMounts != nil {
-		r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *r.activeMounts))
-		r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*r.activeMounts))
+	activeMounts, _ := r.getCachedActiveMounts(ctx)
+
+	if r.container.HasFrontend() && activeMounts != nil {
+		r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *activeMounts))
+		r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*activeMounts))
 	}
 
 	r.container.Status.Stats.Processes.Desired = weka.IntMetric(int64(r.container.Spec.NumCores) + 1)
