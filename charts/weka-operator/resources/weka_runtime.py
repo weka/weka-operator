@@ -21,6 +21,7 @@ NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
 NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
+SUBNETS = os.environ.get("SUBNETS", "")
 PORT = os.environ.get("PORT", "")
 AGENT_PORT = os.environ.get("AGENT_PORT", "")
 RESOURCES = {}  # to be populated at later stage
@@ -837,6 +838,23 @@ async def periodic_logrotate():
         await asyncio.sleep(60)
 
 
+async def autodiscover_network_devices(subnet) -> List[str]:
+    """Returns comma-separated list of network devices
+    that belong to the given subnet.
+    """
+    cmd = f"ip route show {subnet} | awk '{{print $3}}'"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to discover network devices: {stderr}")
+    devices = stdout.decode('utf-8').strip().split("\n")
+
+    if not devices:
+        raise Exception(f"No network devices found for subnet {subnet}")
+    
+    logging.info(f"Discovered network devices for subnet {subnet}: {devices}")
+    return devices
+
+
 async def resolve_aws_net(device):
     idx = device.split("_")[-1]
     # read configmap
@@ -937,6 +955,15 @@ async def create_container():
         if MODE == "client":
             join_secret_flag = "--join-token"
         join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
+
+    global NETWORK_DEVICE
+    if not NETWORK_DEVICE and SUBNETS:
+        subnets = SUBNETS.split(",")
+        devices = []
+        for subnet in subnets:
+            devices = await autodiscover_network_devices(subnet)
+
+        NETWORK_DEVICE = ",".join(devices)
 
     if "aws_" in NETWORK_DEVICE:
         devices = NETWORK_DEVICE.split(",")

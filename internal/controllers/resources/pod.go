@@ -101,6 +101,11 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	netDevice := "udp"
 	udpMode := "false"
+	subnets := strings.Join(f.container.Spec.Network.DeviceSubnets, ",")
+	// if subnet for devices auto-discovery is set, we don't need to set the netDevice
+	if subnets != "" {
+		netDevice = ""
+	}
 	gateway := f.container.Spec.Network.Gateway
 	if f.container.Spec.Network.EthDevice != "" {
 		netDevice = f.container.Spec.Network.EthDevice
@@ -235,6 +240,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "NETWORK_DEVICE",
 							Value: netDevice,
+						},
+						{
+							Name:  "SUBNETS",
+							Value: subnets,
 						},
 						{
 							Name:  "NET_GATEWAY",
