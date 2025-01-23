@@ -899,6 +899,14 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 }
 
 func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
+	if r.container.Status.Status != strings.ToUpper(string(weka.ContainerStateDestroying)) {
+		r.container.Status.Status = strings.ToUpper(string(weka.ContainerStateDestroying))
+		err := r.Status().Update(ctx, r.container)
+		if err != nil {
+			return errors.Wrap(err, "Failed to update status")
+		}
+	}
+
 	// self-delete
 	err := r.Delete(ctx, r.container)
 	if err != nil {
@@ -918,7 +926,7 @@ func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
 			return err
 		}
 
-		logger.Info("Updating status", "from", r.container.Status.Status, "to", newStatus)
+		logger.Debug("Updating status", "from", r.container.Status.Status, "to", newStatus)
 		r.container.Status.Status = newStatus
 
 		if err := r.Status().Update(ctx, r.container); err != nil {
@@ -1117,7 +1125,7 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 	container.Status.ClusterID = response.Value.ClusterId
 	logger.InfoWithStatus(
 		codes.Ok,
-		"Cluster created and its GUID and container ID are updated in WekaContainer status",
+		"Cluster GUID and container ID are updated in WekaContainer status",
 		"cluster_guid", response.Value.ClusterId,
 		"container_id", response.Value.ContainerId,
 	)

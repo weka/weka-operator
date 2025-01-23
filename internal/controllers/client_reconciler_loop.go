@@ -2,10 +2,14 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"time"
+
 	"github.com/weka/weka-operator/pkg/workers"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"reflect"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -143,10 +147,24 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		toDelete = append(toDelete, container)
 	}
 
+	// patch all client containers state to destroying
 	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		err := c.Delete(ctx, container)
-		if err != nil {
-			return errors.Wrap(err, "failed to delete weka container")
+		if !container.IsMarkedForDeletion() {
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"state": weka.ContainerStateDestroying,
+				},
+			}
+
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				return err
+			}
+
+			err = c.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -155,7 +173,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	}
 
 	if len(c.containers) > 0 {
-		return lifecycle.NewWaitError(errors.New("waiting for client weka containers to be deleted"))
+		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
 	}
 	return nil
 }
