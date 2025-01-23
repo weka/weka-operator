@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+type ThrolltingSettings struct {
+	// will update the timestamp on ThrottlingMap only if the step succeeded
+	// (disabled by default)
+	EnsureStepSuccess bool
+}
+
 type ThrottlingSyncMap struct {
 	syncMap   *TypedSyncMap[string, time.Time]
 	partition string
@@ -13,7 +19,7 @@ type ThrottlingSyncMap struct {
 
 type Throttler interface {
 	// Store stores the current time for the given key
-	ShouldRun(key string, interval time.Duration) bool
+	ShouldRun(key string, interval time.Duration, settings ThrolltingSettings) bool
 	SetNow(key string)
 }
 
@@ -26,17 +32,19 @@ func NewSyncMapThrottler() *ThrottlingSyncMap {
 	}
 }
 
-func (tsm *ThrottlingSyncMap) ShouldRun(key string, interval time.Duration) bool {
+func (tsm *ThrottlingSyncMap) ShouldRun(key string, interval time.Duration, settings ThrolltingSettings) bool {
 	// interval defines throttling interval, i.e how often sometihng should be allowed to be done
 	partKey := tsm.partition + ":" + key
 
 	if value, ok := tsm.syncMap.Load(partKey); ok {
 		if time.Since(value) > interval {
-			tsm.SetNow(key)
+			if !settings.EnsureStepSuccess {
+				tsm.SetNow(key)
+			}
 			return true
 		}
 		return false
-	} else {
+	} else if !settings.EnsureStepSuccess {
 		// select random time within interval for initial value, so first time always will be trottled to distribute many such callers
 		// TODO: Have a config for this behavior??
 		milliSeconds := interval.Milliseconds()
@@ -44,6 +52,8 @@ func (tsm *ThrottlingSyncMap) ShouldRun(key string, interval time.Duration) bool
 		newTime := time.Now().Add(-randomPreSetInterval)
 		tsm.syncMap.LoadOrStore(partKey, newTime) // even if some other time set in parallel - safe to asume it would not allow us to run
 		return false
+	} else {
+		return true
 	}
 }
 

@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -49,6 +50,7 @@ func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcile
 	return &wekaClusterReconcilerLoop{
 		Manager:         mgr,
 		ExecService:     execService,
+		Recorder:        mgr.GetEventRecorderFor("wekaCluster-controller"),
 		SecretsService:  services.NewSecretsService(mgr.GetClient(), scheme, execService),
 		RestClient:      restClient,
 		GlobalThrottler: r.ThrottlingMap,
@@ -58,6 +60,7 @@ func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcile
 type wekaClusterReconcilerLoop struct {
 	Manager         ctrl.Manager
 	ExecService     exec.ExecService
+	Recorder        record.EventRecorder
 	cluster         *wekav1alpha1.WekaCluster
 	clusterService  services.WekaClusterService
 	containers      []*wekav1alpha1.WekaContainer
@@ -565,17 +568,41 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	containers := r.containers
-	for _, container := range containers {
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
-			if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondDrivesAdded) {
-				logger.Info("Containers did not add drives yet", "container", container.Name)
-				logger.InfoWithStatus(codes.Unset, "Containers did not add drives yet")
-				return lifecycle.NewWaitError(errors.New("containers did not add drives yet"))
-			}
-		}
+	// minimum required number of drives to be added to the cluster
+	var minDrivesNum int
+
+	if r.cluster.Spec.GetStartIoConditions().MinNumDrives > 0 {
+		minDrivesNum = r.cluster.Spec.StartIoConditions.MinNumDrives
 	}
-	return nil
+
+	// if not provided, derive it from the template
+	if minDrivesNum == 0 {
+		template, ok := allocator.GetTemplateByName(r.cluster.Spec.Template, *r.cluster)
+		if !ok {
+			return errors.New("Failed to get template")
+		}
+		minDrivesNum = template.NumDrives * template.DriveContainers
+	}
+
+	// get the number of drives added to the cluster from weka status
+	container := discovery.SelectActiveContainer(r.containers)
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+	status, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		return err
+	}
+
+	totalDrivesNum := status.Drives.Total
+	if totalDrivesNum >= minDrivesNum {
+		logger.Info("Min drives num added to the cluster", "addedDrivesNum", totalDrivesNum, "minDrivesNum", minDrivesNum)
+		return nil
+	}
+
+	msg := fmt.Sprintf("Min drives num not added to the cluster yet, added drives: %d, min drives: %d", totalDrivesNum, minDrivesNum)
+	r.RecordEvent("", "WaitingForDrives", msg)
+
+	return lifecycle.NewWaitErrorWithDuration(errors.New("containers did not add drives yet"), 10*time.Second)
 }
 
 func (r *wekaClusterReconcilerLoop) StartIo(ctx context.Context) error {
@@ -1680,6 +1707,19 @@ func (r *wekaClusterReconcilerLoop) RunPostFormClusterScript(ctx context.Context
 	logger.Info("Post-form cluster script executed")
 	return nil
 
+}
+
+func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype string, reason string, message string) error {
+	if r.cluster == nil {
+		return fmt.Errorf("cluster is not set")
+	}
+	if eventtype == "" {
+		normal := v1.EventTypeNormal
+		eventtype = normal
+	}
+
+	r.Recorder.Event(r.cluster, eventtype, reason, message)
+	return nil
 }
 
 func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {

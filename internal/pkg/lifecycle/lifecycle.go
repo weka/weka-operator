@@ -39,6 +39,8 @@ type Step struct {
 	// Predicates must all be true for the step to be executed
 	Predicates []PredicateFunc
 	Throttled  time.Duration
+	// additional settings for throttling
+	ThrolltingSettings util.ThrolltingSettings
 
 	// Should the step be run if the condition is already true
 	// Preconditions will also be evaluated and must be true
@@ -54,7 +56,7 @@ type Step struct {
 	Run StepFunc
 
 	// The function to execute if the step is failed
-	OnFail func(context.Context, error) error
+	OnFail func(context.Context, string, error) error
 }
 
 type ReconciliationState[Subject client.Object] struct {
@@ -207,13 +209,6 @@ STEPS:
 			step.Name = util.GetFunctionName(step.Run)
 		}
 
-		//Throttling handling
-		if step.Throttled > 0 && r.StatusObject != nil && r.Throttler != nil {
-			if !r.Throttler.ShouldRun(step.Name, step.Throttled) {
-				continue STEPS
-			}
-		}
-
 		// Check if step is already done or if the condition should be able to run again
 		if step.Condition != "" && !step.SkipOwnConditionCheck {
 			if meta.IsStatusConditionTrue(*r.Conditions, step.Condition) {
@@ -234,6 +229,13 @@ STEPS:
 					runLogger.SetValues("stop_err", stopErr.Error())
 					return stopErr
 				}
+			}
+		}
+
+		// Throttling handling
+		if step.Throttled > 0 && r.StatusObject != nil && r.Throttler != nil {
+			if !r.Throttler.ShouldRun(step.Name, step.Throttled, step.ThrolltingSettings) {
+				continue STEPS
 			}
 		}
 
@@ -266,7 +268,7 @@ STEPS:
 				}
 			}
 			if step.OnFail != nil {
-				if fErr := step.OnFail(stepCtx, err); fErr != nil {
+				if fErr := step.OnFail(stepCtx, step.Name, err); fErr != nil {
 					stepLogger.Error(fErr, "Error running onFail step")
 				}
 			}
@@ -310,6 +312,10 @@ STEPS:
 				stepLogger.SetError(err, "Error setting condition")
 				return stopErr
 			}
+		}
+
+		if step.Throttled > 0 && step.ThrolltingSettings.EnsureStepSuccess {
+			r.Throttler.SetNow(step.Name)
 		}
 	}
 	return nil

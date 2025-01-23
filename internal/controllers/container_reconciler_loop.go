@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -74,6 +75,7 @@ func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface
 		MetricsService: metricsService,
 		ExecService:    execService,
 		Manager:        mgr,
+		Recorder:       mgr.GetEventRecorderFor("wekaContainer-controller"),
 		RestClient:     restClient,
 		ThrottlingMap:  r.ThrottlingMap,
 	}
@@ -96,6 +98,7 @@ type containerReconcilerLoop struct {
 	Scheme           *runtime.Scheme
 	KubeService      kubernetes.KubeService
 	ExecService      exec.ExecService
+	Recorder         record.EventRecorder
 	Manager          ctrl.Manager
 	container        *weka.WekaContainer
 	pod              *v1.Pod
@@ -394,7 +397,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.reconcileManagementIP, // TODO: #shouldRefresh?
+				Name: "ReconcileManagementIP",
+				Run:  loop.reconcileManagementIP, // TODO: #shouldRefresh?
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsEmptyString(container.Status.ManagementIP),
 					container.IsBackend,
@@ -403,7 +407,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				OnFail:                    loop.setErrorStatus,
 			},
 			{
-				Run: loop.reconcileWekaLocalStatus,
+				Name: "ReconcileWekaLocalStatus",
+				Run:  loop.reconcileWekaLocalStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsWekaContainer,
 				},
@@ -427,21 +432,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondMessage:               "Container joined cluster",
 			},
 			{
-				Condition:   condition.CondDrivesAdded,
-				Run:         loop.EnsureDrives,
-				CondMessage: fmt.Sprintf("Added %d drives", container.Spec.NumDrives),
-				Predicates: lifecycle.Predicates{
-					container.IsDriveContainer,
-					func() bool {
-						return loop.container.Spec.NumDrives > 0
-					},
-				},
-				ContinueOnPredicatesFalse: true,
-				OnFail:                    loop.setDrivesErrorStatus,
-			},
-			{
-				Name: "PeriodicDrivesCheck",
-				Run:  loop.EnsureDrives,
+				Run: loop.EnsureDrives,
 				Predicates: lifecycle.Predicates{
 					container.IsDriveContainer,
 					func() bool {
@@ -451,8 +442,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setDrivesErrorStatus,
 				Throttled:                 config.Consts.PeriodicDrivesCheckInterval,
-				// TODO: add EnsureStepSuccess throttling setting once it is merged
-				// to record the last time only if the step was successful
+				ThrolltingSettings: util.ThrolltingSettings{
+					EnsureStepSuccess: true,
+				},
 			},
 			{
 				Condition:   condition.CondJoinedS3Cluster,
@@ -1780,7 +1772,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				l.Info("Drive already added into system")
 			}
 		} else {
-			l.Info("Drive added into system", "drive", drive)
+			l.Info("Drive added into system")
+			r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive))
 		}
 	}
 
@@ -1788,7 +1781,6 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	if r.container.Status.Status != ContainerStatusRunning {
 		r.container.Status.Status = ContainerStatusRunning
-		r.container.Status.Message = ""
 		return r.Status().Update(ctx, r.container)
 	}
 	return nil
@@ -2468,7 +2460,6 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if container.Status.Status != status {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
 		container.Status.Status = status
-		container.Status.Message = ""
 		if err := r.Status().Update(ctx, container); err != nil {
 			return err
 		}
@@ -2478,28 +2469,38 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	return nil
 }
 
-func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, err error) error {
-	container := r.container
-	msg := err.Error()
+func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName string, err error) error {
+	reason := fmt.Sprintf("%sError", stepName)
+	r.RecordEvent(v1.EventTypeWarning, reason, err.Error())
 
-	if container.Status.Status == Error && container.Status.Message == msg {
+	if r.container.Status.Status == Error {
 		return nil
 	}
-	container.Status.Status = Error
-	container.Status.Message = err.Error()
-	return r.Status().Update(ctx, container)
+	r.container.Status.Status = Error
+	return r.Status().Update(ctx, r.container)
 }
 
-func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, err error) error {
-	container := r.container
-	msg := err.Error()
+func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ string, err error) error {
+	r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", err.Error())
 
-	if container.Status.Status == DrivesAdding && container.Status.Message == msg {
+	if r.container.Status.Status == DrivesAdding {
 		return nil
 	}
-	container.Status.Status = DrivesAdding
-	container.Status.Message = err.Error()
-	return r.Status().Update(ctx, container)
+	r.container.Status.Status = DrivesAdding
+	return r.Status().Update(ctx, r.container)
+}
+
+func (r *containerReconcilerLoop) RecordEvent(eventtype string, reason string, message string) error {
+	if r.container == nil {
+		return fmt.Errorf("container is not set")
+	}
+	if eventtype == "" {
+		normal := v1.EventTypeNormal
+		eventtype = normal
+	}
+
+	r.Recorder.Event(r.container, eventtype, reason, message)
+	return nil
 }
 
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
