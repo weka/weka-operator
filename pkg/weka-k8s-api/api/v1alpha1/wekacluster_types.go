@@ -29,6 +29,8 @@ type WekaClusterStatusEnum string
 const (
 	WekaClusterStatusInit         WekaClusterStatusEnum = "Init"
 	WekaClusterStatusReady        WekaClusterStatusEnum = "Ready"
+	WekaClusterStatusWaitDrives   WekaClusterStatusEnum = "WaitForDrives"
+	WekaClusterStatusStartingIO   WekaClusterStatusEnum = "StartingIO"
 	WekaClusterStatusGracePeriod  WekaClusterStatusEnum = "GracePeriod"
 	WekaClusterStatusDestroying   WekaClusterStatusEnum = "Destroying"
 	WekaClusterStatusDeallocating WekaClusterStatusEnum = "Deallocating"
