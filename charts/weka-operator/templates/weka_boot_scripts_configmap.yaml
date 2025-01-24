@@ -11,3 +11,5 @@ data:
 {{ .Files.Get "resources/weka_runtime.py" | indent 4 }}
   devenv.sh: |
 {{ .Files.Get "resources/cos-devenv.sh" | indent 4 }}
+  weka_sign_drives.py: |
+{{ .Files.Get "resources/weka_sign_drives.py" | indent 4 }}

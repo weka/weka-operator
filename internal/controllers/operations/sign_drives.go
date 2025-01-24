@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -25,6 +26,7 @@ type SignDrivesOperation struct {
 	client          client.Client
 	kubeService     kubernetes.KubeService
 	scheme          *runtime.Scheme
+	adHocOpImage    *string
 	payload         *weka.SignDrivesPayload
 	image           string
 	pullSecret      string
@@ -45,7 +47,7 @@ func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	}
 }
 
-func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
+func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, adHocOpImage *string, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
 	kclient := mgr.GetClient()
 	return &SignDrivesOperation{
 		mgr:             mgr,
@@ -53,6 +55,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		kubeService:     kubernetes.NewKubeService(kclient),
 		scheme:          mgr.GetScheme(),
 		payload:         payload,
+		adHocOpImage:    adHocOpImage,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
 		ownerRef:        ownerRef,
@@ -94,8 +97,9 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	}
 
 	instructions := &weka.Instructions{
-		Type:    "sign-drives",
-		Payload: string(payloadBytes),
+		Type:         "sign-drives",
+		Payload:      string(payloadBytes),
+		AdHocOpImage: o.adHocOpImage,
 	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)

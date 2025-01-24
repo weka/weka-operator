@@ -89,6 +89,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.SignDrives,
+			wekaManualOperation.Spec.Payload.AdHocOpImage,
 			wekaManualOperation,
 			weka.WekaContainerDetails{
 				Image:           wekaManualOperation.Spec.Image,

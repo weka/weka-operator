@@ -102,6 +102,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		signDrivesOp := operations.NewSignDrivesOperation(
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
+			wekaPolicy.Spec.Payload.AdHocOpImage,
 			wekaPolicy,
 			weka.WekaContainerDetails{
 				Image:           wekaPolicy.Spec.Image,

@@ -70,6 +70,179 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 	}
 }
 
+func (f *PodFactory) CreateAdHoc(ctx context.Context, podImage *string) (*corev1.Pod, error) {
+	labels := labelsForWekaPod(f.container)
+	tolerations := f.getTolerations()
+
+	image := f.container.Spec.Image
+	if podImage != nil {
+		image = *podImage
+	}
+	terminationGracePeriodSeconds := int64(60)
+	hostNetwork := false
+
+	imagePullSecrets := []corev1.LocalObjectReference{}
+	if f.container.Spec.ImagePullSecret != "" {
+		imagePullSecrets = []corev1.LocalObjectReference{
+			{Name: f.container.Spec.ImagePullSecret},
+		}
+	}
+
+	instructionsBytes, err := json.Marshal(f.container.Spec.Instructions)
+	if err != nil {
+		return nil, err
+	}
+
+	serviceAccountName := f.container.Spec.ServiceAccountName
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      f.container.Name,
+			Namespace: f.container.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PodSpec{
+			Tolerations:                   tolerations,
+			TopologySpreadConstraints:     f.container.Spec.TopologySpreadConstraints,
+			Affinity:                      f.initAffinities(ctx, f.container.Spec.Affinity),
+			ImagePullSecrets:              imagePullSecrets,
+			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
+			Containers: []corev1.Container{
+				{
+					Image: image,
+					// TODO: use a more generic name for the container
+					// if we use dfferent name here, need to update executor.ExecNamed to use the new container name
+					Name:            "weka-container",
+					ImagePullPolicy: corev1.PullAlways,
+					Command:         []string{"python3", "/opt/weka_sign_drives.py"},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: &[]bool{true}[0],
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "dev",
+							MountPath: "/dev",
+						},
+						{
+							Name:      "run",
+							MountPath: "/host/run",
+						},
+						{
+							Name:      "sys",
+							MountPath: "/sys",
+						},
+						{
+							Name:      "weka-boot-scripts",
+							MountPath: "/opt/weka_sign_drives.py",
+							SubPath:   "weka_sign_drives.py",
+						},
+						{
+							Name:      "osrelease",
+							MountPath: "/hostside/etc/os-release",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "WEKA_CONTAINER_ID",
+							Value: string(f.container.GetUID()),
+						},
+						{
+							Name:  "NAME",
+							Value: f.container.Spec.WekaContainerName,
+						},
+						{
+							Name:  "MODE",
+							Value: f.container.Spec.Mode,
+						},
+						{
+							Name:  "IMAGE_NAME",
+							Value: image,
+						},
+						// use Downward API to get the name of the node where the Pod is executing
+						{
+							Name: "NODE_NAME",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "spec.nodeName",
+								},
+							},
+						},
+						{
+							Name:  "INSTRUCTIONS",
+							Value: string(instructionsBytes),
+						},
+					},
+				},
+			},
+			HostNetwork: hostNetwork,
+			Volumes: []corev1.Volume{
+				{
+					Name: "hugepages",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
+						},
+					},
+				},
+				{
+					Name: "osrelease",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/etc/os-release",
+							Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
+						},
+					},
+				},
+				{
+					Name: "dev",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/dev",
+						},
+					},
+				},
+				{
+					Name: "run",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/run",
+						},
+					},
+				},
+				{
+					Name: "sys",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/sys",
+						},
+					},
+				},
+				{
+					Name: "weka-boot-scripts",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "weka-boot-scripts",
+							},
+							DefaultMode: &[]int32{0o777}[0],
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if serviceAccountName != "" {
+		pod.Spec.ServiceAccountName = serviceAccountName
+	}
+
+	err = f.setAffinities(ctx, pod)
+	if err != nil {
+		return nil, err
+	}
+
+	return pod, nil
+}
+
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
 	labels := labelsForWekaPod(f.container)
 

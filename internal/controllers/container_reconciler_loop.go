@@ -1458,7 +1458,13 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
+	var desiredPod *v1.Pod
+	var err error
+	if container.IsAdhocOpContainer() && container.Spec.Instructions != nil && container.Spec.Instructions.AdHocOpImage != nil {
+		desiredPod, err = resources.NewPodFactory(container, nodeInfo).CreateAdHoc(ctx, container.Spec.Instructions.AdHocOpImage)
+	} else {
+		desiredPod, err = resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
+	}
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
