@@ -7,10 +7,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/util"
 	"github.com/weka/weka-operator/pkg/workers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -76,7 +77,7 @@ func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 }
 
 func (o *SignDrivesOperation) GetContainers(ctx context.Context) error {
-	existing, err := discovery.GetOwnedContainers(ctx, o.client, o.ownerRef.GetUID(), o.ownerRef.GetNamespace(), weka.WekaContainerModeAdhocOpWC)
+	existing, err := discovery.GetOwnedContainers(ctx, o.client, o.ownerRef.GetUID(), o.ownerRef.GetNamespace(), weka.WekaContainerModeAdhocOp)
 	if err != nil {
 		return err
 	}
@@ -134,10 +135,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			}
 		}
 
-		labels := map[string]string{
-			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
-		}
-		labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
+		labels := util.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeAdhocOp))
 
 		containerName := fmt.Sprintf("weka-sign-and-discover-drives-%s", node.Name)
 		newContainer := &weka.WekaContainer{
@@ -147,9 +145,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
-				Mode:            weka.WekaContainerModeAdhocOpWC,
-				Port:            weka.StaticPortAdhocyWCOperations,
-				AgentPort:       weka.StaticPortAdhocyWCOperationsAgent,
+				Mode:            weka.WekaContainerModeAdhocOp,
 				NodeAffinity:    weka.NodeName(node.Name),
 				Image:           o.image,
 				ImagePullSecret: o.pullSecret,

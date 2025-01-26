@@ -104,7 +104,7 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str) -> List[str]:
     pci_devices = stdout.decode().strip().split()
     for pci_device in pci_devices:
         device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
-        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
+        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device}")
         if ec != 0:
             logging.error(f"Failed to sign drive {pci_device}: {stderr}")
             continue
@@ -132,7 +132,7 @@ async def sign_not_mounted() -> List[str]:
         if parts[1] == "disk" and len(parts) < 3:
             device = f"/dev/{parts[0]}"
             logging.info(f"Signing drive {device}")
-            stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device}")
+            stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device}")
             if ec != 0:
                 logging.error(f"Failed to sign drive {device}: {stderr}")
                 continue
@@ -143,7 +143,7 @@ async def sign_not_mounted() -> List[str]:
 async def sign_device_paths(devices_paths) -> List[str]:
     signed_drives = []
     for device_path in devices_paths:
-        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive {device_path}")
+        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device_path}")
         if ec != 0:
             logging.error(f"Failed to sign drive {device_path}: {stderr}")
             continue
@@ -175,7 +175,7 @@ async def force_resign_drives_by_paths(devices_paths: List[str]):
     logging.info("Force resigning drives by paths: %s", devices_paths)
     signed_drives = []
     for device_path in devices_paths:
-        stdout, stderr, ec = await run_command(f"weka local exec -- /weka/tools/weka_sign_drive --force {device_path}")
+        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive --allow-erase-weka-partitions {device_path}")
         if ec != 0:
             logging.error(f"Failed to sign drive {device_path}: {stderr}")
             continue
@@ -1849,20 +1849,21 @@ async def main():
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
-    await configure_agent()
-    syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
-    await syslog.start()
+    if MODE != "adhoc-op": # this can be specialized container that should not have agent
+        await configure_agent()
+        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
+        await syslog.start()
 
     await override_dependencies_flag()
     if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
         await ensure_drivers()
 
-    agent_cmd = get_agent_cmd()
-    agent = Daemon(agent_cmd, "agent")
-    await agent.start()
-    await await_agent()
-
-    await ensure_weka_version()
+    if MODE != "adhoc-op":
+        agent_cmd = get_agent_cmd()
+        agent = Daemon(agent_cmd, "agent")
+        await agent.start()
+        await await_agent()
+        await ensure_weka_version()
 
     if MODE == "drivers-dist":
         # Dist is only serving, we will invoke downloads on it, probably in stand-alone ad-hoc container, but never actually build
@@ -1875,14 +1876,20 @@ async def main():
         return
 
     if MODE == "adhoc-op-with-container":
-        global NAME
-        NAME = "adhoc"
-        await ensure_stem_container(NAME)
-        await configure_traces()
-        await start_stem_container()
-        await ensure_container_exec()
+        # global NAME
+        # NAME = "adhoc"
+        # await ensure_stem_container(NAME)
+        # await configure_traces()
+        # await start_stem_container()
+        # await ensure_container_exec()
+        # instruction = json.loads(INSTRUCTIONS)
+        raise ValueError(f"adhoc-op-with-container is deprecated/has no uses with this operator version")
+
+    if MODE == "adhoc-op":
         instruction = json.loads(INSTRUCTIONS)
-        if instruction.get('type') and instruction['type'] == 'force-resign-drives':
+        if instruction.get('type') and instruction['type'] == "discover-drives":
+            await discover_drives()
+        elif instruction.get('type') and instruction['type'] == 'force-resign-drives':
             payload = json.loads(instruction['payload'])
             device_paths = payload.get('device_paths', [])
             device_serials = payload.get('device_serials', [])
@@ -1894,14 +1901,7 @@ async def main():
             payload = json.loads(instruction['payload'])
             signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
-            await discover_drives()
-        else:
-            raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
-        return
-
-    if MODE == "adhoc-op":
-        instruction = json.loads(INSTRUCTIONS)
-        if instruction.get('type') and instruction['type'] == "discover-drives":
+            await asyncio.sleep(3) # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")

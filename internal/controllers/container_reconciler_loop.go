@@ -1805,68 +1805,6 @@ func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor 
 	return serialIdMap, nil
 }
 
-func (r *containerReconcilerLoop) initialDriveSign(ctx context.Context, executor util.Exec, drive string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "initialDriveSign")
-	defer end()
-
-	logger.Info("Signing cloud drive", "drive", drive)
-	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive %s", drive) // no-force and claims should keep us safe
-	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.Error(err, "Error pre-signing drive", "drive", drive, "stderr", stderr.String())
-		return err
-	}
-	logger.InfoWithStatus(codes.Ok, "Cloud drives signed")
-	return nil
-}
-
-func (r *containerReconcilerLoop) isDrivePresigned(ctx context.Context, executor util.Exec, drive string) (bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriveIsPresigned", []string{"bash", "-ce", "blkid -s PART_ENTRY_TYPE -o value -p " + getSignatureDevice(drive)})
-	if err != nil {
-		logger.Error(err, "Error checking if drive is presigned", "drive", drive, "stderr", stderr.String(), "stdout", stdout.String())
-		return false, errors.Wrap(err, stderr.String())
-	}
-	const WEKA_SIGNATURE = "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
-	return strings.TrimSpace(stdout.String()) == WEKA_SIGNATURE, nil
-}
-
-func getSignatureDevice(drive string) string {
-	driveSignTarget := fmt.Sprintf("%s1", drive)
-	if strings.Contains(drive, "/dev/disk/by-path/pci-") {
-		return fmt.Sprintf("%s-part1", drive)
-	}
-	if strings.Contains(drive, "nvme") {
-		return fmt.Sprintf("%sp1", drive)
-	}
-	return driveSignTarget
-}
-
-func (r *containerReconcilerLoop) forceResignDrive(ctx context.Context, executor util.Exec, drive string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "forceResignDrive")
-	defer end()
-
-	logger.Info("Resigning drive with --force")
-	cmd := fmt.Sprintf("weka local exec -- /weka/tools/weka_sign_drive --force %s", drive)
-	_, stderr, err := executor.ExecNamed(ctx, "WekaSignDrive", []string{"bash", "-ce", cmd})
-	if err != nil {
-		logger.Error(err, "Error signing drive", "drive", drive, "stderr", stderr.String())
-	}
-	return err
-}
-
-func (r *containerReconcilerLoop) driveIsOwnedByCurrentCluster(ctx context.Context, guid string) (bool, error) {
-	currentClusterId := r.container.Status.ClusterID
-	if currentClusterId == "" {
-		return false, errors.New("cluster id not set")
-	}
-
-	stripped := strings.ReplaceAll(currentClusterId, "-", "")
-	return stripped == guid, nil
-}
-
 func (r *containerReconcilerLoop) isExistingCluster(ctx context.Context, guid string) (bool, error) {
 	// TODO: Query by status?
 	// TODO: Cache?
@@ -2526,7 +2464,7 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {
-	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOpWC && r.container.Spec.Instructions != nil {
+	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {
 		return r.container.Spec.Instructions.Type == "sign-drives"
 	}
 	if r.container.Spec.Mode == weka.WekaContainerModeAdhocOp && r.container.Spec.Instructions != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/factory"
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -119,10 +120,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 		return nil
 	}
 
-	labels := map[string]string{
-		"weka.io/mode": v1alpha1.WekaContainerModeAdhocOpWC,
-	}
-	labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
+	labels := util2.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(v1alpha1.WekaContainerModeAdhocOp))
 
 	payloadBytes, err := json.Marshal(o.payload)
 	if err != nil {
@@ -142,10 +140,8 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: v1alpha1.WekaContainerSpec{
-			Mode:            v1alpha1.WekaContainerModeAdhocOpWC,
-			Port:            v1alpha1.StaticPortAdhocyWCOperations,
-			AgentPort:       v1alpha1.StaticPortAdhocyWCOperationsAgent,
-			NodeAffinity:    v1alpha1.NodeName(o.payload.NodeName),
+			Mode:            v1alpha1.WekaContainerModeAdhocOp,
+			NodeAffinity:    o.payload.NodeName,
 			Image:           o.image,
 			ImagePullSecret: o.pullSecret,
 			Instructions:    instructions,
