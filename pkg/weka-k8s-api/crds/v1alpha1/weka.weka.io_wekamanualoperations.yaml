@@ -107,15 +107,15 @@ spec:
                     type: object
                   forceResignDrivesPayload:
                     properties:
-                      device_paths:
+                      devicePaths:
                         items:
                           type: string
                         type: array
-                      device_serials:
+                      deviceSerials:
                         items:
                           type: string
                         type: array
-                      node_name:
+                      nodeName:
                         description: "NodeName is a type that holds a api.Node's Name
                           identifier.\nBeing a type captures intent and helps make
                           sure that the node name\nis not confused with similar concepts
@@ -142,7 +142,7 @@ spec:
                           a custom DHCP domain it won't be."
                         type: string
                     required:
-                    - node_name
+                    - nodeName
                     type: object
                   remoteTracesSessionPayload:
                     properties:

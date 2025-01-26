@@ -100,9 +100,9 @@ type SignDrivesPayload struct {
 }
 
 type ForceResignDrivesPayload struct {
-	NodeName      NodeName `json:"node_name"`
-	DeviceSerials []string `json:"device_serials,omitempty"`
-	DevicePaths   []string `json:"device_paths,omitempty"`
+	NodeName      NodeName `json:"nodeName"`
+	DeviceSerials []string `json:"deviceSerials,omitempty"`
+	DevicePaths   []string `json:"devicePaths,omitempty"`
 }
 
 type BlockDrivesPayload struct {
