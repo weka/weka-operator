@@ -84,6 +84,14 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.Status().Update(ctx, wekaManualOperation)
 	}
 
+	var image, imagePullSecret string
+	if wekaManualOperation.Spec.Image != nil {
+		image = *wekaManualOperation.Spec.Image
+	}
+	if wekaManualOperation.Spec.ImagePullSecret != nil {
+		imagePullSecret = *wekaManualOperation.Spec.ImagePullSecret
+	}
+
 	switch wekaManualOperation.Spec.Action {
 	case "sign-drives":
 		signDrivesOp := operations.NewSignDrivesOperation(
@@ -91,13 +99,14 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation.Spec.Payload.SignDrives,
 			wekaManualOperation,
 			weka.WekaContainerDetails{
-				Image:           wekaManualOperation.Spec.Image,
-				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
 				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
 			},
 			wekaManualOperation.Status.Status,
 			onSuccess,
+			onFailure,
 			true,
 		)
 		loop.Op = signDrivesOp
@@ -107,8 +116,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation.Spec.Payload.ForceResignDrives,
 			wekaManualOperation,
 			weka.WekaContainerDetails{
-				Image:           wekaManualOperation.Spec.Image,
-				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
 				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
 			},
@@ -131,8 +140,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation.Spec.Payload.DiscoverDrives,
 			wekaManualOperation,
 			weka.WekaContainerDetails{
-				Image:           wekaManualOperation.Spec.Image,
-				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
 				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
 			},
@@ -148,8 +157,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig,
 			wekaManualOperation,
 			weka.WekaContainerDetails{
-				Image:           wekaManualOperation.Spec.Image,
-				ImagePullSecret: wekaManualOperation.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
 				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
 			},

@@ -101,6 +101,7 @@ debugSleep: 3
 tolerations: []
 deploymentIdentifier: ""
 
+signDrivesImage: quay.io/weka.io/weka-sign-tool:v0.0.3-pciutils
 
 nodeAgent:
   resources:

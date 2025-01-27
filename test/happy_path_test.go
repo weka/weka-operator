@@ -215,6 +215,7 @@ func driverBuilderService(driverBuilderName string, operatorNamespace string) v1
 }
 
 func signDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
+	secret := "quay-io-robot-secret"
 	return wekav1alpha1.WekaManualOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sign-aws-drives",
@@ -222,8 +223,8 @@ func signDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
 		},
 		Spec: wekav1alpha1.WekaManualOperationSpec{
 			Action:          "sign-drives",
-			Image:           wekaImage,
-			ImagePullSecret: "quay-io-robot-secret",
+			Image:           &wekaImage,
+			ImagePullSecret: &secret,
 			Payload: wekav1alpha1.ManualOperatorPayload{
 				SignDrives: &wekav1alpha1.SignDrivesPayload{
 					Type:         "aws-all",
@@ -236,6 +237,7 @@ func signDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
 }
 
 func discoverDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
+	secret := "quay-io-robot-secret"
 	return wekav1alpha1.WekaManualOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "discover-drives",
@@ -243,8 +245,8 @@ func discoverDrivesOp(wekaImage string) wekav1alpha1.WekaManualOperation {
 		},
 		Spec: wekav1alpha1.WekaManualOperationSpec{
 			Action:          "discover-drives",
-			Image:           wekaImage,
-			ImagePullSecret: "quay-io-robot-secret",
+			Image:           &wekaImage,
+			ImagePullSecret: &secret,
 			Payload: wekav1alpha1.ManualOperatorPayload{
 				DiscoverDrives: &wekav1alpha1.DiscoverDrivesPayload{
 					NodeSelector: map[string]string{},

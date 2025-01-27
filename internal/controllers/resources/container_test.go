@@ -89,6 +89,7 @@ func testingContainer() *wekav1alpha1.WekaContainer {
 		Spec: wekav1alpha1.WekaContainerSpec{
 			CpuPolicy: wekav1alpha1.CpuPolicyManual, // CpuPolicyAuto panics
 			CoreIds:   []int{0, 1},
+			Image:     "test-image",
 		},
 	}
 }

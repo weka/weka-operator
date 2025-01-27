@@ -80,6 +80,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		image = *podImage
 	}
 
+	if image == "" {
+		return nil, errors.New("image is required")
+	}
+
 	imagePullSecrets := []corev1.LocalObjectReference{}
 	if f.container.Spec.ImagePullSecret != "" {
 		imagePullSecrets = []corev1.LocalObjectReference{

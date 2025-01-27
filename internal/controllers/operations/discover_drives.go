@@ -52,7 +52,7 @@ type DriveNodeResults struct {
 }
 
 type DiscoverDrivesResult struct {
-	Err     error                       `json:"err,omitempty"`
+	Err     string                      `json:"err,omitempty"`
 	Results map[string]DriveNodeResults `json:"results"`
 }
 
@@ -233,7 +233,7 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer) (*
 
 	if errorCount > 0 {
 		errs := fmt.Errorf("operation failed on %d nodes", errorCount)
-		finalResult.Err = errs
+		finalResult.Err = errs.Error()
 	}
 
 	return &finalResult, nil

@@ -97,6 +97,21 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.Status().Update(ctx, wekaPolicy)
 	}
 
+	onFailure := func(ctx context.Context) error {
+		wekaPolicy.Status.LastResult = loop.Op.GetJsonResult()
+		wekaPolicy.Status.LastRunTime = metav1.Now()
+		wekaPolicy.Status.Status = "Failed"
+		return r.Status().Update(ctx, wekaPolicy)
+	}
+
+	var image, imagePullSecret string
+	if wekaPolicy.Spec.Image != nil {
+		image = *wekaPolicy.Spec.Image
+	}
+	if wekaPolicy.Spec.ImagePullSecret != nil {
+		imagePullSecret = *wekaPolicy.Spec.ImagePullSecret
+	}
+
 	switch wekaPolicy.Spec.Type {
 	case "sign-drives":
 		signDrivesOp := operations.NewSignDrivesOperation(
@@ -104,13 +119,14 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			wekaPolicy.Spec.Payload.SignDrives,
 			wekaPolicy,
 			weka.WekaContainerDetails{
-				Image:           wekaPolicy.Spec.Image,
-				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
 				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
+			onFailure,
 			true,
 		)
 		loop.Op = signDrivesOp
@@ -120,8 +136,8 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			wekaPolicy.Spec.Payload.DiscoverDrives,
 			wekaPolicy,
 			weka.WekaContainerDetails{
-				Image:           wekaPolicy.Spec.Image,
-				ImagePullSecret: wekaPolicy.Spec.ImagePullSecret,
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
 				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
 			},
