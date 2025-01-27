@@ -32,6 +32,10 @@ spec:
       name: Join IPs
       priority: 1
       type: string
+    - description: 'Number of client containers: Active/Created/Desired'
+      jsonPath: .status.printer.containers
+      name: Containers(A/C/D)
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -283,6 +287,26 @@ spec:
                 type: array
               lastAppliedSpec:
                 type: string
+              printer:
+                properties:
+                  containers:
+                    type: string
+                type: object
+              stats:
+                properties:
+                  containers:
+                    properties:
+                      active:
+                        format: int64
+                        type: integer
+                      created:
+                        format: int64
+                        type: integer
+                      desired:
+                        format: int64
+                        type: integer
+                    type: object
+                type: object
               status:
                 type: string
             type: object

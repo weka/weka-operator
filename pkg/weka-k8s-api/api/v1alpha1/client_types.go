@@ -100,9 +100,19 @@ type WekaClientSpec struct {
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions      []metav1.Condition `json:"conditions,omitempty"`
-	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
-	Status          string             `json:"status,omitempty"` // Status is the status of the resource, may be either PROGRESSING, FAILED, or READY
+	Conditions      []metav1.Condition   `json:"conditions,omitempty"`
+	LastAppliedSpec string               `json:"lastAppliedSpec,omitempty"`
+	Status          string               `json:"status,omitempty"` // Status is the status of the resource, may be either PROGRESSING, FAILED, or READY
+	Stats           *ClientMetrics       `json:"stats,omitempty"`
+	PrinterColumns  ClientPrinterColumns `json:"printer,omitempty"`
+}
+
+type ClientPrinterColumns struct {
+	Containers StringMetric `json:"containers,omitempty"`
+}
+
+type ClientMetrics struct {
+	Containers EntityStatefulNum `json:"containers,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -112,6 +122,7 @@ type WekaClientStatus struct {
 // +kubebuilder:printcolumn:name="Target Cluster",type="string",JSONPath=".spec.targetCluster.name",description="Name of the target cluster if exists",priority=0
 // +kubebuilder:printcolumn:name="Cores",type="integer",JSONPath=".spec.coresNum",description="Number of cores",priority=0
 // +kubebuilder:printcolumn:name="Join IPs",type="string",JSONPath=".spec.joinIpPorts",description="IPs of the target cluster",priority=1
+// +kubebuilder:printcolumn:name="Containers(A/C/D)",type="string",JSONPath=".status.printer.containers",description="Number of client containers: Active/Created/Desired",priority=0
 
 // WekaClient is the Schema for the clients API
 type WekaClient struct {
