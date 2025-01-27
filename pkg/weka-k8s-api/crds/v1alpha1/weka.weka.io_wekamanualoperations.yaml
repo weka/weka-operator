@@ -263,8 +263,6 @@ spec:
                 type: array
             required:
             - action
-            - image
-            - imagePullSecret
             - payload
             type: object
           status:

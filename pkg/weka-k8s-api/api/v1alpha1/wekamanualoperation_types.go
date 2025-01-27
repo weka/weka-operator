@@ -10,8 +10,8 @@ type WekaManualOperationSpec struct {
 	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;ensure-nics;remote-traces-session
 	Action          string                `json:"action"`
 	Payload         ManualOperatorPayload `json:"payload"`
-	Image           string                `json:"image"`
-	ImagePullSecret string                `json:"imagePullSecret"`
+	Image           *string               `json:"image,omitempty"`
+	ImagePullSecret *string               `json:"imagePullSecret,omitempty"`
 	Tolerations     []v1.Toleration       `json:"tolerations,omitempty"`
 }
 

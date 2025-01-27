@@ -9,8 +9,8 @@ import (
 type WekaPolicySpec struct {
 	Type            string          `json:"type"`
 	Payload         PolicyPayload   `json:"payload"`
-	Image           string          `json:"image"`
-	ImagePullSecret string          `json:"imagePullSecret"`
+	Image           *string         `json:"image,omitempty"`
+	ImagePullSecret *string         `json:"imagePullSecret,omitempty"`
 	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
 }
 

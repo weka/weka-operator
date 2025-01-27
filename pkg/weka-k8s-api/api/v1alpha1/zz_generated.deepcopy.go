@@ -1791,6 +1791,16 @@ func (in *WekaManualOperationList) DeepCopyObject() runtime.Object {
 func (in *WekaManualOperationSpec) DeepCopyInto(out *WekaManualOperationSpec) {
 	*out = *in
 	in.Payload.DeepCopyInto(&out.Payload)
+	if in.Image != nil {
+		in, out := &in.Image, &out.Image
+		*out = new(string)
+		**out = **in
+	}
+	if in.ImagePullSecret != nil {
+		in, out := &in.ImagePullSecret, &out.ImagePullSecret
+		*out = new(string)
+		**out = **in
+	}
 	if in.Tolerations != nil {
 		in, out := &in.Tolerations, &out.Tolerations
 		*out = make([]v1.Toleration, len(*in))
@@ -1889,6 +1899,16 @@ func (in *WekaPolicyList) DeepCopyObject() runtime.Object {
 func (in *WekaPolicySpec) DeepCopyInto(out *WekaPolicySpec) {
 	*out = *in
 	in.Payload.DeepCopyInto(&out.Payload)
+	if in.Image != nil {
+		in, out := &in.Image, &out.Image
+		*out = new(string)
+		**out = **in
+	}
+	if in.ImagePullSecret != nil {
+		in, out := &in.ImagePullSecret, &out.ImagePullSecret
+		*out = new(string)
+		**out = **in
+	}
 	if in.Tolerations != nil {
 		in, out := &in.Tolerations, &out.Tolerations
 		*out = make([]v1.Toleration, len(*in))
