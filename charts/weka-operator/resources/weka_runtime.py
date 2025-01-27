@@ -1889,14 +1889,16 @@ async def main():
         if instruction.get('type') and instruction['type'] == "discover-drives":
             await discover_drives()
         elif instruction.get('type') and instruction['type'] == 'force-resign-drives':
+            logging.info(f"force-resign-drives instruction: {instruction}")
             payload = json.loads(instruction['payload'])
-            device_paths = payload.get('device_paths', [])
-            device_serials = payload.get('device_serials', [])
+            device_paths = payload.get('devicePaths', [])
+            device_serials = payload.get('deviceSerials', [])
             if device_paths:
                 await force_resign_drives_by_paths(device_paths)
             elif device_serials:
                 await force_resign_drives_by_serials(device_serials)
         elif instruction.get('type') and instruction['type'] == 'sign-drives':
+            logging.info(f"sign-drives instruction: {instruction}")
             payload = json.loads(instruction['payload'])
             signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
@@ -2140,7 +2142,8 @@ shutdown_task = loop.create_task(shutdown())
 takeover_shutdown_task = loop.create_task(takeover_shutdown())
 
 main_loop = loop.create_task(main())
-logrotate_task = loop.create_task(periodic_logrotate())
+if MODE not in  ["adhoc-op"]:
+    logrotate_task = loop.create_task(periodic_logrotate())
 
 try:
     try:
