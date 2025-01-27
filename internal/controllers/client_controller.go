@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	util2 "github.com/weka/weka-operator/pkg/util"
 
 	"go.opentelemetry.io/otel/codes"
 
@@ -31,11 +32,15 @@ import (
 )
 
 type ClientController struct {
-	Manager ctrl.Manager
+	Manager       ctrl.Manager
+	ThrottlingMap *util2.ThrottlingSyncMap
 }
 
 func NewClientController(mgr ctrl.Manager) *ClientController {
-	return &ClientController{Manager: mgr}
+	return &ClientController{
+		ThrottlingMap: util2.NewSyncMapThrottler(),
+		Manager:       mgr,
+	}
 }
 
 func (c *ClientController) RunGC(ctx context.Context) {}
@@ -62,7 +67,7 @@ func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	logger.SetValues("client_uuid", string(wekaClient.GetUID()))
-	steps := ClientReconcileSteps(c.Manager, wekaClient)
+	steps := ClientReconcileSteps(c, wekaClient)
 	return steps.RunAsReconcilerResponse(ctx)
 }
 

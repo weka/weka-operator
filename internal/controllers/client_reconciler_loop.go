@@ -34,37 +34,47 @@ import (
 
 const defaultPortRangeBase = 45000
 
-func NewClientReconcileLoop(mgr ctrl.Manager) *clientReconcilerLoop {
+func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
+	mgr := r.Manager
 	kClient := mgr.GetClient()
 	return &clientReconcilerLoop{
-		Client:      kClient,
-		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("weka-operator"),
-		KubeService: kubernetes.NewKubeService(kClient),
-		Manager:     mgr,
+		Client:        kClient,
+		Scheme:        mgr.GetScheme(),
+		Recorder:      mgr.GetEventRecorderFor("weka-operator"),
+		KubeService:   kubernetes.NewKubeService(kClient),
+		Manager:       mgr,
+		ThrottlingMap: r.ThrottlingMap,
 	}
 }
 
 type clientReconcilerLoop struct {
 	client.Client
-	Scheme      *runtime.Scheme
-	KubeService kubernetes.KubeService
-	Manager     ctrl.Manager
-	Recorder    record.EventRecorder
-	containers  []*weka.WekaContainer
-	wekaClient  *weka.WekaClient
+	Scheme        *runtime.Scheme
+	KubeService   kubernetes.KubeService
+	Manager       ctrl.Manager
+	Recorder      record.EventRecorder
+	containers    []*weka.WekaContainer
+	wekaClient    *weka.WekaClient
+	ThrottlingMap *util2.ThrottlingSyncMap
+	nodes         []v1.Node
 }
 
-func ClientReconcileSteps(mgr ctrl.Manager, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
-	loop := NewClientReconcileLoop(mgr)
+func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
+	loop := NewClientReconcileLoop(r)
 	loop.wekaClient = wekaClient
 
 	return lifecycle.ReconciliationSteps{
+		Throttler:    r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
 		Client:       loop.Client,
 		StatusObject: loop.wekaClient,
 		Conditions:   &loop.wekaClient.Status.Conditions,
 		Steps: []lifecycle.Step{
 			{Run: loop.getCurrentContainers},
+			{Run: loop.setApplicableNodes},
+			{
+				Run:       loop.updateMetrics,
+				Throttled: time.Minute,
+			},
 			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
@@ -185,12 +195,7 @@ func (c *clientReconcilerLoop) getCurrentContainers(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) error {
-	nodes, err := c.getApplicableNodes(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(nodes) == 0 {
+	if len(c.nodes) == 0 {
 		// No nodes to deploy on
 		return nil
 	}
@@ -202,7 +207,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 	}
 
 	toCreate := []*weka.WekaContainer{}
-	for _, node := range nodes {
+	for _, node := range c.nodes {
 		if _, ok := nodeToContainer[node.Name]; ok {
 			continue
 		} else {
@@ -215,7 +220,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 	}
 
 	results := workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
-		err = ctrl.SetControllerReference(c.wekaClient, wekaContainer, c.Scheme)
+		err := ctrl.SetControllerReference(c.wekaClient, wekaContainer, c.Scheme)
 		if err != nil {
 			return errors.Wrap(err, "failed to set controller reference")
 		}
@@ -559,6 +564,54 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 		// we are relying on container to treat self-upgrade as manual(i.e not replacing pod) by propagating mode into it
 		return uController.AllAtOnceUpgrade(ctx)
 	}
+}
+
+func (c *clientReconcilerLoop) updateMetrics(ctx context.Context) error {
+	if c.wekaClient.Status.Stats == nil {
+		c.wekaClient.Status.Stats = &weka.ClientMetrics{}
+	}
+
+	changed := false
+
+	stats := c.wekaClient.Status.Stats
+	if int64(stats.Containers.Desired) != int64(len(c.nodes)) {
+		stats.Containers.Desired = weka.IntMetric(len(c.nodes))
+		changed = true
+	}
+
+	if int64(stats.Containers.Created) != int64(len(c.containers)) {
+		stats.Containers.Created = weka.IntMetric(len(c.containers))
+		changed = true
+	}
+
+	totalActive := 0
+	for _, container := range c.containers {
+		if container.Status.Status == ContainerStatusRunning && container.Status.ClusterContainerID != nil {
+			totalActive++
+		}
+	}
+	if int64(stats.Containers.Active) != int64(totalActive) {
+		stats.Containers.Active = weka.IntMetric(totalActive)
+		changed = true
+	}
+
+	if changed {
+		c.wekaClient.Status.PrinterColumns.Containers = weka.StringMetric(stats.Containers.String())
+		err := c.Status().Update(ctx, c.wekaClient)
+		if err != nil {
+			return errors.Wrap(err, "failed to update wekaClient status")
+		}
+	}
+	return nil
+}
+
+func (c *clientReconcilerLoop) setApplicableNodes(ctx context.Context) error {
+	nodes, err := c.getApplicableNodes(ctx)
+	if err != nil {
+		return err
+	}
+	c.nodes = nodes
+	return nil
 }
 
 func isPortRangeEqual(a, b weka.PortRange) bool {
