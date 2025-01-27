@@ -735,11 +735,13 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		DeviceSerials: deactivatedContainer.Status.Allocations.Drives,
 	}
 	emptyCallback := func(ctx context.Context) error { return nil }
+	details := *deactivatedContainer.ToContainerDetails()
+	details.Image = "quay.io/weka.io/weka-sign-tool:v0.0.2-pciutils"
 	op := operations.NewResignDrivesOperation(
 		r.Manager,
 		&payload,
 		deactivatedContainer,
-		*deactivatedContainer.ToContainerDetails(),
+		details,
 		nil,
 		emptyCallback,
 	)
