@@ -1805,6 +1805,13 @@ async def main():
     if is_google_cos():
         logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
 
+    if MODE == "discovery":
+        # self signal to exit
+        logging.info("discovery mode")
+        await cos_configure_hugepages()
+        await discovery()
+        return
+
     DIST_LEGACY_MODE = await is_legacy_driver_cmd()
     if MODE == "drivers-loader":
         # self signal to exit
@@ -1834,13 +1841,6 @@ async def main():
                 logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
         if not loaded:
             raise Exception("Failed to load drivers")
-        return
-
-    if MODE == "discovery":
-        # self signal to exit
-        logging.info("discovery mode")
-        await cos_configure_hugepages()
-        await discovery()
         return
 
     await configure_persistency()
