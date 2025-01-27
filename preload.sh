@@ -1,0 +1,7 @@
+  set -e
+
+  kubectl run preload-"$(echo -n $VERSION | md5)" --image=quay.io/weka.io/weka-operator:${VERSION} --restart=OnFailure \
+    --overrides='{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/master":"true"}}}}}' \
+    --command -- /bin/true
+
+  kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/preload-"$(echo -n $VERSION | md5)"
