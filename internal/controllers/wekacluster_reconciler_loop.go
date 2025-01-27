@@ -1744,6 +1744,9 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 		currentCount := 0
 		for _, container := range existingContainers {
+			if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+				continue // we don't care why it's unhealthy, but if it is - we do not account for it and replacement will be scheduled
+			}
 			if container.Spec.Mode == role {
 				currentCount++
 			}
