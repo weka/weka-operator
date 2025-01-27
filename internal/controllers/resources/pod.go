@@ -101,7 +101,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		udpMode = "true"
 	}
 
-	var terminationGracePeriodSeconds int64 = 60 * 60 * 24 * 7
+	var terminationGracePeriodSeconds int64 = 60 * 60 * 24 * 365 // 1 year
 	//if f.container.Spec.Mode == "drive" {
 	//	terminationGracePeriodSeconds = 60
 	//}
