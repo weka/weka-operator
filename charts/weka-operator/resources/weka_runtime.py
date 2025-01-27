@@ -1812,7 +1812,6 @@ async def main():
         await discovery()
         return
 
-    DIST_LEGACY_MODE = await is_legacy_driver_cmd()
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
@@ -1909,6 +1908,7 @@ async def main():
 
     # de-facto, both drivers-builder and dist right now are doing "build and serve"
     if MODE in ["dist", "drivers-builder"]:
+        DIST_LEGACY_MODE = await is_legacy_driver_cmd()
         logging.info("dist-service flow")
         if is_google_cos():
             await install_gsutil()
