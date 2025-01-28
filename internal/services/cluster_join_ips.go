@@ -136,7 +136,7 @@ func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	joinIpsByFD, err := discovery.SelectJoinIps(containers, cluster.Spec.FailureDomainLabel)
+	joinIpsByFD, err := discovery.SelectJoinIps(containers)
 	if err != nil {
 		err = fmt.Errorf("failed to get cluster join ips: %w", err)
 		return err

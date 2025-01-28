@@ -2124,14 +2124,33 @@ func (r *containerReconcilerLoop) PodNotSet() bool {
 }
 
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
-	fdLabel := r.container.Spec.FailureDomainLabel
-	if fdLabel == nil || *fdLabel == "" {
+	fdConfig := r.container.Spec.FailureDomain
+	if fdConfig == nil {
 		return nil
 	}
 
-	if fd, ok := r.node.Labels[*fdLabel]; ok {
-		return &fd
+	if fdConfig.Label != nil {
+		if fd, ok := r.node.Labels[*fdConfig.Label]; ok {
+			return &fd
+		}
+		return nil
 	}
+	if len(fdConfig.CompositeLabels) > 0 {
+		fdDomainParts := make([]string, 0, len(fdConfig.CompositeLabels))
+		for _, fdLabel := range fdConfig.CompositeLabels {
+			if fd, ok := r.node.Labels[fdLabel]; ok {
+				fdDomainParts = append(fdDomainParts, fd)
+			}
+		}
+
+		if len(fdDomainParts) == 0 {
+			return nil
+		}
+		// concatenate failure domain parts with "-"
+		fdValue := strings.Join(fdDomainParts, "-")
+		return &fdValue
+	}
+
 	return nil
 }
 
