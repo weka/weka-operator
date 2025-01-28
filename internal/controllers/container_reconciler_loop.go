@@ -3,6 +3,8 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2135,6 +2137,7 @@ func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string 
 
 	if fdConfig.Label != nil {
 		if fd, ok := r.node.Labels[*fdConfig.Label]; ok {
+			fd = handleFailureDomainValue(fd)
 			return &fd
 		}
 		return nil
@@ -2152,10 +2155,28 @@ func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string 
 		}
 		// concatenate failure domain parts with "-"
 		fdValue := strings.Join(fdDomainParts, "-")
+		fdValue = handleFailureDomainValue(fdValue)
 		return &fdValue
 	}
 
 	return nil
+}
+
+func handleFailureDomainValue(fd string) string {
+	// failure domain must not exceed 16 characters, and match regular expression “^(?:[^\\/]+)$“'
+	// if it exceeds 16 characters, truncate it to 16 characters
+	if len(fd) > 16 {
+		// get 16 characters' hash value (to guarantee uniqueness)
+		return getHash(fd)
+	}
+	// replace all "/" with "-"
+	return strings.ReplaceAll(fd, "/", "-")
+}
+
+// Generates SHA-256 hash and takes the first 16 characters
+func getHash(s string) string {
+	hash := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(hash[:])[:16]
 }
 
 func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) error {
