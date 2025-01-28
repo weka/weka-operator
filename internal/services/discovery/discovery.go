@@ -87,7 +87,7 @@ func GetCluster(ctx context.Context, c client.Client, name weka.ObjectReference)
 
 // Returns a map of FD to join IP port pairs
 // (if FD label is not provided, FD will be empty string)
-func SelectJoinIps(containers []*weka.WekaContainer, fdLabel *string) (map[string][]string, error) {
+func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error) {
 	joinIpsByFD := make(map[string][]string)
 	for _, container := range containers {
 		// use compute containers ips
@@ -107,14 +107,9 @@ func SelectJoinIps(containers []*weka.WekaContainer, fdLabel *string) (map[strin
 
 		joinIp := WrapIpv6Brackets(container.Status.ManagementIP) + ":" + strconv.Itoa(container.GetPort())
 		fd := ""
-		// get FD info if FD label is provided
-		if fdLabel != nil {
-			for k, v := range container.GetLabels() {
-				if k == *fdLabel {
-					fd = v
-					break
-				}
-			}
+		// get FD info if FD is set on the container
+		if container.Status.Allocations != nil && container.Status.Allocations.FailureDomain != nil {
+			fd = *container.Status.Allocations.FailureDomain
 		}
 		if _, ok := joinIpsByFD[fd]; !ok {
 			joinIpsByFD[fd] = []string{joinIp}

@@ -135,11 +135,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
-	failureDomainLabel := ""
-	if f.container.Spec.FailureDomainLabel != nil {
-		failureDomainLabel = *f.container.Spec.FailureDomainLabel
-	}
-
 	serviceAccountName := f.container.Spec.ServiceAccountName
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -277,10 +272,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 									FieldPath: "spec.nodeName",
 								},
 							},
-						},
-						{
-							Name:  "FAILURE_DOMAIN_LABEL",
-							Value: failureDomainLabel,
 						},
 					},
 				},

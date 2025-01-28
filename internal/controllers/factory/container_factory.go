@@ -132,7 +132,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			AdditionalSecrets:     additionalSecrets,
 			NoAffinityConstraints: cluster.Spec.GetOverrides().DisregardRedundancy,
 			NodeSelector:          nodeSelector,
-			FailureDomainLabel:    cluster.Spec.FailureDomainLabel,
+			FailureDomain:         cluster.Spec.FailureDomain,
 			DriversLoaderImage:    cluster.Spec.GetOverrides().DriversLoaderImage,
 		},
 	}
@@ -186,7 +186,7 @@ func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role
 func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) *wekav1alpha1.RoleTopologySpreadConstraints {
 	constraints := &wekav1alpha1.RoleTopologySpreadConstraints{}
 
-	if cluster.Spec.FailureDomainLabel == nil {
+	if cluster.Spec.FailureDomain == nil {
 		return constraints
 	}
 
@@ -194,25 +194,54 @@ func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, 
 		return constraints
 	}
 
-	constraint := v1.TopologySpreadConstraint{
-		MaxSkew:           1,
-		TopologyKey:       *cluster.Spec.FailureDomainLabel,
-		WhenUnsatisfiable: v1.DoNotSchedule,
-		LabelSelector: &metav1.LabelSelector{
-			MatchLabels: map[string]string{
-				"weka.io/cluster-id": string(cluster.UID),
-				"weka.io/mode":       role,
+	var roleConstraints []v1.TopologySpreadConstraint
+
+	if cluster.Spec.FailureDomain.Label != nil {
+		// if label is set, use it as topology key and check for skew
+		skew := 1
+		if cluster.Spec.FailureDomain.Skew != nil {
+			skew = *cluster.Spec.FailureDomain.Skew
+		}
+		// if single label is set for FD, use strict scheduling with "DoNotSchedule"
+		constraint := v1.TopologySpreadConstraint{
+			MaxSkew:           int32(skew),
+			TopologyKey:       *cluster.Spec.FailureDomain.Label,
+			WhenUnsatisfiable: v1.DoNotSchedule,
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"weka.io/cluster-id": string(cluster.UID),
+					"weka.io/mode":       role,
+				},
 			},
-		},
+		}
+		roleConstraints = append(roleConstraints, constraint)
+
+	} else if len(cluster.Spec.FailureDomain.CompositeLabels) > 0 {
+		for _, label := range cluster.Spec.FailureDomain.CompositeLabels {
+			// if composite labels are set, use them as topology keys
+			// and scheule with the best effort - "ScheduleAnyway"
+			constraint := v1.TopologySpreadConstraint{
+				MaxSkew:           1,
+				TopologyKey:       label,
+				WhenUnsatisfiable: v1.ScheduleAnyway,
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"weka.io/cluster-id": string(cluster.UID),
+						"weka.io/mode":       role,
+					},
+				},
+			}
+			roleConstraints = append(roleConstraints, constraint)
+		}
 	}
 
 	switch role {
 	case "compute":
-		constraints.Compute = append(constraints.Compute, constraint)
+		constraints.Compute = append(constraints.Compute, roleConstraints...)
 	case "drive":
-		constraints.Drive = append(constraints.Drive, constraint)
+		constraints.Drive = append(constraints.Drive, roleConstraints...)
 	case "s3":
-		constraints.S3 = append(constraints.S3, constraint)
+		constraints.S3 = append(constraints.S3, roleConstraints...)
 	}
 	return constraints
 }

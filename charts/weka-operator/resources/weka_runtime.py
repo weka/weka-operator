@@ -32,7 +32,6 @@ OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
-FAILURE_DOMAIN_LABEL = os.environ.get("FAILURE_DOMAIN_LABEL", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
@@ -1733,8 +1732,8 @@ async def wait_for_resources():
 
 
     RESOURCES = data
-    if FAILURE_DOMAIN_LABEL:
-        FAILURE_DOMAIN = data.get("failureDomain")
+    if "failureDomain" in data:
+        FAILURE_DOMAIN = data["failureDomain"]
         logging.info("Failure Domain: %s", FAILURE_DOMAIN)
     if parse_port(PORT) == 0 and MODE != 'envoy':
         PORT = data["wekaPort"]
