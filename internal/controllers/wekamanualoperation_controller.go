@@ -174,6 +174,21 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			},
 		)
 		loop.Op = remoteTracesOp
+	case "ensure-nics":
+		ensureNICsOp := operations.NewEnsureNICsOperation(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.EnsureNICs,
+			wekaManualOperation,
+			weka.WekaContainerDetails{
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
+				Tolerations:     wekaManualOperation.Spec.Tolerations,
+				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
+			},
+			wekaManualOperation.Status.Status,
+			onSuccess,
+		)
+		loop.Op = ensureNICsOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}

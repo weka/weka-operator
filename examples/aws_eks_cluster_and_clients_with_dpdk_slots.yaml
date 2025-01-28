@@ -1,0 +1,73 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: ensure-nics-manual-op
+  namespace: default
+spec:
+  action: "ensure-nics"
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  payload:
+    ensureNICsPayload:
+      type: aws
+      nodeSelector: {}
+      dataNICsNumber: 2
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-drives-manual-op
+  namespace: default
+spec:
+  action: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: aws-all
+      nodeSelector:
+        weka.io/supports-backends: "true"
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: cluster-dev
+  namespace: default
+spec:
+  template: dynamic
+  dynamicTemplate:
+    computeContainers: 6
+    driveContainers: 6
+
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  nodeSelector:
+    weka.io/supports-backends: "true"
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://drivers.weka.io"
+  network:
+    aws:
+      deviceSlots:
+        - 1
+        - 2
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://drivers.weka.io"
+  network:
+    aws:
+      deviceSlots:
+        - 1
+        - 2
+  portRange:
+    basePort: 46000
+  nodeSelector:
+    weka.io/supports-clients: "true"
+  wekaSecretRef: weka-client-cluster-dev
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  coresNum: 2

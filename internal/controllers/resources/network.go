@@ -24,6 +24,7 @@ func GetContainerNetwork(selector wekav1alpha1.NetworkSelector) (wekav1alpha1.Ne
 		network.Gateway = selector.Gateway
 	}
 	network.DeviceSubnets = selector.DeviceSubnets
+	network.AWS = selector.AWS
 
 	return network, nil
 }

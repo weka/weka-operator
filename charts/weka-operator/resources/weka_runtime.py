@@ -189,7 +189,7 @@ async def sign_device_path(device_path, options: SignOptions):
 async def sign_drives(instruction: dict) -> List[str]:
     type = instruction['type']
     options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
-    
+
     if type == "aws-all":
         return await sign_drives_by_pci_info(
             vendor_id=AWS_VENDOR_ID,
@@ -1017,9 +1017,16 @@ async def create_container():
         NETWORK_DEVICE = ",".join(devices)
 
     if "aws_" in NETWORK_DEVICE:
-        devices = NETWORK_DEVICE.split(",")
-        devices = [await resolve_aws_net(dev) for dev in devices]
-        net_str = " ".join([f"--net {d}" for d in devices])
+        if MODE == "compute":
+            devices = NETWORK_DEVICE.split(",")[1::2]
+        elif MODE == "drive":
+            devices = NETWORK_DEVICE.split(",")[2::2]
+        elif MODE == "client":
+            devices = NETWORK_DEVICE.split(",")[1:]
+        else:
+            raise Exception("Invalid container name")
+        devices = [dev.replace("aws_", "") for dev in devices]
+        net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
     else:
@@ -1081,6 +1088,19 @@ async def configure_traces():
     if ec != 0:
         raise Exception(f"Failed to configure traces: {stderr}")
     logging.info("Traces configured successfully")
+
+
+async def ensure_aws_nics(num: int):
+    command = dedent(f"""
+        set -e
+        mkdir -p /opt/weka/k8s-scripts
+        weka local run --container {NAME} /weka/go-helpers/cloud-helper ensure-nics -n {num + 1}
+        """)
+    stdout, stderr, ec = await run_command(command)
+    if ec != 0:
+        raise Exception(f"Failed to ensure NICs: {stderr}")
+    logging.info("Ensured NICs successfully")
+    write_results(dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics']))
 
 
 async def get_containers():
@@ -1173,17 +1193,7 @@ async def ensure_weka_container():
     resources['excluded_drivers'] = ["igb_uio"]
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
-
-    # add all management ips to resources
-    if 'aws_' not in NETWORK_DEVICE:
-        # we might want to revert here to resources.json syntax at this point
-        # but does it have any info about management physical device(aka mlnx) that can be used for ha sharing nic accross processes?
-
-        # so, we might want to generalize explicit use of management ip, for now this is a first need
-        # if we use multiple physical network devices we want to use them in HA mode
-        # enumerating devices like this is only applicable to such physical environment in the moment,
-        # hence this is an only place that uses management ip for now
-        resources["ips"] = MANAGEMENT_IPS
+    resources["ips"] = MANAGEMENT_IPS
 
     # resources["mask_interrupts"] = True
 
@@ -1874,7 +1884,7 @@ async def get_requested_drives():
 
 
 async def wait_for_resources():
-    global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN
+    global PORT, AGENT_PORT, RESOURCES, FAILURE_DOMAIN, NETWORK_DEVICE
 
     if MODE == 'client':
         await ensure_client_ports()
@@ -1893,6 +1903,8 @@ async def wait_for_resources():
 
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
         data = json.load(f)
+
+    NETWORK_DEVICE = ",".join(data["netDevices"])
 
     if data.get("machineIdentifier"):
         logging.info("found machineIdentifier override, applying")
@@ -1980,9 +1992,12 @@ async def write_management_ips():
     # if multiple nics are used
     else:
         devices = NETWORK_DEVICE.split(",")
-        for device in devices:
-            ip = await get_single_device_ip(device)
-            ipAddresses.append(ip)
+        if devices[0].startswith("aws_"):
+            ipAddresses = [devices[0].split("/")[1]]
+        else:
+            for device in devices:
+                ip = await get_single_device_ip(device)
+                ipAddresses.append(ip)
 
     if not ipAddresses:
         raise Exception("Failed to discover management IPs")
@@ -2185,14 +2200,23 @@ async def main():
         return
 
     if MODE == "adhoc-op-with-container":
-        # global NAME
-        # NAME = "adhoc"
-        # await ensure_stem_container(NAME)
-        # await configure_traces()
-        # await start_stem_container()
-        # await ensure_container_exec()
-        # instruction = json.loads(INSTRUCTIONS)
-        raise ValueError(f"adhoc-op-with-container is deprecated/has no uses with this operator version")
+        global NAME
+        NAME = "adhoc"
+        await ensure_stem_container(NAME)
+        await configure_traces()
+        await start_stem_container()
+        await ensure_container_exec()
+        instruction = json.loads(INSTRUCTIONS)
+        logging.info(f"adhoc-op-with-container instruction: {instruction}")
+        payload =  json.loads(instruction['payload'])
+        if instruction.get('type') == 'ensure-nics':
+            if payload.get('type') == "aws":
+                await ensure_aws_nics(payload['dataNICsNumber'])
+                return
+            else:
+                raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
+        else:
+            raise ValueError(f"unsupported instruction: {instruction.get('type')}")
 
     if MODE == "adhoc-op":
         instruction = json.loads(INSTRUCTIONS)
@@ -2394,7 +2418,7 @@ async def shutdown():
     logging.warning("Received signal, stopping all processes")
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
-    if MODE not in ["drivers-loader", "discovery"]:
+    if MODE not in ["drivers-loader", "discovery", "ensure-nics"]:
         if MODE in ["client", "s3", "nfs", "drive", "compute"]:
             await wait_for_shutdown_instruction()
 
