@@ -188,6 +188,20 @@ type StartIoConditions struct {
 	MinNumDrives int `json:"minNumDrives,omitempty"`
 }
 
+type FailureDomain struct {
+	// label used for spreading the weka containers across different failure domains (if set)
+	// nodes that have the same value for the label will be considered as a single failure domain
+	Label *string `json:"label,omitempty"`
+	// skew for the failure domain, if set, the weka containers will be spread with the skew in mind
+	// (only applicable if `label` is set)
+	Skew *int `json:"skew,omitempty"`
+	// If multiple labels are specified, the failure domain will be the combination of the labels.
+	// If `compositeLabels` is set, `label` and `skew` will be ignored.
+	// When using compositeLabels, weka containers will be spread considering all labels
+	// with best effort, but even distribution is not guaranteed
+	CompositeLabels []string `json:"compositeLabels,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -203,9 +217,8 @@ type WekaClusterSpec struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// node selector for the weka containers per role, overrides global nodeSelector
 	RoleNodeSelector RoleNodeSelector `json:"roleNodeSelector,omitempty"`
-	// label used for spreading the weka containers across different failure domains (if set)
-	// nodes that have the same value for this label will be considered as a single failure domain
-	FailureDomainLabel *string `json:"failureDomainLabel,omitempty"`
+	// failure domain configuration for weka containers
+	FailureDomain *FailureDomain `json:"failureDomain,omitempty"`
 	// advanced pod affinities configuration
 	PodConfig *PodConfiguration `json:"podConfig,omitempty"`
 	// cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto

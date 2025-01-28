@@ -92,8 +92,8 @@ type Instructions struct {
 type WekaContainerSpec struct {
 	// name of the node where the container should run on
 	NodeAffinity NodeName `json:"nodeAffinity,omitempty"`
-	// label used for spreading the weka containers across different failure domains (if set)
-	FailureDomainLabel *string `json:"failureDomainLabel,omitempty"`
+	// failure domain configuration
+	FailureDomain *FailureDomain `json:"failureDomain,omitempty"`
 	// controls the distribution of weka containers across the failure domains
 	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 	// advanced scheduling constraints

@@ -1039,10 +1039,29 @@ spec:
                 type: boolean
               extraCores:
                 type: integer
-              failureDomainLabel:
-                description: label used for spreading the weka containers across different
-                  failure domains (if set)
-                type: string
+              failureDomain:
+                description: failure domain configuration
+                properties:
+                  compositeLabels:
+                    description: |-
+                      If multiple labels are specified, the failure domain will be the combination of the labels.
+                      If `compositeLabels` is set, `label` and `skew` will be ignored.
+                      When using compositeLabels, weka containers will be spread considering all labels
+                      with best effort, but even distribution is not guaranteed
+                    items:
+                      type: string
+                    type: array
+                  label:
+                    description: |-
+                      label used for spreading the weka containers across different failure domains (if set)
+                      nodes that have the same value for the label will be considered as a single failure domain
+                    type: string
+                  skew:
+                    description: |-
+                      skew for the failure domain, if set, the weka containers will be spread with the skew in mind
+                      (only applicable if `label` is set)
+                    type: integer
+                type: object
               group:
                 type: string
               hugepages:
