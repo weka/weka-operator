@@ -37,6 +37,8 @@ KUBE_EXEC_TIMEOUT ?= 2m
 METRICS_CLUSTERS_ENABLED ?= true
 METRICS_CONTAINERS_ENABLED ?= true
 
+SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:v0.0.3-pciutils
+
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.32.0
@@ -194,6 +196,7 @@ runcontroller: ## Run a controller from your host.
 	METRICS_CONTAINERS_ENABLED=$(METRICS_CONTAINERS_ENABLED) \
 	OPERATOR_METRICS_BIND_ADDRESS=":8080" \
 	HEALTH_PROBE_BIND_ADDRESS=":8081" \
+	SIGN_DRIVES_IMAGE=${SIGN_DRIVES_IMAGE} \
 	go run ./cmd/manager/main.go
 
 .PHONY: debugcontroller
@@ -209,6 +212,7 @@ debugcontroller: ## Run a controller from your host.
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
 	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
+	SIGN_DRIVES_IMAGE=${SIGN_DRIVES_IMAGE} \
 	OPERATOR_DEV_MODE=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
 	dlv debug \
