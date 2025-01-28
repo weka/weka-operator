@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"path"
 	"slices"
@@ -1384,6 +1385,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 			return err
 		}
 	}
+	logger.Info("Force stop instruction written")
 	return nil
 }
 
@@ -2923,6 +2925,63 @@ func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) err
 	return nil
 }
 
+func getAWSGatewayIP(cidr string) (string, error) {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "", fmt.Errorf("invalid CIDR: %v", err)
+	}
+
+	ip := ipNet.IP.To4()
+	if ip == nil {
+		return "", fmt.Errorf("not a valid IPv4 CIDR")
+	}
+
+	ip[3] += 1
+	return ip.String(), nil
+}
+
+func (r *containerReconcilerLoop) getNetDevices(ctx context.Context) (netDevices []string, err error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "getNetDevices")
+	defer end()
+
+	// if subnet for devices auto-discovery is set, we don't need to set the netDevice
+	if len(r.container.Spec.Network.DeviceSubnets) > 0 {
+		return
+	}
+	if r.container.Spec.Network.EthDevice != "" {
+		logger.Info("Creating pod with network", "ethDevice", r.container.Spec.Network.EthDevice)
+		netDevices = append(netDevices, r.container.Spec.Network.EthDevice)
+		return
+	}
+	if len(r.container.Spec.Network.EthDevices) > 0 {
+		netDevices = r.container.Spec.Network.EthDevices
+		return
+	}
+	if r.container.Spec.Network.AWS.DeviceSlots != nil {
+		var nics []domain.NIC
+		err = json.Unmarshal([]byte(r.node.Annotations["weka.io/nics-ensured-info"]), &nics)
+		if err != nil {
+			return
+		}
+		logger.Info("Creating pod with network", "deviceSlots", r.container.Spec.Network.AWS.DeviceSlots, "nics", nics)
+		slots := append([]int{0}, r.container.Spec.Network.AWS.DeviceSlots...)
+		for _, slot := range slots {
+			cidr := strings.Split(nics[slot].SubnetCIDRBlock, "/")
+			mask := cidr[1]
+			gw, err2 := getAWSGatewayIP(nics[slot].SubnetCIDRBlock)
+			if err2 != nil {
+				err = err2
+				return
+			}
+			netDevices = append(
+				netDevices,
+				fmt.Sprintf("aws_%s/%s/%s/%s", nics[slot].MacAddress, nics[slot].PrimaryIP, mask, gw),
+			)
+		}
+	}
+	return
+}
+
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WriteResources")
 	defer end()
@@ -2972,7 +3031,10 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 			allocations.MachineIdentifier = uid
 		}
 	}
-
+	allocations.NetDevices, err = r.getNetDevices(ctx)
+	if err != nil {
+		return err
+	}
 	var resourcesJson []byte
 	resourcesJson, err = json.Marshal(allocations)
 	if err != nil {

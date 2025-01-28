@@ -1,0 +1,120 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: ensure-nics-manual-op
+  namespace: default
+spec:
+  action: "ensure-nics"
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  payload:
+    ensureNICsPayload:
+      type: aws
+      nodeSelector: {}
+      dataNICsNumber: 2
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-drives-manual-op
+  namespace: default
+spec:
+  action: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: aws-all
+      nodeSelector:
+        weka.io/supports-backends: "true"
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: cluster-dev
+  namespace: default
+spec:
+  template: dynamic
+  dynamicTemplate:
+    computeContainers: 6
+    driveContainers: 6
+
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  nodeSelector:
+    weka.io/supports-backends: "true"
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://weka-driver-dist.default.svc.cluster.local:60002"
+  network:
+    aws:
+      deviceSlots:
+        - 1
+        - 2
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: cluster-dev-clients
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://weka-driver-dist.default.svc.cluster.local:60002"
+  network:
+    aws:
+      deviceSlots:
+        - 1
+        - 2
+  portRange:
+    basePort: 46000
+  nodeSelector:
+    weka.io/supports-clients: "true"
+  wekaSecretRef: weka-client-cluster-dev
+  targetCluster:
+    name: cluster-dev
+    namespace: default
+  coresNum: 2
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-driver-dist
+  namespace: default
+  labels:
+    app: weka-driver-dist
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "drivers-dist"
+  name: dist
+  numCores: 1
+  port: 60002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weka-driver-dist
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+    - name: weka-driver-dist
+      port: 60002
+      targetPort: 60002
+  selector:
+    app: weka-driver-dist
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-drivers-builder
+  namespace: default
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  nodeSelector:
+    weka.io/supports-backends: "true"
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "drivers-builder"
+  name: dist
+  numCores: 1
+  uploadResultsTo: "weka-driver-dist"
+  port: 60002
