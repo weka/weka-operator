@@ -2885,7 +2885,17 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.PrinterColumns.Processes = weka.StringMetric(r.container.Status.Stats.Processes.String())
 	r.container.Status.Stats.LastUpdate = metav1.NewTime(time.Now())
 
-	return r.Patch(ctx, r.container, patch)
+	TracedPatch := func() error {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "PatchContainerStatus")
+		defer end()
+		ret := r.Status().Patch(ctx, r.container, patch)
+		if ret != nil {
+			logger.SetError(ret, "Error patching container status")
+		}
+		return nil
+	}
+
+	return TracedPatch()
 }
 
 func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
