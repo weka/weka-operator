@@ -719,7 +719,11 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	if !r.ContainerNodeIsAlive() {
+	nodeName := r.container.GetNodeAffinity()
+
+	// if node name is empty, it means no node affinity was set on wekaContainer,
+	// so we should not check if node is alive
+	if !r.ContainerNodeIsAlive() && nodeName != "" {
 		err := fmt.Errorf("container node is not ready, cannot perform resign drives operation")
 		return err
 	}
