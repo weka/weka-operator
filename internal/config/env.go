@@ -181,7 +181,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
-	Config.SignDrivesImage = getEnvOrFail("SIGN_DRIVES_IMAGE")
+	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 }
 
 func getEnvOrFail(envKey string) string {
