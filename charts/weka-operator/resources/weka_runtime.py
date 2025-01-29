@@ -32,6 +32,7 @@ OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
+POD_ID = os.environ["POD_ID"]
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
@@ -1138,6 +1139,33 @@ async def ensure_weka_container():
         raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
 
+def get_boot_id():
+    with open("/proc/sys/kernel/random/boot_id", "r") as file:
+        boot_id = file.read().strip()
+    return boot_id
+
+def get_instructions_dir():
+    return f"/opt/k8s-weka/boot-level/{get_boot_id()}/{POD_ID}/instructions"
+
+@dataclass
+class ShutdownInstructions:
+    allow_force_stop: bool = False
+    allow_stop: bool = False
+
+
+def get_shutdown_instructions() -> ShutdownInstructions:
+    instructions_dir = get_instructions_dir()
+    instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
+
+    if not os.path.exists(instructions_file):
+        return ShutdownInstructions()
+
+    with open(instructions_file, "r") as file:
+        data = json.load(file)
+
+    return ShutdownInstructions(**data)
+
+
 async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
     if ec != 0:
@@ -1149,6 +1177,14 @@ async def start_weka_container():
 async def configure_persistency():
     if not WEKA_PERSISTENCE_DIR:
         return
+
+    """
+    /opt/k8s-weka in here might be confusing, it does not come to represent exact location on host
+    instead, it was meant to reflect that mounts under this directory are persistent dirs on host, with /opt/k8s-weka being a default location
+    even if another location is actually used on host, we still use/opt/k8s-weka within container
+    retroactivelly, something like /host-binds would be more explicit and less confusing
+    just careful search-replace still should be possible as no place should be using this location aside from mount during spinup within this script
+    """
 
     command = dedent(f"""
         mkdir -p /opt/weka-preinstalled
@@ -1170,6 +1206,13 @@ async def configure_persistency():
             mkdir -p $BOOT_DIR
             mkdir -p /opt/weka/external-mounts/cleanup
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
+            
+            mkdir -p /opt/weka/external-mounts/local-sockets
+            mount -o bind $BOOT_DIR /opt/weka/external-mounts/local-sockets
+            
+            // Instructions? no nee for additional mount, we could access destination directly
+            
+            
         fi
         
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
@@ -2046,10 +2089,10 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
 
 async def wait_for_shutdown_instruction():
     while True:
-        if exists("/tmp/.allow-force-stop"):
+        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions():
             logging.info("Received 'allow-force-stop' instruction")
             return
-        if exists("/tmp/.allow-stop"):
+        if exists("/tmp/.allow-stop") or get_shutdown_instructions():
             logging.info("Received 'allow-stop' instruction")
             return
 
@@ -2071,7 +2114,7 @@ async def shutdown():
             await wait_for_shutdown_instruction()
 
         force_stop = False
-        if exists("/tmp/.allow-force-stop"):
+        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions().allows_force_stop:
             force_stop = True
         if is_wrong_generation():
             force_stop = True

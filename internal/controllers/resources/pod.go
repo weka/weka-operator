@@ -57,6 +57,11 @@ type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
 }
 
+type ShutdownInstructions struct {
+	AllowStop      bool `json:"allow_stop"`
+	AllowForceStop bool `json:"allow_force_stop"`
+}
+
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
 
 func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
@@ -273,6 +278,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 								},
 							},
 						},
+						{
+							Name: "POD_ID",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "metadata.uid",
+								},
+							},
+						},
 					},
 				},
 			},
@@ -364,7 +377,8 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-container-persistence-dir",
+			Name: "weka-container-persistence-dir",
+			// TODO: Should not use gethostsidepersistent
 			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/boot-level",
 			SubPath:   "tmpfss/boot-level",
 		})
