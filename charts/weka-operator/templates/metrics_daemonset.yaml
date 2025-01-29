@@ -103,17 +103,15 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmpdir
-            - mountPath: {{ .Values.nodeAgent.persistencePaths }}
+            - mountPath: /opt/k8s-weka
               name: weka-persistence
+              mountPropagation: Bidirectional
             - mountPath: /var/run/secrets/kubernetes.io/token
               name: token
               readOnly: true
           name: node-agent
           securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - "ALL"
+            privileged: true
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
       serviceAccountName: "{{ .Values.prefix }}-maintenance"

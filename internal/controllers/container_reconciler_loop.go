@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -878,7 +879,71 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 	return err
 }
 
+func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod *v1.Pod) (*v1.Pod, error) {
+	agentPods, err := r.getNodeAgentPods(ctx)
+	if err != nil {
+		return nil, errors.New("Failed to get node agent pods")
+	}
+	if len(agentPods) == 0 {
+		return nil, errors.New("There are node agent pods in cluster")
+	}
+
+	for _, agentPod := range agentPods {
+		if agentPod.Status.NominatedNodeName == pod.Status.NominatedNodeName {
+			if agentPod.Status.Phase == v1.PodRunning {
+				return &agentPod, nil
+			}
+			return nil, errors.New("Agent pod exists but is not running")
+		}
+	}
+	return nil, errors.New("No agent pod found on the same node")
+}
+
+func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Context, pod *v1.Pod, instructions resources.ShutdownInstructions) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	agentPod, err := r.findAdjacentNodeAgent(ctx, pod)
+	if err != nil {
+		return err
+	}
+
+	instructionsJson, err := json.Marshal(instructions)
+	if err != nil {
+		return err
+	}
+
+	executor, err := util.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent")
+	if err != nil {
+		return err
+	}
+
+	nodeInfo, err := r.GetNodeInfo(ctx)
+	if err != nil {
+		return err
+	}
+	instructionsBasePath := path.Join(resources.GetPodShutdownInstructionPathOnAgent(nodeInfo.BootID, pod))
+	instructionsPath := path.Join(instructionsBasePath, "shutdown_instructions.json")
+
+	_, _, err = executor.ExecNamed(ctx, "StopInstructionsViaAgent", []string{"bash", "-ce", fmt.Sprintf("mkdir -p '%s' && echo '%s' > '%s'", instructionsBasePath, instructionsJson, instructionsPath)})
+	if err != nil {
+		logger.Error(err, "Error writing stop instructions via node-agent")
+		return err
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
+	// since we can't execute directly on pod if it is in terminating state
+	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: false, AllowForceStop: true})
+	if err != nil {
+		logger.Error(err, "Error writing force-stop instructions via node-agent")
+	}
+
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
@@ -894,6 +959,16 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
+	// since we can't execute directly on pod if it is in terminating state
+	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: true, AllowForceStop: false})
+	if err != nil {
+		logger.Error(err, "Error writing stop instructions via node-agent")
+	}
+
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err

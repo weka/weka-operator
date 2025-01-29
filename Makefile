@@ -171,6 +171,10 @@ devupdate:
 run: generate manifests install fmt vet deploy runcontroller ## Run a controller from your host.
 	;
 
+.PHONY: runocp
+runocp: generate manifests install fmt vet deployocp runcontroller ## Run a controller from your host.
+	;
+
 .PHONY: runcontroller
 runcontroller: ## Run a controller from your host.
 	WEKA_OPERATOR_MAINTENANCE_SA_NAME=weka-operator-maintenance \
@@ -264,8 +268,30 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--set ocpCompatibility.driverToolkitImageBaseUrl=quay.io/weka.io/gke-toolkit \
 		--set gkeCompatibility.hugepageConfiguration.enabled=true \
 		--set gkeCompatibility.disableDriverSigning=true \
-		--set deploymentIdentifier="dev-${USER}"
+		--set deploymentIdentifier="dev-${USER}" \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder
+
+.PHONY: deployocp
+deployocp: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+	$(HELM) upgrade --install weka-operator charts/weka-operator \
+		--namespace $(NAMESPACE) \
+		--values charts/weka-operator/values.yaml \
+		--create-namespace \
+		--set $(VALUES) \
+		--set deployController=${DEPLOY_CONTROLLER} \
+		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
+		--set wekahome.endpoint="${WH_ENDPOINT}" \
+		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
+		--set wekahome.cacertSecret="${WH_CACERT_SECRET}" \
+		--set ocpCompatibility.hugepageConfiguration.enabled=true \
+		--set ocpCompatibility.hugepageConfiguration.hugepagesCount=8000 \
+		--set ocpCompatibility.driverToolkitSecretName=ocp-buildkit-secret \
+		--set ocpCompatibility.driverToolkitImageBaseUrl=quay.io/weka.io/gke-toolkit \
+		--set gkeCompatibility.hugepageConfiguration.enabled=true \
+		--set gkeCompatibility.disableDriverSigning=true \
+		--set deploymentIdentifier="dev-${USER}" \
+		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
+		--set nodeAgent.persistencePaths='/root/k8s-weka'
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

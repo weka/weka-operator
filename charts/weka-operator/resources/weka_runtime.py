@@ -32,6 +32,7 @@ OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
+POD_ID = os.environ["POD_ID"]
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
@@ -45,7 +46,7 @@ MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
 
 WEKA_CONTAINER_ID = os.environ.get("WEKA_CONTAINER_ID", "")
-WEKA_PERSISTENCE_DIR = os.environ.get("WEKA_PERSISTENCE_DIR")
+WEKA_PERSISTENCE_DIR = "/host-binds/opt-weka"
 WEKA_PERSISTENCE_MODE = os.environ.get("WEKA_PERSISTENCE_MODE", "local")
 WEKA_PERSISTENCE_GLOBAL_DIR = "/opt/weka-global-persistence"
 if WEKA_PERSISTENCE_MODE == "global":
@@ -1138,6 +1139,33 @@ async def ensure_weka_container():
         raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
 
+def get_boot_id():
+    with open("/proc/sys/kernel/random/boot_id", "r") as file:
+        boot_id = file.read().strip()
+    return boot_id
+
+def get_instructions_dir():
+    return f"/host-binds/ephemeral/{get_boot_id()}/{POD_ID}/instructions"
+
+@dataclass
+class ShutdownInstructions:
+    allow_force_stop: bool = False
+    allow_stop: bool = False
+
+
+def get_shutdown_instructions() -> ShutdownInstructions:
+    instructions_dir = get_instructions_dir()
+    instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
+
+    if not os.path.exists(instructions_file):
+        return ShutdownInstructions()
+
+    with open(instructions_file, "r") as file:
+        data = json.load(file)
+
+    return ShutdownInstructions(**data)
+
+
 async def start_weka_container():
     stdout, stderr, ec = await run_command("weka local start")
     if ec != 0:
@@ -1147,7 +1175,7 @@ async def start_weka_container():
 
 
 async def configure_persistency():
-    if not WEKA_PERSISTENCE_DIR:
+    if not os.path.exists("/host-binds/opt-weka"):
         return
 
     command = dedent(f"""
@@ -1165,11 +1193,14 @@ async def configure_persistency():
         # --- make drivers dir persistent
         mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
 
-        if [ -d /opt/k8s-weka/boot-level ]; then
-            BOOT_DIR=/opt/k8s-weka/boot-level/$(cat /proc/sys/kernel/random/boot_id)
+        if [ -d /host-binds/boot-level ]; then
+            BOOT_DIR=/host-binds/boot-level/$(cat /proc/sys/kernel/random/boot_id)
             mkdir -p $BOOT_DIR
             mkdir -p /opt/weka/external-mounts/cleanup
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
+            
+            mkdir -p /opt/weka/external-mounts/local-sockets
+            mount -o bind $BOOT_DIR /opt/weka/external-mounts/local-sockets
         fi
         
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
@@ -1179,9 +1210,9 @@ async def configure_persistency():
             chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
         fi
         
-        if [ -d /opt/k8s-weka/node-cluster ]; then
+        if [ -d /host-binds/shared-configs ]; then
             ENVOY_DIR=/opt/weka/envoy
-            EXT_ENVOY_DIR=/opt/k8s-weka/node-cluster/envoy
+            EXT_ENVOY_DIR=/host-binds/shared-configs/envoy
             mkdir -p $ENVOY_DIR
             mkdir -p $EXT_ENVOY_DIR
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
@@ -1193,7 +1224,7 @@ async def configure_persistency():
 
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
-        raise Exception(f"Failed to configure persistency: {stderr}")
+        raise Exception(f"Failed to configure persistency: {stdout} {stderr}")
 
     logging.info("Persistency configured successfully")
 
@@ -1546,7 +1577,7 @@ PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
 
 async def write_generation():
-    while WEKA_PERSISTENCE_DIR and not os.path.exists(PERSISTENCY_CONFIGURED):
+    while os.path.exists("/host-binds/opt-weka") and not os.path.exists(PERSISTENCY_CONFIGURED):
         logging.info("Waiting for persistency to be configured")
         await asyncio.sleep(1)
 
@@ -2046,10 +2077,12 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
 
 async def wait_for_shutdown_instruction():
     while True:
-        if exists("/tmp/.allow-force-stop"):
+        shutdown_instructions = get_shutdown_instructions()
+
+        if exists("/tmp/.allow-force-stop") or shutdown_instructions.allow_force_stop:
             logging.info("Received 'allow-force-stop' instruction")
             return
-        if exists("/tmp/.allow-stop"):
+        if exists("/tmp/.allow-stop") or shutdown_instructions.allow_stop:
             logging.info("Received 'allow-stop' instruction")
             return
 
@@ -2071,7 +2104,7 @@ async def shutdown():
             await wait_for_shutdown_instruction()
 
         force_stop = False
-        if exists("/tmp/.allow-force-stop"):
+        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions().allow_force_stop:
             force_stop = True
         if is_wrong_generation():
             force_stop = True

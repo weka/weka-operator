@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+const inPodHostBinds = "/host-binds"
 
 type WekaLocalPs struct {
 	Name            string `json:"name"`
@@ -55,6 +58,11 @@ type PodFactory struct {
 
 type WekaDriveResponse struct {
 	HostId string `json:"host_id"`
+}
+
+type ShutdownInstructions struct {
+	AllowStop      bool `json:"allow_stop"`
+	AllowForceStop bool `json:"allow_force_stop"`
 }
 
 const globalPersistenceMountPath = "/opt/weka-global-persistence"
@@ -126,7 +134,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	debugSleep := config.Config.DebugSleep
 
-	containerPathPersistence := "/opt/weka-persistence"
 	hostsideContainerPersistence := f.nodeInfo.GetContainerPersistencePath(f.container.GetUID())
 	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
@@ -273,6 +280,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 								},
 							},
 						},
+						{
+							Name: "POD_ID",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "metadata.uid",
+								},
+							},
+						},
 					},
 				},
 			},
@@ -352,7 +367,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
-			MountPath: containerPathPersistence,
+			MountPath: inPodHostBinds + "/opt-weka",
 		})
 
 		// TODO: For now we are keeping ephmeral /opt/k8s-weka data along with global
@@ -364,14 +379,15 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-container-persistence-dir",
-			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/boot-level",
+			Name: "weka-container-persistence-dir",
+			// TODO: Should not use gethostsidepersistent
+			MountPath: inPodHostBinds + "/boot-level",
 			SubPath:   "tmpfss/boot-level",
 		})
 
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-cluster-persistence-dir",
-			MountPath: f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/node-cluster",
+			MountPath: inPodHostBinds + "/shared-configs",
 			SubPath:   "shared-configs",
 		})
 
@@ -393,10 +409,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 				},
 			},
-		})
-		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-			Name:  "WEKA_PERSISTENCE_DIR",
-			Value: containerPathPersistence,
 		})
 
 		if config.Config.LocalDataPvc != "" {
@@ -1154,4 +1166,10 @@ func commaSeparated(ints []int) string {
 		result = append(result, strconv.Itoa(i))
 	}
 	return strings.Join(result, ",")
+}
+
+func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string {
+	containerUid := pod.ObjectMeta.OwnerReferences[0].UID
+	podUid := pod.UID
+	return path.Join("/opt/k8s-weka/containers", string(containerUid), "host-binds/ephemeral", bootId, string(podUid), "instructions")
 }
