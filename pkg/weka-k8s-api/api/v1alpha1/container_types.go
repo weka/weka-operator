@@ -187,6 +187,7 @@ type ContainerPrinterColumns struct {
 type WekaContainerStatus struct {
 	Status             string                   `json:"status"`
 	ManagementIP       string                   `json:"managementIP,omitempty"`
+	ManagementIPs      []string                 `json:"managementIPs,omitempty"`
 	ClusterContainerID *int                     `json:"containerID,omitempty"`
 	ClusterID          string                   `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`

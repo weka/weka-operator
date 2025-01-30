@@ -1613,6 +1613,10 @@ spec:
                 type: string
               managementIP:
                 type: string
+              managementIPs:
+                items:
+                  type: string
+                type: array
               nodeAffinity:
                 description: "NodeName is a type that holds a api.Node's Name identifier.\nBeing
                   a type captures intent and helps make sure that the node name\nis
