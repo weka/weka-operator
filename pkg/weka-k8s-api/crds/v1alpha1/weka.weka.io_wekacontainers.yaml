@@ -23,9 +23,9 @@ spec:
       jsonPath: .spec.mode
       name: Mode
       type: string
-    - description: Management IP
-      jsonPath: .status.managementIP
-      name: Management IP
+    - description: Management IPs
+      jsonPath: .status.managementIPs
+      name: Management IPs
       type: string
     - description: Node affinity of container
       jsonPath: .status.nodeAffinity

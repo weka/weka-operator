@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -17,7 +18,7 @@ type NodeName types.NodeName
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
-// +kubebuilder:printcolumn:name="Management IP",type="string",JSONPath=".status.managementIP",description="Management IP",priority=0
+// +kubebuilder:printcolumn:name="Management IPs",type="string",JSONPath=".status.managementIPs",description="Management IPs",priority=0
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
@@ -32,6 +33,20 @@ type WekaContainer struct {
 
 	Spec   WekaContainerSpec   `json:"spec,omitempty"`
 	Status WekaContainerStatus `json:"status,omitempty"`
+}
+
+func (c *WekaContainer) GetHostIps() []string {
+	mngmtIps := c.Status.GetManagementIps()
+	hostIps := make([]string, 0, len(mngmtIps))
+	port := c.GetPort()
+	for _, ip := range mngmtIps {
+		if c.Spec.Ipv6 {
+			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", ip, port))
+		} else {
+			hostIps = append(hostIps, fmt.Sprintf("%s:%d", ip, port))
+		}
+	}
+	return hostIps
 }
 
 type WekaContainerMode string
@@ -198,6 +213,16 @@ type WekaContainerStatus struct {
 	Stats              *WekaContainerMetrics    `json:"stats,omitempty"`
 	PrinterColumns     *ContainerPrinterColumns `json:"printer,omitempty"`
 	Timestamps         map[string]metav1.Time   `json:"timestamps,omitempty"`
+}
+
+func (s *WekaContainerStatus) GetManagementIps() []string {
+	if s.ManagementIPs != nil {
+		return s.ManagementIPs
+	}
+	if s.ManagementIP != "" {
+		return []string{s.ManagementIP}
+	}
+	return nil
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
