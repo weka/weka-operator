@@ -37,6 +37,8 @@ POD_ID = os.environ.get("POD_ID", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
+IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
+MANAGEMENT_IPS = []  # to be populated at later stage
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -847,6 +849,7 @@ async def autodiscover_network_devices(subnet) -> List[str]:
     if ec != 0:
         raise Exception(f"Failed to discover network devices: {stderr}")
     devices = stdout.decode('utf-8').strip().split("\n")
+    devices = [d for d in devices if d]
 
     if not devices:
         raise Exception(f"No network devices found for subnet {subnet}")
@@ -872,15 +875,6 @@ async def resolve_aws_net(device):
     # gw = nic["gw"]
     net = f"'{mac}/{ip}/{mask}/{gw}'"
     return net
-
-
-async def resolve_ipv4_addr(device):
-    # example: "ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1"
-    cmd = f"ip addr show dev {device} | grep 'inet ' | awk '{{print $2}}' | cut -d/ -f1"
-    stdout, stderr, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to get IP address for device {device}: {stderr}")
-    return stdout.decode('utf-8').strip()
 
 
 async def resolve_dhcp_net(device):
@@ -1123,8 +1117,8 @@ async def ensure_weka_container():
     resources['excluded_drivers'] = ["igb_uio"]
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
-    # TODO: support ipv6? up till this point we had no need of ipv6 knowledge in this context
-    if ',' in NETWORK_DEVICE and 'aws_' not in NETWORK_DEVICE:
+    # add all management ips to resources
+    if 'aws_' not in NETWORK_DEVICE:
         # we might want to revert here to resources.json syntax at this point
         # but does it have any info about management physical device(aka mlnx) that can be used for ha sharing nic accross processes?
 
@@ -1132,8 +1126,7 @@ async def ensure_weka_container():
         # if we use multiple physical network devices we want to use them in HA mode
         # enumerating devices like this is only applicable to such physical environment in the moment,
         # hence this is an only place that uses management ip for now
-        # TODO: support ipv6? up till this point we had no need of ipv6 knowledge in this context
-        resources["ips"] = [await resolve_ipv4_addr(device) for device in NETWORK_DEVICE.split(",")]
+        resources["ips"] = MANAGEMENT_IPS
 
     resources["mask_interrupts"] = True
 
@@ -1147,6 +1140,7 @@ async def ensure_weka_container():
     if NET_GATEWAY:
         if NETWORK_DEVICE not in ['udp', ""]:
             #TODO: Multi-nic support with custom gateways
+            # figure out what is meant here ^
             if len(resources['net_devices']) != 1:
                 logging.error("Gateway configuration is not supported with multiple or zero NICs")
             resources['net_devices'][0]['gateway'] = NET_GATEWAY
@@ -1806,6 +1800,75 @@ async def wait_for_resources():
     await save_weka_ports_data()
 
 
+async def get_single_device_ip(device_name: str = "default") -> str:
+    if device_name == "default":
+        if IS_IPV6:
+            cmd = "ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1"
+        else:
+            cmd = "ip route show default | grep src | awk '/default/ {print $9}' | head -n1"
+    else:
+        if IS_IPV6:
+            cmd = f"ip -6 addr show dev {device_name} | grep 'inet6 ' | awk '{{print $2}}' | cut -d/ -f1"
+        else:
+            cmd = f"ip addr show dev {device_name} | grep 'inet ' | awk '{{print $2}}' | cut -d/ -f1"
+
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
+    ip = stdout.decode('utf-8').strip()
+
+    # try again with a different command for default
+    if not ip and device_name == "default":
+        # TODO: support ipv6 in this case
+        if not IS_IPV6:
+            cmd = "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
+            stdout, stderr, ec = await run_command(cmd)
+            if ec != 0:
+                raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
+            ip = stdout.decode('utf-8').strip()
+    
+    if not ip:
+        raise Exception(f"Failed to get ip address for device {device_name}")
+    return ip
+
+
+async def write_management_ips():
+    """Auto-discover management IPs and write them to a file"""
+    if MODE not in ['drive', 'compute', 's3', 'nfs']:
+        return
+    
+    ipAddresses = []
+
+    if not NETWORK_DEVICE and SUBNETS:
+        for subnet in SUBNETS.split(","):
+            devices = await autodiscover_network_devices(subnet)
+            for device in devices:
+                ip = await get_single_device_ip(device)
+                ipAddresses.append(ip)
+    # default udp mode (if network device is not set explicitly)
+    elif NETWORK_DEVICE in ("udp", ""):
+        ip = await get_single_device_ip()
+        ipAddresses.append(ip)
+    # if single nic is used
+    elif ',' not in NETWORK_DEVICE:
+        ip = get_single_device_ip(NETWORK_DEVICE)
+        ipAddresses.append(ip)
+    # if multiple nics are used
+    else:
+        devices = NETWORK_DEVICE.split(",")
+        for device in devices:
+            ip = await get_single_device_ip(device)
+            ipAddresses.append(ip)
+
+    with open("/opt/weka/k8s-runtime/management_ips.tmp", "w") as f:
+        f.write("\n".join(ipAddresses))
+    os.rename("/opt/weka/k8s-runtime/management_ips.tmp", "/opt/weka/k8s-runtime/management_ips")
+    
+    logging.info(f"Management IPs: {ipAddresses}")
+    global MANAGEMENT_IPS
+    MANAGEMENT_IPS = ipAddresses
+
+
 async def ensure_drives():
     sys_drives = await find_weka_drives()
     requested_drives = RESOURCES.get("drives", [])
@@ -1907,6 +1970,7 @@ async def main():
     await configure_persistency()
     await wait_for_resources()
     await write_generation()  # write own generation to kill other processes
+    await write_management_ips()
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 

@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -419,9 +420,14 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 		Pods: make(map[string]ContainerInfo),
 	}
 	for _, container := range o.containers {
+		mggmtIps := container.Status.GetManagementIps()
+		if len(mggmtIps) == 0 {
+			err = fmt.Errorf("no management ips found for container %s", container.Name)
+			return err
+		}
 		data.Pods[container.Name] = ContainerInfo{
 			Name:                container.Spec.WekaContainerName,
-			TraceServerEndpoint: container.Status.ManagementIP + ":" + strconv.Itoa(container.GetPort()+50),
+			TraceServerEndpoint: mggmtIps[0] + ":" + strconv.Itoa(container.GetPort()+50),
 		}
 	}
 

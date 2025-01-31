@@ -408,10 +408,12 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Name: "ReconcileManagementIP",
-				Run:  loop.reconcileManagementIP, // TODO: #shouldRefresh?
+				Name: "ReconcileManagementIPs",
+				Run:  loop.reconcileManagementIPs,
 				Predicates: lifecycle.Predicates{
-					lifecycle.IsEmptyString(container.Status.ManagementIP),
+					func() bool {
+						return len(loop.container.Status.GetManagementIps()) == 0
+					},
 					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -1136,59 +1138,20 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) reconcileManagementIP(ctx context.Context) error {
+func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	container := r.container
-	pod := r.pod
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	ipAddresses, err := r.getManagementIps(ctx)
 	if err != nil {
 		return err
 	}
 
-	var getIpCmd string
-	if container.Spec.Network.EthDevice != "" {
-		if container.Spec.Ipv6 {
-			getIpCmd = fmt.Sprintf("ip -6 addr show dev %s | grep 'inet6 ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
-		} else {
-			getIpCmd = fmt.Sprintf("ip addr show dev %s | grep 'inet ' | awk '{print $2}' | cut -d/ -f1", container.Spec.Network.EthDevice)
-		}
-	} else {
-		if container.Spec.Ipv6 {
-			getIpCmd = fmt.Sprintf("ip -6 addr show $(ip -6 route show default | awk '{print $5}' | head -n1) | grep 'inet6 ' | grep global | awk '{print $2}' | cut -d/ -f1")
-		} else {
-			getIpCmd = fmt.Sprintf("ip route show default | grep src | awk '/default/ {print $9}' | head -n1")
-		}
-	}
-
-	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
-	if err != nil {
-		logger.Error(err, "Error executing command", "stderr", stderr.String())
-		return err
-	}
-	ipAddress := strings.TrimSpace(stdout.String())
-	if container.Spec.Network.EthDevice == "" && ipAddress == "" {
-		//TODO: support ipv6 in this case
-		if container.Spec.Ipv6 {
-			return fmt.Errorf("failed to get management IP, no fallback for ipv6")
-		}
-		// Compatible with Amazon Linux 2
-		getIpCmd = "ip -4 addr show dev $(ip route show default | awk '{print $5}') | grep inet | awk '{print $2}' | cut -d/ -f1"
-		stdout, stderr, err = executor.ExecNamed(ctx, "GetManagementIpAddress", []string{"bash", "-ce", getIpCmd})
-		if err != nil {
-			logger.Error(err, "Error executing command", "stderr", stderr.String())
-			return err
-		}
-		ipAddress = strings.TrimSpace(stdout.String())
-	}
-	if ipAddress == "" {
-		return fmt.Errorf("failed to get management IP")
-	}
-	logger.WithValues("management_ip", ipAddress).Info("Got management IP")
-	if container.Status.ManagementIP != ipAddress {
-		container.Status.ManagementIP = ipAddress
+	logger.WithValues("management_ips", ipAddresses).Info("Got management IPs")
+	if !util.SliceEquals(container.Status.ManagementIPs, ipAddresses) {
+		container.Status.ManagementIPs = ipAddresses
 		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
 			return err
@@ -1196,6 +1159,22 @@ func (r *containerReconcilerLoop) reconcileManagementIP(ctx context.Context) err
 		return nil
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) getManagementIps(ctx context.Context) ([]string, error) {
+	executor, err := r.ExecService.GetExecutor(ctx, r.container)
+	if err != nil {
+		return nil, err
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetManagementIps", []string{"cat", "/opt/weka/k8s-runtime/management_ips"})
+	if err != nil {
+		err = fmt.Errorf("Error reading management IPs: %v, %s", err, stderr.String())
+		return nil, err
+	}
+
+	ips := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	return ips, nil
 }
 
 func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) error {

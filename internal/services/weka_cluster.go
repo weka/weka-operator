@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 
 	"github.com/weka/weka-operator/pkg/workers"
 
@@ -119,12 +120,8 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			continue
 		}
-		if container.Spec.Ipv6 {
-			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", container.Status.ManagementIP, container.GetPort()))
-		} else {
-			hostIps = append(hostIps, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.GetPort()))
-		}
-		hostnamesList = append(hostnamesList, container.Status.ManagementIP)
+		hostIps = append(hostIps, container.GetHostIps()...)
+		hostnamesList = append(hostnamesList, container.Status.GetManagementIps()...)
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
