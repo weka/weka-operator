@@ -751,6 +751,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		details,
 		nil,
 		emptyCallback,
+		nil,
 	)
 
 	err := operations.ExecuteOperation(ctx, op)

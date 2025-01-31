@@ -123,6 +123,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			},
 			&wekaManualOperation.Status.Status,
 			onSuccess,
+			onFailure,
 		)
 		loop.Op = resignDrivesOp
 	case "block-drives":

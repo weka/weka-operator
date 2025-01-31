@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 
 	"github.com/pkg/errors"
@@ -21,7 +25,7 @@ import (
 )
 
 type ResignDrivesResult struct {
-	Err            error    `json:"err,omitempty"`
+	Err            string   `json:"err,omitempty"`
 	ResignedDrives []string `json:"drives"`
 }
 
@@ -39,9 +43,10 @@ type ResignDrivesOperation struct {
 	mgr             ctrl.Manager
 	tolerations     []corev1.Toleration
 	successCallback lifecycle.StepFunc
+	failureCallback lifecycle.StepFunc
 }
 
-func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus *string, successCallback lifecycle.StepFunc) *ResignDrivesOperation {
+func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation {
 	return &ResignDrivesOperation{
 		mgr:             mgr,
 		client:          mgr.GetClient(),
@@ -54,6 +59,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		successCallback: successCallback,
+		failureCallback: failureCallback,
 	}
 }
 
@@ -76,6 +82,15 @@ func (o *ResignDrivesOperation) GetSteps() []lifecycle.Step {
 		},
 		{Name: "PollResults", Run: o.PollResults},
 		{Name: "ProcessResult", Run: o.ProcessResult},
+		{
+			Name: "FailureUpdate",
+			Run:  o.FailureCallback,
+			Predicates: lifecycle.Predicates{
+				o.OperationFailed,
+			},
+			ContinueOnPredicatesFalse: true,
+			FinishOnSuccess:           true,
+		},
 		{Name: "SuccessCallback", Run: o.SuccessCallback},
 		{Name: "DeleteContainer", Run: o.DeleteContainer},
 	}
@@ -88,7 +103,7 @@ func (o *ResignDrivesOperation) ProcessResult(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to unmarshal results")
 	}
 
-	if resignResult.Err != nil {
+	if resignResult.Err != "" {
 		err = fmt.Errorf("resign drives operation failed: %s, re-creating container", resignResult.Err)
 		_ = o.DeleteContainer(ctx)
 		return err
@@ -118,6 +133,16 @@ func (o *ResignDrivesOperation) DeleteContainer(ctx context.Context) error {
 func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 	if o.container != nil {
 		return nil
+	}
+
+	// validate image for sign-drives
+	if o.image == "" {
+		o.image = config.Config.SignDrivesImage
+	} else if strings.Contains(o.image, "weka.io/weka-in-container") {
+		err := fmt.Errorf("weka image is not allowed for sign-drives operation, do not set image to use default")
+		o.results.Err = err.Error()
+		o.failureCallback(ctx)
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	labels := util2.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(v1alpha1.WekaContainerModeAdhocOp))
@@ -209,4 +234,15 @@ func (o *ResignDrivesOperation) HasNoContainer() bool {
 
 func (o *ResignDrivesOperation) SuccessCallback(ctx context.Context) error {
 	return o.successCallback(ctx)
+}
+
+func (o *ResignDrivesOperation) FailureCallback(ctx context.Context) error {
+	if o.failureCallback == nil {
+		return nil
+	}
+	return o.failureCallback(ctx)
+}
+
+func (o *ResignDrivesOperation) OperationFailed() bool {
+	return o.results.Err != ""
 }
