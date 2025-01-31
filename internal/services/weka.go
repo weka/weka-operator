@@ -490,16 +490,18 @@ func (c *CliWekaService) JoinNfsInterfaceGroups(ctx context.Context, containerId
 	interfaceName := c.Container.Spec.Network.EthDevice
 	interfaceGroupName := "MgmtInterfaceGroup"
 	if interfaceName == "" {
-		if c.Container.Status.ManagementIP == "" {
-			return errors.New("No management IP address found")
+		if len(c.Container.Status.GetManagementIps()) == 0 {
+			return errors.New("No management IP addresses found")
 		}
-		interfaceName, err = c.GetInterfaceNameByIpAddress(ctx, c.Container.Status.ManagementIP)
+		mngmtIps := c.Container.Status.GetManagementIps()
+		interfaceName, err = c.GetInterfaceNameByIpAddress(ctx, mngmtIps[0])
 		if err != nil {
-			logger.SetError(err, "Failed to get interface name by IP address", "ip", c.Container.Status.ManagementIP)
+			logger.SetError(err, "Failed to get interface name by IP address", "ip", mngmtIps[0])
 			return err
 		}
 	}
 
+	// TODO: should we add port for each interface if there are multiple management IPs on container?
 	cmd := []string{
 		//weka nfs interface-group port add mgmt 11 ens5
 		"wekaauthcli", "nfs", "interface-group", "port", "add", interfaceGroupName, containerIdStr, interfaceName,

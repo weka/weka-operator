@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -148,9 +147,10 @@ func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterS
 	nfsTargetIps := []string{}
 
 	for _, container := range containers {
-		endpoints = append(endpoints, fmt.Sprintf("%s:%d", container.Status.ManagementIP, container.GetPort()))
+		hostIps := container.GetHostIps()
+		endpoints = append(endpoints, hostIps...)
 		if container.IsNfsContainer() {
-			nfsTargetIps = append(nfsTargetIps, container.Status.ManagementIP)
+			nfsTargetIps = append(nfsTargetIps, container.Status.GetManagementIps()...)
 		}
 	}
 

@@ -105,7 +105,7 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 		if container.Status.ClusterContainerID == nil {
 			continue
 		}
-		if container.Status.ManagementIP == "" {
+		if len(container.Status.GetManagementIps()) == 0 {
 			continue
 		}
 		if container.Status.Status != "Running" {
@@ -113,16 +113,20 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 			continue
 		}
 
-		joinIp := WrapIpv6Brackets(container.Status.ManagementIP) + ":" + strconv.Itoa(container.GetPort())
+		containerJoinIps := make([]string, 0, len(container.Status.GetManagementIps()))
+		for _, ip := range container.Status.GetManagementIps() {
+			joinIp := WrapIpv6Brackets(ip) + ":" + strconv.Itoa(container.GetPort())
+			containerJoinIps = append(containerJoinIps, joinIp)
+		}
 		fd := ""
 		// get FD info if FD is set on the container
 		if container.Status.Allocations != nil && container.Status.Allocations.FailureDomain != nil {
 			fd = *container.Status.Allocations.FailureDomain
 		}
 		if _, ok := joinIpsByFD[fd]; !ok {
-			joinIpsByFD[fd] = []string{joinIp}
+			joinIpsByFD[fd] = containerJoinIps
 		} else {
-			joinIpsByFD[fd] = append(joinIpsByFD[fd], joinIp)
+			joinIpsByFD[fd] = append(joinIpsByFD[fd], containerJoinIps...)
 		}
 	}
 	if len(joinIpsByFD) == 0 {
