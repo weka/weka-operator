@@ -906,7 +906,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
-			Value: comaSeparated(f.container.Spec.CoreIds),
+			Value: commaSeparated(f.container.Spec.CoreIds),
 		})
 	}
 
@@ -1148,7 +1148,7 @@ func labelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
 	return labels
 }
 
-func comaSeparated(ints []int) string {
+func commaSeparated(ints []int) string {
 	var result []string
 	for _, i := range ints {
 		result = append(result, strconv.Itoa(i))
