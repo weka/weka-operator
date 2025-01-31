@@ -546,7 +546,21 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
 	}
-	return nodes, nil
+
+	clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
+
+	var filteredNodes []v1.Node
+	for _, node := range nodes {
+		if node.Spec.Unschedulable {
+			continue
+		}
+		if !util2.CheckTolerations(node.Spec.Taints, clientTolerations) {
+			continue
+		}
+		filteredNodes = append(filteredNodes, node)
+	}
+
+	return filteredNodes, nil
 }
 
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
