@@ -135,6 +135,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	debugSleep := config.Config.DebugSleep
 
 	hostsideContainerPersistence := f.nodeInfo.GetContainerPersistencePath(f.container.GetUID())
+	hostsideSharedData := f.nodeInfo.GetContainerSharedDataPath(f.container.GetUID())
 	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), "cluster-less")
 	if len(f.container.GetOwnerReferences()) > 0 {
 		clusterId := f.container.GetOwnerReferences()[0].UID
@@ -386,6 +387,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name: "weka-container-shared-dir", // shared between node-agent and pods
+			// TODO: Should not use gethostsidepersistent
+			MountPath: inPodHostBinds + "/shared",
+		})
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-cluster-persistence-dir",
 			MountPath: inPodHostBinds + "/shared-configs",
 			SubPath:   "shared-configs",
@@ -396,6 +403,16 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
 					Path: hostsideContainerPersistence,
+					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+				},
+			},
+		})
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "weka-container-shared-dir",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideSharedData,
 					Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
 				},
 			},
@@ -1171,5 +1188,5 @@ func commaSeparated(ints []int) string {
 func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string {
 	containerUid := pod.ObjectMeta.OwnerReferences[0].UID
 	podUid := pod.UID
-	return path.Join("/opt/k8s-weka/containers", string(containerUid), "host-binds/ephemeral", bootId, string(podUid), "instructions")
+	return path.Join("/opt/k8s-weka/containers", string(containerUid), "boot-level/", bootId, "instructions", string(podUid))
 }

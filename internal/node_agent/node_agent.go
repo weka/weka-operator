@@ -40,7 +40,6 @@ type NodeAgent struct {
 
 type ContainerInfo struct {
 	labels                 map[string]string
-	persistencePath        string
 	wekaContainerName      string
 	cpuInfo                LocalCpuUtilizationResponse
 	cpuInfoLastPoll        time.Time
@@ -71,7 +70,6 @@ type RegisterContainerPayload struct {
 	ContainerName     string            `json:"container_name"`
 	ContainerId       string            `json:"container_id"`
 	WekaContainerName string            `json:"weka_container_name"`
-	PersistencePath   string            `json:"persistence_path"`
 	Labels            map[string]string `json:"labels"`
 	Mode              string            `json:"mode"`
 }
@@ -324,7 +322,6 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	a.containersData.data[payload.ContainerId] = &ContainerInfo{
 		labels:            payload.Labels,
-		persistencePath:   payload.PersistencePath,
 		wekaContainerName: payload.WekaContainerName,
 		containerName:     payload.ContainerName,
 		containerId:       payload.ContainerId,
@@ -352,7 +349,7 @@ func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger 
 func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
 	// TODO: Wrap as a service struct initialized separately from use
 
-	socketPath := fmt.Sprintf("%s/data/%s/container/container.sock", container.persistencePath, container.wekaContainerName)
+	socketPath := fmt.Sprintf("/host-binds/shared/containers/%s/local-sockets/%s/container.sock", container.containerId, container.wekaContainerName)
 	// create symlink for a socket within tmp
 	targetSocketPath := fmt.Sprintf("/tmp/%s.sock", container.containerId)
 	if !util.FileExists(targetSocketPath) {
@@ -448,7 +445,7 @@ type GetContainerInfoRequest struct {
 }
 
 func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "ContainerHandler")
+	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "getContainerInfo")
 	defer end()
 
 	if a.validateAuth(w, r, logger) {
@@ -479,6 +476,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	// fetch container info
 	err := a.fetchAndPopulateMetrics(ctx, container)
 	if err != nil {
+		logger.SetError(err, "Failed to fetch container info")
 		http.Error(w, "failed to fetch container info", http.StatusInternalServerError)
 		return
 	}

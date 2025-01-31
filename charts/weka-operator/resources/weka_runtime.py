@@ -1145,7 +1145,7 @@ def get_boot_id():
     return boot_id
 
 def get_instructions_dir():
-    return f"/host-binds/ephemeral/{get_boot_id()}/{POD_ID}/instructions"
+    return f"/host-binds/boot-level/{get_boot_id()}/instructions/{POD_ID}/"
 
 @dataclass
 class ShutdownInstructions:
@@ -1194,13 +1194,16 @@ async def configure_persistency():
         mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
 
         if [ -d /host-binds/boot-level ]; then
-            BOOT_DIR=/host-binds/boot-level/$(cat /proc/sys/kernel/random/boot_id)
+            BOOT_DIR=/host-binds/boot-level/$(cat /proc/sys/kernel/random/boot_id)/cleanup
             mkdir -p $BOOT_DIR
             mkdir -p /opt/weka/external-mounts/cleanup
-            mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
-            
+            mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup   
+        fi
+        
+        if [ -d /host-binds/shared ]; then
+            mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
-            mount -o bind $BOOT_DIR /opt/weka/external-mounts/local-sockets
+            mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
         fi
         
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then

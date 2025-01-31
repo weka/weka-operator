@@ -68,7 +68,7 @@ spec:
         {{else}}
         - name: weka-persistence
           hostPath:
-            path: {{ .Values.nodeAgent.persistencePaths }}
+            path: {{ .Values.nodeAgent.persistencePaths }}/shared
         {{end}}
 
       containers:
@@ -103,7 +103,7 @@ spec:
           volumeMounts:
             - mountPath: /tmp
               name: tmpdir
-            - mountPath: /opt/k8s-weka
+            - mountPath: /host-binds/shared
               name: weka-persistence
               mountPropagation: Bidirectional
             - mountPath: /var/run/secrets/kubernetes.io/token

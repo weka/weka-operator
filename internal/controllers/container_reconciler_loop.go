@@ -3076,17 +3076,11 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RegisterContainerOnMetrics")
 	defer end()
 
-	nodeInfo, err := r.GetNodeInfo(ctx)
-	if err != nil {
-		return err
-	}
-
 	// find a pod service node metrics
 	payload := node_agent.RegisterContainerPayload{
 		ContainerName:     r.container.Name,
 		ContainerId:       string(r.container.GetUID()),
 		WekaContainerName: r.container.Spec.WekaContainerName,
-		PersistencePath:   nodeInfo.GetContainerPersistencePath(r.container.GetUID()),
 		Labels:            r.container.GetLabels(),
 		Mode:              r.container.Spec.Mode,
 	}
