@@ -252,7 +252,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.dropStopAttemptRecord,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.PodNotSet),
-					container.IsDriveContainer,
+					func() bool {
+						return container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute
+					},
 					func() bool {
 						return loop.pod.DeletionTimestamp == nil
 					},
@@ -829,7 +831,8 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			return err
 		}
 
-		if container.IsDriveContainer() {
+		// TODO: changing api to get IsComputeContainer is too much, we should have out-of-api helper functions
+		if container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute {
 			if since, ok := r.container.Status.Timestamps[TimestampStopAttempt]; !ok {
 				r.container.Status.Timestamps[TimestampStopAttempt] = metav1.Time{Time: time.Now()}
 				if err := r.Status().Update(ctx, r.container); err != nil {
