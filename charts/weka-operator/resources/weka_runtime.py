@@ -32,7 +32,7 @@ OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
-POD_ID = os.environ["POD_ID"]
+POD_ID = os.environ.get("POD_ID", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
@@ -1154,6 +1154,8 @@ class ShutdownInstructions:
 
 
 def get_shutdown_instructions() -> ShutdownInstructions:
+    if not POD_ID: ## back compat mode for when pod was scheduled without downward api
+        return ShutdownInstructions()
     instructions_dir = get_instructions_dir()
     instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
 
