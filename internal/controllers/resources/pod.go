@@ -1188,5 +1188,5 @@ func commaSeparated(ints []int) string {
 func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string {
 	containerUid := pod.ObjectMeta.OwnerReferences[0].UID
 	podUid := pod.UID
-	return path.Join("/opt/k8s-weka/containers", string(containerUid), "boot-level/", bootId, "instructions", string(podUid))
+	return path.Join("/host-binds/shared/containers/", string(containerUid), "instructions", string(podUid), bootId)
 }

@@ -1145,7 +1145,7 @@ def get_boot_id():
     return boot_id
 
 def get_instructions_dir():
-    return f"/host-binds/boot-level/{get_boot_id()}/instructions/{POD_ID}/"
+    return f"/host-binds/shared/instructions/{POD_ID}/{get_boot_id()}"
 
 @dataclass
 class ShutdownInstructions:
