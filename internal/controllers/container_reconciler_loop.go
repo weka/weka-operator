@@ -57,8 +57,9 @@ const (
 	Error                   = "Error"
 	DrivesAdding            = "DrivesAdding"
 	// for drivers-build and adhoc-op-with-container (sign-dives) container
-	Completed = "Completed"
-	Building  = "Building"
+	Completed            = "Completed"
+	Building             = "Building"
+	TimestampStopAttempt = "StoppingAttempt"
 )
 
 func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface) *containerReconcilerLoop {
@@ -246,6 +247,18 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
+			{
+				// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
+				Run: loop.dropStopAttemptRecord,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.PodNotSet),
+					container.IsDriveContainer,
+					func() bool {
+						return loop.pod.DeletionTimestamp == nil
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				Run: loop.handlePodTermination,
 				Predicates: lifecycle.Predicates{
@@ -816,6 +829,25 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			return err
 		}
 
+		if container.IsDriveContainer() {
+			if since, ok := r.container.Status.Timestamps[TimestampStopAttempt]; !ok {
+				r.container.Status.Timestamps[TimestampStopAttempt] = metav1.Time{Time: time.Now()}
+				if err := r.Status().Update(ctx, r.container); err != nil {
+					return err
+				}
+			} else {
+				if time.Since(since.Time) > 5*time.Minute {
+					// lets start deactivate flow, we are doing it by deleting weka container
+					err := r.Delete(ctx, r.container)
+					if err != nil {
+						return err
+					} else {
+						return lifecycle.NewWaitError(errors.New("deleting weka container"))
+					}
+				}
+			}
+		}
+
 		logger.Debug("Stopping weka local", "force", forceStop)
 
 		if forceStop {
@@ -967,6 +999,7 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: true, AllowForceStop: false})
 	if err != nil {
 		logger.Error(err, "Error writing stop instructions via node-agent")
+		// NOTE: No error on purpose, as it's only one of method we attempt to start stopping
 	}
 
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
@@ -3218,4 +3251,16 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 func (r *containerReconcilerLoop) HasNodeAffinity() bool {
 	return r.container.GetNodeAffinity() != ""
+}
+
+func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) error {
+	// clear r.container.Status.Timestamps[TimestampStopAttempt
+	if r.container.Status.Timestamps == nil {
+		return nil
+	}
+	if _, ok := r.container.Status.Timestamps[TimestampStopAttempt]; !ok {
+		return nil
+	}
+	delete(r.container.Status.Timestamps, TimestampStopAttempt)
+	return r.Status().Update(ctx, r.container)
 }
