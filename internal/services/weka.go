@@ -51,9 +51,25 @@ type WekaStatusContainers struct {
 	Drives   WekaStatusObjectCounter `json:"drives"`
 }
 
+type ProtectionState struct {
+	MiB         int64   `json:"MiB"`
+	NumFailures int     `json:"numFailures"`
+	Percent     float64 `json:"percent"`
+}
+
 type WekaStatusRebuild struct {
-	MovingData      bool `json:"movingData"`
-	ProgressPercent int  `json:"progressPercent"`
+	MovingData      bool    `json:"movingData"`
+	ProgressPercent float64 `json:"progressPercent"`
+	ProtectionState []ProtectionState
+}
+
+func (status *WekaStatusRebuild) IsFullyProtected() bool {
+	for _, protectionState := range status.ProtectionState {
+		if protectionState.Percent > 0 && protectionState.NumFailures > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 type WekaStatusResponse struct {

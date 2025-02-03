@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1065,8 +1066,16 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if status.Status != "OK" {
-			return lifecycle.NewWaitError(errors.New("Weka status is not OK, waiting to stabilize. status:" + status.Status))
+
+		if !status.Rebuild.IsFullyProtected() {
+			return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
+		}
+
+		if !slices.Contains([]string{
+			"OK",
+			"REDISTRIBUTING",
+		}, status.Status) {
+			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
 		}
 
 		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
