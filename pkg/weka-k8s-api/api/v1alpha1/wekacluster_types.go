@@ -298,6 +298,7 @@ type WekaClusterSpecOverrides struct {
 	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
 	ForceAio              bool   `json:"forceAio,omitempty"`
 	PostFormClusterScript string `json:"postFormClusterScript,omitempty"`
+	UpgradeForceReplace   bool   `json:"upgradeForceReplace,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

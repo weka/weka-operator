@@ -82,6 +82,7 @@ type WekaContainerSpecOverrides struct {
 	SkipDrivesForceResign bool `json:"skipDrivesForceResign,omitempty"`
 	// skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions)
 	SkipCleanupPersistentDir bool `json:"skipCleanupPersistentDir,omitempty"`
+	UpgradeForceReplace      bool `json:"upgradeForceReplace,omitempty"`
 }
 
 type Instructions struct {
@@ -473,4 +474,12 @@ type WekaContainerDetails struct {
 	Tolerations     []v1.Toleration   `json:"tolerations,omitempty"`
 	Labels          map[string]string `json:"labels,omitempty"`
 	Affinity        *v1.Affinity      `json:"affinity,omitempty"`
+}
+
+func (c *WekaContainerSpec) GetOverrides() *WekaContainerSpecOverrides {
+	if c.Overrides == nil {
+		return &WekaContainerSpecOverrides{}
+	} else {
+		return c.Overrides
+	}
 }
