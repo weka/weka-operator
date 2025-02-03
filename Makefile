@@ -82,7 +82,7 @@ help: ## Display this help.
 
 ##@ Development
 
-CRD = pkg/weka-k8s-api/crds/v1alpha1/weka.weka.io_wekaclusters.yaml
+CRD = charts/weka-operator/crds/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/driveclaims_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/container_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekacluster_types.go \
@@ -94,9 +94,8 @@ $(CRD): $(CRD_TYPES)
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	mkdir -p pkg/weka-k8s-api/crds/v1alpha1
-	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=pkg/weka-k8s-api/crds/v1alpha1
 	rm -f charts/weka-operator/crds/*
-	cp pkg/weka-k8s-api/crds/v1alpha1/* charts/weka-operator/crds/
+	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
 $(RBAC): internal/controllers/client_controller.go
