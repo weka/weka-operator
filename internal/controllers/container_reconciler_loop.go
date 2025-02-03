@@ -2156,6 +2156,15 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return nil
 			}
 
+			if container.Spec.GetOverrides().UpgradeForceReplace {
+				err := r.writeAllowForceStopInstruction(ctx, pod)
+				if err != nil {
+					logger.Error(err, "Error writing allow force stop instruction")
+					return err
+				}
+				return r.Delete(ctx, pod)
+			}
+
 			err := r.writeAllowStopInstruction(ctx, pod)
 			if err != nil {
 				logger.Error(err, "Error writing allow stop instruction")

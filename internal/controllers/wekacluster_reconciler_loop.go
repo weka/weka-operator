@@ -445,6 +445,13 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
+			if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
+				currentOverrides := container.Spec.GetOverrides()
+				currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
+				container.Spec.Overrides = currentOverrides
+				changed = true
+			}
+
 			// desired labels = existing labels + cluster labels + required labels
 			// priority-wise, required labels have the highest priority
 			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
@@ -1039,6 +1046,10 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	cluster := r.cluster
 	clusterService := r.clusterService
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
@@ -1076,6 +1087,17 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			"REDISTRIBUTING",
 		}, status.Status) {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
+		}
+
+		activeDrivesThreshold := float64(template.DriveContainers) * 0.9
+		activeComputesThreshold := float64(template.ComputeContainers) * 0.9
+
+		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
+			return lifecycle.NewWaitError(errors.Errorf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveHugepages))
+		}
+
+		if float64(status.Containers.Computes.Active) < activeComputesThreshold {
+			return lifecycle.NewWaitError(errors.Errorf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, template.ComputeContainers))
 		}
 
 		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
@@ -1382,7 +1404,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	// Idea to bubble up from containers, TODO: Actually use metrics and not accumulated status
 	for _, container := range containers {
 		// count Active containers
-		if container.Status.Status == ContainerStatusRunning {
+		if container.Status.Status == ContainerStatusRunning && container.Status.ClusterContainerID != nil {
 			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
 		}
 		// count Created containers
@@ -1790,23 +1812,25 @@ func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.C
 }
 
 type UpdatableClusterSpec struct {
-	AdditionalMemory   wekav1alpha1.AdditionalMemory
-	Tolerations        []string
-	RawTolerations     []v1.Toleration
-	DriversDistService string
-	ImagePullSecret    string
-	Labels             *util2.HashableMap
+	AdditionalMemory    wekav1alpha1.AdditionalMemory
+	Tolerations         []string
+	RawTolerations      []v1.Toleration
+	DriversDistService  string
+	ImagePullSecret     string
+	Labels              *util2.HashableMap
+	UpgradeForceReplace bool
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
 	labels := util2.NewHashableMap(meta.Labels)
 
 	return &UpdatableClusterSpec{
-		AdditionalMemory:   spec.AdditionalMemory,
-		Tolerations:        spec.Tolerations,
-		RawTolerations:     spec.RawTolerations,
-		DriversDistService: spec.DriversDistService,
-		ImagePullSecret:    spec.ImagePullSecret,
-		Labels:             labels,
+		AdditionalMemory:    spec.AdditionalMemory,
+		Tolerations:         spec.Tolerations,
+		RawTolerations:      spec.RawTolerations,
+		DriversDistService:  spec.DriversDistService,
+		ImagePullSecret:     spec.ImagePullSecret,
+		Labels:              labels,
+		UpgradeForceReplace: spec.GetOverrides().UpgradeForceReplace,
 	}
 }

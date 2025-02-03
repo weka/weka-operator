@@ -76,8 +76,20 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RollingUpgrade")
 
+	maxSkipPercent := 10
+	skipped := 0
+
 	defer end()
 	for _, container := range u.Containers {
+		if container.IsMarkedForDeletion() {
+			skipped += 1
+			if skipped > len(u.Containers)/maxSkipPercent {
+				logger.Info("too many containers marked for deletion, aborting", "container", container.Name)
+				return lifecycle.NewWaitError(errors.New("too many containers marked for deletion"))
+			}
+			logger.Info("container marked for deletion, skipping", "container", container.Name)
+			continue
+		}
 		if container.Status.LastAppliedImage != container.Spec.Image {
 			logger.Info("container upgrade did not finish yet", "container", container.Name)
 			return lifecycle.NewWaitError(errors.New("container upgrade not finished yet"))
