@@ -274,7 +274,7 @@ STEPS:
 			}
 			//spanLogger.Error(err, "Error running step")
 			stepLogger.SetError(err, "Error running step")
-			stepLogger.SetValues("err", err.Error())
+			stepLogger.SetValues("stop_err", err.Error())
 			runLogger.SetError(err, "Error running step "+step.Name)
 			runLogger.SetValues("stop_err", err.Error())
 			stepEnd()
