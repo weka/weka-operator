@@ -1076,6 +1076,15 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	if r.container.Status.Conditions == nil {
 		r.container.Status.Conditions = []metav1.Condition{}
 	}
+
+	// save printed management IPs if not set (for the back-compatibility with "single" managementIP)
+	if r.container.Status.ManagementIPsStr == "" && len(r.container.Status.GetManagementIps()) > 0 {
+		r.container.Status.ManagementIPsStr = strings.Join(r.container.Status.GetManagementIps(), ",")
+
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			return errors.Wrap(err, "Failed to update status")
+		}
+	}
 	return nil
 }
 
@@ -1162,6 +1171,7 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 	logger.WithValues("management_ips", ipAddresses).Info("Got management IPs")
 	if !util.SliceEquals(container.Status.ManagementIPs, ipAddresses) {
 		container.Status.ManagementIPs = ipAddresses
+		container.Status.ManagementIPsStr = strings.Join(ipAddresses, ",")
 		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
 			return err
