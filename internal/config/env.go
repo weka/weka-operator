@@ -126,6 +126,10 @@ var Consts struct {
 	NewContainersLimit int
 	// Interval for periodic drives check on weka container
 	PeriodicDrivesCheckInterval time.Duration
+	// Min compute containers to be UP before forming a weka cluster
+	MinComputeContainers int
+	// Min drive containers to be UP before forming a weka cluster
+	MinDriveContainers int
 }
 
 func init() {
@@ -134,6 +138,8 @@ func init() {
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 10 * time.Minute
+	Consts.MinComputeContainers = 5
+	Consts.MinDriveContainers = 5
 }
 
 func ConfigureEnv(ctx context.Context) {

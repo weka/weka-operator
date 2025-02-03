@@ -187,9 +187,8 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				SkipOwnConditionCheck: true,
 			},
 			{
-				//TODO: We should be operating with not all containers up, so this one ultimately is incorrect condition
 				Condition: condition.CondPodsReady,
-				Run:       loop.AllContainersReady,
+				Run:       loop.MinContainersReady,
 			},
 			{
 				Condition: condition.CondClusterCreated,
