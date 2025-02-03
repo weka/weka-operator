@@ -782,6 +782,11 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	pod := r.pod
 	container := r.container
 
+	skipExec := false
+	if r.node != nil {
+		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+	}
+
 	if container.HasFrontend() {
 		// node drain or cordon detected
 		if node.Spec.Unschedulable {
@@ -817,7 +822,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 	}
 
-	err := r.writeAllowStopInstruction(ctx, pod)
+	err := r.writeAllowStopInstruction(ctx, pod, skipExec)
 	if err != nil {
 		logger.Error(err, "Error writing allow stop instruction")
 		return err
@@ -968,7 +973,7 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	return nil
 }
 
-func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod) error {
+func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -977,6 +982,9 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: false, AllowForceStop: true})
 	if err != nil {
 		logger.Error(err, "Error writing force-stop instructions via node-agent")
+	}
+	if skipExec {
+		return err
 	}
 
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
@@ -993,7 +1001,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 	return nil
 }
 
-func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod) error {
+func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -1004,7 +1012,9 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 		logger.Error(err, "Error writing stop instructions via node-agent")
 		// NOTE: No error on purpose, as it's only one of method we attempt to start stopping
 	}
-
+	if skipExec {
+		return err
+	}
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
@@ -1494,6 +1504,11 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 
 	container := r.container
 
+	skipExec := false
+	if r.node != nil {
+		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+	}
+
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
 	defer end()
 
@@ -1510,7 +1525,7 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	// setting for forceful termination, as we are in container delete flow
 	logger.Info("Deleting pod", "pod", pod.Name)
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
-	err = r.writeAllowForceStopInstruction(ctx, pod)
+	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
 	if err != nil {
 		// do not return error, as we are deleting pod anyway
 		logger.Error(err, "Error writing allow force stop instruction")
@@ -2140,7 +2155,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				err = r.runPreUpgradeSteps(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
-					err := r.writeAllowForceStopInstruction(ctx, pod)
+					err := r.writeAllowForceStopInstruction(ctx, pod, false)
 					if err != nil {
 						logger.Error(err, "Error writing allow force stop instruction")
 						return err
@@ -2157,7 +2172,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			}
 
 			if container.Spec.GetOverrides().UpgradeForceReplace {
-				err := r.writeAllowForceStopInstruction(ctx, pod)
+				err := r.writeAllowForceStopInstruction(ctx, pod, false)
 				if err != nil {
 					logger.Error(err, "Error writing allow force stop instruction")
 					return err
@@ -2165,7 +2180,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return r.Delete(ctx, pod)
 			}
 
-			err := r.writeAllowStopInstruction(ctx, pod)
+			err := r.writeAllowStopInstruction(ctx, pod, false)
 			if err != nil {
 				logger.Error(err, "Error writing allow stop instruction")
 				return err
