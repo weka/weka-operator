@@ -625,8 +625,8 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	executeInContainer := r.container
-
-	if !r.ContainerNodeIsAlive() {
+	if !r.ContainerNodeIsAlive() || (r.pod != nil && (r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil)) {
+		logger.Warn("Container node is not ready, cannot perform deactivation operation, choosing active container")
 		// TODO: temporary check caused by weka s3 container remove behavior
 		if r.container.IsS3Container() {
 			// before deacitvating S3 container, we need to make sure, that local s3 container is removed
