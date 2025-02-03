@@ -21,11 +21,29 @@ jobs:
         uses: withgraphite/graphite-ci-action@main
         with:
           graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
-  
-  release:
-    runs-on: ubuntu-latest
+
+  validate-crds:
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21.3"
+
+      - name: Validate CRDs are up to date
+        run: |
+          make generate manifests
+          if ! git diff --exit-code; then
+            echo "Error: CRDs are not up to date. Please ensure CRDs are regenerated and committed."
+            exit 1
+          fi
+  
+  release:
+    needs: validate-crds
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
         id: app-token

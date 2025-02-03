@@ -1,0 +1,49 @@
+name: PR to Main Branch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  optimize_ci:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check_skip.outputs.skip }}
+    steps:
+      - name: Optimize CI
+        id: check_skip
+        uses: withgraphite/graphite-ci-action@main
+        with:
+          graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
+
+  update-crds:
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21.3"
+
+      - name: Generate CRDs
+        run: |
+          make generate manifests
+          
+      - name: Check for changes
+        id: git-check
+        run: |
+          git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
+
+      - name: Commit changes if any
+        if: steps.git-check.outputs.changes == 'true'
+        run: |
+          git config --local user.email "ci@weka.io"
+          git config --local user.name "Weka CI"
+          git add .
+          git commit -m "chore: CRDs auto-generate"
+          git push
