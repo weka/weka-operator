@@ -2095,6 +2095,14 @@ async def wait_for_shutdown_instruction():
         await asyncio.sleep(5)
 
 
+async def watch_for_force_shutdown():
+    while True:
+        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions().allow_force_stop:
+            logging.info("Received 'allow-force-stop' instruction")
+            await run_command("weka local stop --force", capture_stdout=False)
+            return
+        await asyncio.sleep(5)
+
 async def shutdown():
     global exiting
     while not (exiting or is_wrong_generation()):
@@ -2116,7 +2124,14 @@ async def shutdown():
         if MODE not in ["s3", "drive", "compute", "nfs"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
+
+        force_shutdown_task = None
+        if "--force" not in stop_flag:
+            force_shutdown_task = asyncio.create_task(watch_for_force_shutdown())
+
         await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
+        if force_shutdown_task is not None:
+            force_shutdown_task.cancel()
         logging.info("finished stopping weka container")
         sys.exit(1)
 
