@@ -24,6 +24,7 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         control-plane: controller-manager
+        app: weka-operator
     spec:
       securityContext:
         runAsNonRoot: false
