@@ -18,7 +18,7 @@ type NodeName types.NodeName
 // +kubebuilder:subresource:spec
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
-// +kubebuilder:printcolumn:name="Management IPs",type="string",JSONPath=".status.managementIPs",description="Management IPs",priority=0
+// +kubebuilder:printcolumn:name="Management IPs",type="string",JSONPath=".status.printer.managementIPs",description="Management IPs",priority=0
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
@@ -197,6 +197,20 @@ type ContainerPrinterColumns struct {
 	Processes    StringMetric `json:"processes,omitempty"`
 	Drives       StringMetric `json:"drives,omitempty"`
 	ActiveMounts StringMetric `json:"activeMounts,omitempty"`
+	// pretty-printed management IPs
+	ManagementIPs string `json:"managementIPs,omitempty"`
+}
+
+func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
+	if len(ips) == 0 {
+		return
+	}
+	total := len(ips)
+	if total > 1 {
+		c.ManagementIPs = fmt.Sprintf("%s (+%d)", ips[0], total-1)
+	} else {
+		c.ManagementIPs = ips[0]
+	}
 }
 
 type WekaContainerStatus struct {
@@ -223,6 +237,13 @@ func (s *WekaContainerStatus) GetManagementIps() []string {
 		return []string{s.ManagementIP}
 	}
 	return nil
+}
+
+func (s *WekaContainerStatus) GetPrinterColumns() *ContainerPrinterColumns {
+	if s.PrinterColumns == nil {
+		return &ContainerPrinterColumns{}
+	}
+	return s.PrinterColumns
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
