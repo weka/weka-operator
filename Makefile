@@ -249,7 +249,7 @@ uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube
 	kubectl delete --ignore-not-found=$(ignore-not-found) -f pkg/weka-k8s-api/crds/v1alpha1
 
 NAMESPACE="weka-operator-system"
-VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
+VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=v$(VERSION)"
 
 .PHONY: deploy
 deploy: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
