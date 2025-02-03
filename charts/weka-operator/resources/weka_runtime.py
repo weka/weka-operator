@@ -852,9 +852,9 @@ async def autodiscover_network_devices(subnet) -> List[str]:
     devices = [d for d in devices if d]
 
     if not devices:
-        raise Exception(f"No network devices found for subnet {subnet}")
-    
-    logging.info(f"Discovered network devices for subnet {subnet}: {devices}")
+        logging.error(f"No network devices found for subnet {subnet}")
+    else:
+        logging.info(f"Discovered network devices for subnet {subnet}: {devices}")
     return devices
 
 
@@ -955,7 +955,8 @@ async def create_container():
         subnets = SUBNETS.split(",")
         devices = []
         for subnet in subnets:
-            devices = await autodiscover_network_devices(subnet)
+            d = await autodiscover_network_devices(subnet)
+            devices.extend(d)
 
         NETWORK_DEVICE = ",".join(devices)
 
@@ -1859,6 +1860,9 @@ async def write_management_ips():
         for device in devices:
             ip = await get_single_device_ip(device)
             ipAddresses.append(ip)
+
+    if not ipAddresses:
+        raise Exception("Failed to discover management IPs")
 
     with open("/opt/weka/k8s-runtime/management_ips.tmp", "w") as f:
         f.write("\n".join(ipAddresses))
