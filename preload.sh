@@ -4,4 +4,4 @@
     --overrides='{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/master":"true"}}}}}' \
     --command -- /bin/true
 
-  kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/preload-"$(echo -n $VERSION | md5)"
+  kubectl wait --timeout=600s --for=jsonpath='{.status.phase}'=Succeeded pod/preload-"$(echo -n $VERSION | md5)"
