@@ -14,7 +14,6 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"k8s.io/client-go/rest"
 
-	"github.com/kr/pretty"
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -108,7 +107,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 	defer end()
 
 	if len(containers) == 0 {
-		err := pretty.Errorf("containers list is empty")
+		err := errors.New("cannot form cluster with no containers")
 		logger.Error(err, "containers list is empty")
 		return err
 	}

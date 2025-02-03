@@ -236,14 +236,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 			logger.Info("Container already allocated", "name", container.ObjectMeta.Name)
 			continue
 		}
-		revertFuncs := []func(){}
-		revert := func(err error, container *weka.WekaContainer) {
-			for _, f := range revertFuncs {
-				f()
-			}
-			logger.Error(err, "Reverted allocation", "container", container.Name)
-			failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
-		}
+
 		//var requiredNics int
 		role := container.Spec.Mode
 		logger := logger.WithValues("role", role, "name", container.ObjectMeta.Name)
@@ -263,6 +256,17 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 
 		if nodeAlloc.AllocatedRanges[owner] == nil {
 			nodeAlloc.AllocatedRanges[owner] = make(map[string]Range)
+		}
+
+		// if allocations for container failed, we need to revert all changes
+		revertFuncs := []func(){}
+		revert := func(err error, container *weka.WekaContainer) {
+			for _, f := range revertFuncs {
+				f()
+			}
+			delete(nodeAlloc.AllocatedRanges, owner)
+			logger.Error(err, "Reverted allocation", "container", container.Name)
+			failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
 		}
 
 		if container.Spec.NumDrives > 0 {
