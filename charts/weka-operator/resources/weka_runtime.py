@@ -1855,7 +1855,7 @@ async def write_management_ips():
         ipAddresses.append(ip)
     # if single nic is used
     elif ',' not in NETWORK_DEVICE:
-        ip = get_single_device_ip(NETWORK_DEVICE)
+        ip = await get_single_device_ip(NETWORK_DEVICE)
         ipAddresses.append(ip)
     # if multiple nics are used
     else:
