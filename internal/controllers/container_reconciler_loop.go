@@ -412,9 +412,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.checkUnhealty,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return len(loop.container.Status.GetManagementIps()) == 0
+						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != Unhealthy
 					},
-					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -425,7 +424,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return len(loop.container.Status.GetManagementIps()) == 0
 					},
-					container.IsBackend,
+					func() bool {
+						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setErrorStatus,
@@ -1089,8 +1090,12 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	}
 
 	// save printed management IPs if not set (for the back-compatibility with "single" managementIP)
-	if r.container.Status.ManagementIPsStr == "" && len(r.container.Status.GetManagementIps()) > 0 {
-		r.container.Status.ManagementIPsStr = strings.Join(r.container.Status.GetManagementIps(), ",")
+	if r.container.Status.GetPrinterColumns().ManagementIPs == "" && len(r.container.Status.GetManagementIps()) > 0 {
+		if r.container.Status.PrinterColumns == nil {
+			r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
+		}
+
+		r.container.Status.PrinterColumns.SetManagementIps(r.container.Status.GetManagementIps())
 
 		if err := r.Status().Update(ctx, r.container); err != nil {
 			return errors.Wrap(err, "Failed to update status")
@@ -1201,7 +1206,11 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 	logger.WithValues("management_ips", ipAddresses).Info("Got management IPs")
 	if !util.SliceEquals(container.Status.ManagementIPs, ipAddresses) {
 		container.Status.ManagementIPs = ipAddresses
-		container.Status.ManagementIPsStr = strings.Join(ipAddresses, ",")
+
+		if r.container.Status.PrinterColumns == nil {
+			r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
+		}
+		r.container.Status.PrinterColumns.SetManagementIps(ipAddresses)
 		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
 			return err
@@ -1780,7 +1789,7 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	}
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
-		return false, fmt.Errorf("error checking drivers loaded: %s", stderr.String())
+		return false, fmt.Errorf("error checking drivers loaded: %v, %s", err, stderr.String())
 	}
 
 	missingDriverName := strings.TrimSpace(stdout.String())
@@ -2564,6 +2573,16 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
 	if err != nil {
+		if strings.Contains(err.Error(), "container not found") {
+			if container.Status.Status != Unhealthy {
+				container.Status.Status = Unhealthy
+				err = r.Status().Update(ctx, container)
+				if err != nil {
+					return err
+				}
+			}
+			return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
+		}
 		logger.Error(err, "Error getting weka local ps", "stderr", stderr.String())
 
 		// TODO: Validate agent-specific errors, but should not be very important

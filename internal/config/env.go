@@ -96,7 +96,7 @@ var Config struct {
 	LocalDataPvc               string
 	SignDrivesImage            string
 	SkipUnhealthyToleration    bool
-	Upgrade struct {
+	Upgrade                    struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int

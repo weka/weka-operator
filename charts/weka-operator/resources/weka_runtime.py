@@ -967,6 +967,9 @@ async def create_container():
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
     else:
+        if not NETWORK_DEVICE:
+            raise Exception("NETWORK_DEVICE not set")
+        
         net_str = f"--net {NETWORK_DEVICE}"
 
     failure_domain = FAILURE_DOMAIN
@@ -1835,7 +1838,7 @@ async def get_single_device_ip(device_name: str = "default") -> str:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs']:
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
         return
     
     ipAddresses = []

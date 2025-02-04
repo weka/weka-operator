@@ -548,9 +548,11 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 
 	findSameNetworkConfig := len(cluster.Spec.NetworkSelector.DeviceSubnets) > 0
 	if findSameNetworkConfig {
-		logger.Debug("Looking for %d compute and %d drive containers with device subnets %v", minComputeContainers, minDriveContainers, cluster.Spec.NetworkSelector.DeviceSubnets)
+		msg := fmt.Sprintf("Looking for %d compute and %d drive containers with device subnets %v", minComputeContainers, minDriveContainers, cluster.Spec.NetworkSelector.DeviceSubnets)
+		logger.Debug(msg)
 	} else {
-		logger.Debug("Looking for %d compute and %d drive containers", minComputeContainers, minDriveContainers)
+		msg := fmt.Sprintf("Looking for %d compute and %d drive containers", minComputeContainers, minDriveContainers)
+		logger.Debug(msg)
 	}
 
 	// containers that UP and ready for cluster creation
