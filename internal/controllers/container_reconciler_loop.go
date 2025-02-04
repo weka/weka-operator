@@ -331,7 +331,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
 				Predicates: lifecycle.Predicates{
-					loop.container.MustHaveNodeAffinity,
+					loop.containerMustHaveNodeAffinity,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2112,6 +2112,11 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 	}
 
 	return true, nil
+}
+
+func (c *containerReconcilerLoop) containerMustHaveNodeAffinity() bool {
+	container := c.container
+	return container.IsAllocatable() && container.IsBackend() || container.IsEnvoy() || container.IsClientContainer()
 }
 
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
