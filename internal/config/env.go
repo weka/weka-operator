@@ -127,9 +127,13 @@ var Consts struct {
 	// Interval for periodic drives check on weka container
 	PeriodicDrivesCheckInterval time.Duration
 	// Min compute containers to be UP before forming a weka cluster
-	MinComputeContainers int
+	FormClusterMinComputeContainers int
 	// Min drive containers to be UP before forming a weka cluster
-	MinDriveContainers int
+	FormClusterMinDriveContainers int
+	// Max compute containers to be UP before forming a weka cluster
+	FormClusterMaxComputeContainers int
+	// Max drive containers to be UP before forming a weka cluster
+	FormClusterMaxDriveContainers int
 }
 
 func init() {
@@ -138,8 +142,10 @@ func init() {
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 10 * time.Minute
-	Consts.MinComputeContainers = 5
-	Consts.MinDriveContainers = 5
+	Consts.FormClusterMinComputeContainers = 5
+	Consts.FormClusterMinDriveContainers = 5
+	Consts.FormClusterMaxComputeContainers = 10
+	Consts.FormClusterMaxDriveContainers = 10
 }
 
 func ConfigureEnv(ctx context.Context) {

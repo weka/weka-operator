@@ -54,6 +54,7 @@ const (
 	WaitForDrivers          = "WaitForDrivers"
 	ContainerStatusRunning  = "Running"
 	ContainerStatusDegraded = "Degraded"
+	Unhealthy               = "Unhealthy"
 	Error                   = "Error"
 	DrivesAdding            = "DrivesAdding"
 	// for drivers-build and adhoc-op-with-container (sign-dives) container
@@ -404,6 +405,16 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:       loop.processResults,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.checkUnhealty,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return len(loop.container.Status.GetManagementIps()) == 0
+					},
+					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1154,6 +1165,25 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 		return err
 	}
 	r.pod = pod
+	return nil
+}
+
+func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
+	// get pod's RESTARTS
+	restarts := int32(0)
+	for _, containerStatus := range r.pod.Status.ContainerStatuses {
+		if containerStatus.Name == "weka-container" {
+			restarts = containerStatus.RestartCount
+			break
+		}
+	}
+
+	if restarts > 0 && r.container.Status.Status != Unhealthy {
+		r.container.Status.Status = Unhealthy
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -2585,7 +2615,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	reason := fmt.Sprintf("%sError", stepName)
 	r.RecordEvent(v1.EventTypeWarning, reason, err.Error())
 
-	if r.container.Status.Status == Error {
+	if r.container.Status.Status == Error || r.container.Status.Status == Unhealthy {
 		return nil
 	}
 	r.container.Status.Status = Error

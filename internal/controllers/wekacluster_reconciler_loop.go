@@ -42,6 +42,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+type ReadyForClusterizationContainers struct {
+	Drive   []*wekav1alpha1.WekaContainer
+	Compute []*wekav1alpha1.WekaContainer
+	// containers that are not ready for clusterization (e.g. unhealthy)
+	Ignored []*wekav1alpha1.WekaContainer
+}
+
+func (c *ReadyForClusterizationContainers) GetAll() []*wekav1alpha1.WekaContainer {
+	var all []*wekav1alpha1.WekaContainer
+	all = append(all, c.Drive...)
+	all = append(all, c.Compute...)
+	return all
+}
+
 func NewWekaClusterReconcileLoop(r *WekaClusterReconciler) *wekaClusterReconcilerLoop {
 	mgr := r.Manager
 	config := mgr.GetConfig()
@@ -69,6 +83,8 @@ type wekaClusterReconcilerLoop struct {
 	RestClient      rest.Interface
 	GlobalThrottler *util2.ThrottlingSyncMap
 	Throttler       util2.Throttler
+	// internal field used to store data in-memory between steps
+	readyContainers *ReadyForClusterizationContainers
 }
 
 func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.Request) error {
@@ -481,22 +497,54 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) MinContainersReady(ctx context.Context) error {
+func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx context.Context) *ReadyForClusterizationContainers {
+	if r.readyContainers != nil {
+		return r.readyContainers
+	}
+
+	cluster := r.cluster
+	containers := r.containers
+
+	findSameNetworkConfig := len(cluster.Spec.NetworkSelector.DeviceSubnets) > 0
+	readyContainers := &ReadyForClusterizationContainers{}
+
+	for _, container := range containers {
+		if container.GetDeletionTimestamp() != nil {
+			continue
+		}
+		if container.Status.Status == Unhealthy {
+			readyContainers.Ignored = append(readyContainers.Ignored, container)
+			continue
+		}
+		if container.Status.Status != ContainerStatusRunning {
+			continue
+		}
+		// if deviceSubnets are provided, we should only consider containers that have devices in the provided subnets
+		if findSameNetworkConfig {
+			if !resources.ContainerHasDevicesInSubnets(container, cluster.Spec.NetworkSelector.DeviceSubnets) {
+				readyContainers.Ignored = append(readyContainers.Ignored, container)
+			}
+		}
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+			readyContainers.Drive = append(readyContainers.Drive, container)
+		}
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+			readyContainers.Compute = append(readyContainers.Compute, container)
+		}
+	}
+
+	r.readyContainers = readyContainers
+	return readyContainers
+}
+
+func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	containers := r.containers
 	cluster := r.cluster
 
-	minDriveContainers := config.Consts.MinDriveContainers
-	if cluster.Spec.GetFormClusterConditions().MinDriveContainers > 0 {
-		minDriveContainers = cluster.Spec.FormClusterConditions.MinDriveContainers
-	}
-
-	minComputeContainers := config.Consts.MinComputeContainers
-	if cluster.Spec.GetFormClusterConditions().MinComputeContainers > 0 {
-		minComputeContainers = cluster.Spec.FormClusterConditions.MinComputeContainers
-	}
+	minDriveContainers := config.Consts.FormClusterMinDriveContainers
+	minComputeContainers := config.Consts.FormClusterMinComputeContainers
 
 	findSameNetworkConfig := len(cluster.Spec.NetworkSelector.DeviceSubnets) > 0
 	if findSameNetworkConfig {
@@ -506,34 +554,10 @@ func (r *wekaClusterReconcilerLoop) MinContainersReady(ctx context.Context) erro
 	}
 
 	// containers that UP and ready for cluster creation
-	var driveContainersCount, computeContainersCount int
-	var readyContainers []*wekav1alpha1.WekaContainer
-
-	for _, container := range containers {
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
-			continue // ignoring envoy as not part of cluster and we can figure out at later stage
-		}
-		if container.GetDeletionTimestamp() != nil {
-			continue
-		}
-		if container.Status.Status != "Running" {
-			continue
-		}
-		// if deviceSubnets are provided, we should only consider containers that have devices in the provided subnets
-		if findSameNetworkConfig {
-			if !resources.ContainerHasDevicesInSubnets(container, cluster.Spec.NetworkSelector.DeviceSubnets) {
-				continue
-			}
-		}
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
-			readyContainers = append(readyContainers, container)
-			driveContainersCount++
-		}
-		if container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
-			readyContainers = append(readyContainers, container)
-			computeContainersCount++
-		}
-	}
+	readyContainers := r.getReadyForClusterCreateContainers(ctx)
+	driveContainersCount := len(readyContainers.Drive)
+	computeContainersCount := len(readyContainers.Compute)
+	ignoredContainersCount := len(readyContainers.Ignored)
 
 	if driveContainersCount < minDriveContainers {
 		err := fmt.Errorf("not enough drive containers ready, expected %d, got %d", minDriveContainers, driveContainersCount)
@@ -546,51 +570,24 @@ func (r *wekaClusterReconcilerLoop) MinContainersReady(ctx context.Context) erro
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	err := r.patchReadyForClusterCreationContainers(ctx, readyContainers)
-	if err != nil {
-		return lifecycle.NewWaitError(err)
+	// check expected containers number
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
 	}
 
-	msg := fmt.Sprintf("All required containers are ready for cluster creation, drive containers: %d, compute containers: %d", driveContainersCount, computeContainersCount)
-	r.RecordEvent("", "MinContainersReady", msg)
+	expectedComputeContainersNum := util2.GetMinValue(template.ComputeContainers, config.Consts.FormClusterMaxComputeContainers)
+	expectedDriveContainersNum := util2.GetMinValue(template.DriveContainers, config.Consts.FormClusterMaxDriveContainers)
+
+	if driveContainersCount+computeContainersCount+ignoredContainersCount < expectedComputeContainersNum+expectedDriveContainersNum {
+		err := fmt.Errorf("waiting for all containers to be either ready or ignored before forming the cluster, expected %d, got %d", expectedComputeContainersNum+expectedDriveContainersNum, driveContainersCount+computeContainersCount+ignoredContainersCount)
+		r.RecordEvent("", "ContainersNotReady", err.Error())
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+	}
+
+	msg := fmt.Sprintf("Initial containers are ready for cluster creation, drive containers: %d, compute containers: %d", driveContainersCount, computeContainersCount)
+	r.RecordEvent("", "InitialContainersReady", msg)
 	logger.InfoWithStatus(codes.Ok, msg)
-	return nil
-}
-
-func (r *wekaClusterReconcilerLoop) patchReadyForClusterCreationContainers(ctx context.Context, readyContainers []*wekav1alpha1.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "patchReadyForClusterCreationContainers")
-	defer end()
-
-	// mark all ready containers as readyForClusterCreation
-	nonPatchedContainers := []string{}
-	for _, container := range readyContainers {
-		if !container.Status.IsReadyForClusterCreation() {
-			patch := map[string]interface{}{
-				"status": map[string]interface{}{
-					"readyForClusterCreation": true,
-				},
-			}
-
-			patchBytes, err := json.Marshal(patch)
-			if err != nil {
-				logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
-				nonPatchedContainers = append(nonPatchedContainers, container.Name)
-				continue
-			}
-
-			err = r.getClient().Status().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
-			if err != nil {
-				logger.Debug("Failed to update container state", "container", container.Name, "error", err)
-				nonPatchedContainers = append(nonPatchedContainers, container.Name)
-				continue
-			}
-		}
-	}
-
-	if len(nonPatchedContainers) != 0 {
-		err := fmt.Errorf("not all ready containers are marked as ready for cluster creation, missing: %v", nonPatchedContainers)
-		return err
-	}
 	return nil
 }
 
@@ -602,14 +599,9 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 	wekaClusterService := r.clusterService
 
 	if wekaCluster.Spec.ExpandEndpoints == nil {
-		var readyContainers []*wekav1alpha1.WekaContainer
-		for _, container := range r.containers {
-			if container.Status.IsReadyForClusterCreation() {
-				readyContainers = append(readyContainers, container)
-			}
-		}
+		readyContainers := r.getReadyForClusterCreateContainers(ctx)
 
-		err := wekaClusterService.FormCluster(ctx, readyContainers)
+		err := wekaClusterService.FormCluster(ctx, readyContainers.GetAll())
 		if err != nil {
 			logger.Error(err, "Failed to form cluster")
 			return lifecycle.NewWaitError(err)
@@ -620,31 +612,20 @@ func (r *wekaClusterReconcilerLoop) FormCluster(ctx context.Context) error {
 	return nil
 }
 
+// Waits for initial containers to join the cluster right after the cluster is formed
 func (r *wekaClusterReconcilerLoop) WaitForContainersJoin(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	containers := r.containers
+	readyContainers := r.getReadyForClusterCreateContainers(ctx)
 
-	// Ensure all containers are up in the cluster
-	logger.Debug("Ensuring all containers are up in the cluster")
+	logger.Debug("Ensuring all ready containers are up in the cluster")
 	joinedContainers := 0
-	for _, container := range containers {
+	for _, container := range readyContainers.GetAll() {
 		if !container.ShouldJoinCluster() {
 			continue
 		}
 		if !meta.IsStatusConditionTrue(container.Status.Conditions, condition.CondJoinedCluster) {
-			// if container is not part of initial cluster creation and has no join ips,
-			// delete it and wait for a new one to be created (with join ips)
-			if !container.Status.IsReadyForClusterCreation() && len(container.Spec.JoinIps) == 0 {
-				logger.Info("Container is not part of initial cluster creation and has no join ips, deleting it", "container", container.Name)
-				err := r.getClient().Delete(ctx, container)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-
 			logger.Info("Container has not joined the cluster yet", "container", container.Name)
 			return lifecycle.NewWaitError(errors.New("container did not join cluster yet"))
 		} else {
@@ -1871,20 +1852,33 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
+	clusterReady := meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterReady)
+
 	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs"} {
 		var numContainers int
 
-		switch role {
-		case "compute":
-			numContainers = template.ComputeContainers
-		case "drive":
-			numContainers = template.DriveContainers
-		case "s3":
-			numContainers = template.S3Containers
-		case "envoy":
-			numContainers = template.S3Containers
-		case "nfs":
-			numContainers = template.NfsContainers
+		if clusterReady {
+			switch role {
+			case "compute":
+				numContainers = template.ComputeContainers
+			case "drive":
+				numContainers = template.DriveContainers
+			case "s3":
+				numContainers = template.S3Containers
+			case "envoy":
+				numContainers = template.S3Containers
+			case "nfs":
+				numContainers = template.NfsContainers
+			}
+		} else {
+			switch role {
+			case "compute":
+				numContainers = util2.GetMinValue(template.ComputeContainers, config.Consts.FormClusterMaxComputeContainers)
+			case "drive":
+				numContainers = util2.GetMinValue(template.DriveContainers, config.Consts.FormClusterMaxDriveContainers)
+			default:
+				continue
+			}
 		}
 
 		currentCount := 0

@@ -188,7 +188,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondPodsReady,
-				Run:       loop.MinContainersReady,
+				Run:       loop.InitialContainersReady,
 			},
 			{
 				Condition: condition.CondClusterCreated,
