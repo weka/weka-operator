@@ -119,8 +119,8 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			continue
 		}
-		hostIps = append(hostIps, container.GetHostIps()...)
-		hostnamesList = append(hostnamesList, container.Status.GetManagementIps()...)
+		hostIps = append(hostIps, container.GetHostIps()[0])
+		hostnamesList = append(hostnamesList, container.Status.GetManagementIps()[0])
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
 	//cmd := fmt.Sprintf("weka status || weka cluster create %s --host-ips %s", strings.Join(hostnamesList, " "), hostIpsStr) // In general not supposed to pass join secret here, but it is broken on weka. Preserving this line for quick comment/uncomment cycles
