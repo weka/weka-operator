@@ -422,7 +422,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:  loop.reconcileManagementIPs,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return len(loop.container.Status.GetManagementIps()) == 0
+						// we don't want to reconcile management IPs for containers that are already Running
+						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != ContainerStatusRunning
 					},
 					func() bool {
 						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
