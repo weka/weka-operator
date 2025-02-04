@@ -1090,8 +1090,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
 		}
 
-		activeDrivesThreshold := float64(template.DriveContainers) * 0.9
-		activeComputesThreshold := float64(template.ComputeContainers) * 0.9
+		activeDrivesThreshold := float64(template.DriveContainers) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
+		activeComputesThreshold := float64(template.ComputeContainers) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
 
 		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
 			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveHugepages)

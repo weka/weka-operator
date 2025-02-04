@@ -96,6 +96,11 @@ var Config struct {
 	LocalDataPvc               string
 	SignDrivesImage            string
 	SkipUnhealthyToleration    bool
+	Upgrade struct {
+		ComputeThresholdPercent          int
+		DriveThresholdPercent            int
+		MaxDeactivatingContainersPercent int
+	}
 }
 
 type Metrics struct {
@@ -156,6 +161,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.WekaHome.EnableStats = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS", true)
 	Config.DebugSleep = getIntEnvOrDefault("WEKA_OPERATOR_DEBUG_SLEEP", 3)
 	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "busybox")
+	Config.Upgrade.ComputeThresholdPercent = getIntEnvOrDefault("UPGRADE_COMPUTE_THRESHOLD_PERCENT", 90)
+	Config.Upgrade.DriveThresholdPercent = getIntEnvOrDefault("UPGRADE_DRIVE_THRESHOLD_PERCENT", 90)
+	Config.Upgrade.MaxDeactivatingContainersPercent = getIntEnvOrDefault("UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT", 10)
 	Config.MaintenanceImagePullSecret = os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
 	Config.OcpCompatibility.DriverToolkitImageBaseUrl = getEnvOrDefault("WEKA_OCP_TOOLKIT_IMAGE_BASE_URL", "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	Config.GkeCompatibility.DisableDriverSigning = getBoolEnvOrDefault("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING", false)

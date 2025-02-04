@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/config"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -76,14 +77,14 @@ func (u *UpgradeController) AllAtOnceUpgrade(ctx context.Context) error {
 func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RollingUpgrade")
 
-	maxSkipPercent := 10
+	maxSkipPercent := config.Config.Upgrade.MaxDeactivatingContainersPercent
 	skipped := 0
 
 	defer end()
 	for _, container := range u.Containers {
 		if container.IsMarkedForDeletion() {
 			skipped += 1
-			if skipped > len(u.Containers)/maxSkipPercent {
+			if skipped > (len(u.Containers)*maxSkipPercent)/100 {
 				logger.Info("too many containers marked for deletion, aborting", "container", container.Name)
 				return lifecycle.NewWaitError(errors.New("too many containers marked for deletion"))
 			}

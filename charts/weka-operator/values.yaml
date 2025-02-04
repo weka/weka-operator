@@ -127,3 +127,7 @@ metrics:
     pollingRate: 60s
 localDataStorageClass: ""
 localDataPvc: ""
+upgrade:
+  computeThresholdPercent: 90
+  driveThresholdPercent: 90
+  maxDeactivatingContainersPercent: 10
