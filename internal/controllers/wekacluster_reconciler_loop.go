@@ -1183,7 +1183,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		activeComputesThreshold := float64(template.ComputeContainers) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
 
 		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
-			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveHugepages)
+			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveContainers)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
