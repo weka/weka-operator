@@ -731,26 +731,35 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 			Operator: corev1.TolerationOpExists,
 			Effect:   corev1.TaintEffectNoExecute,
 		},
-		{
-			Key:      "node.kubernetes.io/not-ready",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-		{
-			Key:      "node.kubernetes.io/unreachable",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-		{
-			Key:      "node.kubernetes.io/network-unavailable",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-		{
-			Key:      "node.kubernetes.io/unschedulable",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
+	}
+
+	if !config.Config.SkipUnhealthyToleration {
+		unhealthyTolerations := []corev1.Toleration{
+			{
+				Key:      "node.kubernetes.io/not-ready",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
+			{
+				Key:      "node.kubernetes.io/unreachable",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
+			{
+				Key:      "node.kubernetes.io/network-unavailable",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
+			{
+				Key:      "node.kubernetes.io/unschedulable",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
+		}
+		tolerations = append(tolerations, unhealthyTolerations...)
+	}
+
+	pressureTolerations := []corev1.Toleration{
 		{
 			Key:      "node.kubernetes.io/disk-pressure",
 			Operator: corev1.TolerationOpExists,
@@ -782,6 +791,8 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 			Effect:   corev1.TaintEffectNoExecute,
 		},
 	}
+	tolerations = append(tolerations, pressureTolerations...)
+
 	// expand with custom tolerations
 	tolerations = append(tolerations, f.container.Spec.Tolerations...)
 	return tolerations

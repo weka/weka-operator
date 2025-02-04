@@ -99,6 +99,8 @@ manager:
 debugSleep: 3
 
 tolerations: []
+# -- if true, pods will not tolerate unhealthy nodes (unschedulable and not-ready)
+skipUnhealthyToleration: false
 deploymentIdentifier: ""
 
 signDrivesImage: quay.io/weka.io/weka-sign-tool:v0.0.3-pciutils

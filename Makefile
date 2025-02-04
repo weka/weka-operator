@@ -268,7 +268,8 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--set gkeCompatibility.hugepageConfiguration.enabled=true \
 		--set gkeCompatibility.disableDriverSigning=true \
 		--set deploymentIdentifier="dev-${USER}" \
-		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder
+		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
+                --set skipUnhealthyToleration=true
 
 .PHONY: deployocp
 deployocp: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.

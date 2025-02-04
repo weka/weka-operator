@@ -1,4 +1,3 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -129,6 +128,8 @@ spec:
               value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}"
             - name: WEKA_COS_SERVICE_ACCOUNT_SECRET
               value: "{{ .Values.gkeCompatibility.gkeServiceAccountSecret }}"
+            - name: SKIP_UNHEALTHY_TOLERATION
+              value: "{{ .Values.skipUnhealthyToleration }}"
             - name: LOG_LEVEL
               value: "{{ .Values.logging.level }}"
             - name: LOG_TIME_ONLY

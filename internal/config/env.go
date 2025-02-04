@@ -95,6 +95,7 @@ var Config struct {
 	Mode                       OperatorMode
 	LocalDataPvc               string
 	SignDrivesImage            string
+	SkipUnhealthyToleration    bool
 }
 
 type Metrics struct {
@@ -182,6 +183,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
+	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
 }
 
 func getEnvOrFail(envKey string) string {
