@@ -201,7 +201,7 @@ async def force_resign_drives_by_serials(serials: List[str]):
 
 async def get_block_device_path_by_serial(serial: str):
     logging.info(f"Getting block device path by serial {serial}")
-    stdout, stderr, ec = await run_command("lsblk -no PATH | grep -m 1 $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
+    stdout, stderr, ec = await run_command("lsblk -dpno NAME | grep -m 1 $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
     if ec != 0:
         logging.error(f"Failed to get block device path by serial {serial}: {stderr}")
         return
