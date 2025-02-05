@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"os"
 	"reflect"
 	"strings"
@@ -179,4 +181,53 @@ func GetPodNamespace() (string, error) {
 
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
 	return reflect.DeepEqual(cm1.Data, cm2.Data)
+}
+
+// GetKubeField retrieves a field from an unstructured object given a dot-separated path.
+
+func GetKubeField(obj *unstructured.Unstructured, fieldPath string) (interface{}, error) {
+	fields := strings.Split(strings.TrimPrefix(fieldPath, "."), ".")
+	value, found, err := unstructured.NestedFieldCopy(obj.Object, fields...)
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving field %s: %w", fieldPath, err)
+	}
+	if !found {
+		return nil, fmt.Errorf("field %s not found", fieldPath)
+	}
+	return value, nil
+}
+
+// GetKubeFieldValue converts the retrieved field to any specified type.
+func GetKubeFieldValue[T any](obj *unstructured.Unstructured, fieldPath string) (T, error) {
+	value, err := GetKubeField(obj, fieldPath)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	result, ok := value.(T)
+	if !ok {
+		var zero T
+		return zero, fmt.Errorf("field %s is not of expected type", fieldPath)
+	}
+	return result, nil
+}
+
+// ConvertToUnstructured converts any typed object (e.g. corev1.Node, corev1.Pod) to an unstructured.Unstructured.
+func ConvertToUnstructured[T runtime.Object](obj T) (*unstructured.Unstructured, error) {
+	unstrMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil, fmt.Errorf("error converting object: %w", err)
+	}
+	return &unstructured.Unstructured{Object: unstrMap}, nil
+}
+
+// GetKubeObjectFieldValue combines conversion and field extraction.
+// It accepts any runtime.Object (like corev1.Node or corev1.Pod) and returns the field value of the specified type.
+func GetKubeObjectFieldValue[T any, K runtime.Object](obj K, fieldPath string) (T, error) {
+	unstr, err := ConvertToUnstructured(obj)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return GetKubeFieldValue[T](unstr, fieldPath)
 }

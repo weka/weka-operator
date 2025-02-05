@@ -358,6 +358,9 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
 			AllowHotUpgrade:     wekaClient.Spec.AllowHotUpgrade,
 			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
+			Overrides: &weka.WekaContainerSpecOverrides{
+				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
+			},
 		},
 	}
 	return container, nil

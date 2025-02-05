@@ -33,6 +33,7 @@ type DiscoveryNodeInfo struct {
 	InitContainerImage string `json:"init_container_image,omitempty"`
 	NumCpus            int    `json:"num_cpus,omitempty"`
 	NumDrives          int    `json:"num_drives,omitempty"`
+	Node               *corev1.Node
 }
 
 func (nodeInfo *DiscoveryNodeInfo) GetDrivesNumber() int {

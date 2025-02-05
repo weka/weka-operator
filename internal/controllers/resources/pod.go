@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/pkg/util"
 	"path"
 	"slices"
 	"strconv"
@@ -1161,7 +1162,25 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	if f.container.Spec.NoAffinityConstraints {
+	machineIdentifierPath := f.container.Spec.Overrides.MachineIdentifierNodeRef
+	if machineIdentifierPath == "" {
+		// check if node has "weka.io/machine-identifier-ref" label
+		// if yes - use it as machine identifier path
+		if f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"] != "" {
+			machineIdentifierPath = f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"]
+		}
+	}
+
+	if machineIdentifierPath != "" {
+		uid, err := util.GetKubeObjectFieldValue[string](f.nodeInfo.Node, machineIdentifierPath)
+		if err != nil {
+			return fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
+		}
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "MACHINE_IDENTIFIER",
+			Value: uid,
+		})
+	} else if f.container.Spec.NoAffinityConstraints {
 		// TODO: Keeping this as a reference, once there is a fix for 7-containers detection, might try using FD again
 		// preserving save machine identifier. Weka still might justifiably not allow to put different FDs on the same node
 		// but then it will be cleaner ask, to have a manual override that ignores specifically that
