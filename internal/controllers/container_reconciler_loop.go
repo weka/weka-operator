@@ -3058,19 +3058,22 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			defer resp.Body.Close()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return err
 			}
+
+			if resp.StatusCode != http.StatusOK {
+				err := fmt.Errorf("getContainerInfo failed: %s, status: %d", string(body), resp.StatusCode)
+				return err
+			}
+
 			err = json.NewDecoder(bytes.NewReader(body)).Decode(&response)
 			if err != nil {
 				logger.Error(err, "Error decoding response body", "body", string(body))
 				return err
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				return errors.New("Error sending register request")
 			}
 
 			foundAlive = true

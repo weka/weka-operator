@@ -137,7 +137,7 @@ func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", a.metricsHandler)
-	mux.HandleFunc("/getContainerInfo", a.getContainerInfo) // TODO: Implement this and replace in-container-reconcile exec with polling this endpoint
+	mux.HandleFunc("/getContainerInfo", a.getContainerInfo)
 	mux.HandleFunc("/getActiveMounts", a.getActiveMounts)
 	mux.HandleFunc("/register", a.registerHandler)
 
@@ -350,6 +350,11 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 	// TODO: Wrap as a service struct initialized separately from use
 
 	socketPath := fmt.Sprintf("/host-binds/shared/containers/%s/local-sockets/%s/container.sock", container.containerId, container.wekaContainerName)
+	// check if socket exists
+	if !util.FileExists(socketPath) {
+		return errors.New("socket not found")
+	}
+
 	// create symlink for a socket within tmp
 	targetSocketPath := fmt.Sprintf("/tmp/%s.sock", container.containerId)
 	if !util.FileExists(targetSocketPath) {
@@ -475,6 +480,10 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 
 	// fetch container info
 	err := a.fetchAndPopulateMetrics(ctx, container)
+	if err != nil && strings.Contains(err.Error(), "socket not found") {
+		http.Error(w, "container socket not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		logger.SetError(err, "Failed to fetch container info")
 		http.Error(w, "failed to fetch container info", http.StatusInternalServerError)
