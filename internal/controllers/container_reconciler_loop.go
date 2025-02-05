@@ -1351,7 +1351,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 	container := r.container
 
-	if container.Spec.Overrides != nil && container.Spec.Overrides.SkipCleanupPersistentDir {
+	if container.Spec.GetOverrides().SkipCleanupPersistentDir {
 		logger.Info("Skip cleanup persistent dir")
 		return nil
 	}

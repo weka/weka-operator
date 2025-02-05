@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/weka/weka-operator/pkg/util"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/weka/weka-operator/pkg/util"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1162,7 +1163,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	machineIdentifierPath := f.container.Spec.Overrides.MachineIdentifierNodeRef
+	machineIdentifierPath := f.container.Spec.GetOverrides().MachineIdentifierNodeRef
 	if machineIdentifierPath == "" {
 		// check if node has "weka.io/machine-identifier-ref" label
 		// if yes - use it as machine identifier path

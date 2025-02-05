@@ -181,7 +181,7 @@ func (r *policyLoop) DurationTillNext() time.Duration {
 		return 0
 	}
 
-	interval, _ := time.ParseDuration(r.Policy.Spec.Payload.Interval)
+	interval := r.Policy.Spec.Payload.Interval.Duration
 	sleepFor := time.Until(r.Policy.Status.LastRunTime.Add(interval))
 	return sleepFor
 }
