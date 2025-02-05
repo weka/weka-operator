@@ -69,6 +69,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		successCallback: successCallback,
 		failureCallback: failureCallback,
 		force:           force,
+		recorder:        mgr.GetEventRecorderFor("weka-sign-drives"),
 	}
 }
 
