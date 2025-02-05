@@ -1667,7 +1667,7 @@ def read_generation():
         with open(GENERATION_PATH, 'r') as f:
             ret = f.read().strip()
     except Exception as e:
-        logging.error("Failed to read generation: %s", e)
+        logging.debug("Failed to read generation: %s", e)
         ret = ""
     return ret
 

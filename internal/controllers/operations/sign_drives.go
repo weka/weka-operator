@@ -21,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,6 +43,7 @@ type SignDrivesOperation struct {
 	failureCallback lifecycle.StepFunc
 	force           bool
 	tolerations     []v1.Toleration
+	recorder        record.EventRecorder
 }
 
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
@@ -248,18 +250,25 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		return o.results.Err
 	}
 
-	for _, nodeResults := range o.results.Results {
+	drivesByNode := map[string]int{}
+	for nodeName, nodeResults := range o.results.Results {
 		total += len(nodeResults.Drives)
+		drivesByNode[nodeName] = len(nodeResults.Drives)
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
 				errs = append(errs, nodeResults.Err.Error())
 			}
 		}
 	}
+
+	msg := fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results))
 	ret := map[string]interface{}{
-		"result": fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results)),
-		"errors": errs,
+		"message": msg,
+		"result":  drivesByNode,
+		"errors":  errs,
 	}
+
+	o.RecordEvent("SignDrives", msg)
 
 	resultJSON, _ := json.Marshal(ret)
 	return string(resultJSON)
@@ -296,4 +305,13 @@ func (o *SignDrivesOperation) FailureCallback(ctx context.Context) error {
 
 func (o *SignDrivesOperation) OperationFailed() bool {
 	return o.results.Err != ""
+}
+
+func (o *SignDrivesOperation) RecordEvent(reason string, message string) error {
+	if o.ownerRef == nil {
+		return fmt.Errorf("ownerRef is nil")
+	}
+
+	o.recorder.Event(o.ownerRef, v1.EventTypeNormal, reason, message)
+	return nil
 }
