@@ -253,8 +253,11 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 
 	drivesByNode := map[string]int{}
 	for nodeName, nodeResults := range o.results.Results {
-		total += len(nodeResults.Drives)
-		drivesByNode[nodeName] = len(nodeResults.Drives)
+		drivesCount := len(nodeResults.Drives)
+		total += drivesCount
+		if drivesCount > 0 {
+			drivesByNode[nodeName] = len(nodeResults.Drives)
+		}
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
 				errs = append(errs, nodeResults.Err.Error())
@@ -269,7 +272,9 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		"errors":  errs,
 	}
 
-	o.RecordEvent("SignDrives", msg)
+	if len(drivesByNode) > 0 {
+		o.RecordEvent("SignDrives", msg)
+	}
 
 	resultJSON, _ := json.Marshal(ret)
 	return string(resultJSON)
