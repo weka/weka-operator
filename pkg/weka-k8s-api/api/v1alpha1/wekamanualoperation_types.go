@@ -96,14 +96,15 @@ type SignDrivesPayload struct {
 	//    ```
 	//    00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]
 	//    ```
-	PCIDevices       *PCIDevices       `json:"pciDevices,omitempty"`
-	SignAllowOptions *SignAllowOptions `json:"allow,omitempty"`
+	PCIDevices  *PCIDevices  `json:"pciDevices,omitempty"`
+	SignOptions *SignOptions `json:"options,omitempty"`
 }
 
-type SignAllowOptions struct {
-	AllowEraseWekaPartitions    bool `json:"eraseWekaPartitions,omitempty"`
-	AllowEraseNonWekaPartitions bool `json:"eraseNonWekaPartitions,omitempty"`
-	AllowNonEmptyDevice         bool `json:"eraseNonEmptyDevice,omitempty"`
+type SignOptions struct {
+	AllowEraseWekaPartitions    bool `json:"allowEraseWekaPartitions,omitempty"`
+	AllowEraseNonWekaPartitions bool `json:"allowEraseNonWekaPartitions,omitempty"`
+	AllowNonEmptyDevice         bool `json:"allowNonEmptyDevice,omitempty"`
+	SkipTrimFormat              bool `json:"skipTrimFormat,omitempty"`
 }
 
 type ForceResignDrivesPayload struct {
