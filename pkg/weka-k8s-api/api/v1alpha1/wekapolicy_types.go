@@ -50,8 +50,11 @@ type PolicyPayload struct {
 	SignDrives       *SignDrivesPayload       `json:"signDrivesPayload,omitempty"`
 	SchedulingConfig *SchedulingConfigPayload `json:"schedulingConfigPayload,omitempty"`
 	DiscoverDrives   *DiscoverDrivesPayload   `json:"discoverDrivesPayload,omitempty"`
-	Interval         string                   `json:"interval,omitempty"`
-	WaitForPolicies  []string                 `json:"waitForPolicies,omitempty"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(s|m|h))+)$"
+	// +kubebuilder:default="5m"
+	Interval        metav1.Duration `json:"interval,omitempty"`
+	WaitForPolicies []string        `json:"waitForPolicies,omitempty"`
 }
 
 type SchedulingConfigPayload struct {
