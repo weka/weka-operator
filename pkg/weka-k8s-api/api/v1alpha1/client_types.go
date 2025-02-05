@@ -47,6 +47,11 @@ const (
 	UpgradePolicyTypeAllAtOnce UpgradePolicyType = "all-at-once"
 )
 
+type WekaClientSpecOverrides struct {
+	// used to override machine identifier node reference for client containers
+	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
+}
+
 type UpgradePolicy struct {
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
 	// +kubebuilder:default=all-at-once
@@ -91,10 +96,11 @@ type WekaClientSpec struct {
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
 	//DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version
-	WekaHomeConfig  WekahomeClientConfig  `json:"wekaHomeConfig,omitempty"`
-	WekaHome        *WekahomeClientConfig `json:"wekaHome,omitempty"`
-	UpgradePolicy   UpgradePolicy         `json:"upgradePolicy,omitempty"`
-	AllowHotUpgrade bool                  `json:"allowHotUpgrade,omitempty"`
+	WekaHomeConfig  WekahomeClientConfig     `json:"wekaHomeConfig,omitempty"`
+	WekaHome        *WekahomeClientConfig    `json:"wekaHome,omitempty"`
+	UpgradePolicy   UpgradePolicy            `json:"upgradePolicy,omitempty"`
+	AllowHotUpgrade bool                     `json:"allowHotUpgrade,omitempty"`
+	Overrides       *WekaClientSpecOverrides `json:"overrides,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
@@ -144,6 +150,14 @@ type WekaClientList struct {
 
 func init() {
 	SchemeBuilder.Register(&WekaClient{}, &WekaClientList{})
+}
+
+func (c *WekaClientSpec) GetOverrides() *WekaClientSpecOverrides {
+	if c.Overrides == nil {
+		return &WekaClientSpecOverrides{}
+	} else {
+		return c.Overrides
+	}
 }
 
 func (c *WekaClient) IsMarkedForDeletion() bool {
