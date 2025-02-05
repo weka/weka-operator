@@ -15,6 +15,13 @@ from os.path import exists
 from textwrap import dedent
 from typing import List, Optional, Tuple
 
+@dataclass
+class SignOptions:
+    allowEraseWekaPartitions: bool = False
+    allowEraseNonWekaPartitions: bool = False
+    allowNonEmptyDevice: bool = False
+    skipTrimFormat: bool = False
+
 MODE = os.environ.get("MODE")
 assert MODE != ""
 NUM_CORES = int(os.environ.get("CORES", 0))
@@ -157,16 +164,16 @@ class SignException(Exception):
     pass
 
 
-async def sign_device_path(device_path, options):
+async def sign_device_path(device_path, options: SignOptions):
     logging.info(f"Signing drive {device_path}")
     params = []
-    if options.get("allowEraseWekaPartitions"):
+    if options.allowEraseWekaPartitions:
         params.append("--allow-erase-weka-partitions")
-    if options.get("allowEraseNonWekaPartitions"):
+    if options.allowEraseNonWekaPartitions:
         params.append("--allow-erase-non-weka-partitions")
-    if options.get("allowNonEmptyDevice"):
+    if options.allowNonEmptyDevice:
         params.append("--allow-erase-non-empty-device")
-    if options.get("skipTrimFormat"):
+    if options.skipTrimFormat:
         params.append("--skip-trim-format")
 
     stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
@@ -177,22 +184,24 @@ async def sign_device_path(device_path, options):
 
 async def sign_drives(instruction: dict) -> List[str]:
     type = instruction['type']
+    options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
+    
     if type == "aws-all":
         return await sign_drives_by_pci_info(
             vendor_id=AWS_VENDOR_ID,
             device_id=AWS_DEVICE_ID,
-            options=instruction.get('options', {})
+            options=options
         )
     elif type == "device-identifiers":
         return await sign_drives_by_pci_info(
             vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
             device_id=instruction.get('pciDevices', {}).get('deviceId'),
-            options=instruction.get('options', {})
+            options=options
         )
     elif type == "all-not-root":
-        return await sign_not_mounted(instruction.get('options', {}))
+        return await sign_not_mounted(options)
     elif type == "device-paths":
-        return await sign_device_paths(instruction['devicePaths'], instruction.get('options', {}))
+        return await sign_device_paths(instruction['devicePaths'], options)
     else:
         raise ValueError(f"Unknown instruction type: {type}")
 
@@ -200,9 +209,10 @@ async def sign_drives(instruction: dict) -> List[str]:
 async def force_resign_drives_by_paths(devices_paths: List[str]):
     logging.info("Force resigning drives by paths: %s", devices_paths)
     signed_drives = []
+    options = SignOptions(allowEraseWekaPartitions=True)
     for device_path in devices_paths:
         try:
-            await sign_device_path(device_path, options={"eraseWekaPartitions": True})
+            await sign_device_path(device_path, options)
             signed_drives.append(device_path)
         except SignException as e:
             logging.error(str(e))
