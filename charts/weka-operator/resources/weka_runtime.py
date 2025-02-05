@@ -160,12 +160,14 @@ class SignException(Exception):
 async def sign_device_path(device_path, options):
     logging.info(f"Signing drive {device_path}")
     params = []
-    if options.get("eraseWekaPartitions"):
+    if options.get("allowEraseWekaPartitions"):
         params.append("--allow-erase-weka-partitions")
-    if options.get("eraseNonWekaPartitions"):
+    if options.get("allowEraseNonWekaPartitions"):
         params.append("--allow-erase-non-weka-partitions")
-    if options.get("eraseNonEmptyDevice"):
+    if options.get("allowNonEmptyDevice"):
         params.append("--allow-erase-non-empty-device")
+    if options.get("skipTrimFormat"):
+        params.append("--skip-trim-format")
 
     stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
     if ec != 0:
