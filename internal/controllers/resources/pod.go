@@ -1165,10 +1165,12 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 
 	machineIdentifierPath := f.container.Spec.GetOverrides().MachineIdentifierNodeRef
 	if machineIdentifierPath == "" {
-		// check if node has "weka.io/machine-identifier-ref" label
-		// if yes - use it as machine identifier path
-		if f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"] != "" {
-			machineIdentifierPath = f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"]
+		if f.nodeInfo.Node != nil {
+			// check if node has "weka.io/machine-identifier-ref" label
+			// if yes - use it as machine identifier path
+			if val, ok := f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"]; ok && val != "" {
+				machineIdentifierPath = f.nodeInfo.Node.Annotations["weka.io/machine-identifier-ref"]
+			}
 		}
 	}
 
