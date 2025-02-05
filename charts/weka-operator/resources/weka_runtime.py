@@ -2,13 +2,13 @@ import fcntl
 import json
 import logging
 import os
+import re
 import socket
 import struct
 import subprocess
 import sys
 import threading
 import time
-import re
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from os.path import exists
@@ -36,7 +36,7 @@ NODE_NAME = os.environ["NODE_NAME"]
 POD_ID = os.environ.get("POD_ID", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
-NET_GATEWAY=os.environ.get("NET_GATEWAY", None)
+NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 
@@ -55,13 +55,11 @@ WEKA_PERSISTENCE_GLOBAL_DIR = "/opt/weka-global-persistence"
 if WEKA_PERSISTENCE_MODE == "global":
     WEKA_PERSISTENCE_DIR = os.path.join(WEKA_PERSISTENCE_GLOBAL_DIR, "containers", WEKA_CONTAINER_ID)
 
-
 WEKA_COS_ALLOW_HUGEPAGE_CONFIG = True if os.environ.get("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", "false") == "true" else False
 WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING = True if os.environ.get("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING",
                                                                "false") == "true" else False
 WEKA_COS_GLOBAL_HUGEPAGE_SIZE = os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_SIZE", "2M").lower()
 WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_COUNT", 4000))
-
 
 AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
@@ -92,7 +90,7 @@ logging.basicConfig(
 )
 
 
-async def sign_drives_by_pci_info(vendor_id: str, device_id: str) -> List[str]:
+async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict) -> List[str]:
     logging.info("Signing drives. Vendor ID: %s, Device ID: %s", vendor_id, device_id)
 
     if not vendor_id or not device_id:
@@ -107,16 +105,16 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str) -> List[str]:
     pci_devices = stdout.decode().strip().split()
     for pci_device in pci_devices:
         device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
-        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device}")
-        if ec != 0:
-            logging.error(f"Failed to sign drive {pci_device}: {stderr}")
+        try:
+            await sign_device_path(device, options)
+            signed_drives.append(device)
+        except SignException as e:
+            logging.error(str(e))
             continue
-        signed_drives.append(device)
-        # TODO: Find serial id already here? it is adhocy non mandatory operation, so does not make sense to populate some db at this point, despite us having info
     return signed_drives
 
 
-async def sign_not_mounted() -> List[str]:
+async def sign_not_mounted(options: dict) -> List[str]:
     """
     [root@wekabox18 sdc] 2024-08-21 19:14:58 $ cat /run/udev/data/b`cat /sys/block/sdc/dev` | grep ID_SERIAL=
         E:ID_SERIAL=TOSHIBA_THNSN81Q92CSE_86DS107ATB4V
@@ -134,24 +132,45 @@ async def sign_not_mounted() -> List[str]:
         logging.info(f"Processing line: {parts}")
         if parts[1] == "disk" and len(parts) < 3:
             device = f"/dev/{parts[0]}"
-            logging.info(f"Signing drive {device}")
-            stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device}")
-            if ec != 0:
-                logging.error(f"Failed to sign drive {device}: {stderr}")
+            try:
+                await sign_device_path(device, options)
+                signed_drives.append(device)
+            except SignException as e:
+                logging.error(str(e))
                 continue
-            signed_drives.append(device)
     return signed_drives
 
 
-async def sign_device_paths(devices_paths) -> List[str]:
+async def sign_device_paths(devices_paths, options) -> List[str]:
     signed_drives = []
     for device_path in devices_paths:
-        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {device_path}")
-        if ec != 0:
-            logging.error(f"Failed to sign drive {device_path}: {stderr}")
+        try:
+            await sign_device_path(device_path, options)
+            signed_drives.append(device_path)
+        except SignException as e:
+            logging.error(str(e))
             continue
-        signed_drives.append(device_path)
     return signed_drives
+
+
+class SignException(Exception):
+    pass
+
+
+async def sign_device_path(device_path, options):
+    logging.info(f"Signing drive {device_path}")
+    params = []
+    if options.get("eraseWekaPartitions"):
+        params.append("--allow-erase-weka-partitions")
+    if options.get("eraseNonWekaPartitions"):
+        params.append("--allow-erase-non-weka-partitions")
+    if options.get("eraseNonEmptyDevice"):
+        params.append("--allow-erase-non-empty-device")
+
+    stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
+    if ec != 0:
+        err = f"Failed to sign drive {device_path}: {stderr}"
+        raise SignException(err)
 
 
 async def sign_drives(instruction: dict) -> List[str]:
@@ -160,16 +179,18 @@ async def sign_drives(instruction: dict) -> List[str]:
         return await sign_drives_by_pci_info(
             vendor_id=AWS_VENDOR_ID,
             device_id=AWS_DEVICE_ID,
+            options=instruction.get('options', {})
         )
     elif type == "device-identifiers":
         return await sign_drives_by_pci_info(
             vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
             device_id=instruction.get('pciDevices', {}).get('deviceId'),
+            options=instruction.get('options', {})
         )
     elif type == "all-not-root":
-        return await sign_not_mounted()
+        return await sign_not_mounted(instruction.get('options', {}))
     elif type == "device-paths":
-        return await sign_device_paths(instruction['devicePaths'])
+        return await sign_device_paths(instruction['devicePaths'], instruction.get('options', {}))
     else:
         raise ValueError(f"Unknown instruction type: {type}")
 
@@ -178,11 +199,12 @@ async def force_resign_drives_by_paths(devices_paths: List[str]):
     logging.info("Force resigning drives by paths: %s", devices_paths)
     signed_drives = []
     for device_path in devices_paths:
-        stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive --allow-erase-weka-partitions {device_path}")
-        if ec != 0:
-            logging.error(f"Failed to sign drive {device_path}: {stderr}")
+        try:
+            await sign_device_path(device_path, options={"eraseWekaPartitions": True})
+            signed_drives.append(device_path)
+        except SignException as e:
+            logging.error(str(e))
             continue
-        signed_drives.append(device_path)
     write_results(dict(
         err=None,
         drives=signed_drives
@@ -201,7 +223,8 @@ async def force_resign_drives_by_serials(serials: List[str]):
 
 async def get_block_device_path_by_serial(serial: str):
     logging.info(f"Getting block device path by serial {serial}")
-    stdout, stderr, ec = await run_command("lsblk -dpno NAME | grep -w $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
+    stdout, stderr, ec = await run_command(
+        "lsblk -dpno NAME | grep -w $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
     if ec != 0:
         logging.error(f"Failed to get block device path by serial {serial}: {stderr}")
         return
@@ -225,24 +248,28 @@ async def find_weka_drives():
     devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
 
     part_names = []
+
     def resolve_to_part_name():
         # TODO: A bit dirty, consolidate paths
         for device in devices_by_path:
             try:
-                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{device})", shell=True).decode().strip()
+                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{device})",
+                                                    shell=True).decode().strip()
             except subprocess.CalledProcessError:
                 logging.error(f"Failed to get part name for {device}")
                 continue
             part_names.append(part_name)
         for device in devices_by_id:
             try:
-                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-id/{device})", shell=True).decode().strip()
+                part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-id/{device})",
+                                                    shell=True).decode().strip()
                 if part_name in part_names:
                     continue
             except subprocess.CalledProcessError:
                 logging.error(f"Failed to get part name for {device}")
                 continue
             part_names.append(part_name)
+
     resolve_to_part_name()
 
     logging.info(f"All found in kernel block devices: {part_names}")
@@ -311,7 +338,8 @@ async def ensure_drivers():
             drivers.append("uio_pci_generic")
     driver_mode = await is_legacy_driver_cmd()
     logging.info(f"validating drivers in mode {MODE}, driver mode: {driver_mode}")
-    if not await is_legacy_driver_cmd() and MODE in ["client", "s3", "nfs"]: # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
+    if not await is_legacy_driver_cmd() and MODE in ["client", "s3",
+                                                     "nfs"]:  # we are not using legacy driver on backends, as it should not be validating specific versions, so just lsmoding
         while not exiting:
             version = await get_weka_version()
             stdout, stderr, ec = await run_command(f"weka driver ready --without-agent --version {version}")
@@ -460,6 +488,7 @@ async def get_weka_version():
     version = files[0].partition(".spec")[0]
     return version
 
+
 async def load_drivers():
     def should_skip_uio_pci_generic():
         return version_params.get('uio_pci_generic') is False or should_skip_uio()
@@ -524,8 +553,10 @@ async def load_drivers():
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
         ]
         load_cmds = [
-            (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed", "unloading wekafsio"),
-            (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed", "unloading wekafsgw"),
+            (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed",
+             "unloading wekafsio"),
+            (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed",
+             "unloading wekafsgw"),
             (f"weka driver install --without-agent --version {version}", "loading drivers"),
         ]
     if not should_skip_uio_pci_generic():
@@ -710,7 +741,7 @@ def find_full_cores(n):
 
 async def await_agent():
     start = time.time()
-    agent_timeout = 60 if WEKA_PERSISTENCE_MODE!="global" else 1500 # global usually is remote storage and pre-create of logs file might take much longer
+    agent_timeout = 60 if WEKA_PERSISTENCE_MODE != "global" else 1500  # global usually is remote storage and pre-create of logs file might take much longer
     while start + agent_timeout > time.time():
         _, _, ec = await run_command("weka local ps")
         if ec == 0:
@@ -969,7 +1000,7 @@ async def create_container():
     else:
         if not NETWORK_DEVICE:
             raise Exception("NETWORK_DEVICE not set")
-        
+
         net_str = f"--net {NETWORK_DEVICE}"
 
     failure_domain = FAILURE_DOMAIN
@@ -1058,18 +1089,18 @@ def convert_to_bytes(memory: str) -> int:
 
     multipliers = {
         'B': 1,
-        'KB': 10**3,
-        'MB': 10**6,
-        'GB': 10**9,
-        'TB': 10**12,
-        'PB': 10**15,
-        'EB': 10**18,
-        'KIB': 2**10,
-        'MIB': 2**20,
-        'GIB': 2**30,
-        'TIB': 2**40,
-        'PIB': 2**50,
-        'EIB': 2**60
+        'KB': 10 ** 3,
+        'MB': 10 ** 6,
+        'GB': 10 ** 9,
+        'TB': 10 ** 12,
+        'PB': 10 ** 15,
+        'EB': 10 ** 18,
+        'KIB': 2 ** 10,
+        'MIB': 2 ** 20,
+        'GIB': 2 ** 30,
+        'TIB': 2 ** 40,
+        'PIB': 2 ** 50,
+        'EIB': 2 ** 60
     }
     return size * multipliers[unit]
 
@@ -1098,10 +1129,10 @@ async def ensure_weka_container():
         await create_container()
         resources = await get_weka_local_resources()
 
-
-    #TODO: Normalize to have common logic between setup and reconfigure, including between clients and backends
-    if MODE == "client" and len(resources['nodes']) != (NUM_CORES+1):
-        stdout, stderr, ec = await run_command(f"weka local resources cores -C {NAME} --only-frontend-cores {NUM_CORES} --core-ids {','.join(map(str, full_cores[:NUM_CORES]))}")
+    # TODO: Normalize to have common logic between setup and reconfigure, including between clients and backends
+    if MODE == "client" and len(resources['nodes']) != (NUM_CORES + 1):
+        stdout, stderr, ec = await run_command(
+            f"weka local resources cores -C {NAME} --only-frontend-cores {NUM_CORES} --core-ids {','.join(map(str, full_cores[:NUM_CORES]))}")
         if ec != 0:
             raise Exception(f"Failed to get frontend cores: {stderr}")
 
@@ -1143,7 +1174,7 @@ async def ensure_weka_container():
     # fix/add gateway
     if NET_GATEWAY:
         if NETWORK_DEVICE not in ['udp', ""]:
-            #TODO: Multi-nic support with custom gateways
+            # TODO: Multi-nic support with custom gateways
             # figure out what is meant here ^
             if len(resources['net_devices']) != 1:
                 logging.error("Gateway configuration is not supported with multiple or zero NICs")
@@ -1169,8 +1200,10 @@ def get_boot_id():
         boot_id = file.read().strip()
     return boot_id
 
+
 def get_instructions_dir():
     return f"/host-binds/shared/instructions/{POD_ID}/{get_boot_id()}"
+
 
 @dataclass
 class ShutdownInstructions:
@@ -1179,7 +1212,7 @@ class ShutdownInstructions:
 
 
 def get_shutdown_instructions() -> ShutdownInstructions:
-    if not POD_ID: ## back compat mode for when pod was scheduled without downward api
+    if not POD_ID:  ## back compat mode for when pod was scheduled without downward api
         return ShutdownInstructions()
     instructions_dir = get_instructions_dir()
     instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
@@ -1327,7 +1360,6 @@ async def configure_agent(agent_handle_drivers=False):
         if ec != 0:
             raise Exception(f"Failed to set machine-id: {stderr}")
     logging.info("Agent configured successfully")
-
 
 
 async def override_dependencies_flag():
@@ -1661,7 +1693,7 @@ async def is_port_free(port: int) -> bool:
             s.bind(('localhost', port))
             return True
         except OSError as e:
-            if e.errno == 98: # Address already in use
+            if e.errno == 98:  # Address already in use
                 logging.debug(f"Port {port} is already in use")
                 return False
 
@@ -1670,10 +1702,10 @@ async def is_port_free(port: int) -> bool:
 
 
 async def get_free_subrange_in_port_range(
-    base_port: int,
-    max_port: int,
-    subrange_size: int,
-    exclude_ports: Optional[List[int]] = None
+        base_port: int,
+        max_port: int,
+        subrange_size: int,
+        exclude_ports: Optional[List[int]] = None
 ) -> Tuple[int, int]:
     """Get a subrange of free ports of size subrange_size in the specified port range."""
     exclude_ports = sorted(exclude_ports or [])
@@ -1744,12 +1776,14 @@ async def ensure_client_ports():
             p = await get_free_port(base_port, max_port)
             AGENT_PORT = f'{p}'
         if not parse_port(PORT):
-            p1, _ = await get_free_subrange_in_port_range(base_port, max_port, WEKA_CONTAINER_PORT_SUBRANGE, exclude_ports=[int(AGENT_PORT)])
+            p1, _ = await get_free_subrange_in_port_range(base_port, max_port, WEKA_CONTAINER_PORT_SUBRANGE,
+                                                          exclude_ports=[int(AGENT_PORT)])
             PORT = f'{p1}'
     except RuntimeError as e:
         raise Exception(f"Failed to find free ports: {e}")
     else:
         await save_weka_ports_data()
+
 
 async def save_weka_ports_data():
     write_file("/opt/weka/k8s-runtime/vars/port", str(PORT))
@@ -1758,10 +1792,10 @@ async def save_weka_ports_data():
 
 
 def parse_port(port_str: str) -> int:
-        try:
-            return int(port_str)
-        except ValueError:
-            return 0
+    try:
+        return int(port_str)
+    except ValueError:
+        return 0
 
 
 async def get_requested_drives():
@@ -1790,7 +1824,6 @@ async def wait_for_resources():
 
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
         data = json.load(f)
-
 
     RESOURCES = data
     if "failureDomain" in data:
@@ -1830,7 +1863,7 @@ async def get_single_device_ip(device_name: str = "default") -> str:
             if ec != 0:
                 raise Exception(f"Failed to get ip address for device {device_name}: {stderr}")
             ip = stdout.decode('utf-8').strip()
-    
+
     if not ip:
         raise Exception(f"Failed to get ip address for device {device_name}")
     return ip
@@ -1840,7 +1873,7 @@ async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
     if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
         return
-    
+
     ipAddresses = []
 
     if not NETWORK_DEVICE and SUBNETS:
@@ -1870,7 +1903,7 @@ async def write_management_ips():
     with open("/opt/weka/k8s-runtime/management_ips.tmp", "w") as f:
         f.write("\n".join(ipAddresses))
     os.rename("/opt/weka/k8s-runtime/management_ips.tmp", "/opt/weka/k8s-runtime/management_ips")
-    
+
     logging.info(f"Management IPs: {ipAddresses}")
     global MANAGEMENT_IPS
     MANAGEMENT_IPS = ipAddresses
@@ -1981,13 +2014,14 @@ async def main():
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
-    if MODE != "adhoc-op": # this can be specialized container that should not have agent
+    if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
         syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
         await syslog.start()
 
     await override_dependencies_flag()
-    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy", "adhoc-op"]:
+    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
+                    "adhoc-op"]:
         await ensure_drivers()
 
     if MODE != "adhoc-op":
@@ -2035,7 +2069,7 @@ async def main():
             payload = json.loads(instruction['payload'])
             signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
-            await asyncio.sleep(3) # a hack to give kernel a chance to update paths, as it's not instant
+            await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
@@ -2075,7 +2109,8 @@ async def main():
                 "driver_built": True,
                 "err": "",
                 "weka_version": weka_version.decode().strip(),
-                "kernel_signature": await get_kernel_signature(weka_pack_supported=not DIST_LEGACY_MODE, weka_drivers_handling=WEKA_DRIVERS_HANDLING),
+                "kernel_signature": await get_kernel_signature(weka_pack_supported=not DIST_LEGACY_MODE,
+                                                               weka_drivers_handling=WEKA_DRIVERS_HANDLING),
                 "weka_pack_not_supported": DIST_LEGACY_MODE,
                 "no_weka_drivers_handling": not WEKA_DRIVERS_HANDLING,
             })
@@ -2158,7 +2193,6 @@ async def takeover_shutdown():
     await run_command("weka local stop --force", capture_stdout=False)
 
 
-
 def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
     """Get the number of active mounts from the specified file.
     Return -1 if the number of active mounts cannot be determined.
@@ -2201,6 +2235,7 @@ async def watch_for_force_shutdown():
             return
         await asyncio.sleep(5)
 
+
 async def shutdown():
     global exiting
     while not (exiting or is_wrong_generation()):
@@ -2237,7 +2272,7 @@ async def shutdown():
         timeout = 60
         # print out in-kernel devices for up to 60 seconds every 0.3 seconds
         requested_drives = len(await get_requested_drives())
-        for _ in range(int(timeout/0.3)):
+        for _ in range(int(timeout / 0.3)):
             drives = await find_weka_drives()
             logging.info(f"Found {len(drives)}: {drives}")
             if len(drives) == requested_drives:
@@ -2292,7 +2327,7 @@ shutdown_task = loop.create_task(shutdown())
 takeover_shutdown_task = loop.create_task(takeover_shutdown())
 
 main_loop = loop.create_task(main())
-if MODE not in  ["adhoc-op"]:
+if MODE not in ["adhoc-op"]:
     logrotate_task = loop.create_task(periodic_logrotate())
 
 try:

@@ -37,7 +37,7 @@ KUBE_EXEC_TIMEOUT ?= 2m
 METRICS_CLUSTERS_ENABLED ?= true
 METRICS_CONTAINERS_ENABLED ?= true
 
-SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:v0.0.3-pciutils
+SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:v0.1.0-pciutils
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
