@@ -93,7 +93,7 @@ $(CRD): $(CRD_TYPES)
 
 .PHONY: crd
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
-	mkdir -p pkg/weka-k8s-api/crds/v1alpha1
+	mkdir -p charts/weka-operator/crds/
 	rm -f charts/weka-operator/crds/*
 	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
 
