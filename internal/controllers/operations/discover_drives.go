@@ -191,14 +191,14 @@ func (o *DiscoverDrivesOperation) PollResults(ctx context.Context) error {
 }
 
 func (o *DiscoverDrivesOperation) ProcessResult(ctx context.Context) error {
-	res, err := processResult(ctx, o.containers)
+	res, err := processResult(ctx, o.containers, false)
 	if res != nil {
 		o.results = *res
 	}
 	return err
 }
 
-func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer) (*DiscoverDrivesResult, error) {
+func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, skipIncompleted bool) (*DiscoverDrivesResult, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessResult")
 	defer end()
 
@@ -206,6 +206,9 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer) (*
 	errorCount := 0
 
 	for _, container := range containers {
+		if skipIncompleted && container.Status.Status != "Completed" {
+			continue
+		}
 		if container.Status.Status != "Completed" {
 			err := fmt.Errorf("container %s did not complete operation yet", container.Name)
 			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*10)

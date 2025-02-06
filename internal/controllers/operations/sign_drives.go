@@ -90,7 +90,7 @@ func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 			FinishOnSuccess:           true,
 		},
 		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		{Name: "DeleteCompletedContainers", Run: o.DeleteContainers},
 	}
 }
 
@@ -215,6 +215,16 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
+	// if force is not set, do not wait for all results, and return as many as are completed instead
+	if !o.force {
+		// wait for at least one result to be ready
+		for _, container := range o.containers {
+			if container.Status.ExecutionResult != nil {
+				return nil
+			}
+		}
+	}
+
 	allReady := true
 	for _, container := range o.containers {
 		if container.Status.ExecutionResult == nil {
@@ -231,15 +241,12 @@ func (o *SignDrivesOperation) PollResults(ctx context.Context) error {
 }
 
 func (o *SignDrivesOperation) ProcessResult(ctx context.Context) error {
-	res, err := processResult(ctx, o.containers)
-	if res != nil {
-		o.results = *res
+	res, err := processResult(ctx, o.containers, !o.force)
+	if err != nil || res == nil {
+		return err
 	}
+	o.results = *res
 	return err
-}
-
-func (o *SignDrivesOperation) GetResult() DiscoverDrivesResult {
-	return o.results
 }
 
 func (o *SignDrivesOperation) GetJsonResult() string {
@@ -256,7 +263,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		drivesCount := len(nodeResults.Drives)
 		total += drivesCount
 		if drivesCount > 0 {
-			drivesByNode[nodeName] = len(nodeResults.Drives)
+			drivesByNode[nodeName] = drivesCount
 		}
 		if nodeResults.Err != nil {
 			if len(errs) < maxErrors {
@@ -265,32 +272,40 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 		}
 	}
 
-	msg := fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results))
-	ret := map[string]interface{}{
-		"message": msg,
-		"result":  drivesByNode,
-		"errors":  errs,
-	}
-
+	ret := map[string]interface{}{}
 	if len(drivesByNode) > 0 {
-		o.RecordEvent("SignDrives", msg)
+		ret["results"] = drivesByNode
+		ret["message"] = fmt.Sprintf("Signed %d drives on %d nodes", total, len(o.results.Results))
+	} else {
+		ret["message"] = "No new drives signed"
+	}
+	if len(errs) > 0 {
+		ret["errors"] = errs
 	}
 
 	resultJSON, _ := json.Marshal(ret)
-	return string(resultJSON)
+	res := string(resultJSON)
+
+	if len(drivesByNode) > 0 {
+		o.RecordEvent("SignDrives", res)
+	}
+	return res
 }
 
 func (o *SignDrivesOperation) DeleteContainers(ctx context.Context) error {
+	updatedContainers := []*weka.WekaContainer{}
+
 	for _, container := range o.containers {
-		if container == nil {
-			continue
-		}
-		err := o.client.Delete(ctx, container)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return err
+		if container.Status.ExecutionResult != nil || o.force {
+			err := o.client.Delete(ctx, container)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		} else {
+			updatedContainers = append(updatedContainers, container)
 		}
 	}
-	o.containers = nil
+	o.containers = updatedContainers
 	return nil
 }
 
