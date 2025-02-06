@@ -103,7 +103,7 @@ tolerations: []
 skipUnhealthyToleration: false
 deploymentIdentifier: ""
 
-signDrivesImage: quay.io/weka.io/weka-sign-tool:v0.1.0-pciutils
+signDrivesImage: quay.io/weka.io/weka-sign-tool:v0.1.1-pciutils
 
 nodeAgent:
   resources:
