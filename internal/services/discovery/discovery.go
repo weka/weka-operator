@@ -19,7 +19,7 @@ import (
 
 const (
 	DiscoveryAnnotation     = "weka.io/discovery.json"
-	DiscoveryTargetSchema   = 2
+	DiscoveryTargetSchema   = 3
 	ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
 )
 
