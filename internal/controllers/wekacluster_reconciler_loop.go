@@ -1854,7 +1854,7 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 	containers := make([]*wekav1alpha1.WekaContainer, 0)
 
-	clusterReady := meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterReady)
+	clusterReady := meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated)
 
 	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs"} {
 		var numContainers int
