@@ -28,7 +28,9 @@ spec:
         "kubectl.kubernetes.io/default-container": node-agent
       labels:
         control-plane: weka-node-agent
+        app.kubernetes.io/created-by: weka-operator
         app.kubernetes.io/component: weka-node-agent
+        app: weka-node-agent
     spec:
       securityContext:
         runAsNonRoot: false

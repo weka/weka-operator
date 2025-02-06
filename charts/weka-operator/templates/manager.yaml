@@ -23,6 +23,8 @@ spec:
         prometheus.io/path: "/metrics"
       labels:
         control-plane: controller-manager
+        app.kubernetes.io/component: weka-operator
+        app.kubernetes.io/created-by: weka-operator
         app: weka-operator
     spec:
       securityContext:
