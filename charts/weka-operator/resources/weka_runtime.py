@@ -172,7 +172,7 @@ async def sign_device_path(device_path, options: SignOptions):
     if options.allowEraseNonWekaPartitions:
         params.append("--allow-erase-non-weka-partitions")
     if options.allowNonEmptyDevice:
-        params.append("--allow-erase-non-empty-device")
+        params.append("--allow-non-empty-device")
     if options.skipTrimFormat:
         params.append("--skip-trim-format")
 
