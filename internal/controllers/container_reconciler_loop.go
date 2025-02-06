@@ -323,7 +323,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.PodNotSet,
 				},
 				ContinueOnPredicatesFalse: true,
-				OnFail:                    loop.setErrorStatus,
 			},
 			{
 				Run: loop.ensurePodNotRunningState,
@@ -1205,6 +1204,7 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 
 	ipAddresses, err := r.getManagementIps(ctx)
 	if err != nil {
+		err = errors.New("waiting for management IPs")
 		return err
 	}
 
@@ -2544,7 +2544,7 @@ func (r *containerReconcilerLoop) handleWekaLocalPsResponse(ctx context.Context,
 	}
 
 	if len(response) == 0 {
-		err = errors.New("Expected at least one container to be present, none found")
+		err = errors.New("weka local ps response is empty")
 		return
 	}
 
@@ -2642,6 +2642,11 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 }
 
 func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName string, err error) error {
+	// ignore "the object has been modified" errors
+	if apierrors.IsConflict(err) {
+		return nil
+	}
+
 	reason := fmt.Sprintf("%sError", stepName)
 	r.RecordEvent(v1.EventTypeWarning, reason, err.Error())
 
