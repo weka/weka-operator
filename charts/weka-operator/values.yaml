@@ -131,3 +131,5 @@ upgrade:
   computeThresholdPercent: 90
   driveThresholdPercent: 90
   maxDeactivatingContainersPercent: 10
+podMonitor:
+  enabled: true
