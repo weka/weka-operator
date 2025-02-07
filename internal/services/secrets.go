@@ -88,6 +88,7 @@ type SecretsService interface {
 	EnsureLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 	EnsureClientLoginCredentials(ctx context.Context, cluster *wekav1alpha1.WekaCluster, container *wekav1alpha1.WekaContainer) error
 	EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error
+	UpdateCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error
 	UpdateOperatorLoginSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster) error
 }
 
@@ -133,30 +134,54 @@ func (r *secretsService) UpdateOperatorLoginSecret(ctx context.Context, cluster 
 	return nil
 }
 
-func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureCSILoginCredentials")
+func (r *secretsService) UpdateCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "updateCSILoginCredentials")
 	defer end()
 
-	kubeService := kubernetes.NewKubeService(r.Client)
-	containers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+	cluster := clusterService.GetCluster()
+	secret := v1.Secret{}
+	err := r.Client.Get(ctx, client.ObjectKey{
+		Name:      cluster.GetCSISecretName(),
+		Namespace: cluster.Namespace,
+	}, &secret)
 	if err != nil {
 		return err
 	}
 
-	endpoints := []string{}
-	nfsTargetIps := []string{}
-
-	for _, container := range containers {
-		hostIps := container.GetHostIps()
-		endpoints = append(endpoints, hostIps...)
-		if container.IsNfsContainer() {
-			nfsTargetIps = append(nfsTargetIps, container.Status.GetManagementIps()...)
-		}
+	containers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
 	}
+	endpoints := GetClusterEndpoints(ctx, containers, 30)
+	nfsTargetIps := GetClusterNfsTargetIps(ctx, containers)
+
+	secret.Data["endpoints"] = []byte(strings.Join(endpoints, ","))
+	if nfsTargetIps != nil && len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
+		secret.Data["nfsTargetIps"] = []byte(strings.Join(nfsTargetIps, ","))
+	}
+
+	if err := r.Client.Update(ctx, &secret); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *secretsService) EnsureCSILoginCredentials(ctx context.Context, clusterService WekaClusterService) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureCSILoginCredentials")
+	defer end()
+
+	containers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
+	}
+	endpoints := GetClusterEndpoints(ctx, containers, 30)
+	nfsTargetIps := GetClusterNfsTargetIps(ctx, containers)
 
 	cluster := clusterService.GetCluster()
 	clientSecret := NewCsiSecret(ctx, cluster, endpoints, nfsTargetIps)
 
+	kubeService := kubernetes.NewKubeService(r.Client)
 	if err := kubeService.EnsureSecret(ctx, clientSecret, &kubernetes.K8sOwnerRef{
 		Scheme: r.Scheme,
 		Obj:    cluster,

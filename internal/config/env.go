@@ -136,6 +136,8 @@ var Consts struct {
 	FormClusterMaxComputeContainers int
 	// Max drive containers to be UP before forming a weka cluster
 	FormClusterMaxDriveContainers int
+	// Interval at which CSI secret with container ips will be updated
+	CSILoginCredentialsUpdateInterval time.Duration
 }
 
 func init() {
@@ -149,6 +151,7 @@ func init() {
 	Consts.FormClusterMinDriveContainers = 5
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
+	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {
