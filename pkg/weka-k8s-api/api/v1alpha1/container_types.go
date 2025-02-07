@@ -85,9 +85,12 @@ type ContainerState string
 
 const (
 	ContainerStateActive ContainerState = "active"
+	// Paused state indicates that the cluster which owns the container is in grace period before being destroyed
 	ContainerStatePaused ContainerState = "paused"
-	// ContainerStateDestroying state indicates that the cluster is being destroyed
+	// Destroying state indicates that the container can be destroyed without any additional steps (such as deactivation)
 	ContainerStateDestroying ContainerState = "destroying"
+	// Deleting state indicates that the container is being deleted, normally such container should go through deactivation flow
+	ContainerStateDeleting ContainerState = "deleting"
 )
 
 type WekaContainerSpecOverrides struct {
@@ -154,7 +157,7 @@ type WekaContainerSpec struct {
 	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
 	// +kubebuilder:default=manual
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
-	// +kubebuilder:validation:Enum=active;paused;destroying
+	// +kubebuilder:validation:Enum=active;paused;destroying;deleting
 	// +kubebuilder:default=active
 	State           ContainerState              `json:"state,omitempty"`
 	AllowHotUpgrade bool                        `json:"allowHotUpgrade,omitempty"`
@@ -503,8 +506,12 @@ func (c *WekaContainer) IsPaused() bool {
 	return c.Spec.State == ContainerStatePaused
 }
 
-func (c *WekaContainer) IsDestroying() bool {
+func (c *WekaContainer) IsDestroyingState() bool {
 	return c.Spec.State == ContainerStateDestroying
+}
+
+func (c *WekaContainer) IsDeletingState() bool {
+	return c.Spec.State == ContainerStateDeleting
 }
 
 func (c *WekaContainer) IsDeactivated() bool {
