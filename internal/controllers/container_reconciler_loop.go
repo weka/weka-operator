@@ -53,6 +53,7 @@ const (
 	PodStatePodRunning      = "PodRunning"
 	WaitForDrivers          = "WaitForDrivers"
 	ContainerStatusRunning  = "Running"
+	ContainerStatusDeleting = "Deleting"
 	ContainerStatusDegraded = "Degraded"
 	Unhealthy               = "Unhealthy"
 	Error                   = "Error"
@@ -145,15 +146,33 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 		Throttler:    r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
 		Conditions:   &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
-			{Run: loop.GetNode},
+			// put self in state "destroying" if container is marked for deletion
 			{
-				Run: loop.handleStateDestroying,
+				Run: loop.ensureStateDeleting,
 				Predicates: lifecycle.Predicates{
-					container.IsDestroying,
-					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(container.IsDeletingState),
+					lifecycle.IsNotFunc(container.IsDestroyingState),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			// if cluster marked container state as deleting, update status and put deletion timestamp
+			{
+				Run: loop.handleStateDeleting,
+				Predicates: lifecycle.Predicates{
+					container.IsDeletingState,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			// if cluster marked container state as destroying, update status and put deletion timestamp
+			{
+				Run: loop.handleStateDestroying,
+				Predicates: lifecycle.Predicates{
+					container.IsDestroyingState,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{Run: loop.GetNode},
 			{
 				Condition:  condition.CondRemovedFromS3Cluster,
 				CondReason: "Deletion",
@@ -169,8 +188,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondReason: "Deletion",
 				Run:        loop.DeactivateDrives,
 				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					loop.ShouldDeactivate,
 					container.IsDriveContainer,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -180,8 +198,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondReason: "Deletion",
 				Run:        loop.DeactivateWekaContainer,
 				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					loop.ShouldDeactivate,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -190,8 +207,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondReason: "Deletion",
 				Run:        loop.RemoveDeactivatedContainersDrives,
 				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					loop.ShouldDeactivate,
 					container.IsDriveContainer,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -201,8 +217,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondReason: "Deletion",
 				Run:        loop.RemoveDeactivatedContainers,
 				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.CanSkipDeactivate),
+					loop.ShouldDeactivate,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -369,7 +384,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.WaitForRunning},
-
 			{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
@@ -390,7 +404,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{
 				Run: loop.updateAdhocOpStatus,
 				Predicates: lifecycle.Predicates{
-					container.IsAdhocOpContainer,
+					lifecycle.Or(container.IsAdhocOpContainer, container.IsDiscoveryContainer),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -864,8 +878,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			} else {
 				if time.Since(since.Time) > 5*time.Minute {
 					// lets start deactivate flow, we are doing it by deleting weka container
-					err := r.Delete(ctx, r.container)
-					if err != nil {
+					if err := r.ensureStateDeleting(ctx); err != nil {
 						return err
 					} else {
 						return lifecycle.NewWaitError(errors.New("deleting weka container"))
@@ -1047,21 +1060,47 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 	return nil
 }
 
-func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
-	if r.container.Status.Status != strings.ToUpper(string(weka.ContainerStateDestroying)) {
-		r.container.Status.Status = strings.ToUpper(string(weka.ContainerStateDestroying))
-		err := r.Status().Update(ctx, r.container)
-		if err != nil {
-			return errors.Wrap(err, "Failed to update status")
+func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error {
+	if r.container.Spec.State != weka.ContainerStateDeleting {
+		r.container.Spec.State = weka.ContainerStateDeleting
+		if err := r.Update(ctx, r.container); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	// self-delete
-	err := r.Delete(ctx, r.container)
-	if err != nil {
+func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error {
+	if err := r.updateContainerStatusIfNotEquals(ctx, ContainerStatusDeleting); err != nil {
 		return err
 	}
-	return lifecycle.NewWaitError(errors.New("Container is being deleting, refetching"))
+
+	if !r.container.IsMarkedForDeletion() {
+		// self-delete
+		err := r.Delete(ctx, r.container)
+		if err != nil {
+			return err
+		}
+		return lifecycle.NewWaitError(errors.New("Container is being deleting, refetching"))
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
+	destroyingStatus := strings.ToUpper(string(weka.ContainerStateDestroying))
+	if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
+		return err
+	}
+
+	if !r.container.IsMarkedForDeletion() {
+		// self-delete
+		err := r.Delete(ctx, r.container)
+		if err != nil {
+			return err
+		}
+		return lifecycle.NewWaitError(errors.New("Container is being deleting, refetching"))
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
@@ -1187,11 +1226,8 @@ func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
 		}
 	}
 
-	if restarts > 0 && r.container.Status.Status != Unhealthy {
-		r.container.Status.Status = Unhealthy
-		if err := r.Status().Update(ctx, r.container); err != nil {
-			return err
-		}
+	if restarts > 0 {
+		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
 	}
 	return nil
 }
@@ -1734,14 +1770,7 @@ func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context) error {
-	if r.container.Status.Status != WaitForDrivers {
-		r.container.Status.Status = WaitForDrivers
-		err := r.Status().Update(ctx, r.container)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.updateContainerStatusIfNotEquals(ctx, WaitForDrivers)
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
@@ -1954,11 +1983,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	logger.InfoWithStatus(codes.Ok, "All drives added")
 
-	if r.container.Status.Status != ContainerStatusRunning {
-		r.container.Status.Status = ContainerStatusRunning
-		return r.Status().Update(ctx, r.container)
-	}
-	return nil
+	return r.updateContainerStatusIfNotEquals(ctx, ContainerStatusRunning)
 }
 
 func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor util.Exec) (map[string]operations.DriveInfo, error) {
@@ -2585,12 +2610,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
 	if err != nil {
 		if strings.Contains(err.Error(), "container not found") {
-			if container.Status.Status != Unhealthy {
-				container.Status.Status = Unhealthy
-				err = r.Status().Update(ctx, container)
-				if err != nil {
-					return err
-				}
+			if err := r.updateContainerStatusIfNotEquals(ctx, Unhealthy); err != nil {
+				return err
 			}
 			return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 		}
@@ -3022,14 +3043,7 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 }
 
 func (r *containerReconcilerLoop) updateDriversBuilderStatus(ctx context.Context) error {
-	if r.container.Status.Status != Building {
-		r.container.Status.Status = Building
-		err := r.Status().Update(ctx, r.container)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.updateContainerStatusIfNotEquals(ctx, Building)
 }
 
 func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
@@ -3037,21 +3051,22 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 }
 
 func (r *containerReconcilerLoop) ensurePodNotRunningState(ctx context.Context) error {
-	if r.container.Status.Status != PodStatePodNotRunning {
-		r.container.Status.Status = PodStatePodNotRunning
-		err := r.Status().Update(ctx, r.container)
-		if err != nil {
-			return err
-		}
+	return r.updateContainerStatusIfNotEquals(ctx, PodStatePodNotRunning)
+}
+
+func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error {
+	if r.pod.Status.Phase == v1.PodRunning {
+		return r.updateContainerStatusIfNotEquals(ctx, PodStatePodRunning)
 	}
 	return nil
 }
 
-func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error {
-	if r.pod.Status.Phase == v1.PodRunning && r.container.Status.Status != PodStatePodRunning {
-		r.container.Status.Status = PodStatePodRunning
+func (r *containerReconcilerLoop) updateContainerStatusIfNotEquals(ctx context.Context, newStatus string) error {
+	if r.container.Status.Status != newStatus {
+		r.container.Status.Status = newStatus
 		err := r.Status().Update(ctx, r.container)
 		if err != nil {
+			err := fmt.Errorf("failed to update container status: %w", err)
 			return err
 		}
 	}
@@ -3218,8 +3233,12 @@ func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
 	return meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerDrivesRemoved)
 }
 
+func (r *containerReconcilerLoop) ShouldDeactivate() bool {
+	return r.container.IsMarkedForDeletion() && !r.CanSkipDeactivate()
+}
+
 func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
-	if !r.container.IsActive() {
+	if r.container.IsPaused() || r.container.IsDestroyingState() {
 		// if container state is paused/destroying, it means that cluster is being deleted
 		// and we can skip deactivation flow
 		return true

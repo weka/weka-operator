@@ -63,7 +63,7 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 
 	toDelete := []*wekav1alpha1.WekaContainer{}
 	for _, container := range containers {
-		if container.IsDestroying() {
+		if container.IsDestroyingState() {
 			continue
 		} else {
 			toDelete = append(toDelete, container)
@@ -71,7 +71,7 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 	}
 
 	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-		if !container.IsDestroying() {
+		if !container.IsDestroyingState() {
 			patch := map[string]interface{}{
 				"spec": map[string]interface{}{
 					"state": wekav1alpha1.ContainerStateDestroying,
