@@ -99,6 +99,8 @@ func GetCluster(ctx context.Context, c client.Client, name weka.ObjectReference)
 // (if FD label is not provided, FD will be empty string)
 func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error) {
 	joinIpsByFD := make(map[string][]string)
+	firstPassSuitable := []*weka.WekaContainer{}
+	selected := []*weka.WekaContainer{}
 	for _, container := range containers {
 		// use compute containers ips
 		if container.Spec.Mode != weka.WekaContainerModeCompute {
@@ -110,11 +112,32 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 		if len(container.Status.GetManagementIps()) == 0 {
 			continue
 		}
-		if container.Status.Status != "Running" {
-			//TODO: Integrate/replace with healthcheck mechanics for more elaborate healthcheck
-			continue
-		}
 
+		firstPassSuitable = append(firstPassSuitable, container)
+	}
+
+	for _, container := range firstPassSuitable {
+		if container.Status.Status == "Running" {
+			//TODO: Integrate/replace with healthcheck mechanics for more elaborate healthcheck
+			selected = append(selected, container)
+		}
+	}
+
+	if len(selected) < 5 {
+		// if we could not select 5 containers, we will select 5 more random containers
+		util2.Shuffle(firstPassSuitable)
+
+		for _, container := range firstPassSuitable {
+			if container.Status.Status != "Running" {
+				selected = append(selected, container)
+			}
+			if len(selected) >= 30 {
+				break
+			}
+		}
+	}
+
+	for _, container := range selected {
 		containerJoinIps := make([]string, 0, len(container.Status.GetManagementIps()))
 		for _, ip := range container.Status.GetManagementIps() {
 			joinIp := WrapIpv6Brackets(ip) + ":" + strconv.Itoa(container.GetPort())

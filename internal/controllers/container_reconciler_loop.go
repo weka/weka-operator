@@ -180,7 +180,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:        loop.RemoveFromS3Cluster,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
-					lifecycle.IsNotFunc(loop.CanSkipRemoveFromS3Cluster),
 					container.IsS3Container,
 				},
 				ContinueOnPredicatesFalse: true,
@@ -226,8 +225,45 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.stopForceAndEnsureNoPod, // we want to force stop drives to release
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
+					lifecycle.Or(
+						loop.ShouldDeactivate, // if we were deactivating - we should also force stop, as we are safe at this point
+						container.IsDestroyingState,
+					),
 					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
 					// is it safe to force stop
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			// this will allow go back into deactivate flow if we detected that container joined the cluster
+			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
+			{
+				Run:  lifecycle.ForceNoError(loop.refreshPod),
+				Name: "RefreshPod",
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: lifecycle.ForceNoError(loop.reconcileClusterStatus),
+				Predicates: lifecycle.Predicates{
+					container.ShouldJoinCluster,
+					container.IsMarkedForDeletion,
+					func() bool {
+						return container.Status.ClusterContainerID == nil
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.stopAndEnsureNoPod,
+				//if we decided not to deactivate because we never joined the cluster - we should safe stop as there is a race potential
+				//if it gets stuck - so be it, this is unsafe race
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotFunc(loop.ShouldDeactivate),
+					lifecycle.IsNotFunc(container.IsDestroyingState),
+					container.IsBackend,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1291,6 +1327,14 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 	container := r.container
 	pod := r.pod
 
+	if r.pod == nil {
+		return errors.New("Pod is not found")
+	}
+
+	if r.container.Status.ClusterContainerID != nil {
+		return nil
+	}
+
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
@@ -1622,6 +1666,61 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 			err = r.runWekaLocalStop(ctx, pod, true)
 			if err != nil {
 				logger.Error(err, "Error force-stopping weka local")
+				return err
+			}
+		}
+	}
+
+	err = r.Delete(ctx, pod)
+	if err != nil {
+		logger.Error(err, "Error deleting pod")
+		return err
+	}
+	logger.AddEvent("Pod deleted")
+	return lifecycle.NewWaitError(errors.New("Pod deleted, reconciling for retry"))
+}
+
+func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error {
+	//TODO: Can we search pods by ownership?
+	//TODO: Code duplication with force variant, for now on purpose for easier breaking apart of logic
+
+	container := r.container
+
+	skipExec := false
+	if r.node != nil {
+		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
+	defer end()
+
+	pod := &v1.Pod{}
+	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		logger.Error(err, "Error getting pod")
+		return err
+	}
+
+	logger.Info("Deleting pod", "pod", pod.Name)
+	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
+	if err != nil {
+		// do not return error, as we are deleting pod anyway
+		logger.Error(err, "Error writing allow stop instruction")
+	}
+
+	//TODO: Refactor client/not client /active-non-active as steps
+	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
+		if r.container.HasAgent() {
+			logger.Debug("Force-stopping weka local")
+			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
+			// for versions that do not yet support graceful shutdown touch-flag, we will force stop weka local
+			// this might impact performance of shrink, but should not be affecting whole cluster deletion
+			err = r.runWekaLocalStop(ctx, pod, false)
+			if err != nil {
+				logger.Error(err, "Error stopping weka container")
 				return err
 			}
 		}
@@ -3249,7 +3348,7 @@ func (r *containerReconcilerLoop) ShouldDeactivate() bool {
 		return false
 	}
 
-	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedCluster) {
+	if r.container.Status.ClusterContainerID == nil {
 		return false
 	}
 	// should deactivate does not represent if deactivation was done or not
@@ -3261,16 +3360,6 @@ func (r *containerReconcilerLoop) ShouldDeactivate() bool {
 
 func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
 	return r.container.Spec.Overrides.SkipDeactivate
-}
-
-func (r *containerReconcilerLoop) CanSkipRemoveFromS3Cluster() bool {
-	if !r.container.IsS3Container() {
-		return true
-	}
-	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedS3Cluster) {
-		return true
-	}
-	return r.CanSkipDeactivate()
 }
 
 func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
