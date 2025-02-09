@@ -1992,6 +1992,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		return err
 	}
 
+	if container.Status.Stats != nil {
+		if int(container.Status.Stats.Drives.DriveCounters.Active) == len(container.Status.Allocations.Drives) {
+			return r.updateContainerStatusIfNotEquals(ctx, ContainerStatusRunning)
+		}
+	}
+
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
