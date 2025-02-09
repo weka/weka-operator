@@ -90,6 +90,17 @@ func Or(predicates ...PredicateFunc) PredicateFunc {
 	}
 }
 
+func And(predicates ...PredicateFunc) PredicateFunc {
+	return func() bool {
+		for _, predicate := range predicates {
+			if !predicate() {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 // Errors ----------------------------------------------------------------------
 type AbortedByPredicate struct {
 	error

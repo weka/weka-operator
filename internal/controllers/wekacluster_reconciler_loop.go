@@ -1373,6 +1373,9 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 	// Allocate resources for all containers at once, log-report for failed
 	toAllocate := []*wekav1alpha1.WekaContainer{}
 	for _, container := range r.containers {
+		if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+			continue
+		}
 		if container.Status.NodeAffinity == "" {
 			continue
 		}
@@ -1397,10 +1400,14 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 		if failedAllocs, ok := err.(*allocator.FailedAllocations); ok {
 			err = fmt.Errorf("failed to allocate resources for %d containers", len(*failedAllocs))
 			logger.Error(err, "", "failedAllocs", failedAllocs)
-			r.RecordEvent(v1.EventTypeWarning, "FailedAllocations", err.Error())
-			// we proceed despite failures, as partial might be sufficient(?)
+			_ = r.RecordEvent(v1.EventTypeWarning, "FailedAllocations", err.Error())
+			for _, alloc := range *failedAllocs {
+				// we landed in some conflicting place, evicting for rescheduling
+				alloc.Container.Spec.State = wekav1alpha1.ContainerStateDeleting
+				_ = r.getClient().Update(ctx, alloc.Container)
+			}
 		} else {
-			r.RecordEvent(v1.EventTypeWarning, "ResourcesAllocationError", err.Error())
+			_ = r.RecordEvent(v1.EventTypeWarning, "ResourcesAllocationError", err.Error())
 			return err
 		}
 	}

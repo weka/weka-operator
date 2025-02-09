@@ -178,8 +178,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondReason: "Deletion",
 				Run:        loop.RemoveFromS3Cluster,
 				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
+					loop.ShouldDeactivate,
 					lifecycle.IsNotFunc(loop.CanSkipRemoveFromS3Cluster),
+					container.IsS3Container,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -189,7 +190,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:        loop.DeactivateDrives,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
-					container.IsDriveContainer,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -222,11 +222,11 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.stopForceAndEnsureNoPod,
+				Run: loop.stopForceAndEnsureNoPod, // we want to force stop drives to release
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
-					loop.CanProceedDeletion,
-					container.IsDriveContainer,
+					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
+					// is it safe to force stop
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -245,7 +245,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
-					loop.CanProceedDeletion,
 				},
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
@@ -3229,29 +3228,30 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	return TracedPatch()
 }
 
-func (r *containerReconcilerLoop) CondContainerDrivesRemoved() bool {
-	return meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerDrivesRemoved)
-}
-
 func (r *containerReconcilerLoop) ShouldDeactivate() bool {
-	return r.container.IsMarkedForDeletion() && !r.CanSkipDeactivate()
+	if !r.container.IsBackend() {
+		return false
+	}
+
+	if r.container.Spec.GetOverrides().SkipDeactivate {
+		return false
+	}
+
+	if !r.container.IsDeletingState() {
+		return false
+	}
+
+	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedCluster) {
+		return false
+	}
+	// should deactivate does not represent if deactivation was done or not
+	// only if it needs to be deactivated
+	// this ensures us that handle deletion wont be reached until deactivation is done, if it should be done
+	return true
+
 }
 
 func (r *containerReconcilerLoop) CanSkipDeactivate() bool {
-	if r.container.IsPaused() || r.container.IsDestroyingState() {
-		// if container state is paused/destroying, it means that cluster is being deleted
-		// and we can skip deactivation flow
-		return true
-	}
-	if !r.container.IsBackend() {
-		return true
-	}
-	if !meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondJoinedCluster) {
-		return true
-	}
-	if r.container.Spec.Overrides == nil {
-		return false
-	}
 	return r.container.Spec.Overrides.SkipDeactivate
 }
 
@@ -3266,25 +3266,7 @@ func (r *containerReconcilerLoop) CanSkipRemoveFromS3Cluster() bool {
 }
 
 func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
-	if r.container.Spec.Overrides == nil {
-		return false
-	}
-	return r.container.Spec.Overrides.SkipDrivesForceResign
-}
-
-func (r *containerReconcilerLoop) CanProceedDeletion() bool {
-	if r.CanSkipDeactivate() {
-		return true
-	}
-	if !r.container.IsRemoved() {
-		return false
-	}
-	// drives removal is wekacluster reconciler responsibility
-	// (after continer deactivation there's no access to weka commands on cluster level)
-	if r.container.IsDriveContainer() && !r.container.DrivesRemoved() {
-		return false
-	}
-	return true
+	return r.container.Spec.GetOverrides().SkipDrivesForceResign
 }
 
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
