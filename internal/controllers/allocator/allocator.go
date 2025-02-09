@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -231,6 +232,8 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 
 	for _, container := range containers {
 		logger.Debug("Allocating container", "name", container.ObjectMeta.Name)
+		// check if node already has same role-container, if yes - return as unschedulable
+		// if not, allocate resources and update nodeMap
 
 		if container.Status.Allocations != nil {
 			logger.Info("Container already allocated", "name", container.ObjectMeta.Name)
@@ -267,6 +270,11 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 			delete(nodeAlloc.AllocatedRanges, owner)
 			logger.Error(err, "Reverted allocation", "container", container.Name)
 			failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
+		}
+
+		if nodeAlloc.HasDifferentContainerSameClusterRole(owner) && !cluster.Spec.GetOverrides().DisregardRedundancy {
+			revert(errors.New("Role container already allocated on this node"), container)
+			continue
 		}
 
 		if container.Spec.NumDrives > 0 {

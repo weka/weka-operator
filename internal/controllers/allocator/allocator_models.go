@@ -98,6 +98,15 @@ func (n *NodeAllocations) deallocateDrives(owner Owner) {
 	delete(n.Drives, owner)
 }
 
+func (n *NodeAllocations) HasDifferentContainerSameClusterRole(owner Owner) bool {
+	for o := range n.AllocatedRanges {
+		if owner.IsSameClusterAndRole(o) && owner.Container != o.Container {
+			return true
+		}
+	}
+	return false
+}
+
 func (o Owner) ToNamespacedObject() util.NamespacedObject {
 	return util.NamespacedObject{
 		Namespace: o.Namespace,

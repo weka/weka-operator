@@ -51,6 +51,7 @@ import (
 const (
 	PodStatePodNotRunning   = "PodNotRunning"
 	PodStatePodRunning      = "PodRunning"
+	PodTerminating          = "PodTerminating"
 	WaitForDrivers          = "WaitForDrivers"
 	ContainerStatusRunning  = "Running"
 	ContainerStatusDeleting = "Deleting"
@@ -453,6 +454,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:  loop.reconcileWekaLocalStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsWekaContainer,
+					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
+					loop.IsStatusOvervwritableByLocal,
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setErrorStatus,
@@ -813,6 +816,11 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	pod := r.pod
 	container := r.container
 
+	destroyingStatus := "PodTerminating"
+	if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
+		return err
+	}
+
 	skipExec := false
 	if r.node != nil {
 		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
@@ -1086,7 +1094,7 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
-	destroyingStatus := strings.ToUpper(string(weka.ContainerStateDestroying))
+	destroyingStatus := string(weka.ContainerStateDestroying)
 	if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
 		return err
 	}
@@ -1106,7 +1114,7 @@ func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	newStatus := strings.ToUpper(string(weka.ContainerStatePaused))
+	newStatus := string(weka.ContainerStatePaused)
 	if r.container.Status.Status != newStatus {
 		err := r.stopForceAndEnsureNoPod(ctx)
 		if err != nil {
@@ -3427,4 +3435,17 @@ func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) err
 	}
 	delete(r.container.Status.Timestamps, TimestampStopAttempt)
 	return r.Status().Update(ctx, r.container)
+}
+
+func (r *containerReconcilerLoop) IsStatusOvervwritableByLocal() bool {
+	// we do not want to overwrite this statuses, as they proxy some higher-level state
+	if slices.Contains(
+		[]string{
+			string(weka.ContainerStateDeleting),
+			string(weka.WekaClusterStatusDestroying),
+			PodTerminating,
+		}, r.container.Status.Status) {
+		return false
+	}
+	return true
 }
