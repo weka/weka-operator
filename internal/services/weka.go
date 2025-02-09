@@ -786,8 +786,8 @@ func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId in
 		"wekaauthcli", "cluster", "drive", "--container", strconv.Itoa(containerId), "--json",
 	}
 
-	var drives []Drive
-	err := c.RunJsonCmd(ctx, cmd, "ListListContainerDrivesDrives", &drives)
+	drives := []Drive{}
+	err := c.RunJsonCmd(ctx, cmd, "ListContainerDrives", &drives)
 	if err != nil {
 		return nil, err
 	}

@@ -1585,11 +1585,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	cluster.Status.PrinterColumns.DriveContainers = wekav1alpha1.StringMetric(cluster.Status.Stats.Containers.Drive.Containers.String())
 	cluster.Status.PrinterColumns.Drives = wekav1alpha1.StringMetric(cluster.Status.Stats.Drives.DriveCounters.String())
 
-	if err := r.getClient().Status().Update(ctx, cluster); err != nil {
-		return err
-	}
-
-	return nil
+	return r.getClient().Status().Update(ctx, cluster)
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
@@ -1927,6 +1923,46 @@ func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.C
 		}
 	}
 	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) UpdateCSIEndpoints(ctx context.Context) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "updateCSILoginCredentials")
+	defer end()
+
+	cluster := r.cluster
+	secret := v1.Secret{}
+	err := r.getClient().Get(ctx, client.ObjectKey{
+		Name:      cluster.GetCSISecretName(),
+		Namespace: cluster.Namespace,
+	}, &secret)
+	if err != nil {
+		return err
+	}
+
+	containers := discovery.SelectOperationalContainers(r.containers, 30, nil)
+	endpoints := discovery.GetClusterEndpoints(ctx, containers, 30)
+
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
+
+	if template.NfsContainers != 0 {
+		nfsContainers := discovery.SelectOperationalContainers(r.SelectNfsContainers(containers), 30, []string{wekav1alpha1.WekaContainerModeNfs})
+		nfsTargetIps := discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
+		if nfsTargetIps != nil && len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
+			secret.Data["nfsTargetIps"] = []byte(strings.Join(nfsTargetIps, ","))
+		}
+	}
+
+	secret.Data["endpoints"] = []byte(strings.Join(endpoints, ","))
+
+	if err := r.getClient().Update(ctx, &secret); err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
 type UpdatableClusterSpec struct {

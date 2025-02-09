@@ -222,35 +222,3 @@ func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
 func (r *wekaClusterService) EnsureNoNfsContainers(ctx context.Context) error {
 	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfs)
 }
-
-func GetClusterEndpoints(ctx context.Context, containers []*wekav1alpha1.WekaContainer, maxEndpoints int) []string {
-	var endpoints []string
-	for _, container := range containers {
-		if container.IsMarkedForDeletion() {
-			continue
-		}
-		if hostIps := container.GetHostIps(); len(hostIps) > 0 {
-			endpoints = append(endpoints, hostIps[0])
-		}
-		if len(endpoints) >= maxEndpoints {
-			break
-		}
-	}
-	return endpoints
-}
-
-func GetClusterNfsTargetIps(ctx context.Context, containers []*wekav1alpha1.WekaContainer) []string {
-	var nfsTargetIps []string
-	for _, container := range containers {
-		if container.IsMarkedForDeletion() {
-			continue
-		}
-		if container.IsNfsContainer() {
-			managementIps := container.Status.GetManagementIps()
-			if len(managementIps) > 0 {
-				nfsTargetIps = append(nfsTargetIps, managementIps[0])
-			}
-		}
-	}
-	return nfsTargetIps
-}

@@ -95,21 +95,33 @@ func GetCluster(ctx context.Context, c client.Client, name weka.ObjectReference)
 	return cluster, nil
 }
 
-// Returns a map of FD to join IP port pairs
-// (if FD label is not provided, FD will be empty string)
-func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error) {
-	joinIpsByFD := make(map[string][]string)
+func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers int, roles []string) []*weka.WekaContainer {
 	firstPassSuitable := []*weka.WekaContainer{}
 	selected := []*weka.WekaContainer{}
+	util2.Shuffle(containers)
+
 	for _, container := range containers {
-		// use compute containers ips
-		if container.Spec.Mode != weka.WekaContainerModeCompute {
-			continue
+		// if roles are set - select only suitable roles
+		if len(roles) > 0 {
+			roleFound := false
+			for _, role := range roles {
+				if container.Spec.Mode == role {
+					roleFound = true
+					break
+				}
+			}
+			if !roleFound {
+				continue
+			}
 		}
 		if container.Status.ClusterContainerID == nil {
 			continue
 		}
 		if len(container.Status.GetManagementIps()) == 0 {
+			continue
+		}
+
+		if container.Status.Status == "PodNotRunning" {
 			continue
 		}
 
@@ -123,19 +135,56 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 		}
 	}
 
-	if len(selected) < 5 {
-		// if we could not select 5 containers, we will select 5 more random containers
+	if len(selected) < numContainers {
+		// if we could not select target amount of  containers, we will select somem random that are not running
 		util2.Shuffle(firstPassSuitable)
 
 		for _, container := range firstPassSuitable {
 			if container.Status.Status != "Running" {
 				selected = append(selected, container)
 			}
-			if len(selected) >= 30 {
+			if len(selected) >= numContainers {
 				break
 			}
 		}
 	}
+
+	return selected
+}
+
+func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, maxEndpoints int) []string {
+	var endpoints []string
+	for _, container := range containers {
+		if hostIps := container.GetHostIps(); len(hostIps) > 0 {
+			endpoints = append(endpoints, hostIps[0])
+		}
+		if len(endpoints) >= maxEndpoints {
+			break
+		}
+	}
+	return endpoints
+}
+
+func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContainer) []string {
+	var nfsTargetIps []string
+	for _, container := range containers {
+		if container.IsNfsContainer() {
+			managementIps := container.Status.GetManagementIps()
+			if len(managementIps) > 0 {
+				nfsTargetIps = append(nfsTargetIps, managementIps[0])
+			}
+		}
+	}
+	return nfsTargetIps
+}
+
+// Returns a map of FD to join IP port pairs
+// (if FD label is not provided, FD will be empty string)
+func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error) {
+	joinIpsByFD := make(map[string][]string)
+
+	//TODO: Integrate FD-selection(best-effort) logic into selectOperational
+	selected := SelectOperationalContainers(containers, 10, nil)
 
 	for _, container := range selected {
 		containerJoinIps := make([]string, 0, len(container.Status.GetManagementIps()))
@@ -247,52 +296,21 @@ func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.
 }
 
 func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {
-	for _, container := range containers {
-		if container.IsMarkedForDeletion() {
-			continue
-		}
-		if container.Status.ClusterContainerID != nil {
-			return container
-		}
+	operational := SelectOperationalContainers(containers, 1, nil)
+	if len(operational) == 0 {
+		return nil
 	}
-	return nil
+	return operational[0]
 }
 
 func SelectActiveContainerWithRole(ctx context.Context, containers []*weka.WekaContainer, role string) (*weka.WekaContainer, error) {
-	for _, container := range containers {
-		if container.IsMarkedForDeletion() {
-			continue
-		}
-		if container.Spec.Mode != role {
-			continue
-		}
-		if container.Status.ClusterContainerID == nil {
-			continue
-		}
-		return container, nil
+	operational := SelectOperationalContainers(containers, 1, []string{role})
+	if len(operational) > 0 {
+		return operational[0], nil
 	}
 
 	err := fmt.Errorf("no container with role %s found", role)
 	return nil, err
-}
-
-func enrichDiscoveryInfo(ctx context.Context, c client.Client, discoveryNodeInfo *DiscoveryNodeInfo, node *corev1.Node) (*DiscoveryNodeInfo, error) {
-	// Enrich with CPU info
-	discoveryNodeInfo.NumCpus = int(node.Status.Allocatable.Cpu().Value())
-
-	// Enrich with OCP toolkit image if necessary
-	if discoveryNodeInfo.IsRhCos() {
-		if discoveryNodeInfo.OsBuildId == "" {
-			return nil, errors.New("Failed to get OCP version from node")
-		}
-		image, err := GetOcpToolkitImage(ctx, c, discoveryNodeInfo.OsBuildId)
-		if err != nil || image == "" {
-			return nil, errors.Wrap(err, fmt.Sprintf("Failed to get OCP toolkit image for version %s", discoveryNodeInfo.OsBuildId))
-		}
-		discoveryNodeInfo.InitContainerImage = image
-	}
-
-	return discoveryNodeInfo, nil
 }
 
 func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string, error) {
