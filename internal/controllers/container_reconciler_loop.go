@@ -261,13 +261,10 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{
 				Run: loop.stopAndEnsureNoPod,
-				//if we decided not to deactivate because we never joined the cluster - we should safe stop as there is a race potential
-				//if it gets stuck - so be it, this is unsafe race
+				// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
-					lifecycle.IsNotFunc(loop.ShouldDeactivate),
-					lifecycle.IsNotFunc(container.IsDestroyingState),
-					container.IsBackend,
+					container.IsWekaContainer,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
