@@ -1404,8 +1404,11 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 			for _, alloc := range *failedAllocs {
 				// we landed in some conflicting place, evicting for rescheduling
 				_ = r.RecordEvent(v1.EventTypeWarning, "RemoveUnschedulable", fmt.Sprintf("Evicting container %s for rescheduling", alloc.Container.Name))
+				patch := client.MergeFrom(alloc.Container.DeepCopy())
 				alloc.Container.Spec.State = wekav1alpha1.ContainerStateDeleting
-				_ = r.getClient().Update(ctx, alloc.Container)
+				if err := r.getClient().Patch(ctx, alloc.Container, patch); err != nil {
+					logger.Error(err, "Failed to patch container state to deleting", "container", alloc.Container.Name)
+				}
 			}
 		} else {
 			_ = r.RecordEvent(v1.EventTypeWarning, "ResourcesAllocationError", err.Error())
