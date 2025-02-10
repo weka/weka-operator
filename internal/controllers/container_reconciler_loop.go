@@ -221,19 +221,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{
-				Run: loop.stopForceAndEnsureNoPod, // we want to force stop drives to release
-				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-					lifecycle.Or(
-						loop.ShouldDeactivate, // if we were deactivating - we should also force stop, as we are safe at this point
-						container.IsDestroyingState,
-					),
-					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
-					// is it safe to force stop
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
 			{
@@ -252,6 +239,22 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.Status.ClusterContainerID == nil
 					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.stopForceAndEnsureNoPod, // we want to force stop drives to release
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					lifecycle.Or(
+						loop.ShouldDeactivate, // if we were deactivating - we should also force stop, as we are safe at this point
+						container.IsDestroyingState,
+						func() bool {
+							return container.Spec.GetOverrides().SkipDeactivate
+						},
+					),
+					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
+					// is it safe to force stop
 				},
 				ContinueOnPredicatesFalse: true,
 			},
