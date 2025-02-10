@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -124,15 +125,8 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			continue
 		}
 
-		if container.Status.Status == "PodNotRunning" {
-			continue
-		}
-
-		if container.Status.Status == "Stopped" {
-			continue
-		}
-
-		if container.Status.Status == "Starting" {
+		notSuitableStatuses := []string{"PodNotRunning", "Stopped", "Starting", "Destroying"}
+		if slices.Contains(notSuitableStatuses, container.Status.Status) {
 			continue
 		}
 

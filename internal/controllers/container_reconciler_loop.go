@@ -259,6 +259,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			//TODO: Should we wait for mounts to go away on client before stopping on delete?
 			{
 				Run: loop.stopAndEnsureNoPod,
 				// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
