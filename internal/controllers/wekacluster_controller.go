@@ -291,10 +291,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 			},
 			{
 				Condition: condition.CondClusterCSISecretsCreated,
-				Run:       loop.UpdateCSIEndpoints,
+				Run:       loop.EnsureCSILoginCredentials,
 			},
 			{
-				Run:       loop.UpdateCSIEndpoints,
+				Run:       loop.EnsureCSILoginCredentials,
 				Throttled: config.Consts.CSILoginCredentialsUpdateInterval,
 				ThrolltingSettings: util.ThrolltingSettings{
 					EnsureStepSuccess: true,

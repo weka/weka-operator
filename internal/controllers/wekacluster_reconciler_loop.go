@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"reflect"
 	"slices"
 	"strconv"
@@ -1928,18 +1929,20 @@ func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.C
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) UpdateCSIEndpoints(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "updateCSILoginCredentials")
+func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Context) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	cluster := r.cluster
-	secret := v1.Secret{}
+	secret := &v1.Secret{}
 	err := r.getClient().Get(ctx, client.ObjectKey{
 		Name:      cluster.GetCSISecretName(),
 		Namespace: cluster.Namespace,
-	}, &secret)
+	}, secret)
 	if err != nil {
-		return err
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
 	}
 
 	containers := discovery.SelectOperationalContainers(r.containers, 30, nil)
@@ -1950,22 +1953,37 @@ func (r *wekaClusterReconcilerLoop) UpdateCSIEndpoints(ctx context.Context) erro
 		return errors.New("Failed to get template")
 	}
 
+	var nfsContainers []*wekav1alpha1.WekaContainer
+	var nfsTargetIps []string
+	nfsTargetIpsBytes := []byte{}
+	endpointsBytes := []byte{}
+
 	if template.NfsContainers != 0 {
-		nfsContainers := discovery.SelectOperationalContainers(r.SelectNfsContainers(containers), 30, []string{wekav1alpha1.WekaContainerModeNfs})
-		nfsTargetIps := discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
-		if nfsTargetIps != nil && len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
-			secret.Data["nfsTargetIps"] = []byte(strings.Join(nfsTargetIps, ","))
+		nfsContainers = discovery.SelectOperationalContainers(r.SelectNfsContainers(containers), 30, []string{wekav1alpha1.WekaContainerModeNfs})
+		nfsTargetIps = discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
+	}
+
+	if nfsTargetIps != nil && len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
+		nfsTargetIpsBytes = []byte(strings.Join(nfsTargetIps, ","))
+	}
+
+	endpointsBytes = []byte(strings.Join(endpoints, ","))
+
+	if secret == nil {
+		clientSecret := services.NewCsiSecret(ctx, cluster, endpoints, nfsTargetIps)
+
+		kubeService := kubernetes.NewKubeService(r.getClient())
+		return kubeService.EnsureSecret(ctx, clientSecret, &kubernetes.K8sOwnerRef{
+			Scheme: r.getClient().Scheme(),
+			Obj:    cluster,
+		})
+	} else {
+		if len(nfsTargetIpsBytes) != 0 {
+			secret.Data["nfsTargetIps"] = nfsTargetIpsBytes
 		}
+		secret.Data["endpoints"] = endpointsBytes
+		return r.getClient().Update(ctx, secret)
 	}
-
-	secret.Data["endpoints"] = []byte(strings.Join(endpoints, ","))
-
-	if err := r.getClient().Update(ctx, &secret); err != nil {
-		return err
-	}
-
-	return nil
-
 }
 
 type UpdatableClusterSpec struct {
