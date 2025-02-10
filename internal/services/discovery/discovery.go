@@ -102,6 +102,9 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 
 	for _, container := range containers {
 		// if roles are set - select only suitable roles
+		if len(roles) == 0 {
+			roles = []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}
+		}
 		if len(roles) > 0 {
 			roleFound := false
 			for _, role := range roles {
@@ -125,6 +128,14 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			continue
 		}
 
+		if container.Status.Status == "Stopped" {
+			continue
+		}
+
+		if container.Status.Status == "Starting" {
+			continue
+		}
+
 		firstPassSuitable = append(firstPassSuitable, container)
 	}
 
@@ -135,7 +146,8 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 		}
 	}
 
-	if len(selected) < numContainers {
+	// if we selected at least one "Running" - lets go with it, if none - populate with many "not running"
+	if len(selected) == 0 {
 		// if we could not select target amount of  containers, we will select somem random that are not running
 		util2.Shuffle(firstPassSuitable)
 
