@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/weka/weka-operator/pkg/workers"
 
@@ -1969,7 +1970,7 @@ func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Contex
 
 	endpointsBytes = []byte(strings.Join(endpoints, ","))
 
-	if secret == nil {
+	if secret.Data == nil {
 		clientSecret := services.NewCsiSecret(ctx, cluster, endpoints, nfsTargetIps)
 
 		kubeService := kubernetes.NewKubeService(r.getClient())
