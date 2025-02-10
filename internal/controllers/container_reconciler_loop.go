@@ -65,6 +65,32 @@ const (
 	TimestampStopAttempt = "StoppingAttempt"
 )
 
+func NodeIsReady(node *v1.Node) bool {
+	if node == nil {
+		return false
+	}
+	// check if the node has a NodeReady condition set to True
+	isNodeReady := false
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == v1.NodeReady && condition.Status == v1.ConditionTrue {
+			isNodeReady = true
+			break
+		}
+	}
+	return isNodeReady
+}
+
+func NodeIsUnschedulable(node *v1.Node) bool {
+	if node == nil {
+		return false
+	}
+	return node.Spec.Unschedulable
+}
+
+func CanExecInPod(pod *v1.Pod) bool {
+	return pod != nil && pod.Status.Phase == v1.PodRunning && pod.DeletionTimestamp == nil
+}
+
 func NewContainerReconcileLoop(r *ContainerController, restClient rest.Interface) *containerReconcilerLoop {
 	//TODO: We creating new client on every loop, we should reuse from reconciler, i.e pass it by reference
 	mgr := r.Manager
@@ -631,7 +657,7 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 
 	executeInContainer := r.container
 
-	if !r.ContainerNodeIsAlive() || r.pod == nil || r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil {
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
 		containers, err := r.getClusterContainers(ctx)
 		if err != nil {
 			return err
@@ -656,7 +682,7 @@ func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 
 	executeInContainer := r.container
 
-	if !r.ContainerNodeIsAlive() || r.pod == nil || r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil {
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
 		containers, err := r.getClusterContainers(ctx)
 		if err != nil {
 			return err
@@ -701,7 +727,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	executeInContainer := r.container
-	if !r.ContainerNodeIsAlive() || r.pod == nil || r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil {
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
 		logger.Warn("Pod is not available, trying to find active container")
 		// TODO: temporary check caused by weka s3 container remove behavior
 		if r.container.IsS3Container() {
@@ -818,8 +844,17 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 
 	// if node name is empty, it means no node affinity was set on wekaContainer,
 	// so we should not check if node is alive
-	if !r.ContainerNodeIsAlive() && nodeName != "" {
-		err := fmt.Errorf("container node is not ready, cannot perform resign drives operation")
+	if nodeName != "" && (!NodeIsReady(r.node) || NodeIsUnschedulable(r.node)) {
+		if config.Config.CleanupRemovedNodes {
+			_, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					logger.Info("node is deleted, no need for cleanup")
+					return nil
+				}
+			}
+		}
+		err := fmt.Errorf("container node is not ready or is unschedulable, cannot perform resign drives operation")
 		return err
 	}
 
@@ -1018,7 +1053,7 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 			if agentPod.Status.Phase == v1.PodRunning {
 				return &agentPod, nil
 			}
-			return nil, errors.New("Agent pod exists but is not running")
+			return nil, &NodeAgentPodNotRunning{}
 		}
 	}
 	return nil, errors.New("No agent pod found on the same node")
@@ -1468,6 +1503,15 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		return nil
 	}
 
+	if r.node != nil && NodeIsUnschedulable(r.node) {
+		err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
+		return err
+	}
+	if r.node != nil && !NodeIsReady(r.node) {
+		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
+		return err
+	}
+
 	nodeInfo, err := r.GetNodeInfo(ctx)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -1482,11 +1526,6 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 			return nil
 		}
 		logger.Error(err, "Error getting node discovery")
-		return err
-	}
-
-	if !r.ContainerNodeIsAlive() {
-		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 		return err
 	}
 
@@ -1579,28 +1618,6 @@ func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) ContainerNodeIsAlive() bool {
-	node := r.node
-	if node == nil {
-		return false
-	}
-
-	// check if node is drained
-	if node.Spec.Unschedulable {
-		return false
-	}
-
-	// check if the node has a NodeReady condition set to True
-	isNodeReady := false
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == v1.NodeReady && condition.Status == v1.ConditionTrue {
-			isNodeReady = true
-			break
-		}
-	}
-	return isNodeReady
-}
-
 func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getActiveContainers")
 	defer end()
@@ -1643,7 +1660,7 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 
 	skipExec := false
 	if r.node != nil {
-		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o") || !NodeIsReady(r.node)
 	}
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
@@ -1663,12 +1680,14 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	logger.Info("Deleting pod", "pod", pod.Name)
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
-	if err != nil {
+	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
+		logger.Info("Node agent pod not running, skipping force stop")
+	} else if err != nil {
 		// do not return error, as we are deleting pod anyway
 		logger.Error(err, "Error writing allow force stop instruction")
 	}
 
-	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
+	if NodeIsReady(r.node) && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
@@ -1699,7 +1718,7 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 
 	skipExec := false
 	if r.node != nil {
-		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o") || !NodeIsReady(r.node)
 	}
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
@@ -1717,13 +1736,15 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 
 	logger.Info("Deleting pod", "pod", pod.Name)
 	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
-	if err != nil {
+	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
+		logger.Info("Node agent pod not running, skipping force stop")
+	} else if err != nil {
 		// do not return error, as we are deleting pod anyway
 		logger.Error(err, "Error writing allow stop instruction")
 	}
 
 	//TODO: Refactor client/not client /active-non-active as steps
-	if r.ContainerNodeIsAlive() && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
+	if NodeIsReady(r.node) && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
