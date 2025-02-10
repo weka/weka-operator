@@ -627,7 +627,7 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 
 	executeInContainer := r.container
 
-	if !r.ContainerNodeIsAlive() {
+	if !r.ContainerNodeIsAlive() || r.pod == nil || r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil {
 		containers, err := r.getClusterContainers(ctx)
 		if err != nil {
 			return err
@@ -697,10 +697,11 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	executeInContainer := r.container
-	if !r.ContainerNodeIsAlive() || (r.pod != nil && (r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil)) {
-		logger.Warn("Container node is not ready, cannot perform deactivation operation, choosing active container")
+	if !r.ContainerNodeIsAlive() || r.pod == nil || r.pod.Status.Phase != v1.PodRunning || r.pod.DeletionTimestamp != nil {
+		logger.Warn("Pod is not available, trying to find active container")
 		// TODO: temporary check caused by weka s3 container remove behavior
 		if r.container.IsS3Container() {
+			// TODO: Following comment is dead-locking and has to be re-evaluated
 			// before deacitvating S3 container, we need to make sure, that local s3 container is removed
 			// if node is not available, we can't execute `weka local ps` operation
 			err := errors.New("node is not available, can't check if local s3 container is running")
