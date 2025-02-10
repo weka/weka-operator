@@ -190,6 +190,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:        loop.DeactivateDrives,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
+					container.IsDriveContainer,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
