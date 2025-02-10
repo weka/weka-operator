@@ -206,10 +206,10 @@ func processResult(ctx context.Context, containers []*v1alpha1.WekaContainer, sk
 	errorCount := 0
 
 	for _, container := range containers {
-		if skipIncompleted && container.Status.Status != "Completed" {
+		if skipIncompleted && container.Status.ExecutionResult == nil {
 			continue
 		}
-		if container.Status.Status != "Completed" {
+		if container.Status.ExecutionResult == nil {
 			err := fmt.Errorf("container %s did not complete operation yet", container.Name)
 			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 		}

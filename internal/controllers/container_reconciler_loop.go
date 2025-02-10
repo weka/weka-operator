@@ -855,9 +855,13 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	pod := r.pod
 	container := r.container
 
-	destroyingStatus := "PodTerminating"
-	if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
-		return err
+	// TODO: do we actually use instructions on non-weka containers in weka_runtime? Consider when breaking out into steps
+	// Consider also generating a python mapping along with version script so we can use stuff like IsWekaContainer on python side
+	if r.container.IsWekaContainer() {
+		destroyingStatus := "PodTerminating"
+		if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
+			return err
+		}
 	}
 
 	skipExec := false
