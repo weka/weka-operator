@@ -157,12 +157,16 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 }
 
 func (o *DiscoverNodeOperation) GetContainers(ctx context.Context) error {
-	existing, err := discovery.GetOwnedContainers(ctx, o.client, o.ownerRef.GetUID(), o.ownerRef.GetNamespace(), weka.WekaContainerModeDiscovery)
-	if err != nil {
-		return err
+	containerName := o.getContainerName()
+	container, err := discovery.GetContainerByName(ctx, o.client, weka.ObjectReference{
+		Namespace: o.ownerRef.GetNamespace(),
+		Name:      containerName,
+	})
+	if err != nil && apierrors.IsNotFound(err) {
+		return nil
 	}
-	if len(existing) > 0 {
-		o.container = existing[0]
+	if container != nil {
+		o.container = container
 	}
 	return nil
 }
@@ -183,7 +187,7 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 	}
 	labels = util2.MergeMaps(o.ownerRef.GetLabels(), labels)
 
-	containerName := fmt.Sprintf("weka-dsc-%s", o.node.Name)
+	containerName := o.getContainerName()
 	discoveryContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      containerName,
@@ -297,4 +301,8 @@ func (o *DiscoverNodeOperation) Cleanup() lifecycle.Step {
 
 func (o *DiscoverNodeOperation) HasData() bool {
 	return o.result != nil
+}
+
+func (o *DiscoverNodeOperation) getContainerName() string {
+	return fmt.Sprintf("weka-dsc-%s", o.node.Name)
 }
