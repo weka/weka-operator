@@ -1560,9 +1560,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	cluster.Status.Stats.Containers.Compute.Containers.Created = wekav1alpha1.IntMetric(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeCompute))
 	cluster.Status.Stats.Containers.Drive.Containers.Created = wekav1alpha1.IntMetric(getCounter(roleCreatedCounts, wekav1alpha1.WekaContainerModeDrive))
 
-	// propagate "active" counters
-	cluster.Status.Stats.Containers.Compute.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeCompute))
-	cluster.Status.Stats.Containers.Drive.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeDrive))
+	// propagate "active" counters for these that not exposed explicitly in weka status --json
 	if template.S3Containers != 0 {
 		cluster.Status.Stats.Containers.S3.Containers.Active = wekav1alpha1.IntMetric(getCounter(roleActiveCounts, wekav1alpha1.WekaContainerModeS3))
 	}
@@ -1616,7 +1614,9 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	}
 
 	cluster.Status.Stats.Containers.Compute.Processes.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Computes.Active * template.ComputeCores))
+	cluster.Status.Stats.Containers.Compute.Containers.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Computes.Active))
 	cluster.Status.Stats.Containers.Drive.Processes.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Drives.Active * template.DriveCores))
+	cluster.Status.Stats.Containers.Drive.Containers.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Drives.Active))
 	cluster.Status.Stats.Drives.DriveCounters.Active = wekav1alpha1.IntMetric(int64(wekaStatus.Drives.Active))
 
 	cluster.Status.Stats.Containers.Compute.Processes.Created = wekav1alpha1.IntMetric(int64(wekaStatus.Containers.Computes.Total * template.ComputeCores))
