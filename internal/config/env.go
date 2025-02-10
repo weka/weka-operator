@@ -101,6 +101,7 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
+	CleanupRemovedNodes bool
 }
 
 type Metrics struct {
@@ -210,6 +211,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
+	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
 }
 
 func getEnvOrFail(envKey string) string {
