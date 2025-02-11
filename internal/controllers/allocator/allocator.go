@@ -65,15 +65,23 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 		// blockedDrivesStr is json list, unwrap it
 		blockedDrives := []string{}
-		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
+			return
+		}
 
 		availableDrives := []string{}
 		allDrives := []string{}
-		_ = json.Unmarshal([]byte(allDrivesStr), &allDrives)
+		err = json.Unmarshal([]byte(allDrivesStr), &allDrives)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal weka-drives: %v", err)
+			return
+		}
 
 		for _, drive := range allDrives {
 			if !slices.Contains(blockedDrives, drive) {
-				availableDrives = append(allDrives, drive)
+				availableDrives = append(availableDrives, drive)
 			}
 		}
 
