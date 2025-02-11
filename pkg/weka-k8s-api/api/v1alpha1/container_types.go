@@ -186,7 +186,8 @@ type ContainerAllocations struct {
 	WekaPort  int      `json:"wekaPort,omitempty"`
 	AgentPort int      `json:"agentPort,omitempty"`
 	// value of the failure domain label of the node where the container is running
-	FailureDomain *string `json:"failureDomain,omitempty"`
+	FailureDomain     *string `json:"failureDomain,omitempty"`
+	MachineIdentifier string  `json:"machineIdentifier,omitempty"`
 }
 
 type WekaContainerMetrics struct {
