@@ -102,6 +102,8 @@ type WekaContainerSpecOverrides struct {
 	SkipCleanupPersistentDir bool   `json:"skipCleanupPersistentDir,omitempty"`
 	UpgradeForceReplace      bool   `json:"upgradeForceReplace,omitempty"`
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
+	// script to be executed post initial persistency(if needed) configuration, before running actual workload
+	PreRunScript string `json:"preRunScript,omitempty"`
 }
 
 type Instructions struct {
