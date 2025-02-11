@@ -1,3 +1,4 @@
+import base64
 import fcntl
 import json
 import logging
@@ -1977,6 +1978,22 @@ async def pack_drivers():
     logging.info("Drivers packed successfully")
 
 
+async def run_prerun_script():
+    pre_run_script = os.environ.get("PRE_RUN_SCRIPT")
+    if not pre_run_script:
+        return
+    # decode base64
+    pre_run_script = base64.b64decode(pre_run_script).decode('utf-8')
+    logging.info(f"Running pre-run script: {pre_run_script}")
+    # save script into tmp script file
+    with open("/tmp/pre-run-script.sh", "w") as f:
+        f.write(pre_run_script)
+    # run script
+    cmd = "bash /tmp/pre-run-script.sh"
+    stdout, stderr, ec = await run_command(cmd, capture_stdout=False)
+    if ec != 0:
+        raise Exception(f"Failed to run pre-run script: {stderr}")
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -2113,6 +2130,8 @@ async def main():
         await ensure_stem_container("dist")
         await configure_traces()
         if not DIST_LEGACY_MODE:
+            # there might be a better place for preRunScript, but it is needed just for driver now
+            await run_prerun_script()
             await pack_drivers()  # explicit pack of drivers if supported, which is new method, that should become default with rest of code removed eventually
         else:
             await agent.stop()

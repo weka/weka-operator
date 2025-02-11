@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -357,6 +358,15 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 				},
 			},
 		},
+	}
+
+	if f.container.Spec.GetOverrides().PreRunScript != "" {
+		// encode in base64 and write into env var
+		base64str := base64.StdEncoding.EncodeToString([]byte(f.container.Spec.GetOverrides().PreRunScript))
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "PRE_RUN_SCRIPT",
+			Value: base64str,
+		})
 	}
 
 	if f.container.Spec.PortRange != nil {
