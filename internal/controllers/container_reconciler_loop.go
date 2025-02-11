@@ -727,7 +727,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	executeInContainer := r.container
-	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) && !r.container.IsS3Container() {
 		logger.Warn("Pod is not available, trying to find active container")
 		// TODO: temporary check caused by weka s3 container remove behavior
 		if r.container.IsS3Container() {
