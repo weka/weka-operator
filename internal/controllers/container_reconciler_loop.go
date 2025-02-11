@@ -497,7 +497,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.checkUnhealty,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != Unhealthy
+						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != Unhealthy && loop.pod.Status.Phase != v1.PodRunning
 					},
 				},
 				ContinueOnPredicatesFalse: true,
