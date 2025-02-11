@@ -298,7 +298,7 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 
 	containers := r.containers
 
-	pausedStatus := strings.ToUpper(string(wekav1alpha1.ContainerStatePaused))
+	pausedStatus := string(wekav1alpha1.ContainerStatePaused)
 	var notPausedContainers []string
 
 	for _, container := range containers {
