@@ -2969,7 +2969,6 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 
 	if newDrivesFound == 0 {
 		logger.Info("No new drives found")
-		return complete()
 	}
 
 	updatedDrivesList := []string{}
