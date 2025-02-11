@@ -37,11 +37,12 @@ const (
 )
 
 type NetworkSelector struct {
-	EthSlots   []string `json:"ethSlots,omitempty"`
-	EthDevice  string   `json:"ethDevice,omitempty"`
-	EthDevices []string `json:"ethDevices,omitempty"`
-	Gateway    string   `json:"gateway,omitempty"`
-	UdpMode    bool     `json:"udpMode,omitempty"`
+	EthSlots   []string   `json:"ethSlots,omitempty"`
+	EthDevice  string     `json:"ethDevice,omitempty"`
+	EthDevices []string   `json:"ethDevices,omitempty"`
+	Gateway    string     `json:"gateway,omitempty"`
+	AWS        AWSNetwork `json:"aws,omitempty"`
+	UdpMode    bool       `json:"udpMode,omitempty"`
 	// subnet that is used for devices auto-discovery
 	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
 	DeviceSubnets []string `json:"deviceSubnets,omitempty"`

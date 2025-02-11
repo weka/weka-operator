@@ -167,6 +167,7 @@ type WekaContainerSpec struct {
 }
 
 type AWSNetwork struct {
+	// should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking
 	DeviceSlots []int `json:"deviceSlots,omitempty"`
 }
 
@@ -188,8 +189,9 @@ type ContainerAllocations struct {
 	WekaPort  int      `json:"wekaPort,omitempty"`
 	AgentPort int      `json:"agentPort,omitempty"`
 	// value of the failure domain label of the node where the container is running
-	FailureDomain     *string `json:"failureDomain,omitempty"`
-	MachineIdentifier string  `json:"machineIdentifier,omitempty"`
+	FailureDomain     *string  `json:"failureDomain,omitempty"`
+	MachineIdentifier string   `json:"machineIdentifier,omitempty"`
+	NetDevices        []string `json:"netDevices,omitempty"`
 }
 
 type WekaContainerMetrics struct {
