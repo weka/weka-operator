@@ -497,7 +497,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.checkUnhealty,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != Unhealthy && loop.pod.Status.Phase != v1.PodRunning
+						return container.Status.Status != Unhealthy
 					},
 				},
 				ContinueOnPredicatesFalse: true,
@@ -1306,17 +1306,35 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
-	// get pod's RESTARTS
-	restarts := int32(0)
-	for _, containerStatus := range r.pod.Status.ContainerStatuses {
-		if containerStatus.Name == "weka-container" {
-			restarts = containerStatus.RestartCount
+	pod := r.pod
+	node := r.node
+
+	if node != nil && NodeIsUnschedulable(node) {
+		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+	}
+
+	if node != nil && !NodeIsReady(node) {
+		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+	}
+
+	// check ContainersReady
+	podContainersReady := false
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == v1.ContainersReady && condition.Status == v1.ConditionTrue {
+			podContainersReady = true
 			break
 		}
 	}
 
-	if restarts > 0 {
-		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+	if !podContainersReady {
+		// check pod's RESTARTS
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.Name == "weka-container" {
+				if containerStatus.RestartCount > 0 {
+					return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+				}
+			}
+		}
 	}
 	return nil
 }
