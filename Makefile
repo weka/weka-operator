@@ -39,6 +39,9 @@ METRICS_CONTAINERS_ENABLED ?= true
 
 SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:v0.1.1-pciutils
 
+# Optional environment variable to specify custom values.yaml for Helm
+VALUES_YAML ?= charts/weka-operator/values.yaml
+
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.32.0
@@ -254,7 +257,7 @@ VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator
 deploy: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	$(HELM) upgrade --install weka-operator charts/weka-operator \
 		--namespace $(NAMESPACE) \
-		--values charts/weka-operator/values.yaml \
+		--values $(VALUES_YAML) \
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
@@ -269,13 +272,13 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--set gkeCompatibility.disableDriverSigning=true \
 		--set deploymentIdentifier="dev-${USER}" \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
-                --set skipUnhealthyToleration=true
+        --set skipUnhealthyToleration=true
 
 .PHONY: deployocp
 deployocp: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	$(HELM) upgrade --install weka-operator charts/weka-operator \
 		--namespace $(NAMESPACE) \
-		--values charts/weka-operator/values.yaml \
+		--values $(VALUES_YAML) \
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
