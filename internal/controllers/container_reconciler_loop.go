@@ -422,11 +422,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.WaitForRunning},
+
 			{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
 				Predicates: lifecycle.Predicates{
-					container.IsAllocatable,
+					lifecycle.Or(
+						container.IsAllocatable,
+						container.IsClientContainer, // nics/machine-identifiers
+					),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2568,7 +2572,7 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 	defer end()
 
 	container := r.container
-	if r.container.Status.Allocations == nil {
+	if r.container.Status.Allocations == nil && !r.container.IsClientContainer() {
 		err := r.selfUpdateAllocations(ctx)
 		if err != nil {
 			return err
@@ -2586,10 +2590,39 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		return lifecycle.NewWaitError(err)
 	}
 
-	resourcesJson, err := json.Marshal(r.container.Status.Allocations)
+	var allocations *weka.ContainerAllocations
+	if r.container.Status.Allocations != nil {
+		allocations = r.container.Status.Allocations
+	} else {
+		// client flow
+		allocations = &weka.ContainerAllocations{}
+
+		machineIdentifierPath := r.container.Spec.GetOverrides().MachineIdentifierNodeRef
+		if machineIdentifierPath == "" {
+			if r.node != nil {
+				// check if node has "weka.io/machine-identifier-ref" label
+				// if yes - use it as machine identifier path
+				if val, ok := r.node.Annotations["weka.io/machine-identifier-ref"]; ok && val != "" {
+					machineIdentifierPath = r.node.Annotations["weka.io/machine-identifier-ref"]
+				}
+			}
+		}
+
+		if machineIdentifierPath != "" {
+			uid, err := util.GetKubeObjectFieldValue[string](r.node, machineIdentifierPath)
+			if err != nil {
+				return fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
+			}
+			allocations.MachineIdentifier = uid
+		}
+	}
+
+	var resourcesJson []byte
+	resourcesJson, err = json.Marshal(allocations)
 	if err != nil {
 		return err
 	}
+
 	//TODO: Safer way of writing? as might be corrupted bash string
 
 	logger.Info("writing resources", "json", string(resourcesJson))

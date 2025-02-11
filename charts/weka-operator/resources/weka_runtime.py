@@ -1366,6 +1366,7 @@ async def configure_agent(agent_handle_drivers=False):
         raise Exception(f"Failed to configure agent: {stderr}")
 
     if MACHINE_IDENTIFIER is not None:
+        logging.info(f"Setting machine-id {MACHINE_IDENTIFIER}")
         os.makedirs("/opt/weka/data/agent", exist_ok=True)
         cmd = f"echo '{MACHINE_IDENTIFIER}' > /opt/weka/data/agent/machine-identifier"
         stdout, stderr, ec = await run_command(cmd)
@@ -1824,7 +1825,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -1836,6 +1837,13 @@ async def wait_for_resources():
 
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
         data = json.load(f)
+
+    if data.get("machineIdentifier"):
+        logging.info("found machineIdentifier override, applying")
+        global MACHINE_IDENTIFIER
+        MACHINE_IDENTIFIER = data.get("machineIdentifier")
+    if MODE == "client":
+        return
 
     RESOURCES = data
     if "failureDomain" in data:

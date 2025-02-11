@@ -150,9 +150,6 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 		}
 		o.result.InitContainerImage = image
 	}
-
-	o.result.Node = o.node
-
 	return nil
 }
 

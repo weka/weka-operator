@@ -35,7 +35,7 @@ type DiscoveryNodeInfo struct {
 	NumCpus            int    `json:"num_cpus,omitempty"`
 	NumDrives          int    `json:"num_drives,omitempty"`
 	// this field is for internal use only, is populayed by DiscoverNodeOperation.Enrich
-	Node *corev1.Node `json:"-"`
+	//Node *corev1.Node `json:"-"` // this is not necesserally aligned with a node
 }
 
 func (nodeInfo *DiscoveryNodeInfo) GetDrivesNumber() int {
