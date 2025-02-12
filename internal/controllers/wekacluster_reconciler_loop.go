@@ -1031,12 +1031,12 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfs")
 	defer end()
 
-	containers := r.SelectNfsContainers(r.containers)
+	nfsContainers := r.SelectNfsContainers(r.containers)
 
-	execInContainer := discovery.SelectActiveContainer(containers)
+	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 	containerIds := []int{}
-	for _, c := range containers {
+	for _, c := range nfsContainers {
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
 	}
 
