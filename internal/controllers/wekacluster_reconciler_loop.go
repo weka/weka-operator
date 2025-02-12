@@ -1960,7 +1960,7 @@ func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Contex
 	endpointsBytes := []byte{}
 
 	if template.NfsContainers != 0 {
-		nfsContainers = discovery.SelectOperationalContainers(r.SelectNfsContainers(containers), 30, []string{wekav1alpha1.WekaContainerModeNfs})
+		nfsContainers = discovery.SelectOperationalContainers(r.containers, 30, []string{wekav1alpha1.WekaContainerModeNfs})
 		nfsTargetIps = discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
 	}
 
