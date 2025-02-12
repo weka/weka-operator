@@ -1705,7 +1705,7 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		logger.Error(err, "Error writing allow force stop instruction")
 	}
 
-	if NodeIsReady(r.node) && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
+	if NodeIsReady(r.node) && !skipExec {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
@@ -1714,8 +1714,8 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 			err = r.runWekaLocalStop(ctx, pod, true)
 			if err != nil {
 				logger.Error(err, "Error force-stopping weka local")
-				return err
 			}
+			// we do not abort on purpose, we still should call delete even if we failed to exec
 		}
 	}
 
@@ -1761,18 +1761,17 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		logger.Error(err, "Error writing allow stop instruction")
 	}
 
-	//TODO: Refactor client/not client /active-non-active as steps
-	if NodeIsReady(r.node) && pod.Status.Phase == v1.PodRunning && container.IsActive() && !container.IsClientContainer() {
+	if NodeIsReady(r.node) && !skipExec {
 		if r.container.HasAgent() {
 			logger.Debug("Force-stopping weka local")
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
 			// for versions that do not yet support graceful shutdown touch-flag, we will force stop weka local
 			// this might impact performance of shrink, but should not be affecting whole cluster deletion
-			err = r.runWekaLocalStop(ctx, pod, false)
+			err = r.runWekaLocalStop(ctx, pod, true)
 			if err != nil {
-				logger.Error(err, "Error stopping weka container")
-				return err
+				logger.Error(err, "Error force-stopping weka local")
 			}
+			// we do not abort on purpose, we still should call delete even if we failed to exec
 		}
 	}
 
