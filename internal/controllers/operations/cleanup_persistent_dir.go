@@ -170,7 +170,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 							Name:         "cleanup-persistent-dir",
 							Image:        maintenanceImage,
 							Command:      []string{"sh", "-c"},
-							Args:         []string{fmt.Sprintf("echo 'Cleanup container data %s/*' && rm -rf %s/* 2>&1 && echo 'Cleanup done' || { echo 'Cannot delete specified dir'; sleep 5; exit 1; }", containerDataPath, containerDataPath)},
+							Args:         []string{o.getRmCommand(containerDataPath)},
 							VolumeMounts: volumeMounts,
 						},
 					},
@@ -254,4 +254,15 @@ func (o *CleanupPersistentDirOperation) GetJsonResult() string {
 
 func (o *CleanupPersistentDirOperation) HasNoJob() bool {
 	return o.job == nil
+}
+
+func (o *CleanupPersistentDirOperation) getRmCommand(containerDataPath string) string {
+	var rmSuffix string
+	if config.Config.LocalDataPvc == "" {
+		rmSuffix = "/*" // remove only the content of the directory
+	} else {
+		rmSuffix = "" // remove the entire directory
+	}
+	deletePath := fmt.Sprintf("%s%s", containerDataPath, rmSuffix)
+	return fmt.Sprintf("echo 'Cleanup container data %s' && rm -rf %s 2>&1 && echo 'Cleanup done' || { echo 'Cannot delete specified dir'; sleep 5; exit 1; }", deletePath, deletePath)
 }
