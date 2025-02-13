@@ -137,6 +137,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		},
 	}
 
+	if role == wekav1alpha1.WekaContainerModeEnvoy {
+		container.Spec.ExposePorts = []int{cluster.Status.Ports.LbPort, cluster.Status.Ports.LbAdminPort}
+	}
+
 	topologySpreadConstraints := preparePodTopologySpreadConstraints(cluster, role)
 	container.Spec.TopologySpreadConstraints = topologySpreadConstraints
 

@@ -171,6 +171,19 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
 					},
+					Ports: func() []corev1.ContainerPort {
+						if len(f.container.Spec.ExposePorts) == 0 {
+							return nil
+						}
+						ports := make([]corev1.ContainerPort, len(f.container.Spec.ExposePorts))
+						for i, port := range f.container.Spec.ExposePorts {
+							ports[i] = corev1.ContainerPort{
+								ContainerPort: int32(port),
+								Protocol:      corev1.ProtocolTCP,
+							}
+						}
+						return ports
+					}(),
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "dev",
