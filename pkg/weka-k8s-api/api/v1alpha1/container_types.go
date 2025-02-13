@@ -122,6 +122,7 @@ type WekaContainerSpec struct {
 	Affinity          *v1.Affinity      `json:"affinity,omitempty"`
 	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
 	Port              int               `json:"port,omitempty"`
+	ExposePorts       []int             `json:"exposePorts,omitempty"`
 	AgentPort         int               `json:"agentPort,omitempty"`
 	PortRange         *PortRange        `json:"portRange,omitempty"`
 	Image             string            `json:"image"`
