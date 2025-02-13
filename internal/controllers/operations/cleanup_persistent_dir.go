@@ -27,29 +27,31 @@ type CleanupPersistentDirPayload struct {
 }
 
 type CleanupPersistentDirOperation struct {
-	client      client.Client
-	kubeService kubernetes.KubeService
-	scheme      *runtime.Scheme
-	payload     *CleanupPersistentDirPayload
-	image       string
-	pullSecret  string
-	job         *v1.Job // internal field
-	ownerRef    client.Object
-	mgr         ctrl.Manager
-	tolerations []corev1.Toleration
+	client               client.Client
+	kubeService          kubernetes.KubeService
+	scheme               *runtime.Scheme
+	payload              *CleanupPersistentDirPayload
+	image                string
+	pullSecret           string
+	job                  *v1.Job // internal field
+	ownerRef             client.Object
+	mgr                  ctrl.Manager
+	tolerations          []corev1.Toleration
+	originalNodeSelector map[string]string
 }
 
-func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails) *CleanupPersistentDirOperation {
+func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, originalNodeSelector map[string]string) *CleanupPersistentDirOperation {
 	return &CleanupPersistentDirOperation{
-		mgr:         mgr,
-		client:      mgr.GetClient(),
-		kubeService: kubernetes.NewKubeService(mgr.GetClient()),
-		scheme:      mgr.GetScheme(),
-		payload:     payload,
-		image:       ownerDetails.Image,
-		pullSecret:  ownerDetails.ImagePullSecret,
-		tolerations: ownerDetails.Tolerations,
-		ownerRef:    ownerRef,
+		mgr:                  mgr,
+		client:               mgr.GetClient(),
+		kubeService:          kubernetes.NewKubeService(mgr.GetClient()),
+		scheme:               mgr.GetScheme(),
+		payload:              payload,
+		image:                ownerDetails.Image,
+		pullSecret:           ownerDetails.ImagePullSecret,
+		tolerations:          ownerDetails.Tolerations,
+		ownerRef:             ownerRef,
+		originalNodeSelector: originalNodeSelector,
 	}
 }
 
@@ -93,8 +95,16 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 
 	persistencePath := o.payload.PersistencePath
 	containerId := o.payload.ContainerId
-	nodeSelector := map[string]string{
-		"kubernetes.io/hostname": string(o.payload.NodeName),
+
+	nodeSelector := o.originalNodeSelector
+	if config.Config.LocalDataPvc != "" {
+		if len(nodeSelector) == 0 {
+			nodeSelector = map[string]string{}
+		}
+	} else {
+		nodeSelector = map[string]string{
+			"kubernetes.io/hostname": string(o.payload.NodeName),
+		}
 	}
 
 	if containerId == "" || persistencePath == "" {
@@ -102,6 +112,45 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	}
 
 	containerDataPath := fmt.Sprintf("%s/%s", persistencePath, containerId)
+	var mountPath string
+	if config.Config.LocalDataPvc != "" {
+		// If PVC is specified, mount at /opt/k8s-weka and clean specific container dir under it
+		mountPath = "/opt/k8s-weka"
+	} else {
+		// Otherwise use the container-specific path for both mounting and cleanup
+		mountPath = containerDataPath
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "weka-container-data",
+			MountPath: mountPath,
+		},
+	}
+	volumes := []corev1.Volume{}
+
+	if config.Config.LocalDataPvc != "" {
+		// If PVC is specified, mount it at /opt/k8s-weka
+		volumes = append(volumes, corev1.Volume{
+			Name: "weka-container-data",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: config.Config.LocalDataPvc,
+				},
+			},
+		})
+	} else {
+		// Otherwise use hostPath
+		volumes = append(volumes, corev1.Volume{
+			Name: "weka-container-data",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: containerDataPath,
+					Type: &hostPathType,
+				},
+			},
+		})
+	}
 
 	job := &v1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -118,35 +167,15 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 					ServiceAccountName: serviceAccountName,
 					Containers: []corev1.Container{
 						{
-							Name:  "cleanup-persistent-dir",
-							Image: maintenanceImage,
-							Command: []string{
-								"sh",
-								"-c",
-								fmt.Sprintf(
-									"echo 'Cleanup container data %s/*' && rm -rf %s/* 2>&1 ", containerDataPath, containerDataPath,
-								) + "&& echo 'Cleanup done' || { echo 'Cannot delete specified dir'; sleep 5; exit 1; }",
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "weka-container-data",
-									MountPath: containerDataPath,
-								},
-							},
+							Name:         "cleanup-persistent-dir",
+							Image:        maintenanceImage,
+							Command:      []string{"sh", "-c"},
+							Args:         []string{fmt.Sprintf("echo 'Cleanup container data %s/*' && rm -rf %s/* 2>&1 && echo 'Cleanup done' || { echo 'Cannot delete specified dir'; sleep 5; exit 1; }", containerDataPath, containerDataPath)},
+							VolumeMounts: volumeMounts,
 						},
 					},
 					RestartPolicy: corev1.RestartPolicyOnFailure,
-					Volumes: []corev1.Volume{
-						{
-							Name: "weka-container-data",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: containerDataPath,
-									Type: &hostPathType,
-								},
-							},
-						},
-					},
+					Volumes:       volumes,
 				},
 			},
 		},

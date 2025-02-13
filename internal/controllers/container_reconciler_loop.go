@@ -1557,6 +1557,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		&payload,
 		container,
 		*container.ToContainerDetails(),
+		container.Spec.NodeSelector,
 	)
 	err = operations.ExecuteOperation(ctx, op)
 	return err
