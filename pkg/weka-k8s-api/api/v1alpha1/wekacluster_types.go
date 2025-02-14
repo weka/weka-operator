@@ -53,6 +53,7 @@ type AdditionalMemory struct {
 	Drive   int `json:"drive,omitempty"`
 	S3      int `json:"s3,omitempty"`
 	Nfs     int `json:"nfs,omitempty"`
+	Envoy   int `json:"envoy,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
