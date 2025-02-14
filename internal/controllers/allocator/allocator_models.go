@@ -5,7 +5,7 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-const StartingPort = 15000
+const StartingPort = 35000
 const MaxPort = 65535
 
 type (
