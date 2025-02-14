@@ -135,6 +135,15 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = blockDrivesOp
+	case "unblock-drives":
+		unblockDrivesOp := operations.NewUnblockDrivesOperation(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.BlockDrives,
+			&wekaManualOperation.Status.Status,
+			onSuccess,
+			onFailure,
+		)
+		loop.Op = unblockDrivesOp
 	case "discover-drives":
 		discoverDrivesOp := operations.NewDiscoverDrivesOperation(
 			r.Mgr,
