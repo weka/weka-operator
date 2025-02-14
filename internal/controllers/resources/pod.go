@@ -1041,7 +1041,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
-		total := 1024
+		total := 1024 + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
