@@ -470,9 +470,14 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveFromS3Cluster", cmd)
 	if err != nil {
+		if strings.Contains(stderr.String(), "is not part of the S3 cluster") {
+			logger.Warn("Container is not part of the S3 cluster", "containerId", containerId, "err", stderr.String())
+			return nil
+		}
 		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String())
 		return err
 	}
+
 	return nil
 }
 
