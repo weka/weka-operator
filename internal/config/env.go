@@ -72,31 +72,32 @@ const (
 )
 
 var Config struct {
-	Version                    string
-	OperatorPodUID             string
-	OperatorPodNamespace       string
-	BindAddress                BindAddress
-	EnableLeaderElection       bool
-	EnableClusterApi           bool
-	Timeouts                   Timeouts
-	Otel                       Otel
-	WekaHome                   WekaHome
-	DebugSleep                 int
-	MaintenanceSaName          string
-	MaintenanceImage           string
-	MaintenanceImagePullSecret string
-	OcpCompatibility           OcpCompatibility
-	GkeCompatibility           GkeCompatibility
-	WekaAllocZombieDeleteAfter time.Duration
-	DevMode                    bool
-	Logging                    Logging
-	MaxWorkers                 MaxWorkers
-	Metrics                    Metrics
-	Mode                       OperatorMode
-	LocalDataPvc               string
-	SignDrivesImage            string
-	SkipUnhealthyToleration    bool
-	Upgrade                    struct {
+	Version                              string
+	OperatorPodUID                       string
+	OperatorPodNamespace                 string
+	BindAddress                          BindAddress
+	EnableLeaderElection                 bool
+	EnableClusterApi                     bool
+	Timeouts                             Timeouts
+	Otel                                 Otel
+	WekaHome                             WekaHome
+	DebugSleep                           int
+	MaintenanceSaName                    string
+	MaintenanceImage                     string
+	MaintenanceImagePullSecret           string
+	OcpCompatibility                     OcpCompatibility
+	GkeCompatibility                     GkeCompatibility
+	WekaAllocZombieDeleteAfter           time.Duration
+	DevMode                              bool
+	Logging                              Logging
+	MaxWorkers                           MaxWorkers
+	Metrics                              Metrics
+	Mode                                 OperatorMode
+	LocalDataPvc                         string
+	SignDrivesImage                      string
+	SkipUnhealthyToleration              bool
+	SkipClientPreferNoScheduleToleration bool
+	Upgrade                              struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
@@ -211,6 +212,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
+	Config.SkipClientPreferNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_PREFER_NO_SCHEDULE_TOLERATION", false)
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
 }
 

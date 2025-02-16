@@ -186,6 +186,8 @@ spec:
               value: "{{ .Values.upgrade.driveThresholdPercent }}"
             - name: UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT
               value: "{{ .Values.upgrade.maxDeactivatingContainersPercent }}"
+            - name: SKIP_CLIENT_PREFER_NO_SCHEDULE_TOLERATION
+              value: "{{ .Values.skipClientPreferNoScheduleToleration }}"
 
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"

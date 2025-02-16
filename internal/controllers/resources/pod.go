@@ -824,6 +824,17 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 		},
 	}
 	tolerations = append(tolerations, pressureTolerations...)
+	// for client we are ignoring PreferNoSchedule, the rest should not ignore(for now)
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+		if !config.Config.SkipClientPreferNoScheduleToleration {
+			preferNoScheduleTolerations := []corev1.Toleration{
+				{
+					Effect: corev1.TaintEffectPreferNoSchedule,
+				},
+			}
+			tolerations = append(tolerations, preferNoScheduleTolerations...)
+		}
+	}
 
 	// expand with custom tolerations
 	tolerations = append(tolerations, f.container.Spec.Tolerations...)

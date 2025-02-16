@@ -103,6 +103,8 @@ debugSleep: 3
 tolerations: []
 # -- if true, pods will not tolerate unhealthy nodes (unschedulable and not-ready)
 skipUnhealthyToleration: false
+# -- if true, client pods will not toleration all PreferNoSchedule taints
+skipClientPreferNoScheduleToleration: false
 deploymentIdentifier: ""
 
 # -- if true, the operator will consider nodes that are gone as totally gone (not in the cluster anymore)
