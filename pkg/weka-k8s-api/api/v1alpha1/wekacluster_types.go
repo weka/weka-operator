@@ -301,9 +301,11 @@ type WekaClusterSpecOverrides struct {
 	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
 	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
 	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
-	ForceAio              bool   `json:"forceAio,omitempty"`
+	ForceAio bool `json:"forceAio,omitempty"`
+	// script to run post cluster create (i.e before starting io)
 	PostFormClusterScript string `json:"postFormClusterScript,omitempty"`
-	UpgradeForceReplace   bool   `json:"upgradeForceReplace,omitempty"`
+	// unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel
+	UpgradeForceReplace bool `json:"upgradeForceReplace,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {

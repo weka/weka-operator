@@ -99,7 +99,8 @@ type WekaContainerSpecOverrides struct {
 	// skips resign of drives, if we did not resign drives on removal of drive container we will not be able to reuse them, and manual operation with force resign will be required
 	SkipDrivesForceResign bool `json:"skipDrivesForceResign,omitempty"`
 	// skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions)
-	SkipCleanupPersistentDir bool   `json:"skipCleanupPersistentDir,omitempty"`
+	SkipCleanupPersistentDir bool `json:"skipCleanupPersistentDir,omitempty"`
+	// unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel
 	UpgradeForceReplace      bool   `json:"upgradeForceReplace,omitempty"`
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
 	// script to be executed post initial persistency(if needed) configuration, before running actual workload
