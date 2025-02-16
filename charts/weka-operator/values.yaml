@@ -95,6 +95,8 @@ manager:
     requests:
       cpu: 250m
       memory: 64Mi
+  nodeSelector: {}
+  tolerations: []
 
 debugSleep: 3
 

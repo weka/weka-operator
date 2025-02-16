@@ -45,8 +45,14 @@ spec:
                     values:
                       - linux
       tolerations:
-      {{- if .Values.tolerations }}
+      {{- if .Values.manager.tolerations }}
+        {{- toYaml .Values.manager.tolerations | nindent 8 }}
+      {{- else if .Values.tolerations }}
         {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.manager.nodeSelector | nindent 8 }}
       {{- end }}
       volumes:
         - name: tmpdir
