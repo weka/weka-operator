@@ -70,6 +70,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "nfs":
 		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
 		extraCores = template.NfsExtraCores
+	case "envoy":
+		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 	}
 
 	containerGroup := ""
