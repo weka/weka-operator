@@ -869,10 +869,14 @@ async def write_logrotate_config():
         f.write(dedent("""
             /var/log/syslog /var/log/errors {
                 size 1M
-                rotate 3
+                rotate 10
                 missingok
                 notifempty
                 compress
+                delaycompress
+                postrotate
+                   pkill -HUP $(cat /var/run/syslog-ng.pid)
+                endscript
             }
 """))
 
