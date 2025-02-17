@@ -442,13 +442,13 @@ func (c *CliWekaService) JoinS3Cluster(ctx context.Context, containerId int) err
 		"wekaauthcli", "s3", "cluster", "containers", "add", strconv.Itoa(containerId),
 	}
 
-	_, stderr, err := executor.ExecNamed(ctx, "JoinS3Cluster", cmd)
+	stdout, stderr, err := executor.ExecNamed(ctx, "JoinS3Cluster", cmd)
 	// error: Trying to set an invalid S3 configuration: Specified host HostId<4> is already part of the S3 cluster
 	if err != nil && strings.Contains(stderr.String(), "already part of the S3 cluster") {
 		return nil
 	}
 	if err != nil {
-		logger.SetError(err, "Failed to join S3 cluster", "stderr", stderr.String())
+		logger.SetError(err, "Failed to join S3 cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
 

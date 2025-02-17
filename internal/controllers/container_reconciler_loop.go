@@ -1778,7 +1778,7 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 
 	if NodeIsReady(r.node) && !skipExec {
 		if r.container.HasAgent() {
-			logger.Debug("Force-stopping weka local")
+			logger.Debug("Stopping weka local")
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
 			// for versions that do not yet support graceful shutdown touch-flag, we will force stop weka local
 			// this might impact performance of shrink, but should not be affecting whole cluster deletion
@@ -2733,12 +2733,12 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 				return err
 			}
 			if ownerContainer.Status.NodeAffinity != "" {
-				deleteErr := r.stopForceAndEnsureNoPod(ctx)
-				if deleteErr != nil {
-					return deleteErr
-				} else {
-					return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))
+				// evicting for reschedule
+				r.container.Spec.State = weka.ContainerStateDeleting
+				if err := r.Update(ctx, r.container); err != nil {
+					return err
 				}
+				return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))
 			}
 		}
 		// no one else is using this node, we can safely set it
