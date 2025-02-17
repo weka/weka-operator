@@ -480,6 +480,20 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
+			oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
+			role := container.Spec.Mode
+			newNodeSelector := map[string]string{}
+			if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+				newNodeSelector = cluster.Spec.NodeSelector
+				if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
+					newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+				}
+			}
+			if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
+				container.Spec.NodeSelector = cluster.Spec.NodeSelector
+				changed = true
+			}
+
 			if changed {
 				err := r.getClient().Patch(ctx, container, patch)
 				if err != nil {
@@ -2007,11 +2021,13 @@ type UpdatableClusterSpec struct {
 	DriversDistService  string
 	ImagePullSecret     string
 	Labels              *util2.HashableMap
+	NodeSelector        *util2.HashableMap
 	UpgradeForceReplace bool
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
 	labels := util2.NewHashableMap(meta.Labels)
+	nodeSelector := util2.NewHashableMap(spec.NodeSelector)
 
 	return &UpdatableClusterSpec{
 		AdditionalMemory:    spec.AdditionalMemory,
@@ -2020,6 +2036,7 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		DriversDistService:  spec.DriversDistService,
 		ImagePullSecret:     spec.ImagePullSecret,
 		Labels:              labels,
+		NodeSelector:        nodeSelector,
 		UpgradeForceReplace: spec.GetOverrides().UpgradeForceReplace,
 	}
 }
