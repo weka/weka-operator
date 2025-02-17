@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -21,7 +23,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 	"github.com/weka/weka-operator/pkg/util"
@@ -49,6 +50,8 @@ type ContainerInfo struct {
 	containerName          string
 	containerId            string
 	mode                   string
+	scrapeTargets          []ScrapeTarget
+	scrappedData           map[ScrapeTarget][]byte
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -66,12 +69,21 @@ type containersData struct {
 	data map[string]*ContainerInfo
 }
 
+type ScrapeTarget struct {
+	Port int    `json:"port"`
+	Path string `json:"path"`
+	//defaults to localhost if not specified
+	Endpoint string `json:"endpoint,omitempty"`
+	AppName  string `json:"app_name"`
+}
+
 type RegisterContainerPayload struct {
 	ContainerName     string            `json:"container_name"`
 	ContainerId       string            `json:"container_id"`
 	WekaContainerName string            `json:"weka_container_name"`
 	Labels            map[string]string `json:"labels"`
 	Mode              string            `json:"mode"`
+	ScrapeTargets     []ScrapeTarget    `json:"scrape_targets"`
 }
 
 type ProcessSummary struct {
@@ -189,9 +201,6 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 	defer a.containersData.lock.RUnlock()
 
 	for _, container := range a.containersData.data {
-		if container.containerStateLastPull.Add(5 * time.Minute).Before(time.Now()) {
-			continue
-		}
 		defaultLabels := make(map[string]string)
 		for key, value := range container.labels {
 			label := metrics2.NormalizeLabelName(key)
@@ -204,77 +213,101 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				"mode":           container.mode,
 			})
 
-		promResponse.AddMetric(metrics2.PromMetric{
-			Metric: "weka_processes",
-			Help:   "Weka processes",
-		},
-			[]metrics2.TaggedValue{
-				{
-					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
-					Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
-					Timestamp: container.containerStateLastPull,
-				},
-				{
-					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
-					Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
-					Timestamp: container.containerStateLastPull,
-				},
-			},
-		)
-
-		for nodeIdStr, cpuLoad := range container.cpuInfo.Result {
-			// do we care about the node id? should we report per node or containers totals? will stay with totals for now
-
-			processId, err := resources.NodeIdToProcessId(nodeIdStr)
-			if err != nil {
-				logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
+		for _, target := range container.scrapeTargets {
+			if container.scrappedData == nil {
 				continue
 			}
-			processIdStr := fmt.Sprintf("%d", processId)
-
-			value := 0.0
-			if cpuLoad.Err != nil && *cpuLoad.Err != "" {
-				logger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
+			data, ok := container.scrappedData[target]
+			if !ok {
 				continue
-			} else {
-				if cpuLoad.Value != nil {
-					value = *cpuLoad.Value
-				}
+			}
+
+			data, err := TransformMetrics(data, containerLabels, target.AppName+"_")
+			if err != nil {
+				logger.Error(err, "Failed to transform metrics", "container_name", container.containerName)
+				continue
+			}
+			promResponse.AddBytes(data)
+		}
+
+		switch container.mode {
+		case weka.WekaContainerModeEnvoy: // nothing todo, scrapeTargets is common
+		default:
+			if container.containerStateLastPull.Add(5 * time.Minute).Before(time.Now()) {
+				continue
 			}
 
 			promResponse.AddMetric(metrics2.PromMetric{
-				Metric: "weka_cpu_utilization",
-				Help:   "Weka container CPU utilization",
-			}, []metrics2.TaggedValue{
-				{
-					Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"process_id": processIdStr}),
-					Value:     value,
-					Timestamp: container.cpuInfoLastPoll,
-				},
-			})
-		}
-
-		for _, disk := range container.containerState.Result.DisksSummary {
-			if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) {
-				promResponse.AddMetric(metrics2.PromMetric{
-					Metric: "weka_inactive_drives",
-					Help:   "Weka processes",
-				},
-					[]metrics2.TaggedValue{
-						{
-							Tags: util.MergeMaps(containerLabels, metrics2.TagMap{
-								"status":   disk.Status,
-								"serial":   disk.SerialNumber,
-								"weka_uid": disk.Uid,
-							}),
-							Value:     1,
-							Timestamp: container.containerStateLastPull,
-						},
+				Metric: "weka_processes",
+				Help:   "Weka processes",
+			},
+				[]metrics2.TaggedValue{
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
+						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
+						Timestamp: container.containerStateLastPull,
 					},
-				)
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
+						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
+						Timestamp: container.containerStateLastPull,
+					},
+				},
+			)
+
+			for nodeIdStr, cpuLoad := range container.cpuInfo.Result {
+				// do we care about the node id? should we report per node or containers totals? will stay with totals for now
+
+				processId, err := resources.NodeIdToProcessId(nodeIdStr)
+				if err != nil {
+					logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
+					continue
+				}
+				processIdStr := fmt.Sprintf("%d", processId)
+
+				value := 0.0
+				if cpuLoad.Err != nil && *cpuLoad.Err != "" {
+					logger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
+					continue
+				} else {
+					if cpuLoad.Value != nil {
+						value = *cpuLoad.Value
+					}
+				}
+
+				promResponse.AddMetric(metrics2.PromMetric{
+					Metric: "weka_cpu_utilization",
+					Help:   "Weka container CPU utilization",
+				}, []metrics2.TaggedValue{
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"process_id": processIdStr}),
+						Value:     value,
+						Timestamp: container.cpuInfoLastPoll,
+					},
+				})
+			}
+
+			for _, disk := range container.containerState.Result.DisksSummary {
+				if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) {
+					promResponse.AddMetric(metrics2.PromMetric{
+						Metric: "weka_inactive_drives",
+						Help:   "Weka processes",
+					},
+						[]metrics2.TaggedValue{
+							{
+								Tags: util.MergeMaps(containerLabels, metrics2.TagMap{
+									"status":   disk.Status,
+									"serial":   disk.SerialNumber,
+									"weka_uid": disk.Uid,
+								}),
+								Value:     1,
+								Timestamp: container.containerStateLastPull,
+							},
+						},
+					)
+				}
 			}
 		}
-
 	}
 
 	// Write the response
@@ -326,6 +359,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 		containerName:     payload.ContainerName,
 		containerId:       payload.ContainerId,
 		mode:              payload.Mode,
+		scrapeTargets:     payload.ScrapeTargets,
 	}
 
 	logger.Info("Container registered", "container_name", payload.ContainerName, "container_id", payload.ContainerId)
@@ -418,25 +452,51 @@ type LocalCpuUtilizationResponse struct {
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
 	// WARNING: no lock here, while calling in parallel from multiple places
 
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "fetchAndPopulateMetrics")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "fetchAndPopulateMetrics")
 	defer end()
 
-	var response LocalConfigStateResponse
-	err := jrpcCall(ctx, container, "get_local_config_summary", &response)
-	if err != nil {
-		return err
+	if container.mode != weka.WekaContainerModeEnvoy {
+		var response LocalConfigStateResponse
+		err := jrpcCall(ctx, container, "get_local_config_summary", &response)
+		if err != nil {
+			return err
+		}
+
+		container.containerState = response
+		container.containerStateLastPull = time.Now()
+
+		var cpuResponse LocalCpuUtilizationResponse
+		err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
+		if err != nil {
+			return err
+		}
+		container.cpuInfo = cpuResponse
+		container.cpuInfoLastPoll = time.Now()
 	}
 
-	container.containerState = response
-	container.containerStateLastPull = time.Now()
-
-	var cpuResponse LocalCpuUtilizationResponse
-	err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
-	if err != nil {
-		return err
+	for _, target := range container.scrapeTargets {
+		// regular http call to localhost:port/path
+		// parse response and add to container.scrappedData
+		endpoint := target.Endpoint
+		if endpoint == "" {
+			endpoint = "localhost"
+		}
+		resp, err := http.Get(fmt.Sprintf("http://%s:%d%s", endpoint, target.Port, target.Path))
+		if err != nil {
+			logger.Error(err, "Failed to fetch metrics", "target", target)
+			continue
+		}
+		defer resp.Body.Close()
+		if container.scrappedData == nil {
+			container.scrappedData = make(map[ScrapeTarget][]byte)
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logger.Error(err, "Failed to read response body", "target", target)
+			continue
+		}
+		container.scrappedData[target] = data
 	}
-	container.cpuInfo = cpuResponse
-	container.cpuInfoLastPoll = time.Now()
 
 	return nil
 }

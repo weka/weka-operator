@@ -629,6 +629,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 								weka.WekaContainerModeS3,
 								weka.WekaContainerModeNfs,
 								weka.WekaContainerModeDrive,
+								weka.WekaContainerModeEnvoy,
 								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
 							}, container.Spec.Mode)
 					},
@@ -3482,6 +3483,22 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RegisterContainerOnMetrics")
 	defer end()
 
+	scrapeTargets := []node_agent.ScrapeTarget{}
+
+	if r.container.Spec.Mode == weka.WekaContainerModeEnvoy {
+		if r.container.Spec.ExposedPorts != nil {
+			for _, port := range r.container.Spec.ExposedPorts {
+				if port.Name == "envoy-admin" {
+					scrapeTargets = append(scrapeTargets, node_agent.ScrapeTarget{
+						Port:    int(port.ContainerPort),
+						Path:    "/stats/prometheus",
+						AppName: "weka_s3_envoy",
+					})
+				}
+			}
+		}
+	}
+
 	// find a pod service node metrics
 	payload := node_agent.RegisterContainerPayload{
 		ContainerName:     r.container.Name,
@@ -3489,6 +3506,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		WekaContainerName: r.container.Spec.WekaContainerName,
 		Labels:            r.container.GetLabels(),
 		Mode:              r.container.Spec.Mode,
+		ScrapeTargets:     scrapeTargets,
 	}
 	// submit http request to metrics pod
 	pods, err2 := r.getNodeAgentPods(ctx)
