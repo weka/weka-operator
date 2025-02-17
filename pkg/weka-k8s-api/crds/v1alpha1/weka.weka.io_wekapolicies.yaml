@@ -77,6 +77,8 @@ spec:
                         type: object
                     type: object
                   interval:
+                    default: 5m
+                    pattern: ^(0|([0-9]+(\.[0-9]+)?(s|m|h))+)$
                     type: string
                   schedulingConfigPayload:
                     type: object
@@ -89,6 +91,17 @@ spec:
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        type: object
+                      options:
+                        properties:
+                          allowEraseNonWekaPartitions:
+                            type: boolean
+                          allowEraseWekaPartitions:
+                            type: boolean
+                          allowNonEmptyDevice:
+                            type: boolean
+                          skipTrimFormat:
+                            type: boolean
                         type: object
                       pciDevices:
                         description: |-

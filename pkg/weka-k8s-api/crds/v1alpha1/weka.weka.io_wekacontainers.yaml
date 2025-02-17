@@ -24,7 +24,7 @@ spec:
       name: Mode
       type: string
     - description: Management IPs
-      jsonPath: .status.managementIPs
+      jsonPath: .status.printer.managementIPs
       name: Management IPs
       type: string
     - description: Node affinity of container
@@ -1037,6 +1037,50 @@ spec:
                 type: string
               dropAffinityConstraints:
                 type: boolean
+              exposePorts:
+                description: deprecated, use ExposedPorts instead
+                items:
+                  type: integer
+                type: array
+              exposedPorts:
+                description: ports to be exposed on the container, proxied to pod
+                items:
+                  description: ContainerPort represents a network port in a single
+                    container.
+                  properties:
+                    containerPort:
+                      description: |-
+                        Number of port to expose on the pod's IP address.
+                        This must be a valid port number, 0 < x < 65536.
+                      format: int32
+                      type: integer
+                    hostIP:
+                      description: What host IP to bind the external port to.
+                      type: string
+                    hostPort:
+                      description: |-
+                        Number of port to expose on the host.
+                        If specified, this must be a valid port number, 0 < x < 65536.
+                        If HostNetwork is specified, this must match ContainerPort.
+                        Most containers do not need this.
+                      format: int32
+                      type: integer
+                    name:
+                      description: |-
+                        If specified, this must be an IANA_SVC_NAME and unique within the pod. Each
+                        named port in a pod must have a unique name. Name for the port that can be
+                        referred to by services.
+                      type: string
+                    protocol:
+                      default: TCP
+                      description: |-
+                        Protocol for port. Must be UDP, TCP, or SCTP.
+                        Defaults to "TCP".
+                      type: string
+                  required:
+                  - containerPort
+                  type: object
+                type: array
               extraCores:
                 type: integer
               failureDomain:
@@ -1114,6 +1158,8 @@ spec:
                   aws:
                     properties:
                       deviceSlots:
+                        description: should provide list of additional nics indexes
+                          starting from 1, index 0 is reserved for kernel networking
                         items:
                           type: integer
                         type: array
@@ -1150,6 +1196,12 @@ spec:
                 type: integer
               overrides:
                 properties:
+                  machineIdentifierNodeRef:
+                    type: string
+                  preRunScript:
+                    description: script to be executed post initial persistency(if
+                      needed) configuration, before running actual workload
+                    type: string
                   skipCleanupPersistentDir:
                     description: skips cleanup of persistent directory, if this operation
                       was omit local data of container will remain in persistent location(/opt/k8s-weka
@@ -1164,6 +1216,11 @@ spec:
                     description: skips resign of drives, if we did not resign drives
                       on removal of drive container we will not be able to reuse them,
                       and manual operation with force resign will be required
+                    type: boolean
+                  upgradeForceReplace:
+                    description: unsafe operation, skips graceful stop of weka container
+                      for a quick replacement to a new image, should not be used unless
+                      instructed explicitly by weka personnel
                     type: boolean
                 type: object
               port:
@@ -1191,6 +1248,7 @@ spec:
                 - active
                 - paused
                 - destroying
+                - deleting
                 type: string
               tolerations:
                 items:
@@ -1546,6 +1604,12 @@ spec:
                     type: string
                   lbPort:
                     type: integer
+                  machineIdentifier:
+                    type: string
+                  netDevices:
+                    items:
+                      type: string
+                    type: array
                   wekaPort:
                     type: integer
                 type: object
@@ -1645,6 +1709,9 @@ spec:
                   activeMounts:
                     type: string
                   drives:
+                    type: string
+                  managementIPs:
+                    description: pretty-printed management IPs
                     type: string
                   processes:
                     type: string

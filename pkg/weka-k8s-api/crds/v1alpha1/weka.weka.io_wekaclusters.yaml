@@ -76,6 +76,8 @@ spec:
                     type: integer
                   drive:
                     type: integer
+                  envoy:
+                    type: integer
                   nfs:
                     type: integer
                   s3:
@@ -214,6 +216,15 @@ spec:
               network:
                 description: weka cluster network configuration
                 properties:
+                  aws:
+                    properties:
+                      deviceSlots:
+                        description: should provide list of additional nics indexes
+                          starting from 1, index 0 is reserved for kernel networking
+                        items:
+                          type: integer
+                        type: array
+                    type: object
                   deviceSubnets:
                     description: subnet that is used for devices auto-discovery
                     items:
@@ -262,7 +273,14 @@ spec:
                       case of incompatible device)
                     type: boolean
                   postFormClusterScript:
+                    description: script to run post cluster create (i.e before starting
+                      io)
                     type: string
+                  upgradeForceReplace:
+                    description: unsafe operation, skips graceful stop of weka container
+                      for a quick replacement to a new image, should not be used unless
+                      instructed explicitly by weka personnel
+                    type: boolean
                 type: object
               podConfig:
                 description: advanced pod affinities configuration

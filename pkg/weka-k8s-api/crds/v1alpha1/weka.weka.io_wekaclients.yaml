@@ -98,6 +98,15 @@ spec:
                 type: array
               network:
                 properties:
+                  aws:
+                    properties:
+                      deviceSlots:
+                        description: should provide list of additional nics indexes
+                          starting from 1, index 0 is reserved for kernel networking
+                        items:
+                          type: integer
+                        type: array
+                    type: object
                   deviceSubnets:
                     description: subnet that is used for devices auto-discovery
                     items:
@@ -122,6 +131,13 @@ spec:
               nodeSelector:
                 additionalProperties:
                   type: string
+                type: object
+              overrides:
+                properties:
+                  machineIdentifierNodeRef:
+                    description: used to override machine identifier node reference
+                      for client containers
+                    type: string
                 type: object
               port:
                 description: if not set (0), weka will find a free port from the portRange

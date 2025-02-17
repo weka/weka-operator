@@ -64,6 +64,7 @@ spec:
                 - discover-drives
                 - force-resign-drives
                 - block-drives
+                - unblock-drives
                 - ensure-nics
                 - remote-traces-session
                 type: string
@@ -180,6 +181,17 @@ spec:
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        type: object
+                      options:
+                        properties:
+                          allowEraseNonWekaPartitions:
+                            type: boolean
+                          allowEraseWekaPartitions:
+                            type: boolean
+                          allowNonEmptyDevice:
+                            type: boolean
+                          skipTrimFormat:
+                            type: boolean
                         type: object
                       pciDevices:
                         description: |-
