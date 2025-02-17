@@ -468,13 +468,18 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 		"wekaauthcli", "s3", "cluster", "containers", "remove", strconv.Itoa(containerId),
 	}
 
-	_, stderr, err := executor.ExecNamed(ctx, "RemoveFromS3Cluster", cmd)
+	stdout, stderr, err := executor.ExecNamed(ctx, "RemoveFromS3Cluster", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "is not part of the S3 cluster") {
-			logger.Warn("Container is not part of the S3 cluster", "containerId", containerId, "err", stderr.String())
+			logger.Warn("Container is not part of the S3 cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
 			return nil
 		}
-		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String())
+		if strings.Contains(stderr.String(), fmt.Sprintf("error: Unrecognized host ID HostId<%d>", containerId)) {
+			logger.Warn("Container is not recognized by the S3 cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+
+		}
+		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
 
@@ -744,6 +749,9 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "DeactivateContainer", cmd)
 	if err != nil {
+		if strings.Contains(stderr.String(), fmt.Sprintf("Host HostId<%d> not found", containerId)) {
+			return nil
+		}
 		err = errors.Wrapf(err, "Failed to deactivate container %d: %s", containerId, stderr.String())
 		return err
 	}
