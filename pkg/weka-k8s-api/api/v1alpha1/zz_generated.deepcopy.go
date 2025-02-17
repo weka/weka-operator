@@ -1614,6 +1614,11 @@ func (in *WekaContainerSpec) DeepCopyInto(out *WekaContainerSpec) {
 		*out = make([]int, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExposedPorts != nil {
+		in, out := &in.ExposedPorts, &out.ExposedPorts
+		*out = make([]v1.ContainerPort, len(*in))
+		copy(*out, *in)
+	}
 	if in.PortRange != nil {
 		in, out := &in.PortRange, &out.PortRange
 		*out = new(PortRange)

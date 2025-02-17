@@ -120,15 +120,18 @@ type WekaContainerSpec struct {
 	// controls the distribution of weka containers across the failure domains
 	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 	// advanced scheduling constraints
-	Affinity          *v1.Affinity      `json:"affinity,omitempty"`
-	NodeSelector      map[string]string `json:"nodeSelector,omitempty"`
-	Port              int               `json:"port,omitempty"`
-	ExposePorts       []int             `json:"exposePorts,omitempty"`
-	AgentPort         int               `json:"agentPort,omitempty"`
-	PortRange         *PortRange        `json:"portRange,omitempty"`
-	Image             string            `json:"image"`
-	ImagePullSecret   string            `json:"imagePullSecret,omitempty"`
-	WekaContainerName string            `json:"name"`
+	Affinity     *v1.Affinity      `json:"affinity,omitempty"`
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	Port         int               `json:"port,omitempty"`
+	// deprecated, use ExposedPorts instead
+	ExposePorts []int `json:"exposePorts,omitempty"`
+	// ports to be exposed on the container, proxied to pod
+	ExposedPorts      []v1.ContainerPort `json:"exposedPorts,omitempty"`
+	AgentPort         int                `json:"agentPort,omitempty"`
+	PortRange         *PortRange         `json:"portRange,omitempty"`
+	Image             string             `json:"image"`
+	ImagePullSecret   string             `json:"imagePullSecret,omitempty"`
+	WekaContainerName string             `json:"name"`
 	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
