@@ -173,6 +173,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 		Throttler:    r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
 		Conditions:   &loop.container.Status.Conditions,
 		Steps: []lifecycle.Step{
+			{
+				Run: loop.migrateEnsurePorts,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return len(loop.container.Spec.ExposePorts) != 0
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			// put self in state "destroying" if container is marked for deletion
 			{
 				Run: loop.ensureStateDeleting,
@@ -906,6 +915,10 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	skipExec := false
 	if r.node != nil {
 		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o")
+	}
+
+	if r.node == nil {
+		return nil
 	}
 
 	if container.HasFrontend() {
@@ -3621,4 +3634,34 @@ func (r *containerReconcilerLoop) IsStatusOvervwritableByLocal() bool {
 		return false
 	}
 	return true
+}
+
+func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error {
+	if r.container.Spec.ExposePorts == nil {
+		return nil
+	}
+
+	if !r.container.IsEnvoy() {
+		return nil // we never set old format for anything but envoy
+	}
+
+	if len(r.container.Spec.ExposePorts) == 2 {
+		r.container.Spec.ExposedPorts = []v1.ContainerPort{
+			{
+				Name:          "envoy",
+				ContainerPort: int32(r.container.Spec.ExposePorts[0]),
+				HostPort:      int32(r.container.Spec.ExposePorts[0]),
+			},
+			{
+				Name:          "envoy-admin",
+				ContainerPort: int32(r.container.Spec.ExposePorts[1]),
+				HostPort:      int32(r.container.Spec.ExposePorts[1]),
+			},
+		}
+
+		r.container.Spec.ExposePorts = nil
+		return r.Update(ctx, r.container)
+	}
+
+	return nil
 }
