@@ -829,7 +829,9 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 		if !config.Config.SkipClientPreferNoScheduleToleration {
 			preferNoScheduleTolerations := []corev1.Toleration{
 				{
-					Effect: corev1.TaintEffectPreferNoSchedule,
+					// operator must be Exists when `key` is empty, which means "match all values and all keys"
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectPreferNoSchedule,
 				},
 			}
 			tolerations = append(tolerations, preferNoScheduleTolerations...)
