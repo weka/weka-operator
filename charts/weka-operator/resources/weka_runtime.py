@@ -1231,12 +1231,18 @@ def get_shutdown_instructions() -> ShutdownInstructions:
     instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
 
     if not os.path.exists(instructions_file):
-        return ShutdownInstructions()
+        ret = ShutdownInstructions()
+    else:
+        with open(instructions_file, "r") as file:
+            data = json.load(file)
+            ret = ShutdownInstructions(**data)
 
-    with open(instructions_file, "r") as file:
-        data = json.load(file)
 
-    return ShutdownInstructions(**data)
+    if exists("/tmp/.allow-force-stop"):
+        ret.allow_force_stop = True
+    if exists("/tmp/.allow-stop"):
+        ret.allow_stop = True
+    return ret
 
 
 async def start_weka_container():
@@ -1834,6 +1840,8 @@ async def wait_for_resources():
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         logging.info("waiting for /opt/weka/k8s-runtime/resources.json")
         await asyncio.sleep(3)
+        if get_shutdown_instructions().allow_stop:
+            raise Exception("Shutdown requested")
         continue
 
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
@@ -2256,10 +2264,10 @@ async def wait_for_shutdown_instruction():
     while True:
         shutdown_instructions = get_shutdown_instructions()
 
-        if exists("/tmp/.allow-force-stop") or shutdown_instructions.allow_force_stop:
+        if shutdown_instructions.allow_force_stop:
             logging.info("Received 'allow-force-stop' instruction")
             return
-        if exists("/tmp/.allow-stop") or shutdown_instructions.allow_stop:
+        if shutdown_instructions.allow_stop:
             logging.info("Received 'allow-stop' instruction")
             return
 

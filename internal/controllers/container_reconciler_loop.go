@@ -1126,7 +1126,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 		return err
 	}
 
-	_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop"})
+	_, _, err = executor.ExecNamed(ctx, "AllowForceStop", []string{"bash", "-ce", "touch /tmp/.allow-force-stop && kill 1"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "container not found") {
 			return err
@@ -1154,7 +1154,7 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 		return err
 	}
 
-	_, _, err = executor.ExecNamed(ctx, "AllowStop", []string{"bash", "-ce", "touch /tmp/.allow-stop"})
+	_, _, err = executor.ExecNamed(ctx, "AllowStop", []string{"bash", "-ce", "touch /tmp/.allow-stop && kill 1"})
 	if err != nil {
 		if !strings.Contains(err.Error(), "container not found") {
 			return err
@@ -1754,7 +1754,7 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		skipExec = strings.Contains(r.node.Status.NodeInfo.ContainerRuntimeVersion, "cri-o") || !NodeIsReady(r.node)
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod", "skipExec", skipExec)
 	defer end()
 
 	pod := &v1.Pod{}
