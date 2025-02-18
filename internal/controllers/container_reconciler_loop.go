@@ -1075,7 +1075,7 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 }
 
 func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Context, pod *v1.Pod, instructions resources.ShutdownInstructions) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "", "force", instructions.AllowForceStop)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "sendStopInstructionsViaAgent", "force", instructions.AllowForceStop, "instructions", instructions)
 	defer end()
 
 	agentPod, err := r.findAdjacentNodeAgent(ctx, pod)
@@ -2455,7 +2455,7 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	}
 
 	logger.Info("Running prepare-upgrade")
-	err = r.runPrepareUpgrade(ctx, executor)
+	err = r.runDriverPrepareUpgrade(ctx, executor)
 	if err != nil {
 		return err
 	}
@@ -2468,7 +2468,15 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 		}
 
 		logger.Debug("Removing wekafsio and wekafsgw drivers")
-		_, stderr, err := executor.ExecNamed(ctx, "RemoveWekaFsDrivers", []string{"bash", "-ce", "rmmod wekafsio && rmmod wekafsgw"})
+		_, stderr, err := executor.ExecNamed(ctx, "RemoveWekaFsDrivers", []string{"bash", "-ce", `
+if lsmod | grep wekafsio; then 
+	rmmod wekafsio
+fi
+if lsmod | grep wekafsgw; then
+	rmmod wekafsgw
+fi
+
+`})
 		if err != nil {
 			err = fmt.Errorf("error removing wekafsio and wekafsgw drivers: %w, stderr: %s", err, stderr.String())
 			return err
@@ -2477,8 +2485,17 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	return nil
 }
 
-func (r *containerReconcilerLoop) runPrepareUpgrade(ctx context.Context, executor util.Exec) error {
-	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", "echo prepare-upgrade > /proc/wekafs/interface"})
+func (r *containerReconcilerLoop) runDriverPrepareUpgrade(ctx context.Context, executor util.Exec) error {
+	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgrade", []string{"bash", "-ce", `
+if lsmod | grep wekafsio; then
+	if [ -e /proc/wekafs/interface ]; then
+		if ! echo prepare-upgrade > /proc/wekafs/interface; then
+			echo "Failed to run prepare-upgrade command attempting rmmod instead"
+			rmmod wekafsio
+		fi 
+	fi
+fi
+`})
 	if err != nil && strings.Contains(stderr.String(), "No such file or directory") {
 		err = &NoWekaFsDriverFound{}
 		return err
