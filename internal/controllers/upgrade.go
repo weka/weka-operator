@@ -92,7 +92,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			continue
 		}
 		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage != container.Spec.Image {
-			logger.Info("container upgrade did not finish yet", "container", container.Name)
+			logger.Info("container upgrade did not finish yet", "container_name", container.Name)
 			return lifecycle.NewWaitError(errors.New("container upgrade not finished yet"))
 		}
 	}

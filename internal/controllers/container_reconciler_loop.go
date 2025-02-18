@@ -947,7 +947,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 
 			if wekaPodContainer.Image != container.Spec.Image {
 				logger.Info("Upgrade detected")
-				err = r.runPreUpgradeSteps(ctx)
+				err = r.runFrontendUpgradePrepare(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, skip prepare-upgrade")
 				} else if err != nil {
@@ -1022,6 +1022,8 @@ func (r *containerReconcilerLoop) checkAllowForceStopInstruction(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.Pod, force bool) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "runWekaLocalStop")
+	defer end()
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
 	if err != nil {
 		return err
@@ -1029,9 +1031,8 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 
 	args := []string{"weka", "local", "stop"}
 
-	// TODO: remove later - temporary workaround for weka clients
 	// we need to use --force flag
-	if force || r.container.HasFrontend() {
+	if force {
 		args = append(args, "--force")
 	} else {
 		args = append(args, "-g")
@@ -2392,7 +2393,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 
 		if wekaPodContainer.Image != container.Spec.Image {
 			if container.HasFrontend() {
-				err = r.runPreUpgradeSteps(ctx)
+				err = r.runFrontendUpgradePrepare(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
 					err := r.writeAllowForceStopInstruction(ctx, pod, false)
@@ -2420,12 +2421,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return r.Delete(ctx, pod)
 			}
 
-			err := r.writeAllowStopInstruction(ctx, pod, false)
-			if err != nil {
-				logger.Error(err, "Error writing allow stop instruction")
-				return err
-			}
-
 			logger.Info("Deleting pod to apply new image")
 			// delete pod
 			err = r.Delete(ctx, pod)
@@ -2444,8 +2439,8 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) runPreUpgradeSteps(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runPreUpgradeSteps")
+func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runFrontendUpgradePrepare")
 	defer end()
 
 	container := r.container
@@ -2463,8 +2458,8 @@ func (r *containerReconcilerLoop) runPreUpgradeSteps(ctx context.Context) error 
 	}
 
 	if !container.Spec.AllowHotUpgrade {
-		logger.Debug("Hot upgrade is not enabled, force-stopping weka local")
-		err := r.runWekaLocalStop(ctx, pod, true)
+		logger.Debug("Hot upgrade is not enabled, issuing weka local stop")
+		err := r.runWekaLocalStop(ctx, pod, false)
 		if err != nil {
 			return err
 		}
