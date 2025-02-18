@@ -1075,7 +1075,7 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 }
 
 func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Context, pod *v1.Pod, instructions resources.ShutdownInstructions) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "", "force", instructions.AllowForceStop)
 	defer end()
 
 	agentPod, err := r.findAdjacentNodeAgent(ctx, pod)
@@ -1166,8 +1166,11 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 
 func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error {
 	if r.container.Spec.State != weka.ContainerStateDeleting {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "setDeletionState")
+		defer end()
 		r.container.Spec.State = weka.ContainerStateDeleting
 		if err := r.Update(ctx, r.container); err != nil {
+			logger.SetError(err, "Failed to update container state")
 			return fmt.Errorf("failed to update container state to deleting: %w", err)
 		}
 	}
@@ -2729,8 +2732,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 			}
 			if ownerContainer.Status.NodeAffinity != "" {
 				// evicting for reschedule
-				r.container.Spec.State = weka.ContainerStateDeleting
-				if err := r.Update(ctx, r.container); err != nil {
+				if err := r.ensureStateDeleting(ctx); err != nil {
 					return err
 				}
 				return lifecycle.NewWaitError(errors.New("scheduling race, deleting current container"))

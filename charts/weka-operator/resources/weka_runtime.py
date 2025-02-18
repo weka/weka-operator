@@ -1228,7 +1228,7 @@ class ShutdownInstructions:
     allow_stop: bool = False
 
 
-def get_shutdown_instructions() -> ShutdownInstructions:
+async def get_shutdown_instructions() -> ShutdownInstructions:
     if not POD_ID:  ## back compat mode for when pod was scheduled without downward api
         return ShutdownInstructions()
     instructions_dir = get_instructions_dir()
@@ -1844,7 +1844,7 @@ async def wait_for_resources():
     while not os.path.exists("/opt/weka/k8s-runtime/resources.json"):
         logging.info("waiting for /opt/weka/k8s-runtime/resources.json")
         await asyncio.sleep(3)
-        if get_shutdown_instructions().allow_stop:
+        if (await get_shutdown_instructions()).allow_stop:
             raise Exception("Shutdown requested")
         continue
 
@@ -2266,7 +2266,7 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
 
 async def wait_for_shutdown_instruction():
     while True:
-        shutdown_instructions = get_shutdown_instructions()
+        shutdown_instructions = await get_shutdown_instructions()
 
         if shutdown_instructions.allow_force_stop:
             logging.info("Received 'allow-force-stop' instruction")
@@ -2281,7 +2281,7 @@ async def wait_for_shutdown_instruction():
 
 async def watch_for_force_shutdown():
     while True:
-        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions().allow_force_stop:
+        if (await get_shutdown_instructions()).allow_force_stop:
             logging.info("Received 'allow-force-stop' instruction")
             await run_command("weka local stop --force", capture_stdout=False)
             return
@@ -2302,7 +2302,7 @@ async def shutdown():
             await wait_for_shutdown_instruction()
 
         force_stop = False
-        if exists("/tmp/.allow-force-stop") or get_shutdown_instructions().allow_force_stop:
+        if (await get_shutdown_instructions()).allow_force_stop:
             force_stop = True
         if is_wrong_generation():
             force_stop = True
