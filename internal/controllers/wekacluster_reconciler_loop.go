@@ -436,96 +436,95 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	}
 	if specHash != cluster.Status.LastAppliedSpec {
 		logger.Info("Cluster spec has changed, updating containers")
-		for _, container := range containers {
-			patch := client.MergeFrom(container.DeepCopy())
-			changed := false
+		return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+			for _, container := range containers {
+				patch := client.MergeFrom(container.DeepCopy())
+				changed := false
 
-			additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
-			if container.Spec.AdditionalMemory != additionalMemory {
-				container.Spec.AdditionalMemory = additionalMemory
-				changed = true
-			}
-
-			newTolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
-			oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
-			if !reflect.DeepEqual(oldTolerations, newTolerations) {
-				container.Spec.Tolerations = newTolerations
-				changed = true
-			}
-
-			if container.Spec.DriversDistService != updatableSpec.DriversDistService {
-				container.Spec.DriversDistService = updatableSpec.DriversDistService
-				changed = true
-			}
-
-			if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
-				container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
-				changed = true
-			}
-
-			if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
-				currentOverrides := container.Spec.GetOverrides()
-				currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
-				container.Spec.Overrides = currentOverrides
-				changed = true
-			}
-
-			targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
-			if err != nil {
-				return err
-			}
-			oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
-			if err != nil {
-				return err
-			}
-			targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
-			if err != nil {
-				return err
-			}
-			if oldNetworkHash != targetNetworkHash {
-				container.Spec.Network = targetNetworkSpec
-				changed = true
-			}
-
-			// desired labels = existing labels + cluster labels + required labels
-			// priority-wise, required labels have the highest priority
-			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
-			newLabels := util2.MergeMaps(container.Labels, cluster.ObjectMeta.GetLabels())
-			newLabels = util2.MergeMaps(newLabels, requiredLables)
-			if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
-				container.Labels = newLabels
-				changed = true
-			}
-
-			oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
-			role := container.Spec.Mode
-			newNodeSelector := map[string]string{}
-			if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
-				newNodeSelector = cluster.Spec.NodeSelector
-				if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
-					newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+				additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
+				if container.Spec.AdditionalMemory != additionalMemory {
+					container.Spec.AdditionalMemory = additionalMemory
+					changed = true
 				}
-			}
-			if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
-				container.Spec.NodeSelector = cluster.Spec.NodeSelector
-				changed = true
-			}
 
-			if changed {
-				err := r.getClient().Patch(ctx, container, patch)
+				newTolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
+				oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
+				if !reflect.DeepEqual(oldTolerations, newTolerations) {
+					container.Spec.Tolerations = newTolerations
+					changed = true
+				}
+
+				if container.Spec.DriversDistService != updatableSpec.DriversDistService {
+					container.Spec.DriversDistService = updatableSpec.DriversDistService
+					changed = true
+				}
+
+				if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
+					container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
+					changed = true
+				}
+
+				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
+					currentOverrides := container.Spec.GetOverrides()
+					currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
+					container.Spec.Overrides = currentOverrides
+					changed = true
+				}
+
+				targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
 				if err != nil {
-					return errors.Wrap(err, "failed to patch weka container")
+					return err
 				}
-				logger.Debug("Container updated", "container", container.Name)
+				oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
+				if err != nil {
+					return err
+				}
+				targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
+				if err != nil {
+					return err
+				}
+				if oldNetworkHash != targetNetworkHash {
+					container.Spec.Network = targetNetworkSpec
+					changed = true
+				}
+
+				// desired labels = existing labels + cluster labels + required labels
+				// priority-wise, required labels have the highest priority
+				requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
+				newLabels := util2.MergeMaps(container.Labels, cluster.ObjectMeta.GetLabels())
+				newLabels = util2.MergeMaps(newLabels, requiredLables)
+				if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
+					container.Labels = newLabels
+					changed = true
+				}
+
+				oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
+				role := container.Spec.Mode
+				newNodeSelector := map[string]string{}
+				if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+					newNodeSelector = cluster.Spec.NodeSelector
+					if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
+						newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+					}
+				}
+				if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
+					container.Spec.NodeSelector = cluster.Spec.NodeSelector
+					changed = true
+				}
+
+				if changed {
+					err := r.getClient().Patch(ctx, container, patch)
+					if err != nil {
+						return errors.Wrap(err, "failed to patch weka container")
+					}
+					logger.Debug("Container updated", "container", container.Name)
+				}
 			}
-		}
 
-		logger.Info("Updating last applied spec", "lastAppliedSpec", cluster.Status.LastAppliedSpec, "newSpec", specHash)
-		cluster.Status.LastAppliedSpec = specHash
-		if err := r.getClient().Status().Update(ctx, cluster); err != nil {
-			return err
-		}
-
+			logger.Info("Updating last applied spec", "lastAppliedSpec", cluster.Status.LastAppliedSpec, "newSpec", specHash)
+			cluster.Status.LastAppliedSpec = specHash
+			return r.getClient().Status().Update(ctx, cluster)
+		}).AsError()
 	}
 	return nil
 }
@@ -1178,7 +1177,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
-			results := workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+			return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 				if container.Spec.Image != cluster.Spec.Image {
 					patch := map[string]interface{}{
 						"spec": map[string]interface{}{
@@ -1198,9 +1197,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 					)
 				}
 				return nil
-			})
-
-			return results.AsError()
+			}).AsError()
 		}
 
 		driveContainers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)

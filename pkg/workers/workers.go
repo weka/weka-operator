@@ -90,7 +90,7 @@ func ProcessConcurrently[T any](
 	objects []T,
 	numWorkers int,
 	callback func(context.Context, T) error,
-) Results[T] {
+) *Results[T] {
 	var wg sync.WaitGroup
 	results := Results[T]{Items: make([]Result[T], len(objects))}
 	jobs := make(chan int, len(objects))
@@ -124,5 +124,5 @@ func ProcessConcurrently[T any](
 	// Wait for workers to complete
 	wg.Wait()
 
-	return results
+	return &results
 }

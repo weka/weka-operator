@@ -219,7 +219,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		}
 	}
 
-	results := workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
+	return workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
 		err := ctrl.SetControllerReference(c.wekaClient, wekaContainer, c.Scheme)
 		if err != nil {
 			return errors.Wrap(err, "failed to set controller reference")
@@ -248,8 +248,7 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 			}
 		}
 		return nil
-	})
-	return results.AsError()
+	}).AsError()
 }
 
 func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected, found *weka.WekaContainer) error {
