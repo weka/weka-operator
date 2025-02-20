@@ -170,7 +170,9 @@ type WekaContainerSpec struct {
 	State           ContainerState `json:"state,omitempty"`
 	AllowHotUpgrade bool           `json:"allowHotUpgrade,omitempty"`
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
-	// +kubebuilder:default=0s
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:default="0s"
 	AutoRemoveTimeout metav1.Duration             `json:"autoRemoveTimeout,omitempty"`
 	Overrides         *WekaContainerSpecOverrides `json:"overrides,omitempty"`
 }

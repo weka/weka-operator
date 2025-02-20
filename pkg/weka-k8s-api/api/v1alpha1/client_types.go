@@ -103,8 +103,10 @@ type WekaClientSpec struct {
 	AllowHotUpgrade bool                     `json:"allowHotUpgrade,omitempty"`
 	Overrides       *WekaClientSpecOverrides `json:"overrides,omitempty"`
 
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +kubebuilder:default="24h"
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
-	// +kubebuilder:default=24h
 	AutoRemoveTimeout metav1.Duration `json:"autoRemoveTimeout,omitempty"`
 }
 
