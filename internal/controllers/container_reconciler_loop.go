@@ -732,21 +732,28 @@ func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 		return err
 	}
 
+	var errors []error
 	for _, drive := range drives {
 		switch drive.Status {
 		case statusActive:
 			logger.Info("Deactivating drive", "drive_id", drive.Uuid)
 			err = wekaService.DeactivateDrive(ctx, drive.Uuid)
 			if err != nil {
-				return err
+				errors = append(errors, err)
 			}
 		case statusInactive:
 			continue
 		default:
-			err := fmt.Errorf("drive has status '%s', wait for it to become 'INACTIVE'", drive.Status)
-			return err
+			err := fmt.Errorf("drive %s has status '%s', wait for it to become 'INACTIVE'", drive.SerialNumber, drive.Status)
+			errors = append(errors, err)
 		}
 	}
+
+	if len(errors) > 0 {
+		err = fmt.Errorf("failed to deactivate drives: %v", errors)
+		return err
+	}
+
 	return nil
 }
 
