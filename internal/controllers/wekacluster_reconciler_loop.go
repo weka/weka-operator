@@ -470,6 +470,23 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
+			targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
+			if err != nil {
+				return err
+			}
+			oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
+			if err != nil {
+				return err
+			}
+			targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
+			if err != nil {
+				return err
+			}
+			if oldNetworkHash != targetNetworkHash {
+				container.Spec.Network = targetNetworkSpec
+				changed = true
+			}
+
 			// desired labels = existing labels + cluster labels + required labels
 			// priority-wise, required labels have the highest priority
 			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
@@ -1158,6 +1175,21 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
+
+		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
+			// containers will self-upgrade
+			for _, container := range r.containers {
+				if container.Spec.Image != cluster.Spec.Image {
+					container.Spec.Image = cluster.Spec.Image
+					err := r.getClient().Update(ctx, container)
+					if err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+
 		driveContainers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
 		if err != nil {
 			return err
@@ -2023,6 +2055,7 @@ type UpdatableClusterSpec struct {
 	Labels              *util2.HashableMap
 	NodeSelector        *util2.HashableMap
 	UpgradeForceReplace bool
+	NetworkSelector     wekav1alpha1.NetworkSelector
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -2038,5 +2071,6 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		Labels:              labels,
 		NodeSelector:        nodeSelector,
 		UpgradeForceReplace: spec.GetOverrides().UpgradeForceReplace,
+		NetworkSelector:     spec.NetworkSelector,
 	}
 }

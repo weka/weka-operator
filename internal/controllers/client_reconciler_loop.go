@@ -472,6 +472,14 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.UpgradePolicyType != newClientSpec.UpgradePolicy.Type {
 		container.Spec.UpgradePolicyType = newClientSpec.UpgradePolicy.Type
+		if container.Spec.Overrides == nil {
+			container.Spec.Overrides = &weka.WekaContainerSpecOverrides{}
+		}
+		if newClientSpec.UpgradePolicy.Type == weka.UpgradePolicyTypeAllAtOnceForce {
+			container.Spec.Overrides.UpgradeForceReplace = true
+		} else {
+			container.Spec.Overrides.UpgradeForceReplace = false
+		}
 		changed = true
 	}
 

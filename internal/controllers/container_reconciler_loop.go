@@ -922,6 +922,11 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		return nil
 	}
 
+	if r.container.Spec.GetOverrides().PodDeleteForceReplace {
+		_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
+		return r.runWekaLocalStop(ctx, pod, true)
+	}
+
 	if container.HasFrontend() {
 		// node drain or cordon detected
 		if node.Spec.Unschedulable {
@@ -2371,6 +2376,15 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	}
 
 	if container.Spec.Image != container.Status.LastAppliedImage {
+		if container.Spec.GetOverrides().UpgradeForceReplace {
+			err := r.writeAllowForceStopInstruction(ctx, pod, false)
+			if err != nil {
+				logger.Error(err, "Error writing allow force stop instruction")
+				return err
+			}
+			return r.Delete(ctx, pod)
+		}
+
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
 			err := fmt.Errorf("cannot upgrade: %w", err)
@@ -2413,15 +2427,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			if container.Spec.Mode == weka.WekaContainerModeClient && container.Spec.UpgradePolicyType == weka.UpgradePolicyTypeManual {
 				// leaving client delete operation to user and we will apply lastappliedimage if pod got restarted
 				return nil
-			}
-
-			if container.Spec.GetOverrides().UpgradeForceReplace {
-				err := r.writeAllowForceStopInstruction(ctx, pod, false)
-				if err != nil {
-					logger.Error(err, "Error writing allow force stop instruction")
-					return err
-				}
-				return r.Delete(ctx, pod)
 			}
 
 			logger.Info("Deleting pod to apply new image")

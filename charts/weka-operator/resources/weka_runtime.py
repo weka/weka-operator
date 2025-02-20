@@ -1208,6 +1208,31 @@ async def ensure_weka_container():
         ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.staging
     """)
 
+    # cli-based changes
+    cli_changes = False
+    if 'aws_' not in NETWORK_DEVICE:
+        target_devices = set(NETWORK_DEVICE.split(","))
+        current_devices = set(dev['device'] for dev in resources['net_devices'])
+        to_remove = current_devices - target_devices
+        to_add = target_devices - current_devices
+        for device in to_remove:
+            stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} remove {device}")
+            if ec != 0:
+                raise Exception(f"Failed to remove net device {device}: {stderr}")
+        for device in to_add:
+            stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} add {device}")
+            if ec != 0:
+                raise Exception(f"Failed to add net device {device}: {stderr}")
+        cli_changes = cli_changes or len(target_devices.difference(current_devices))
+
+    # applying cli-based changes
+    if cli_changes:
+        stdout, stderr, ec = await run_command(f"""
+            ln -sf `readlink /opt/weka/data/{NAME}/container/resources.json.staging` /opt/weka/data/{NAME}/container/resources.json.stable
+            ln -sf `readlink /opt/weka/data/{NAME}/container/resources.json.staging` /opt/weka/data/{NAME}/container/resources.json
+        """)
+
+
     if ec != 0:
         raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
