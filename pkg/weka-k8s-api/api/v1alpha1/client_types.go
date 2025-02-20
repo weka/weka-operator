@@ -42,9 +42,10 @@ type WekahomeClientConfig struct {
 type UpgradePolicyType string
 
 const (
-	UpgradePolicyTypeManual    UpgradePolicyType = "manual"
-	UpgradePolicyTypeRolling   UpgradePolicyType = "rolling"
-	UpgradePolicyTypeAllAtOnce UpgradePolicyType = "all-at-once"
+	UpgradePolicyTypeManual         UpgradePolicyType = "manual"
+	UpgradePolicyTypeRolling        UpgradePolicyType = "rolling"
+	UpgradePolicyTypeAllAtOnce      UpgradePolicyType = "all-at-once"
+	UpgradePolicyTypeAllAtOnceForce UpgradePolicyType = "all-at-once-force"
 )
 
 type WekaClientSpecOverrides struct {

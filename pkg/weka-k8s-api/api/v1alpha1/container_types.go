@@ -102,6 +102,7 @@ type WekaContainerSpecOverrides struct {
 	SkipCleanupPersistentDir bool `json:"skipCleanupPersistentDir,omitempty"`
 	// unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel
 	UpgradeForceReplace      bool   `json:"upgradeForceReplace,omitempty"`
+	PodDeleteForceReplace    bool   `json:"podDeleteForceReplace,omitempty"`
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
 	// script to be executed post initial persistency(if needed) configuration, before running actual workload
 	PreRunScript string `json:"preRunScript,omitempty"`
