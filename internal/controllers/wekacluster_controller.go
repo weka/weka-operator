@@ -164,6 +164,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 					lifecycle.IsNotFunc(loop.ClusterIsInGracefulDeletion),
 				},
 				ContinueOnPredicatesFalse: true,
+				FinishOnSuccess:           true,
 			},
 			{
 				Run: loop.InitState,
