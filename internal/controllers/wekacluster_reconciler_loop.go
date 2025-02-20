@@ -1176,16 +1176,34 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
 
+		var nonUpdatedContainers []string
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
 			for _, container := range r.containers {
 				if container.Spec.Image != cluster.Spec.Image {
-					container.Spec.Image = cluster.Spec.Image
-					err := r.getClient().Update(ctx, container)
+					patch := map[string]interface{}{
+						"spec": map[string]interface{}{
+							"image": cluster.Spec.Image,
+						},
+					}
+
+					patchBytes, err := json.Marshal(patch)
 					if err != nil {
-						return err
+						logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
+						nonUpdatedContainers = append(nonUpdatedContainers, container.Name)
+						continue
+					}
+
+					err = r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
+					if err != nil {
+						logger.Debug("Failed to update container image", "container", container.Name, "error", err)
 					}
 				}
+			}
+
+			if len(nonUpdatedContainers) > 0 {
+				err := fmt.Errorf("failed to update containers image: %v", nonUpdatedContainers)
+				return err
 			}
 			return nil
 		}
