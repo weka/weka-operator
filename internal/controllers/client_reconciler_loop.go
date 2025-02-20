@@ -361,6 +361,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
 			},
+			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
 		},
 	}
 	return container, nil
@@ -514,6 +515,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.AutoRemoveTimeout != newClientSpec.AutoRemoveTimeout {
+		container.Spec.AutoRemoveTimeout = newClientSpec.AutoRemoveTimeout
+		changed = true
+	}
+
 	if container.Spec.NumCores != newClientSpec.CoresNumber {
 		// TODO: validate that we are not updating on non-single IP interfaces, specifically not on EKS AWS DPDK
 		if newClientSpec.CoresNumber < container.Spec.NumCores {
@@ -658,6 +664,7 @@ type UpdatableClientSpec struct {
 	Tolerations        []string
 	RawTolerations     []v1.Toleration
 	Labels             *util2.HashableMap
+	AutoRemoveTimeout  metav1.Duration
 }
 
 func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
@@ -678,5 +685,6 @@ func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) 
 		Tolerations:        spec.Tolerations,
 		RawTolerations:     spec.RawTolerations,
 		Labels:             labels,
+		AutoRemoveTimeout:  spec.AutoRemoveTimeout,
 	}
 }

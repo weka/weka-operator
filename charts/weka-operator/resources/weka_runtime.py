@@ -71,6 +71,7 @@ WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_CO
 
 AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
+AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
 
 # for client dynamic port allocation
 BASE_PORT = os.environ.get("BASE_PORT", "")
@@ -1180,7 +1181,9 @@ async def ensure_weka_container():
         # hence this is an only place that uses management ip for now
         resources["ips"] = MANAGEMENT_IPS
 
-    resources["mask_interrupts"] = True
+    # resources["mask_interrupts"] = True
+
+    resources['auto_remove_timeout'] = AUTO_REMOVE_TIMEOUT
 
     cores_cursor = 0
     for node_id, node in resources['nodes'].items():
