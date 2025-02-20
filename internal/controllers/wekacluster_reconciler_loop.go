@@ -293,17 +293,12 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 }
 
 func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, mode string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureContainersPaused", "mode", mode)
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersPaused", "mode", mode)
 	defer end()
 
-	containers := r.containers
-
-	pausedStatus := string(wekav1alpha1.ContainerStatePaused)
-	var notPausedContainers []string
-
-	for _, container := range containers {
+	return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 		if mode != "" && container.Spec.Mode != mode {
-			continue
+			return nil
 		}
 
 		if !container.IsPaused() {
@@ -315,27 +310,16 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 
 			patchBytes, err := json.Marshal(patch)
 			if err != nil {
-				logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
-				notPausedContainers = append(notPausedContainers, container.Name)
-				continue
+				return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
 			}
 
-			err = r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
-			if err != nil {
-				logger.Debug("Failed to update container state", "container", container.Name, "error", err)
-			}
+			return errors.Wrap(
+				r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
+				fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
+			)
 		}
-
-		if container.Status.Status != pausedStatus {
-			notPausedContainers = append(notPausedContainers, container.Name)
-		}
-	}
-
-	if len(notPausedContainers) != 0 {
-		err := fmt.Errorf("not all %s containers are in %s status, missing: %v", mode, pausedStatus, notPausedContainers)
-		return err
-	}
-	return nil
+		return nil
+	}).AsError()
 }
 
 func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
