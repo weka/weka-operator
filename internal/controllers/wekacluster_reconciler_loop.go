@@ -1176,10 +1176,9 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
 
-		var nonUpdatedContainers []string
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
-			for _, container := range r.containers {
+			results := workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 				if container.Spec.Image != cluster.Spec.Image {
 					patch := map[string]interface{}{
 						"spec": map[string]interface{}{
@@ -1189,23 +1188,19 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 					patchBytes, err := json.Marshal(patch)
 					if err != nil {
-						logger.Debug("Failed to marshal patch", "container", container.Name, "error", err)
-						nonUpdatedContainers = append(nonUpdatedContainers, container.Name)
-						continue
+						err = fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
+						return err
 					}
 
-					err = r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
-					if err != nil {
-						logger.Debug("Failed to update container image", "container", container.Name, "error", err)
-					}
+					return errors.Wrap(
+						r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
+						fmt.Sprintf("failed to update container image %s: %v", container.Name, err),
+					)
 				}
-			}
+				return nil
+			})
 
-			if len(nonUpdatedContainers) > 0 {
-				err := fmt.Errorf("failed to update containers image: %v", nonUpdatedContainers)
-				return err
-			}
-			return nil
+			return results.AsError()
 		}
 
 		driveContainers, err := clusterService.GetOwnedContainers(ctx, wekav1alpha1.WekaContainerModeDrive)
