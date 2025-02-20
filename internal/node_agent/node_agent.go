@@ -359,7 +359,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 		containerName:     payload.ContainerName,
 		containerId:       payload.ContainerId,
 		mode:              payload.Mode,
-		scrapeTargets:     payload.ScrapeTargets,
+		//scrapeTargets:     payload.ScrapeTargets,
 	}
 
 	logger.Info("Container registered", "container_name", payload.ContainerName, "container_id", payload.ContainerId)
