@@ -1216,7 +1216,7 @@ async def ensure_weka_container():
     if 'aws_' not in NETWORK_DEVICE:
         target_devices = set(NETWORK_DEVICE.split(","))
         if SUBNETS:
-            target_devices = set(await autodiscover_network_devices(SUBNETS))
+            target_devices = set(await get_devices_by_subnets(SUBNETS))
         current_devices = set(dev['device'] for dev in resources['net_devices'])
         to_remove = current_devices - target_devices
         to_add = target_devices - current_devices
