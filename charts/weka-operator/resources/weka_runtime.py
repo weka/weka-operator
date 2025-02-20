@@ -1215,6 +1215,8 @@ async def ensure_weka_container():
     cli_changes = False
     if 'aws_' not in NETWORK_DEVICE:
         target_devices = set(NETWORK_DEVICE.split(","))
+        if SUBNETS:
+            target_devices = set(await autodiscover_network_devices(SUBNETS))
         current_devices = set(dev['device'] for dev in resources['net_devices'])
         to_remove = current_devices - target_devices
         to_add = target_devices - current_devices
@@ -1930,6 +1932,15 @@ async def get_single_device_ip(device_name: str = "default") -> str:
     return ip
 
 
+async def get_devices_by_subnets(subnets):
+    devices = []
+    for subnet in subnets.split(","):
+        for d in await autodiscover_network_devices(subnet):
+            devices.append(d)
+    logging.info("found devices by subnets(%s): %s", subnets, devices)
+    return devices
+
+
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
     if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
@@ -1938,11 +1949,10 @@ async def write_management_ips():
     ipAddresses = []
 
     if not NETWORK_DEVICE and SUBNETS:
-        for subnet in SUBNETS.split(","):
-            devices = await autodiscover_network_devices(subnet)
-            for device in devices:
-                ip = await get_single_device_ip(device)
-                ipAddresses.append(ip)
+        devices = await get_devices_by_subnets(SUBNETS)
+        for device in devices:
+            ip = await get_single_device_ip(device)
+            ipAddresses.append(ip)
     # default udp mode (if network device is not set explicitly)
     elif NETWORK_DEVICE in ("udp", ""):
         ip = await get_single_device_ip()
