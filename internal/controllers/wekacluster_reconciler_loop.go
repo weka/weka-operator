@@ -1997,7 +1997,7 @@ func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Contex
 	}
 
 	containers := discovery.SelectOperationalContainers(r.containers, 30, nil)
-	endpoints := discovery.GetClusterEndpoints(ctx, containers, 30)
+	endpoints := discovery.GetClusterEndpoints(ctx, containers, 30, cluster.Spec.CsiConfig)
 
 	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
 	if !ok {

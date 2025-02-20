@@ -158,10 +158,10 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 	return selected
 }
 
-func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, maxEndpoints int) []string {
+func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, maxEndpoints int, csiConfig weka.CsiConfig) []string {
 	var endpoints []string
 	for _, container := range containers {
-		if hostIps := container.GetHostIps(); len(hostIps) > 0 {
+		if hostIps := container.GetHostIps(csiConfig.EndpointsSubnets); len(hostIps) > 0 {
 			endpoints = append(endpoints, hostIps[0])
 		}
 		if len(endpoints) >= maxEndpoints {
