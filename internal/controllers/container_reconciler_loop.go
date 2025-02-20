@@ -535,6 +535,21 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				OnFail:                    loop.setErrorStatus,
 			},
 			{
+				Name: "PeriodicReconcileManagementIPs",
+				Run:  lifecycle.ForceNoError(loop.reconcileManagementIPs),
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						// we don't want to reconcile management IPs for containers that are already Running
+						return container.Status.Status == ContainerStatusRunning
+					},
+					func() bool {
+						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+				Throttled:                 time.Minute * 3,
+			},
+			{
 				Name: "ReconcileWekaLocalStatus",
 				Run:  loop.reconcileWekaLocalStatus,
 				Predicates: lifecycle.Predicates{
@@ -2387,8 +2402,21 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		upgradeType = weka.UpgradePolicyTypeManual
 	}
 
+	var wekaPodContainer v1.Container
+	wekaPodContainer, err := r.getWekaPodContainer(pod)
+	if err != nil {
+		return err
+	}
+
 	if container.Spec.Image != container.Status.LastAppliedImage {
 		if container.Spec.GetOverrides().UpgradeForceReplace {
+			if pod.GetDeletionTimestamp() != nil {
+				logger.Info("Pod is being deleted, waiting")
+				return errors.New("Pod is being deleted, waiting")
+			}
+			if wekaPodContainer.Image == container.Spec.Image {
+				return nil
+			}
 			err := r.writeAllowForceStopInstruction(ctx, pod, false)
 			if err != nil {
 				logger.Error(err, "Error writing allow force stop instruction")
@@ -2411,12 +2439,6 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				}
 			}
 
-			return err
-		}
-
-		var wekaPodContainer v1.Container
-		wekaPodContainer, err = r.getWekaPodContainer(pod)
-		if err != nil {
 			return err
 		}
 
