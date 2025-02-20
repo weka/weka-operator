@@ -46,6 +46,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const (
@@ -732,29 +733,17 @@ func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 		return err
 	}
 
-	var errors []error
-	for _, drive := range drives {
+	return workers.ProcessConcurrently(ctx, drives, 5, func(ctx context.Context, drive services.Drive) error {
 		switch drive.Status {
 		case statusActive:
 			logger.Info("Deactivating drive", "drive_id", drive.Uuid)
-			err = wekaService.DeactivateDrive(ctx, drive.Uuid)
-			if err != nil {
-				errors = append(errors, err)
-			}
+			return wekaService.DeactivateDrive(ctx, drive.Uuid)
 		case statusInactive:
-			continue
+			return nil
 		default:
-			err := fmt.Errorf("drive %s has status '%s', wait for it to become 'INACTIVE'", drive.SerialNumber, drive.Status)
-			errors = append(errors, err)
+			return fmt.Errorf("drive %s has status '%s', wait for it to become 'INACTIVE'", drive.SerialNumber, drive.Status)
 		}
-	}
-
-	if len(errors) > 0 {
-		err = fmt.Errorf("failed to deactivate drives: %v", errors)
-		return err
-	}
-
-	return nil
+	}).AsError()
 }
 
 func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) error {
