@@ -207,6 +207,10 @@ type FailureDomain struct {
 	CompositeLabels []string `json:"compositeLabels,omitempty"`
 }
 
+type CsiConfig struct {
+	EndpointsSubnets []string `json:"endpointsSubnets,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -276,6 +280,7 @@ type WekaClusterSpec struct {
 	// https://github.com/kubernetes/apiextensions-apiserver/issues/56
 	GracefulDestroyDuration metav1.Duration           `json:"gracefulDestroyDuration,omitempty"`
 	Overrides               *WekaClusterSpecOverrides `json:"overrides,omitempty"`
+	CsiConfig               CsiConfig                 `json:"csiConfig,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {

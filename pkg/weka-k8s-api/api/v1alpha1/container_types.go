@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"net"
 	"slices"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -35,11 +36,39 @@ type WekaContainer struct {
 	Status WekaContainerStatus `json:"status,omitempty"`
 }
 
-func (c *WekaContainer) GetHostIps() []string {
+func (c *WekaContainer) GetHostIps(subnets []string) []string {
 	mngmtIps := c.Status.GetManagementIps()
 	hostIps := make([]string, 0, len(mngmtIps))
 	port := c.GetPort()
+	parsedSubnets := []net.IPNet{}
+	for _, subnetstr := range subnets {
+		_, subnet, err := net.ParseCIDR(subnetstr)
+		if err != nil {
+			//log/ctx
+			continue
+		}
+		parsedSubnets = append(parsedSubnets, *subnet)
+	}
 	for _, ip := range mngmtIps {
+		if len(parsedSubnets) > 0 {
+			parsedIp := net.ParseIP(ip)
+			if parsedIp == nil {
+				//log/ctx
+				continue
+			}
+			ipInSubnet := false
+			for _, subnet := range parsedSubnets {
+				if subnet.Contains(parsedIp) {
+					ipInSubnet = true
+					break
+				}
+			}
+			if !ipInSubnet {
+				//log/ctx
+				continue
+			}
+		}
+
 		if c.Spec.Ipv6 {
 			hostIps = append(hostIps, fmt.Sprintf("[%s]:%d", ip, port))
 		} else {
