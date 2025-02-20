@@ -54,7 +54,7 @@ type WekaClientSpecOverrides struct {
 }
 
 type UpgradePolicy struct {
-	// +kubebuilder:validation:Enum=manual;all-at-once;rolling
+	// +kubebuilder:validation:Enum=manual;all-at-once;rolling;all-at-once-force
 	// +kubebuilder:default=all-at-once
 	Type UpgradePolicyType `json:"type,omitempty"`
 }
