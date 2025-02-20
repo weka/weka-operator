@@ -102,6 +102,10 @@ type WekaClientSpec struct {
 	UpgradePolicy   UpgradePolicy            `json:"upgradePolicy,omitempty"`
 	AllowHotUpgrade bool                     `json:"allowHotUpgrade,omitempty"`
 	Overrides       *WekaClientSpecOverrides `json:"overrides,omitempty"`
+
+	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
+	// +kubebuilder:default=24h
+	AutoRemoveTimeout metav1.Duration `json:"autoRemoveTimeout,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient

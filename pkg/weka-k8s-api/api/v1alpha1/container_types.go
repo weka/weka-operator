@@ -167,9 +167,12 @@ type WekaContainerSpec struct {
 	UpgradePolicyType UpgradePolicyType `json:"upgradePolicyType,omitempty"`
 	// +kubebuilder:validation:Enum=active;paused;destroying;deleting
 	// +kubebuilder:default=active
-	State           ContainerState              `json:"state,omitempty"`
-	AllowHotUpgrade bool                        `json:"allowHotUpgrade,omitempty"`
-	Overrides       *WekaContainerSpecOverrides `json:"overrides,omitempty"`
+	State           ContainerState `json:"state,omitempty"`
+	AllowHotUpgrade bool           `json:"allowHotUpgrade,omitempty"`
+	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
+	// +kubebuilder:default=0s
+	AutoRemoveTimeout metav1.Duration             `json:"autoRemoveTimeout,omitempty"`
+	Overrides         *WekaContainerSpecOverrides `json:"overrides,omitempty"`
 }
 
 type AWSNetwork struct {
