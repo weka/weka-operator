@@ -876,7 +876,11 @@ async def write_logrotate_config():
                 compress
                 delaycompress
                 postrotate
-                   pkill -HUP $(cat /var/run/syslog-ng.pid)
+                   if [ -f /var/run/syslog-ng.pid ]; then
+                      pkill -HUP $(cat /var/run/syslog-ng.pid)
+                   else
+                      echo "syslog-ng.pid not found, skipping reload" >&2
+                   fi
                 endscript
             }
 """))
