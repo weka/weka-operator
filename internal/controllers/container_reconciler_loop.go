@@ -903,6 +903,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	node := r.node
 	pod := r.pod
 	container := r.container
+	upgradeRunning := false
 
 	// TODO: do we actually use instructions on non-weka containers in weka_runtime? Consider when breaking out into steps
 	// Consider also generating a python mapping along with version script so we can use stuff like IsWekaContainer on python side
@@ -922,9 +923,28 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		return nil
 	}
 
+	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
+		var wekaPodContainer v1.Container
+		wekaPodContainer, err := r.getWekaPodContainer(pod)
+		if err != nil {
+			return err
+		}
+
+		if wekaPodContainer.Image != container.Spec.Image {
+			upgradeRunning = true
+		}
+	}
+
 	if r.container.Spec.GetOverrides().PodDeleteForceReplace {
 		_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
 		return r.runWekaLocalStop(ctx, pod, true)
+	}
+
+	if r.container.Spec.GetOverrides().UpgradeForceReplace {
+		if upgradeRunning {
+			_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
+			return r.runWekaLocalStop(ctx, pod, true)
+		}
 	}
 
 	if container.HasFrontend() {
@@ -943,21 +963,13 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 
 		// upgrade detected
-		if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
-			var wekaPodContainer v1.Container
-			wekaPodContainer, err := r.getWekaPodContainer(pod)
-			if err != nil {
+		if upgradeRunning {
+			logger.Info("Upgrade detected")
+			err := r.runFrontendUpgradePrepare(ctx)
+			if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
+				logger.Info("No wekafs driver found, skip prepare-upgrade")
+			} else if err != nil {
 				return err
-			}
-
-			if wekaPodContainer.Image != container.Spec.Image {
-				logger.Info("Upgrade detected")
-				err = r.runFrontendUpgradePrepare(ctx)
-				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
-					logger.Info("No wekafs driver found, skip prepare-upgrade")
-				} else if err != nil {
-					return err
-				}
 			}
 		}
 	}
