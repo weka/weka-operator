@@ -1578,37 +1578,45 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		return nil
 	}
 
-	if r.node != nil && NodeIsUnschedulable(r.node) {
-		err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
-		return err
-	}
-	if r.node != nil && !NodeIsReady(r.node) {
-		err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
-		return err
-	}
+	var persistencePath string
+	if config.Config.LocalDataPvc == "" {
 
-	nodeInfo, err := r.GetNodeInfo(ctx)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("node is deleted, no need for cleanup")
-			return nil
+		if r.node != nil && NodeIsUnschedulable(r.node) {
+			err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
+			return err
 		}
-		// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
-		// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
-		// but generic ReconcilationError wrapping error is sort of pointless
-		if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
-			logger.Info("node is deleted, no need for cleanup")
-			return nil
+		if r.node != nil && !NodeIsReady(r.node) {
+			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
+			return err
 		}
-		logger.Error(err, "Error getting node discovery")
-		return err
-	}
 
+		nodeInfo, err := r.GetNodeInfo(ctx)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("node is deleted, no need for cleanup")
+				return nil
+			}
+			// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
+			// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
+			// but generic ReconcilationError wrapping error is sort of pointless
+			if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
+				logger.Info("node is deleted, no need for cleanup")
+				return nil
+			}
+			logger.Error(err, "Error getting node discovery")
+			return err
+		}
+
+		persistencePath = nodeInfo.GetHostsideContainerPersistence()
+	} else {
+		persistencePath = weka.PersistencePathBase
+	}
 	payload := operations.CleanupPersistentDirPayload{
 		NodeName:        container.GetNodeAffinity(),
 		ContainerId:     string(container.UID),
-		PersistencePath: nodeInfo.GetHostsideContainerPersistence(),
+		PersistencePath: persistencePath,
 	}
+
 	op := operations.NewCleanupPersistentDirOperation(
 		r.Manager,
 		&payload,
@@ -1616,8 +1624,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		*container.ToContainerDetails(),
 		container.Spec.NodeSelector,
 	)
-	err = operations.ExecuteOperation(ctx, op)
-	return err
+	return operations.ExecuteOperation(ctx, op)
 }
 
 func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, error) {
