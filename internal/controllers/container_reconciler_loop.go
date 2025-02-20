@@ -1855,7 +1855,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	image := container.Spec.Image
 
-	if r.IsNotAlignedImage() {
+	if r.IsNotAlignedImage() && !container.Spec.GetOverrides().UpgradeForceReplace {
 		// do not create pod with spec image if we know in advance that we cannot upgrade
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
