@@ -1217,7 +1217,7 @@ async def ensure_weka_container():
 
     # cli-based changes
     cli_changes = False
-    if 'aws_' not in NETWORK_DEVICE:
+    if 'aws_' not in NETWORK_DEVICE and NETWORK_DEVICE != 'udp':
         target_devices = set(NETWORK_DEVICE.split(","))
         if SUBNETS:
             target_devices = set(await get_devices_by_subnets(SUBNETS))
