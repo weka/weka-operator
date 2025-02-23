@@ -137,6 +137,8 @@ type WekaContainerSpecOverrides struct {
 	PreRunScript string `json:"preRunScript,omitempty"`
 	// unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner
 	ForceDrain bool `json:"forceDrain,omitempty"`
+	// unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host
+	UmountOnHost bool `json:"umountOnHost,omitempty"`
 }
 
 type Instructions struct {
@@ -206,6 +208,7 @@ type WekaContainerSpec struct {
 	// +kubebuilder:default="0s"
 	AutoRemoveTimeout metav1.Duration             `json:"autoRemoveTimeout,omitempty"`
 	Overrides         *WekaContainerSpecOverrides `json:"overrides,omitempty"`
+	HostPID           bool                        `json:"hostPID,omitempty"`
 }
 
 type AWSNetwork struct {
