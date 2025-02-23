@@ -359,6 +359,8 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
+				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
+				UmountOnHost:             wekaClient.Spec.GetOverrides().UmountOnHost,
 			},
 			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
 		},
@@ -519,6 +521,22 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.GetOverrides().ForceDrain != newClientSpec.ForceDrain {
+		if container.Spec.Overrides == nil {
+			container.Spec.Overrides = &weka.WekaContainerSpecOverrides{}
+		}
+		container.Spec.GetOverrides().ForceDrain = newClientSpec.ForceDrain
+		changed = true
+	}
+
+	if container.Spec.GetOverrides().UmountOnHost != newClientSpec.UmountOnHost {
+		if container.Spec.Overrides == nil {
+			container.Spec.Overrides = &weka.WekaContainerSpecOverrides{}
+		}
+		container.Spec.GetOverrides().UmountOnHost = newClientSpec.UmountOnHost
+		changed = true
+	}
+
 	if container.Spec.NumCores != newClientSpec.CoresNumber {
 		// TODO: validate that we are not updating on non-single IP interfaces, specifically not on EKS AWS DPDK
 		if newClientSpec.CoresNumber < container.Spec.NumCores {
@@ -664,6 +682,8 @@ type UpdatableClientSpec struct {
 	RawTolerations     []v1.Toleration
 	Labels             *util2.HashableMap
 	AutoRemoveTimeout  metav1.Duration
+	ForceDrain         bool
+	UmountOnHost       bool
 }
 
 func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
@@ -685,5 +705,7 @@ func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) 
 		RawTolerations:     spec.RawTolerations,
 		Labels:             labels,
 		AutoRemoveTimeout:  spec.AutoRemoveTimeout,
+		ForceDrain:         spec.GetOverrides().ForceDrain,
+		UmountOnHost:       spec.GetOverrides().UmountOnHost,
 	}
 }

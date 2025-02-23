@@ -320,6 +320,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 				},
 			},
 			HostNetwork: hostNetwork,
+			HostPID:     f.container.Spec.HostPID,
 			Volumes: []corev1.Volume{
 				{
 					Name: "hugepages",

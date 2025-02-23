@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"io"
 	"net/http"
 	"path"
@@ -250,9 +251,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run:        loop.RemoveDeactivatedContainersDrives,
 				Condition:  condition.CondContainerDrivesRemoved,
 				CondReason: "Deletion",
-				Run:        loop.RemoveDeactivatedContainersDrives,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
 					container.IsDriveContainer,
@@ -260,9 +261,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run:        loop.RemoveDeactivatedContainers,
 				Condition:  condition.CondContainerRemoved,
 				CondReason: "Deletion",
-				Run:        loop.RemoveDeactivatedContainers,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
 				},
@@ -292,6 +293,25 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					),
 					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
 					// is it safe to force stop
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.waitForMountsOrDrain,
+				// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					container.IsClientContainer,
+					lifecycle.IsNotFunc(loop.PodNotSet),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.stopForceAndEnsureNoPod, // we do not rely on graceful stop on clients until we test multiple weka versions with it under various failures
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+					container.IsClientContainer,
+					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2279,16 +2299,10 @@ func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*i
 }
 
 func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
-	pods, err := r.getNodeAgentPods(ctx)
+	pod, err := r.findAdjacentNodeAgent(ctx, r.pod)
 	if err != nil {
 		return nil, err
 	}
-	if len(pods) == 0 {
-		err := errors.New("no node agent pods found")
-		return nil, err
-	}
-
-	pod := pods[0]
 
 	token, err := r.getNodeAgentToken(ctx)
 	if err != nil {
@@ -3753,4 +3767,77 @@ func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error 
 	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "waitForMountsOrDrain")
+	defer end()
+	// TODO: This logic should become native FE logic
+	// meanwhile we are working around on operator side
+	// if container is being deleted and pos is still alive - we should ensnure no mounts, and drain if drain flag is set to true
+
+	mounts, err := r.getCachedActiveMounts(ctx)
+	if err != nil {
+		return err
+	}
+	if mounts == nil {
+		return errors.New("Mounts are not set")
+	}
+
+	if *mounts == 0 {
+		return nil
+	} else {
+		if r.container.Spec.GetOverrides().ForceDrain {
+			if err := r.invokeDrain(ctx); err != nil {
+				return err
+			}
+			if r.container.Spec.GetOverrides().UmountOnHost {
+				if err := r.invokeForceUmountOnHost(ctx); err != nil {
+					return err
+				}
+			}
+			return lifecycle.NewWaitError(errors.New("Mounts are still active"))
+		}
+		return errors.New("Mounts are still active")
+	}
+}
+
+func (r *containerReconcilerLoop) invokeDrain(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "invokeDrain")
+	defer end()
+
+	if r.pod == nil {
+		return errors.New("Pod is not set, cannot drain")
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, r.container)
+	if err != nil {
+		return err
+	}
+	logger.Warn("invoking drain")
+	stdout, stderr, err := executor.ExecNamed(ctx, "DrainDriver", []string{"bash", "-ce", "weka local stop --force && echo drain > /proc/wekafs/interface"})
+	if err != nil {
+		logger.Error(err, "Error invoking drain", "stdout", stdout.String(), "stderr", stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "invokeForceUmountOnHost")
+	defer end()
+	if r.pod == nil {
+		return errors.New("Pod is not set, cannot umount")
+	}
+
+	op := umount.NewUmountOperation(
+		r.Manager,
+		r.container,
+	)
+
+	err := operations.ExecuteOperation(ctx, op)
+	if err != nil {
+		return err
+	}
+	return op.Cleanup(ctx)
 }

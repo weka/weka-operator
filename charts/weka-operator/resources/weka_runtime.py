@@ -2048,6 +2048,39 @@ async def run_prerun_script():
     if ec != 0:
         raise Exception(f"Failed to run pre-run script: {stderr}")
 
+
+async def umount_drivers():
+    #TODO: Should support specific container id
+    logging.info("Umounting driver")
+    find_mounts_cmd = "nsenter --target=1 --mount -- mount -t wekafs | awk '{print $3}'"
+    stdout, stderr, ec = await run_command(find_mounts_cmd)
+    if ec != 0:
+        write_results(dict(
+            error=stderr,
+        ))
+        return
+
+
+    errs = []
+    umounted_paths = []
+
+    for mount in stdout.decode('utf-8').split("\n"):
+        if not mount:
+            continue
+        umount_cmd = f"nsenter --target=1 --mount -- umount {mount}"
+        stdout, stderr, ec = await run_command(umount_cmd)
+        errs.append(stderr)
+        if ec != 0:
+            continue
+        umounted_paths.append(mount)
+
+
+    logging.info("weka mounts umounted successfully")
+    write_results(dict(
+        error=errs,
+        umounted_paths = umounted_paths,
+    ))
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -2163,6 +2196,10 @@ async def main():
             logging.info(f"signed_drives: {signed_drives}")
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
+        # TODO: Should we support generic command proxy? security concern?
+        elif instruction.get('type') and instruction['type'] == 'umount':
+            logging.info(f"umounting wekafs mounts")
+            await umount_drivers()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
         return
