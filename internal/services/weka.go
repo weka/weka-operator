@@ -181,6 +181,7 @@ type WekaService interface {
 	JoinS3Cluster(ctx context.Context, containerId int) error
 	RemoveFromS3Cluster(ctx context.Context, containerId int) error
 	JoinNfsInterfaceGroups(ctx context.Context, containerId int) error
+	RemoveNfsInterfaceGroups(ctx context.Context, containerId int) error
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
@@ -525,6 +526,41 @@ func (c *CliWekaService) JoinNfsInterfaceGroups(ctx context.Context, containerId
 			logger.SetError(err, "Failed to join NFS interface group", "interfaceGroup", interfaceName, "stderr", stderr.String())
 			return err
 		}
+	}
+	return nil
+}
+
+func (c *CliWekaService) RemoveNfsInterfaceGroups(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveNfsInterfaceGroups")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	containerIdStr := strconv.Itoa(containerId)
+	interfaceName := c.Container.Spec.Network.EthDevice
+	interfaceGroupName := "MgmtInterfaceGroup"
+	if interfaceName == "" {
+		if len(c.Container.Status.GetManagementIps()) == 0 {
+			return errors.New("No management IP addresses found")
+		}
+		mngmtIps := c.Container.Status.GetManagementIps()
+		interfaceName, err = c.GetInterfaceNameByIpAddress(ctx, mngmtIps[0])
+		if err != nil {
+			logger.SetError(err, "Failed to get interface name by IP address", "ip", mngmtIps[0])
+			return err
+		}
+	}
+
+	cmd := []string{
+		"wekaauthcli", "nfs", "interface-group", "port", "delete", "-f", interfaceGroupName, containerIdStr, interfaceName,
+	}
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveNfsInterfaceGroups", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to remove NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+		return err
 	}
 	return nil
 }

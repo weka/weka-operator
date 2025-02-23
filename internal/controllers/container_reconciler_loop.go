@@ -222,6 +222,16 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Condition:  condition.CondRemovedFromNFS,
+				CondReason: "Deletion",
+				Run:        loop.RemoveFromNfs,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldDeactivate,
+					container.IsNfsContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:  condition.CondContainerDrivesDeactivated,
 				CondReason: "Deletion",
 				Run:        loop.DeactivateDrives,
@@ -723,6 +733,31 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 	return wekaService.RemoveFromS3Cluster(ctx, *containerId)
+}
+
+func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		return errors.New("Container ID is not set")
+	}
+
+	executeInContainer := r.container
+
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
+		containers, err := r.getClusterContainers(ctx)
+		if err != nil {
+			return err
+		}
+		executeInContainer = discovery.SelectActiveContainer(containers)
+	}
+
+	logger.Info("Removing container from NFS", "container_id", *containerId)
+
+	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
+	return wekaService.RemoveNfsInterfaceGroups(ctx, *containerId)
 }
 
 func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
