@@ -2055,11 +2055,7 @@ async def umount_drivers():
     find_mounts_cmd = "nsenter --target=1 --mount -- mount -t wekafs | awk '{print $3}'"
     stdout, stderr, ec = await run_command(find_mounts_cmd)
     if ec != 0:
-        write_results(dict(
-            error=stderr,
-        ))
-        return
-
+        logging.info(f"Failed to find weka mounts: {stderr} {stdout}")
 
     errs = []
     umounted_paths = []
@@ -2074,6 +2070,16 @@ async def umount_drivers():
             continue
         umounted_paths.append(mount)
 
+    # after umounts without errors we should succeed to rmmod, be that true or not - attempting
+    if len(errs) == 0:
+        stdout, stderr, ec = await run_command("""
+        if lsmod | grep wekafsio; then
+            rmmod wekafsio
+        fi
+        """
+        )
+        if ec != 0:
+            errs.append(stderr)
 
     logging.info("weka mounts umounted successfully")
     write_results(dict(

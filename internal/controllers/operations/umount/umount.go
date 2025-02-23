@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -36,7 +35,7 @@ func NewUmountOperation(mgr ctrl.Manager, targetContainer *weka.WekaContainer) *
 		mgr:        mgr,
 		client:     kclient,
 		scheme:     mgr.GetScheme(),
-		image:      config.Config.SignDrivesImage, // reuse sign drives image
+		image:      targetContainer.Spec.Image, // TODO: we need to wrap sign tools as maintenance image and include more tools, we dont have rmmod for example
 		pullSecret: targetContainer.Spec.ImagePullSecret,
 		container:  targetContainer,
 		ownerRef:   targetContainer,

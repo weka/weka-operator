@@ -1143,7 +1143,7 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 		return nil, errors.New("Failed to get node agent pods")
 	}
 	if len(agentPods) == 0 {
-		return nil, errors.New("There are node agent pods in cluster")
+		return nil, errors.New("There are no agent pods on node")
 	}
 
 	for _, agentPod := range agentPods {
