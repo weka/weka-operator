@@ -135,6 +135,8 @@ type WekaContainerSpecOverrides struct {
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
 	// script to be executed post initial persistency(if needed) configuration, before running actual workload
 	PreRunScript string `json:"preRunScript,omitempty"`
+	// unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner
+	ForceDrain bool `json:"forceDrain,omitempty"`
 }
 
 type Instructions struct {

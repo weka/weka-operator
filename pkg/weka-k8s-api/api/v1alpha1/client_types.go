@@ -51,6 +51,8 @@ const (
 type WekaClientSpecOverrides struct {
 	// used to override machine identifier node reference for client containers
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
+	// unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner
+	ForceDrain bool `json:"forceDrain,omitempty"`
 }
 
 type UpgradePolicy struct {
