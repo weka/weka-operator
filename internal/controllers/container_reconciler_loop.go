@@ -145,7 +145,7 @@ type containerReconcilerLoop struct {
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
 	activeMounts  *int
-	ThrottlingMap util.Throttler
+	ThrottlingMap *util.ThrottlingSyncMap
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -899,6 +899,12 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 		return err
 	}
 
+	// if less then 1 minute passed from deactivation - hold on the removal
+	throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
+	if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+		return lifecycle.NewWaitError(errors.New("throttling removal of containers from weka"))
+	}
+
 	logger.Info("Removing container", "container_id", *containerId)
 
 	execInContainer := discovery.SelectActiveContainer(containers)
@@ -1011,6 +1017,17 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 			_ = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
 			return r.runWekaLocalStop(ctx, pod, true)
 		}
+	}
+
+	if container.IsBackend() && config.Config.EvictContainerOnDeletion {
+		// unless overrides were used, we are not allowing container to stop on-pod-deletion
+		// unless this was a force delete, or a force-upgrade scenario, we are not allowing container to stop on-pod-deletion and unless going deactivate flow
+		logger.Info("Evicting container on pod deletion")
+		err := r.ensureStateDeleting(ctx)
+		if err != nil {
+			return err
+		}
+		return lifecycle.NewWaitError(errors.New("evicting container on pod deletion"))
 	}
 
 	if container.HasFrontend() {
