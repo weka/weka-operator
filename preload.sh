@@ -1,6 +1,10 @@
-  set -e
+#!/bin/bash
+#
+set -e
 
-  kubectl run preload-"$(echo -n $VERSION | md5)" --image=quay.io/weka.io/weka-operator:${VERSION} --restart=OnFailure \
+export REPO="${REPO:-quay.io/weka.io/weka-operator}"
+
+  kubectl run preload-"$(echo -n $VERSION | md5)" --image=$REPO:${VERSION} --restart=OnFailure \
     --overrides='{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/master":"true"}}}}}' \
     --command -- /bin/true
 

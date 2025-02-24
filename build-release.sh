@@ -34,15 +34,19 @@ go vet ./...
 #
 #go build -o dist/weka-operator cmd/manager/main.go
 
+
+export REPO="${REPO:-quay.io/weka.io/weka-operator}"
+export HELM_REPO="${HELM_REPO:-quay.io/weka.io/helm}"
+
 echo "Building helm chart"
 make chart VERSION=v$VERSION
 
 # docker build here is merely packaging and uploading
 echo "Building docker image and pushing"
-docker buildx build --ssh default --platform linux/amd64 --tag quay.io/weka.io/weka-operator:v$VERSION --push -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
+docker buildx build --ssh default --platform linux/amd64 --tag $REPO:v$VERSION --push -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 
 # helm chart push
-if ! helm push charts/weka-operator-*.tgz oci://quay.io/weka.io/helm; then
+if ! helm push charts/weka-operator-*.tgz oci://$HELM_REPO; then
   echo "helm push failed, ensure login"
   rm -f charts/weka-operator-*.tgz
   exit 1
