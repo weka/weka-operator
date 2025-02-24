@@ -84,6 +84,13 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				FinishOnSuccess:           true,
 			},
 			{Run: loop.ensureFinalizer},
+			{
+				Run: loop.deleteContainersOnNodeSelectorMismatch,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CleanupOnNodeSelectorMismatchSettings.Enabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.EnsureClientsWekaContainers},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
@@ -157,12 +164,23 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		toDelete = append(toDelete, container)
 	}
 
-	// patch all client containers state to destroying
-	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+	err := c.patchContainersState(ctx, toDelete, weka.ContainerStateDestroying)
+	if err != nil {
+		return errors.Wrap(err, "failed to mark containers destroying")
+	}
+
+	if len(c.containers) > 0 {
+		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
+	}
+	return nil
+}
+
+func (c *clientReconcilerLoop) patchContainersState(ctx context.Context, containers []*weka.WekaContainer, state weka.ContainerState) error {
+	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
 		if !container.IsMarkedForDeletion() {
 			patch := map[string]interface{}{
 				"spec": map[string]interface{}{
-					"state": weka.ContainerStateDestroying,
+					"state": state,
 				},
 			}
 
@@ -177,15 +195,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 			}
 		}
 		return nil
-	})
-	if results.AsError() != nil {
-		return results.AsError()
-	}
-
-	if len(c.containers) > 0 {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
-	}
-	return nil
+	}).AsError()
 }
 
 func (c *clientReconcilerLoop) getCurrentContainers(ctx context.Context) error {
@@ -691,6 +701,25 @@ func (c *clientReconcilerLoop) getHugepagesOffset() int {
 		return *c.wekaClient.Spec.HugePagesOffset
 	}
 	return 200 // back compat mode/unspecified default
+}
+
+func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx context.Context) error {
+	applicableNodes := make(map[string]struct{}, len(c.nodes))
+	for _, node := range c.nodes {
+		applicableNodes[node.Name] = struct{}{}
+	}
+
+	// delete containers that are not on applicable nodes
+	toDelete := []*weka.WekaContainer{}
+	for _, container := range c.containers {
+		if container.IsMarkedForDeletion() || container.IsDeletingState() || container.IsDestroyingState() {
+			continue
+		}
+		if _, ok := applicableNodes[string(container.Spec.NodeAffinity)]; !ok {
+			toDelete = append(toDelete, container)
+		}
+	}
+	return c.patchContainersState(ctx, toDelete, weka.ContainerStateDeleting)
 }
 
 func isPortRangeEqual(a, b weka.PortRange) bool {

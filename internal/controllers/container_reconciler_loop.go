@@ -406,14 +406,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{Run: loop.initState},
 			{Run: loop.deleteIfNoNode},
-			{
-				Run: loop.deleteOnNodeSelectorMismatch,
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CleanupOnNodeSelectorMismatch),
-					loop.HasNodeAffinity,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{
@@ -3158,21 +3150,6 @@ func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, messag
 	}
 
 	return r.RecordEvent(eventtype, reason, message)
-}
-
-func (r *containerReconcilerLoop) deleteOnNodeSelectorMismatch(ctx context.Context) error {
-	if r.node == nil {
-		return errors.New("node is not set")
-	}
-	// check if current container's node selector matches the node's labels
-	if !util.NodeSelectorMatchesNode(r.container.Spec.NodeSelector, r.node) {
-		_ = r.RecordEvent("", "NodeSelectorMismatch", "Node selector mismatch, deleting container")
-
-		if err := r.ensureStateDeleting(ctx); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {

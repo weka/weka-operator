@@ -103,7 +103,10 @@ var Config struct {
 		MaxDeactivatingContainersPercent int
 	}
 	CleanupRemovedNodes             bool
-	CleanupOnNodeSelectorMismatch   bool
+	CleanupOnNodeSelectorMismatchSettings struct {
+		Enabled                 bool
+		MaxBackendsPerReconcile int
+	}
 	EvictContainerOnDeletion        bool
 	SkipClientsTolerationValidation bool
 }
@@ -221,7 +224,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
-	Config.CleanupOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH", false)
+	Config.CleanupOnNodeSelectorMismatchSettings.Enabled = getBoolEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH", false)
+	Config.CleanupOnNodeSelectorMismatchSettings.MaxBackendsPerReconcile = getIntEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH_MAX_BACKENDS_PER_RECONCILE", 4)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 }

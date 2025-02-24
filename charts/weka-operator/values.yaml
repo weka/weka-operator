@@ -111,10 +111,13 @@ deploymentIdentifier: ""
 
 # -- if true, the operator will consider nodes that are gone as totally gone (not in the cluster anymore)
 cleanupRemovedNodes: false
-# -- if true, the operator will delete wekacontainers from the nodes that do not match node selectors
-cleanupOnNodeSelectorMismatch: false
+# -- if true, the operator will enforce deactivation on pod removal
 evictContainerOnDeletion: false
 skipClientsTolerationValidation: false
+# -- if true, the operator will delete wekacontainers from the nodes that do not match node selectors
+cleanupOnNodeSelectorMismatchSettings:
+  enabled: false
+  maxBackendsPerReconcile: 4
 
 signDrivesImage: quay.io/weka.io/weka-sign-tool:v0.1.1-pciutils
 

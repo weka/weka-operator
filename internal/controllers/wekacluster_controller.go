@@ -183,6 +183,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.HandleSpecUpdates,
 			},
 			{
+				Run: loop.deleteContainersOnNodeSelectorMismatch,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CleanupOnNodeSelectorMismatchSettings.Enabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:             condition.CondContainerResourcesAllocated,
 				Run:                   loop.AllocateResources,
 				SkipOwnConditionCheck: true,

@@ -216,6 +216,70 @@ func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) er
 	return nil
 }
 
+func (r *wekaClusterReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	kubeService := kubernetes.NewKubeService(r.getClient())
+	var toDelete []*wekav1alpha1.WekaContainer
+	maxBackendsDeletePerReconcile := config.Config.CleanupOnNodeSelectorMismatchSettings.MaxBackendsPerReconcile
+
+	for _, container := range r.containers {
+		// do not destroy more than 4 containers per reconcile
+		if len(toDelete) > maxBackendsDeletePerReconcile {
+			break
+		}
+
+		if container.IsMarkedForDeletion() || container.IsDestroyingState() || container.IsDeletingState() {
+			continue
+		}
+
+		nodeName := container.GetNodeAffinity()
+		if nodeName == "" {
+			continue
+		}
+
+		node, err := kubeService.GetNode(ctx, types.NodeName(nodeName))
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// should be handled by container reconciler
+				continue
+			}
+			return err
+		}
+
+		if !util2.NodeSelectorMatchesNode(container.Spec.NodeSelector, node) {
+			toDelete = append(toDelete, container)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return nil
+	}
+
+	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
+
+	return workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		patch := map[string]interface{}{
+			"spec": map[string]interface{}{
+				"state": wekav1alpha1.ContainerStateDeleting,
+			},
+		}
+
+		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
+
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
+		}
+
+		return errors.Wrap(
+			r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
+			fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
+		)
+	}).AsError()
+}
+
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {
 	return r.Manager.GetClient()
 }
