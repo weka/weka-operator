@@ -151,6 +151,11 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
 		//TODO: should've be just own step function
 		err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
+		var allocateRangeErr *allocator.AllocateClusterRangeError
+		if errors.As(err, &allocateRangeErr) {
+			_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error())
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		}
 		if err != nil {
 			logger.Error(err, "Failed to allocate cluster range")
 			return err

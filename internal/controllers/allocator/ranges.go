@@ -32,6 +32,10 @@ func (r ClusterRanges) GetFreeRange(size int) (int, error) {
 	return 0, fmt.Errorf("no free range available for size %d, pre-existing ranges %d", size, totalRanges)
 }
 
+func (r ClusterRanges) IsClusterRangeAvailable(targetRange Range) bool {
+	return IsRangeAvailable(r[OwnerCluster{}], r.getSortedUsedRanges(), targetRange)
+}
+
 func (r ClusterRanges) getSortedUsedRanges() []Range {
 	ranges := make([]Range, 0, len(r))
 	for _, v := range r {

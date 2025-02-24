@@ -21,6 +21,14 @@ const (
 	SinglePortsOffset = 300
 )
 
+type AllocateClusterRangeError struct {
+	Msg string
+}
+
+func (e *AllocateClusterRangeError) Error() string {
+	return e.Msg
+}
+
 type Allocator interface {
 	// AllocateClusterPorts allocates ranges only, not specific ports, that is responsibility of WekaCluster controller
 	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error
@@ -137,6 +145,12 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		if err != nil {
 			return err
 		}
+	}
+
+	isAvailable := allocations.Global.ClusterRanges.IsClusterRangeAvailable(Range{Base: targetPort, Size: targetSize})
+	if !isAvailable {
+		msg := fmt.Sprintf("range %d-%d is not available", targetPort, targetPort+targetSize)
+		return &AllocateClusterRangeError{Msg: msg}
 	}
 
 	allocations.Global.ClusterRanges[owner] = Range{
