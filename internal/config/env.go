@@ -104,6 +104,7 @@ var Config struct {
 	}
 	CleanupRemovedNodes           bool
 	CleanupOnNodeSelectorMismatch bool
+	EvictContainerOnDeletion      bool
 }
 
 type Metrics struct {
@@ -216,6 +217,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipClientPreferNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_PREFER_NO_SCHEDULE_TOLERATION", false)
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
 	Config.CleanupOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH", false)
+	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 }
 
 func getEnvOrFail(envKey string) string {
