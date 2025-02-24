@@ -27,6 +27,7 @@ MODE = os.environ.get("MODE")
 assert MODE != ""
 NUM_CORES = int(os.environ.get("CORES", 0))
 CORE_IDS = os.environ.get("CORE_IDS", "auto")
+CPU_POLICY = os.environ.get("CPU_POLICY", "auto")
 NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
 SUBNETS = os.environ.get("SUBNETS", "")
@@ -47,6 +48,7 @@ MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
+UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -732,14 +734,15 @@ def find_full_cores(n):
 
     selected_siblings = []
 
-    allowed_cores = parse_cpu_allowed_list()
+    available_cores = parse_cpu_allowed_list()
+    zero_siblings = [] if 0 not in available_cores else read_siblings_list(0)
 
-    for cpu_index in allowed_cores:
-        if is_rhcos() and cpu_index in [0]:
-            continue  # TODO: remove this once a better solution is found to avoid using CPU 0 and 1
+    for cpu_index in available_cores:
+        if cpu_index in zero_siblings:
+            continue
 
         siblings = read_siblings_list(cpu_index)
-        if all(sibling in allowed_cores for sibling in siblings):
+        if all(sibling in available_cores for sibling in siblings):
             if any(sibling in selected_siblings for sibling in siblings):
                 continue
             selected_siblings.append(siblings[0])  # Select one sibling (the first for simplicity)
@@ -1023,14 +1026,17 @@ async def create_container():
         if not NETWORK_DEVICE:
             raise Exception("NETWORK_DEVICE not set")
 
-        net_str = f"--net {NETWORK_DEVICE}"
+        if is_udp():
+            net_str = f"--net udp"
+        else:
+            net_str = f"--net {NETWORK_DEVICE}"
 
     failure_domain = FAILURE_DOMAIN
 
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable\
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
-        {net_str}  --base-port {PORT} --memory {MEMORY} \
+        {net_str}  --base-port {PORT} \
         {f"{join_secret_flag} {join_secret_cmd}" if join_secret_cmd else ""} \
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
@@ -1158,13 +1164,6 @@ async def ensure_weka_container():
         if ec != 0:
             raise Exception(f"Failed to get frontend cores: {stderr}")
 
-    memory_bytes = convert_to_bytes(MEMORY)
-    if resources['memory'] != memory_bytes:
-        logging.info(f"Reconfiguring memory from {resources['memory']} to {memory_bytes} ({MEMORY})")
-        stdout, stderr, ec = await run_command(f"weka local resources memory -C {NAME} {MEMORY}")
-        if ec != 0:
-            raise Exception(f"Failed to reconfigure memory: {stderr}")
-
     # TODO: unite with above block as single getter
     resources = await get_weka_local_resources()
 
@@ -1174,6 +1173,7 @@ async def ensure_weka_container():
     resources['excluded_drivers'] = ["igb_uio"]
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
+
     # add all management ips to resources
     if 'aws_' not in NETWORK_DEVICE:
         # we might want to revert here to resources.json syntax at this point
@@ -1191,13 +1191,17 @@ async def ensure_weka_container():
 
     cores_cursor = 0
     for node_id, node in resources['nodes'].items():
-        if node['dedicate_core']:
-            node['core_id'] = full_cores[cores_cursor]
-            cores_cursor += 1
+        if "MANAGEMENT" in node['roles']:
+            continue
+        if CPU_POLICY == "shared":
+            node['dedicate_core'] = False
+            node['dedicated_mode'] = "NONE"
+        node['core_id'] = full_cores[cores_cursor]
+        cores_cursor += 1
 
     # fix/add gateway
     if NET_GATEWAY:
-        if NETWORK_DEVICE not in ['udp', ""]:
+        if not is_udp():
             # TODO: Multi-nic support with custom gateways
             # figure out what is meant here ^
             if len(resources['net_devices']) != 1:
@@ -1217,7 +1221,7 @@ async def ensure_weka_container():
 
     # cli-based changes
     cli_changes = False
-    if 'aws_' not in NETWORK_DEVICE and NETWORK_DEVICE != 'udp':
+    if 'aws_' not in NETWORK_DEVICE and not is_udp():
         target_devices = set(NETWORK_DEVICE.split(","))
         if SUBNETS:
             target_devices = set(await get_devices_by_subnets(SUBNETS))
@@ -1696,6 +1700,10 @@ CURRENT_GENERATION = str(time.time())
 PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
 
+def is_udp():
+    return NETWORK_DEVICE == "UDP" or UDP_MODE
+
+
 async def write_generation():
     while os.path.exists("/host-binds/opt-weka") and not os.path.exists(PERSISTENCY_CONFIGURED):
         logging.info("Waiting for persistency to be configured")
@@ -1958,8 +1966,11 @@ async def write_management_ips():
             ip = await get_single_device_ip(device)
             ipAddresses.append(ip)
     # default udp mode (if network device is not set explicitly)
-    elif NETWORK_DEVICE in ("udp", ""):
-        ip = await get_single_device_ip()
+    elif is_udp():
+        if NETWORK_DEVICE != 'udp':
+            ip = await get_single_device_ip(NETWORK_DEVICE)
+        else:
+            ip = await get_single_device_ip()
         ipAddresses.append(ip)
     # if single nic is used
     elif ',' not in NETWORK_DEVICE:
