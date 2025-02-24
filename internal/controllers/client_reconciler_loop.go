@@ -282,11 +282,6 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		return nil, err
 	}
 
-	numCores := wekaClient.Spec.CoresNumber
-	if numCores == 0 {
-		numCores = 1
-	}
-
 	additionalSecrets := map[string]string{}
 
 	whCaCert := ""
@@ -341,11 +336,12 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
 			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
 			Mode:                weka.WekaContainerModeClient,
-			NumCores:            numCores,
+			NumCores:            c.getClientCores(),
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
 			Network:             network,
-			Hugepages:           getClientHugePages(numCores),
+			Hugepages:           c.getClientHugePages(),
+			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
 			DriversDistService:  wekaClient.Spec.DriversDistService,
@@ -363,13 +359,10 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 				UmountOnHost:             wekaClient.Spec.GetOverrides().UmountOnHost,
 			},
 			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
+			Resources:         wekaClient.Spec.Resources,
 		},
 	}
 	return container, nil
-}
-
-func getClientHugePages(cores int) int {
-	return cores * 1500
 }
 
 func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeName string) (string, error) {
@@ -542,8 +535,8 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		if newClientSpec.CoresNumber < container.Spec.NumCores {
 			logger.Error(errors.New("coresNum cannot be decreased"), "coresNum cannot be decreased, ignoring the change")
 		} else {
-			container.Spec.NumCores = newClientSpec.CoresNumber
-			container.Spec.Hugepages = getClientHugePages(newClientSpec.CoresNumber)
+			container.Spec.NumCores = c.getClientCores()
+			container.Spec.Hugepages = c.getClientHugePages()
 			changed = true
 		}
 	}
@@ -669,6 +662,27 @@ func (c *clientReconcilerLoop) setApplicableNodes(ctx context.Context) error {
 	}
 	c.nodes = nodes
 	return nil
+}
+
+func (c *clientReconcilerLoop) getClientCores() int {
+	numCores := c.wekaClient.Spec.CoresNumber
+	if numCores == 0 {
+		numCores = 1
+	}
+	return numCores
+}
+
+func (c *clientReconcilerLoop) getClientHugePages() int {
+	if c.wekaClient.Spec.HugePages != 0 {
+		return c.wekaClient.Spec.HugePages
+	}
+	return c.getClientCores() * 1500
+}
+func (c *clientReconcilerLoop) getHugepagesOffset() int {
+	if c.wekaClient.Spec.HugePagesOffset != nil {
+		return *c.wekaClient.Spec.HugePagesOffset
+	}
+	return 200 // back compat mode/unspecified default
 }
 
 func isPortRangeEqual(a, b weka.PortRange) bool {

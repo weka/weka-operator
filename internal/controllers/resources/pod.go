@@ -115,7 +115,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		netDevice = strings.Join(f.container.Spec.Network.EthDevices, ",")
 	}
 	if f.container.Spec.Network.UdpMode {
-		netDevice = "udp"
 		udpMode = "true"
 	}
 
@@ -317,6 +316,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "AUTO_REMOVE_TIMEOUT",
 							Value: strconv.Itoa(int(f.container.Spec.AutoRemoveTimeout.Seconds())),
+						},
+						{
+							Name:  "CPU_POLICY",
+							Value: string(f.container.Spec.CpuPolicy),
 						},
 					},
 				},
@@ -940,10 +943,6 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	if cpuPolicy == wekav1alpha1.CpuPolicyShared {
-		cpuPolicy = wekav1alpha1.CpuPolicyManual // shared is a special case of manual, where topology/allocmap keeps track of affinities
-	}
-
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 		Name:  "CORES",
 		Value: strconv.Itoa(f.container.Spec.NumCores),
@@ -975,8 +974,16 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
-		cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
-		cpuLimitStr = fmt.Sprintf("%dm", 1000*(totalNumCores+1))
+		if f.container.Spec.Resources.Limits.Cpu.IsZero() {
+			cpuLimitStr = fmt.Sprintf("%dm", 1000*(totalNumCores+1))
+			cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
+		} else {
+			cpuLimitStr = f.container.Spec.Resources.Limits.Cpu.String()
+			cpuRequestStr = f.container.Spec.Resources.Requests.Cpu.String()
+		}
+	case wekav1alpha1.CpuPolicyShared:
+		cpuLimitStr = f.container.Spec.Resources.Limits.Cpu.String()
+		cpuRequestStr = f.container.Spec.Resources.Requests.Cpu.String()
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
@@ -1004,6 +1011,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	}
 
 	memRequest := "7000Mi"
+	memLimit := ""
 	if f.container.IsDriversContainer() {
 		memRequest = "3000M"
 		cpuRequestStr = "500m"
@@ -1019,7 +1027,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		managementMemory := 1965
 		perFrontendMemory := 3050
 		buffer := 2000
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
+		if f.container.Spec.Resources.Requests.Memory.IsZero() {
+			memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
+		} else {
+			memRequest = f.container.Spec.Resources.Requests.Memory.String()
+			memLimit = f.container.Spec.Resources.Limits.Memory.String()
+		}
 	}
 
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
@@ -1066,13 +1079,17 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
+	if memLimit == "" {
+		memLimit = memRequest
+	}
+
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
 			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
 			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-			corev1.ResourceMemory:           resource.MustParse(memRequest),
+			corev1.ResourceMemory:           resource.MustParse(memLimit),
 		},
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
