@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -73,6 +74,16 @@ type PortRange struct {
 	PortRange int `json:"portRange,omitempty"`
 }
 
+type PodResources struct {
+	Cpu    resource.Quantity `json:"cpu,omitempty"`
+	Memory resource.Quantity `json:"memory,omitempty"`
+}
+
+type PodResourcesSpec struct {
+	Requests PodResources `json:"requests,omitempty"`
+	Limits   PodResources `json:"limits,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// Used in new format
@@ -94,12 +105,20 @@ type WekaClientSpec struct {
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
+	CpuRequest          string               `json:"cpuRequest,omitempty"`
 	CoresNumber         int                  `json:"coresNum,omitempty"`
 	CoreIds             []int                `json:"coreIds,omitempty"`
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
-	AdditionalMemory    int                  `json:"additionalMemory,omitempty"`
+	// memory to add/decrease from "auto-calculated" memory
+	AdditionalMemory int `json:"additionalMemory,omitempty"`
+	// pod resources to be proxied as-is to the pod spec
+	Resources PodResourcesSpec `json:"resources,omitempty"`
+	// hugepages, value in megabytes
+	HugePages int `json:"hugepages,omitempty"`
+	// value in megabytes to offset
+	HugePagesOffset *int `json:"hugepagesOffset,omitempty"`
 	//DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version
 	WekaHomeConfig  WekahomeClientConfig     `json:"wekaHomeConfig,omitempty"`
 	WekaHome        *WekahomeClientConfig    `json:"wekaHome,omitempty"`
