@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"io"
 	"net/http"
 	"path"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -375,6 +376,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{Run: loop.refreshPod},
+			{
+				Run: loop.updatePodLabelsOnChange,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.PodNotSet),
+					loop.podLabelsChanged,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
 				Run: loop.dropStopAttemptRecord,
@@ -1421,6 +1430,24 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 	}
 	r.pod = pod
 	return nil
+}
+
+func (r *containerReconcilerLoop) updatePodLabelsOnChange(ctx context.Context) error {
+	pod := r.pod
+	pod.SetLabels(resources.LabelsForWekaPod(r.container))
+
+	if err := r.Update(ctx, pod); err != nil {
+		return fmt.Errorf("failed to update pod labels: %w", err)
+	}
+	r.pod = pod
+	return nil
+}
+
+func (r *containerReconcilerLoop) podLabelsChanged() bool {
+	oldLabels := r.pod.GetLabels()
+	newLabels := resources.LabelsForWekaPod(r.container)
+
+	return !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(oldLabels))
 }
 
 func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {

@@ -555,11 +555,10 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
-	// desired labels = existing labels + cluster labels + required labels
+	// desired labels = client's labels + required labels
 	// priority-wise, required labels have the highest priority
 	requiredLables := factory.RequiredWekaClientLabels(c.wekaClient.ObjectMeta.Name)
-	newLabels := util2.MergeMaps(container.Labels, c.wekaClient.ObjectMeta.GetLabels())
-	newLabels = util2.MergeMaps(newLabels, requiredLables)
+	newLabels := util2.MergeMaps(c.wekaClient.ObjectMeta.GetLabels(), requiredLables)
 	if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
 		container.Labels = newLabels
 		changed = true

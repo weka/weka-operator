@@ -80,7 +80,7 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 }
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
-	labels := labelsForWekaPod(f.container)
+	labels := LabelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
 	// if podImage is not nil, use it instead of the image from the container spec
@@ -1221,7 +1221,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	return nil
 }
 
-func labelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
+func LabelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/name":      "WekaContainer",
 		"app.kubernetes.io/part-of":   "weka-operator",
