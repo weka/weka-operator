@@ -102,9 +102,10 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes           bool
-	CleanupOnNodeSelectorMismatch bool
-	EvictContainerOnDeletion      bool
+	CleanupRemovedNodes             bool
+	CleanupOnNodeSelectorMismatch   bool
+	EvictContainerOnDeletion        bool
+	SkipClientsTolerationValidation bool
 }
 
 type Metrics struct {
@@ -218,6 +219,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
 	Config.CleanupOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
+	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 }
 
 func getEnvOrFail(envKey string) string {

@@ -575,9 +575,18 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 }
 
 func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Node, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getApplicableNodes")
+	defer end()
+
 	nodes, err := c.KubeService.GetNodes(ctx, c.wekaClient.Spec.NodeSelector)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
+	}
+
+	logger.Info("Got nodes by labels", "nodes", len(nodes))
+
+	if config.Config.SkipClientsTolerationValidation {
+		return nodes, nil
 	}
 
 	clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
@@ -592,6 +601,7 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		}
 		filteredNodes = append(filteredNodes, node)
 	}
+	logger.Info("Got nodes by labels", "nodes", len(nodes), "filteredNodes", len(filteredNodes))
 
 	return filteredNodes, nil
 }
