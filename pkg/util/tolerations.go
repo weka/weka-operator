@@ -6,17 +6,14 @@ import (
 
 // Check if the given taints can be tolerated by the given tolerations.
 func CheckTolerations(taints []corev1.Taint, tolerations []corev1.Toleration) bool {
+TAINT:
 	for _, taint := range taints {
-		tolerated := false
-		for _, tol := range tolerations {
-			if tol.Key == taint.Key && (tol.Operator == corev1.TolerationOpExists || tol.Value == taint.Value) {
-				tolerated = true
-				break
+		for _, toleration := range tolerations {
+			if toleration.ToleratesTaint(&taint) {
+				continue TAINT
 			}
 		}
-		if !tolerated {
-			return false
-		}
+		return false
 	}
 	return true
 }
