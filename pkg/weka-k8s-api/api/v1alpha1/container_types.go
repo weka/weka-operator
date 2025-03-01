@@ -139,6 +139,8 @@ type WekaContainerSpecOverrides struct {
 	ForceDrain bool `json:"forceDrain,omitempty"`
 	// unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host
 	UmountOnHost bool `json:"umountOnHost,omitempty"`
+	// DebugSleepOnTerminate specifies the number of seconds to sleep on container abnormal exit for debugging purposes
+	DebugSleepOnTerminate int `json:"debugSleepOnTerminate,omitempty"`
 }
 
 type Instructions struct {
