@@ -139,6 +139,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	tolerations := f.getTolerations()
 
 	debugSleep := config.Config.DebugSleep
+	if f.container.Spec.GetOverrides().DebugSleepOnTerminate > 0 {
+		debugSleep = f.container.Spec.GetOverrides().DebugSleepOnTerminate
+	}
 
 	hostsideContainerPersistence := f.nodeInfo.GetContainerPersistencePath(f.container.GetUID())
 	hostsideSharedData := f.nodeInfo.GetContainerSharedDataPath(f.container.GetUID())

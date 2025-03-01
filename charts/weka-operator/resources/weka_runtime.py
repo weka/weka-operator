@@ -2476,14 +2476,13 @@ try:
             logging.info("Cancelled")
         else:
             raise
-    except Exception as e:
-        debug_sleep = int(os.environ.get("WEKA_OPERATOR_DEBUG_SLEEP", 3))
-        logging.error(f"Error: {e}, sleeping for {debug_sleep} seconds to give a chance to debug")
-        time.sleep(debug_sleep)
-        raise
 finally:
     if _server is not None:
         _server.close()
-    logging.info(
-        "3 seconds exit-sleep")  # TODO: Remove this once theory of drives not releasing due to sync, confirmed, assuming that sync will happen within 3 seconds
-    time.sleep(3)
+    debug_sleep = int(os.environ.get("WEKA_OPERATOR_DEBUG_SLEEP", 3))
+    logging.info(f"{debug_sleep} seconds exit-sleep to allow for debugging and ensure proper sync")
+    start = time.time()
+    while time.time() - start < debug_sleep:
+        if os.path.exists("/tmp/.cancel-debug-sleep"):
+            break
+        time.sleep(1)
