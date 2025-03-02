@@ -3,10 +3,10 @@ package operations
 import (
 	"context"
 	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -163,7 +163,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector:       nodeSelector,
-					Tolerations:        o.tolerations,
+					Tolerations:        resources.ConditionalExpandNoScheduleTolerations(o.tolerations, !config.Config.SkipAuxNoScheduleToleration),
 					ServiceAccountName: serviceAccountName,
 					Containers: []corev1.Container{
 						{

@@ -137,7 +137,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	tolerations := f.getTolerations()
-
 	debugSleep := config.Config.DebugSleep
 	if f.container.Spec.GetOverrides().DebugSleepOnTerminate > 0 {
 		debugSleep = f.container.Spec.GetOverrides().DebugSleepOnTerminate
@@ -832,18 +831,19 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 		},
 	}
 	tolerations = append(tolerations, pressureTolerations...)
-	// for client we are ignoring PreferNoSchedule, the rest should not ignore(for now)
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
-		if !config.Config.SkipClientPreferNoScheduleToleration {
-			preferNoScheduleTolerations := []corev1.Toleration{
-				{
-					// operator must be Exists when `key` is empty, which means "match all values and all keys"
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectPreferNoSchedule,
-				},
-			}
-			tolerations = append(tolerations, preferNoScheduleTolerations...)
-		}
+
+	if !config.Config.SkipClientNoScheduleToleration && f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+		tolerations = ExpandNoScheduleTolerations(tolerations)
+	}
+
+	auxModes := []string{
+		wekav1alpha1.WekaContainerModeAdhocOp,
+		wekav1alpha1.WekaContainerModeAdhocOpWC,
+		wekav1alpha1.WekaContainerModeDriversLoader,
+		wekav1alpha1.WekaContainerModeDiscovery,
+	}
+	if !config.Config.SkipAuxNoScheduleToleration && slices.Contains(auxModes, f.container.Spec.Mode) {
+		tolerations = ExpandNoScheduleTolerations(tolerations)
 	}
 
 	// expand with custom tolerations

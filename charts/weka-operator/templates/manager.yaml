@@ -188,8 +188,10 @@ spec:
               value: "{{ .Values.upgrade.driveThresholdPercent }}"
             - name: UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT
               value: "{{ .Values.upgrade.maxDeactivatingContainersPercent }}"
-            - name: SKIP_CLIENT_PREFER_NO_SCHEDULE_TOLERATION
-              value: "{{ .Values.skipClientPreferNoScheduleToleration }}"
+            - name: SKIP_CLIENT_NO_SCHEDULE_TOLERATION
+              value: "{{ .Values.skipClientNoScheduleToleration }}"
+            - name: SKIP_AUX_NO_SCHEDULE_TOLERATION
+              value: "{{ .Values.skipAuxNoScheduleToleration }}"
             - name: EVICT_CONTAINER_ON_DELETION
               value: "{{ .Values.evictContainerOnDeletion }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION

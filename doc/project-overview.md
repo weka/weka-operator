@@ -41,9 +41,10 @@ WekaContainerModeAdhocOp        = "adhoc-op"
     - mode sometimes referenced as a role
   - CLUSTER_ID in this case represented by k8s metadata.uid of wekacluster CR
 - pod belonging to wekacontainer should never be force deleted, only proper graceful termination that will wait for as long as needed
+  - e.g never use --force or --grace-period=X or --timeout
 - pod belonging to wekacontainer named exactly as a wekacontainer, and when re-created re-uses same name. Pod re-created shortly after termination
 ### in-pod file-flags
-- /tmp/.allow-force-stop - allows to force stop weka_runtime.py for a quick exit
+- /tmp/.allow-force-stop - allows to force stop weka_runtime.py for a quick non graceful exit
 - /tmp/.cancel-debug-sleep - allows to cancel debug sleep on exit
   This flags can be set via exec in pod
 # Overrides
