@@ -216,21 +216,28 @@ func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) er
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx context.Context) error {
+func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	kubeService := kubernetes.NewKubeService(r.getClient())
 	var toDelete []*wekav1alpha1.WekaContainer
-	maxBackendsDeletePerReconcile := config.Config.CleanupOnNodeSelectorMismatchSettings.MaxBackendsPerReconcile
+	var toUpdate []*wekav1alpha1.WekaContainer
+	maxBackendsDeletePerReconcile := config.Consts.MaxContainersDeletedOnSelectorMismatch
+
+	cluster := r.cluster
 
 	for _, container := range r.containers {
 		// do not destroy more than 4 containers per reconcile
-		if len(toDelete) > maxBackendsDeletePerReconcile {
+		if len(toDelete) >= maxBackendsDeletePerReconcile {
 			break
 		}
 
 		if container.IsMarkedForDeletion() || container.IsDestroyingState() || container.IsDeletingState() {
+			continue
+		}
+
+		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			continue
 		}
 
@@ -249,25 +256,48 @@ func (r *wekaClusterReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx c
 		}
 
 		if !util2.NodeSelectorMatchesNode(container.Spec.NodeSelector, node) {
-			toDelete = append(toDelete, container)
+			if util2.NodeSelectorMatchesNode(cluster.Spec.NodeSelector, node) {
+				toUpdate = append(toUpdate, container)
+			} else {
+				toDelete = append(toDelete, container)
+			}
 		}
 	}
 
-	if len(toDelete) == 0 {
+	if len(toDelete) == 0 && len(toUpdate) == 0 {
 		return nil
 	}
 
-	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
+	logger.Info("Updating containers with node selector mismatch", "toUpdate", len(toUpdate))
+	updateErrs := workers.ProcessConcurrently(ctx, toUpdate, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		patch := []map[string]interface{}{
+			{
+				"op":    "replace",
+				"path":  "/spec/nodeSelector",
+				"value": cluster.Spec.NodeSelector,
+			},
+		}
+		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, updating container nodeSelector")
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
+		}
 
-	return workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		return errors.Wrap(
+			// use JSONPatchType to fully replace nodeSelector, not merge, for cases when a field is removed
+			r.getClient().Patch(ctx, container, client.RawPatch(types.JSONPatchType, patchBytes)),
+			fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
+		)
+	}).GetTopErrors()
+
+	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
+	deleteErrs := workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 		patch := map[string]interface{}{
 			"spec": map[string]interface{}{
 				"state": wekav1alpha1.ContainerStateDeleting,
 			},
 		}
-
 		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
-
 		patchBytes, err := json.Marshal(patch)
 		if err != nil {
 			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
@@ -277,7 +307,9 @@ func (r *wekaClusterReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx c
 			r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
 			fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
 		)
-	}).AsError()
+	}).GetTopErrors()
+
+	return &workers.MultiError{Errors: append(updateErrs, deleteErrs...)}
 }
 
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {

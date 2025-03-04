@@ -87,7 +87,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			{
 				Run: loop.deleteContainersOnNodeSelectorMismatch,
 				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CleanupOnNodeSelectorMismatchSettings.Enabled),
+					lifecycle.BoolValue(config.Config.CleanupClientsOnNodeSelectorMismatch),
 				},
 				ContinueOnPredicatesFalse: true,
 			},

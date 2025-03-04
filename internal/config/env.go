@@ -102,13 +102,11 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes             bool
-	CleanupOnNodeSelectorMismatchSettings struct {
-		Enabled                 bool
-		MaxBackendsPerReconcile int
-	}
-	EvictContainerOnDeletion        bool
-	SkipClientsTolerationValidation bool
+	CleanupRemovedNodes                   bool
+	CleanupBackendsOnNodeSelectorMismatch bool
+	CleanupClientsOnNodeSelectorMismatch  bool
+	EvictContainerOnDeletion              bool
+	SkipClientsTolerationValidation       bool
 }
 
 type Metrics struct {
@@ -148,6 +146,10 @@ var Consts struct {
 	FormS3ClusterMaxContainerCount int
 	// Interval at which CSI secret with container ips will be updated
 	CSILoginCredentialsUpdateInterval time.Duration
+	// Max containers to delete at once on node selector mismatch
+	MaxContainersDeletedOnSelectorMismatch int
+	// Interval for cleanup of containers on node selector mismatch
+	SelectorMismatchCleanupInterval time.Duration
 }
 
 func init() {
@@ -163,6 +165,8 @@ func init() {
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
 	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
+	Consts.MaxContainersDeletedOnSelectorMismatch = 4
+	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {
@@ -224,8 +228,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)
 	Config.SkipAuxNoScheduleToleration = getBoolEnvOrDefault("SKIP_AUX_NO_SCHEDULE_TOLERATION", false)
 	Config.CleanupRemovedNodes = getBoolEnvOrDefault("CLEANUP_REMOVED_NODES", false)
-	Config.CleanupOnNodeSelectorMismatchSettings.Enabled = getBoolEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH", false)
-	Config.CleanupOnNodeSelectorMismatchSettings.MaxBackendsPerReconcile = getIntEnvOrDefault("CLEANUP_ON_NODE_SELECTOR_MISMATCH_MAX_BACKENDS_PER_RECONCILE", 4)
+	Config.CleanupBackendsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH", false)
+	Config.CleanupClientsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 }
