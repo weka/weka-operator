@@ -1306,7 +1306,18 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
+// getSoftwareVersion extracts the software version of weka
+func getSoftwareVersion(image string) string {
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 {
+		return ""
+	}
+	tag := image[idx+1:]
+	parts := strings.Split(tag, "-")
+	return parts[0]
+}
+
+func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, image string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")
 	defer end()
 
@@ -1316,11 +1327,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 		return nil
 	}
 
-	// cut out everything before `:` in the image
-	targetVersion = strings.Split(targetVersion, ":")[1]
-	// cut out everything post-`` in the version
-	// TODO: Test if this work with `-`-less versions
-	targetVersion = strings.Split(targetVersion, "-")[0]
+	targetVersion := getSoftwareVersion(image)
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade
