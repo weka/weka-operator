@@ -259,3 +259,86 @@ func printAsYaml(allocations *Allocations) {
 	data, _ := yaml.Marshal(allocations)
 	fmt.Println(string(data))
 }
+
+func TestAllocatorGlobalRanges(t *testing.T) {
+	badYaml := `clusterranges:
+  cluster-obs-test;default:
+    base: 46000
+    size: 500
+  weka-infra;infra:
+    base: 35000
+    size: 500
+  scalenodes;default:
+    base: 35500
+    size: 500
+  crocodile;weka-operator-system:
+    base: 36500
+    size: 500
+allocatedranges:
+  weka-infra;infra:
+    lb:
+      base: 35300
+      size: 1
+    lbAdmin:
+      base: 35301
+      size: 1
+    s3:
+      base: 35302
+      size: 1
+  crocodile;weka-operator-system:
+    lb:
+      base: 36800
+      size: 1
+    lbAdmin:
+      base: 36801
+      size: 1
+    s3:
+      base: 36802
+      size: 1
+  scalenodes;default:
+    lb:
+      base: 35800
+      size: 1
+    lbAdmin:
+      base: 35801
+      size: 1
+    s3:
+      base: 35802
+      size: 1
+  cluster-obs-test;default:
+    lb:
+      base: 46300
+      size: 1
+    lbAdmin:
+      base: 46301
+      size: 1
+    s3:
+      base: 46302
+      size: 1`
+
+	ctx := context.Background()
+	allocator, config, err := newTestAllocator(ctx, 4)
+	if err != nil {
+		t.Errorf("Failed to create allocator: %v", err)
+		return
+	}
+	//unmarshal
+	startingAllocations := GlobalAllocations{}
+	err = yaml.Unmarshal([]byte(badYaml), &startingAllocations)
+	if err != nil {
+		t.Errorf("Failed to unmarshal yaml: %v", err)
+		return
+	}
+	config.allocations.Global = startingAllocations
+	cluster1 := testWekaCluster("cluster-1")
+	err = allocator.AllocateClusterRange(ctx, cluster1)
+	if err != nil {
+		t.Errorf("Failed to allocate cluster range: %v", err)
+		return
+	}
+	// would expect to recieve range of 36000 here
+	if cluster1.Status.Ports.BasePort != 36000 {
+		t.Errorf("Failed to allocate correct base port: %v", cluster1.Status.Ports.BasePort)
+		return
+	}
+}

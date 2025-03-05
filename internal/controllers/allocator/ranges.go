@@ -33,7 +33,8 @@ func (r ClusterRanges) GetFreeRange(size int) (int, error) {
 }
 
 func (r ClusterRanges) IsClusterRangeAvailable(targetRange Range) bool {
-	return IsRangeAvailable(r[OwnerCluster{}], r.getSortedUsedRanges(), targetRange)
+	// we do not respect global starting point here, due to possible migration, we just validate one very specific range to be not taken
+	return IsRangeAvailable(Range{0, MaxPort}, r.getSortedUsedRanges(), targetRange)
 }
 
 func (r ClusterRanges) getSortedUsedRanges() []Range {
@@ -98,27 +99,27 @@ func GetFreeRange(boundaries Range, ranges []Range, size int) (int, error) {
 }
 
 func IsRangeAvailable(boundaries Range, ranges []Range, targetRange Range) bool {
-	// check if the range is available
-	runningEnd := boundaries.Base
-	for _, v := range ranges {
-		prevEnd := runningEnd
-		runningEnd = v.Base + v.Size
+	// Ensure targetRange is completely within boundaries.
+	if targetRange.Base < boundaries.Base ||
+		targetRange.Base+targetRange.Size-1 > boundaries.Base+boundaries.Size-1 {
+		return false
+	}
 
-		if runningEnd < targetRange.Base {
-			continue
-		}
+	targetStart := targetRange.Base
+	targetEnd := targetRange.Base + targetRange.Size - 1
 
-		// we are past range of interest, we might have gap here
-		if targetRange.Base+targetRange.Size < v.Base && prevEnd <= targetRange.Base {
-			return true // we have a gap to allocate
-		}
-		if prevEnd > targetRange.Base {
+	// Check for overlap with any allocated range.
+	for _, r := range ranges {
+		allocatedStart := r.Base
+		allocatedEnd := r.Base + r.Size - 1
+
+		// Overlap exists if the target range starts before the allocated range ends
+		// and the allocated range starts before the target range ends.
+		if targetStart <= allocatedEnd && allocatedStart <= targetEnd {
 			return false
 		}
 	}
-	if runningEnd > targetRange.Base {
-		return false
-	}
+
 	return true
 }
 
