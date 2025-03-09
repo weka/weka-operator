@@ -302,9 +302,14 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 	defer end()
 
 	return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer end()
 		if mode != "" && container.Spec.Mode != mode {
 			return nil
 		}
+
+		ctx, _, end2 := instrumentation.GetLogSpan(ctx, "ensureMatchingContainerPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer end2()
 
 		if !container.IsPaused() {
 			patch := map[string]interface{}{
@@ -318,11 +323,19 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 				return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
 			}
 
-			return errors.Wrap(
+			err = errors.Wrap(
 				r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
 				fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
 			)
+			if err != nil {
+				return err
+			}
 		}
+
+		if container.Status.Status != string(wekav1alpha1.ContainerStatePaused) {
+			return fmt.Errorf("container %s is not paused yet", container.Name)
+		}
+
 		return nil
 	}).AsError()
 }
