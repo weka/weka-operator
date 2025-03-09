@@ -1,0 +1,25 @@
+Test goal:
+    - validate that CSI properly removes topology label when client container is stopped on that node
+        - node should not have label topology.test-weka-prov.weka.io/accessible when client container is stopped, updated within 2 minutes
+        - validate that node updated back with topology.test-weka-prov.weka.io/accessible="true" when client container is started, updated within 2 minutes
+Test scenario
+    - select wekacontainers that belong to existing wekaclient test-weka-prov-clients in default namespace
+        - findable by label weka.io/client-name=test-weka-prov-clients
+    - stop weka within on of wekaclient's wekacontainer pods
+    - determine node of found pod by pod placement metadata
+    - validate that label on node got updated within 2 minutes
+    - wait 2 minute and schedule replicaset of goader pods on nodes with label weka.io/dedicated=anton of size 20
+        - pods of replicaset should be using an existing PVC test-weka-prov-goader-pvc
+    - validate that none of the pods are scheduled on node with stopped wekacontainer
+    - start weka by weka local start
+    - wait up to two minutes for label to be updated to true
+    - scale replicaset to 25 and ensure that at least one pod got scheduled on a node with wekacontainer that was stopped and restarted
+
+
+Testing notes:
+- do not delete wekacluster after test execution regardless of results
+- do not delete any k8s resource as part of this testing AIMUST
+- this tests run on physical environment, use 10.200.0.0/16 subnet for testing
+- use weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id> to filter compute and drive containers
+    - cluster id references to kubernetes metadata.uid
+- use nodeSelector weka.io/dedicated=anton for all objects so no resources will be provisioned on nodes that do not match this selector
