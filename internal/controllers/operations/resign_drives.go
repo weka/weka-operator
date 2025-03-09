@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ type ResignDrivesOperation struct {
 	tolerations     []corev1.Toleration
 	successCallback lifecycle.StepFunc
 	failureCallback lifecycle.StepFunc
+	nsIsDeleting    bool
+	namespace       string
 }
 
 func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation {
@@ -72,6 +75,7 @@ func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *ResignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
+		{Name: "GetNamespace", Run: o.GetNamespace},
 		{Name: "GetContainer", Run: o.GetContainer},
 		{Name: "DeleteOnDone", Run: o.DeleteContainer, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
 		{
@@ -131,6 +135,8 @@ func (o *ResignDrivesOperation) DeleteContainer(ctx context.Context) error {
 }
 
 func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "EnsureResignContainer", "namespace", o.namespace, "is_deleting_namespace", o.nsIsDeleting)
+	defer end()
 	if o.container != nil {
 		return nil
 	}
@@ -157,11 +163,18 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 		Payload: string(payloadBytes),
 	}
 
+	//fetch NS to validate that it is not being deleted
+	ns := &corev1.Namespace{}
+	err = o.client.Get(ctx, client.ObjectKey{Name: o.ownerRef.GetNamespace()}, ns)
+	if err != nil {
+		return err
+	}
+
 	containerName := o.getContainerName()
 	container := &v1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      containerName,
-			Namespace: o.ownerRef.GetNamespace(),
+			Namespace: o.namespace,
 			Labels:    labels,
 		},
 		Spec: v1alpha1.WekaContainerSpec{
@@ -174,9 +187,12 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 		},
 	}
 
-	err = ctrl.SetControllerReference(o.ownerRef, container, o.scheme)
-	if err != nil {
-		return err
+	if !o.nsIsDeleting {
+		// we cannot set owner in different namespace, so this will be prone to leftovers
+		err = ctrl.SetControllerReference(o.ownerRef, container, o.scheme)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = o.client.Create(ctx, container)
@@ -196,7 +212,7 @@ func (o *ResignDrivesOperation) GetContainer(ctx context.Context) error {
 	name := o.getContainerName()
 	ref := v1alpha1.ObjectReference{
 		Name:      name,
-		Namespace: o.ownerRef.GetNamespace(),
+		Namespace: o.namespace,
 	}
 	existing, err := discovery.GetContainerByName(ctx, o.client, ref)
 	if err != nil && apierrors.IsNotFound(err) {
@@ -245,4 +261,25 @@ func (o *ResignDrivesOperation) FailureCallback(ctx context.Context) error {
 
 func (o *ResignDrivesOperation) OperationFailed() bool {
 	return o.results.Err != ""
+}
+
+func (o *ResignDrivesOperation) GetNamespace(ctx context.Context) error {
+	ns := &corev1.Namespace{}
+	namespace := o.ownerRef.GetNamespace()
+
+	err := o.client.Get(ctx, client.ObjectKey{Name: namespace}, ns)
+	if err != nil {
+		return err
+	}
+
+	o.namespace = namespace
+	if ns.GetDeletionTimestamp() != nil {
+		o.nsIsDeleting = true
+		operatorNamespace, err := util2.GetPodNamespace()
+		o.namespace = operatorNamespace
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
