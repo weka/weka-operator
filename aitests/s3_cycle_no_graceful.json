@@ -1,0 +1,83 @@
+{
+  "description": "Validate that a WekaCluster with s3Containers set to 2 can be provisioned, expanded to 5 s3Containers, and then removed with graceful termination handling",
+  "name": "weka_s3_containers_lifecycle_test",
+  "steps": [
+    {
+      "name": "generate_test_namespace",
+      "requirements": "Generate a unique test namespace with prefix 'test-' for the WekaCluster deployment",
+      "outputs": ["namespace"]
+    },
+    {
+      "name": "generate_cluster_name",
+      "requirements": "Generate a unique cluster name with prefix 'test-', not longer than 32 characters, conforming to K8s resource naming rules",
+      "outputs": ["cluster_name"]
+    },
+    {
+      "name": "create_wekacluster_yaml",
+      "requirements": "Create a YAML file for WekaCluster CR with the following content (replacing placeholders with actual values):\n\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: $generate_cluster_name__cluster_name\n  namespace: $generate_test_namespace__namespace\nspec:\n  template: dynamic\n  dynamicTemplate:\n    computeContainers: 8\n    driveContainers: 8\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n    s3Containers: 2\n  hotSpare: 1\n  leadershipRaftSize: 5\n  bucketRaftSize: 5\n  redundancyLevel: 2\n  gracefulDestroyDuration: 10800s\n  startIoConditions:\n    minNumDrives: 14\n  overrides: {}\n  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\n  nodeSelector:\n    weka.io/dedicated: \"anton\"\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace"],
+      "outputs": ["wekacluster_yaml_path"]
+    },
+    {
+      "name": "apply_wekacluster",
+      "requirements": "Apply the WekaCluster YAML using kubectl: kubectl apply -f $create_wekacluster_yaml__wekacluster_yaml_path",
+      "inputs": ["create_wekacluster_yaml.wekacluster_yaml_path"],
+      "outputs": ["wekacluster_applied"]
+    },
+    {
+      "name": "get_cluster_uid",
+      "requirements": "Extract the WekaCluster metadata.uid from the applied cluster: kubectl get wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace -o jsonpath='{.metadata.uid}'",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace"],
+      "outputs": ["cluster_uid"]
+    },
+    {
+      "name": "wait_for_cluster_ready",
+      "requirements": "Poll the wekacluster object's status.status field until it reaches 'Ready', with a timeout of 10 minutes. Use kubectl: kubectl get wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace -o jsonpath='{.status.status}'",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace"],
+      "outputs": ["cluster_ready"]
+    },
+    {
+      "name": "expand_s3_containers",
+      "requirements": "Patch the WekaCluster spec to set spec.dynamicTemplate.s3Containers to 5 using kubectl: kubectl patch wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace --type='merge' -p='{\"spec\":{\"dynamicTemplate\":{\"s3Containers\": 5}}}'",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace"],
+      "outputs": ["s3_containers_expanded"]
+    },
+    {
+      "name": "find_container_pod",
+      "requirements": "Find a compute or drive container within the cluster using labels weka.io/mode=compute and weka.io/cluster-id=$get_cluster_uid__cluster_uid. Use kubectl: kubectl get pods -n $generate_test_namespace__namespace -l weka.io/mode=compute,weka.io/cluster-id=$get_cluster_uid__cluster_uid --no-headers -o custom-columns=':metadata.name' | head -1",
+      "inputs": ["get_cluster_uid.cluster_uid", "generate_test_namespace.namespace"],
+      "outputs": ["container_pod_name"]
+    },
+    {
+      "name": "validate_s3_containers",
+      "requirements": "Execute 'weka s3 cluster status' within the identified container pod to verify that all 5 S3 containers are listed with 'Online' status. Wait up to 3 minutes for them to become operational. Use kubectl: kubectl exec -n $generate_test_namespace__namespace $find_container_pod__container_pod_name -- weka s3 cluster status",
+      "inputs": ["find_container_pod.container_pod_name", "generate_test_namespace.namespace"],
+      "outputs": ["s3_containers_validated"]
+    },
+    {
+      "name": "delete_wekacluster",
+      "requirements": "Delete the WekaCluster using kubectl with --wait=false to make it non-blocking due to the graceful termination period: kubectl delete wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace --wait=false",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace"],
+      "outputs": ["wekacluster_deletion_started"]
+    },
+    {
+      "name": "wait_for_containers_paused",
+      "requirements": "Wait up to 3 minutes for all wekacontainers to reach the 'paused' state by checking .status.status on wekacontainers. Use kubectl to filter by cluster-id: kubectl get wekacontainers -n $generate_test_namespace__namespace -l weka.io/cluster-id=$get_cluster_uid__cluster_uid -o custom-columns=NAME:.metadata.name,STATUS:.status.status --no-headers",
+      "inputs": ["get_cluster_uid.cluster_uid", "generate_test_namespace.namespace"],
+      "outputs": ["containers_paused_or_timeout"]
+    },
+    {
+      "name": "patch_graceful_termination",
+      "requirements": "After 3 minutes or after all wekacontainers are in paused state, patch the WekaCluster spec to set gracefulDestroyDuration to 0 using kubectl: kubectl patch wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace --type='merge' -p='{\"spec\":{\"gracefulDestroyDuration\": 0}}'",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace", "wait_for_containers_paused.containers_paused_or_timeout"],
+      "outputs": ["graceful_termination_patched"]
+    },
+    {
+      "name": "wait_for_wekacluster_deletion",
+      "requirements": "Wait up to 10 minutes for the WekaCluster to be deleted from Kubernetes by polling with kubectl: kubectl get wekacluster $generate_cluster_name__cluster_name -n $generate_test_namespace__namespace --ignore-not-found",
+      "inputs": ["generate_cluster_name.cluster_name", "generate_test_namespace.namespace", "patch_graceful_termination.graceful_termination_patched"],
+      "outputs": ["wekacluster_deleted"]
+    }
+  ],
+  "documentation": "This test validates the full lifecycle of a Weka cluster with S3 containers. It provisions a cluster with 2 S3 containers, expands to 5, verifies their operational status, and then removes the cluster with proper graceful termination handling.\n\nCluster Configuration:\n- 8 compute containers\n- 8 drive containers\n- 2 drives per container\n- Stripe width: 4\n- Redundancy level: 2\n- Hot spare: 1\n- Leadership raft size: 5\n- Bucket raft size: 5\n- MinDrive startIo condition: 14\n- Initial S3 containers: 2\n- Graceful termination: 3h (10800s)\n\nEnvironment Configuration:\n- Network subnet: 10.200.0.0/16\n- Node selector: weka.io/dedicated=anton\n- API version: weka.weka.io/v1alpha1\n\nTesting Process:\n1. Create a test namespace and generate a unique cluster name\n2. Deploy WekaCluster CR with initial configuration\n3. Wait for cluster to reach 'Ready' status (timeout: 10 minutes)\n4. Expand S3 containers from 2 to 5\n5. Verify all 5 S3 containers are online and operational using 'weka s3 cluster status' command\n6. Initiate non-blocking deletion of the WekaCluster\n7. Wait for all containers to reach 'paused' state (up to 3 minutes)\n8. Patch graceful termination period to 0\n9. Wait for complete deletion of the WekaCluster (up to 10 minutes)\n\nImportant Notes:\n- Do NOT delete any K8s resources as part of testing unless explicitly instructed\n- Always filter WekaContainers and pods using the cluster-id (WekaCluster's metadata.uid)\n- Use nodeSelector weka.io/dedicated=anton for all objects\n- When checking S3 container status, look for all 5 containers showing 'Online' status in the output"
+}
