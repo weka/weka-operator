@@ -559,7 +559,16 @@ func (c *CliWekaService) RemoveNfsInterfaceGroups(ctx context.Context, container
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveNfsInterfaceGroups", cmd)
 	if err != nil {
-		logger.SetError(err, "Failed to remove NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+		msg := stderr.String()
+		if strings.Contains(msg, "The given interface group name") && strings.Contains(msg, "is unknown") {
+			logger.Warn("NFS interface group does not exist", "interfaceGroup", interfaceGroupName)
+			return nil
+		}
+		if strings.Contains(msg, "is not part of group") {
+			logger.Warn("Container is not part of the NFS interface group", "containerId", containerId, "stderr", msg)
+			return nil
+		}
+		logger.SetError(err, "Failed to remove NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", msg)
 		return err
 	}
 	return nil
