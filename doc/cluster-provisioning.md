@@ -35,6 +35,15 @@ Note, gracefulDestroyDuration is overriden and set to 0, default is 24h
 This allows for easier testing, but in production should be set to a reasonable
 minNumDrives should be in the range of 80% of driveContainers * numDrives
 
+### Additional flags
+spec.dynamicTemplate.s3Containers = provisions cluster with s3 support
+S3 containers are also wekacontainers, and will have weka.io/mode=s3
+`weka s3 cluster status` shows how many containers in what status are registered on weka side as serving S3
+It might take up to 3 minutes for them to become operational
+
+# Expand
+Expand is done by increasing number of containers of appropriate type
+
 ### Networking
 When cluster is deployed on physical environment, network section should be specified
 
