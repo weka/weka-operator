@@ -228,15 +228,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{
-				Condition:  condition.CondContainerDeactivated,
-				CondReason: "Deletion",
-				Run:        loop.DeactivateWekaContainer,
-				Predicates: lifecycle.Predicates{
-					loop.ShouldDeactivate,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
 			{
@@ -244,6 +235,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Name: "RefreshPod",
 				Predicates: lifecycle.Predicates{
 					container.IsMarkedForDeletion,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Condition:  condition.CondContainerDeactivated,
+				CondReason: "Deletion",
+				Run:        loop.DeactivateWekaContainer,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldDeactivate,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -806,7 +806,11 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	executeInContainer := r.container
-	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
+
+	nodeReady := NodeIsReady(r.node)
+	podAvailable := r.pod != nil && r.pod.Status.Phase == v1.PodRunning
+
+	if !nodeReady || !podAvailable {
 		logger.Warn("Pod is not available, trying to find active container")
 
 		containers, err := r.getClusterContainers(ctx)
@@ -819,7 +823,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 
 	// TODO: temporary check caused by weka s3 container remove behavior
-	if r.container.IsS3Container() && r.pod != nil && r.pod.Status.Phase == v1.PodRunning {
+	if r.container.IsS3Container() && podAvailable && nodeReady {
 		// check that local s3 container does not exist anymore
 		// if it does, wait for it to be removed
 		localContainers, err := wekaService.ListLocalContainers(ctx)
