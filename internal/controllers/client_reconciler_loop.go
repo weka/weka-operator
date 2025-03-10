@@ -643,7 +643,7 @@ func (c *clientReconcilerLoop) updateMetrics(ctx context.Context) error {
 
 	totalActive := 0
 	for _, container := range c.containers {
-		if container.Status.Status == ContainerStatusRunning && container.Status.ClusterContainerID != nil {
+		if container.Status.Status == weka.Running && container.Status.ClusterContainerID != nil {
 			totalActive++
 		}
 	}

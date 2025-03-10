@@ -125,7 +125,14 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			continue
 		}
 
-		notSuitableStatuses := []string{"PodNotRunning", "Stopped", "Starting", "Destroying"}
+		notSuitableStatuses := []weka.ContainerStatus{
+			weka.PodNotRunning,
+			weka.Stopped,
+			weka.Starting,
+			weka.Destroying,
+			weka.Deleting,
+			weka.Paused,
+		}
 		if slices.Contains(notSuitableStatuses, container.Status.Status) {
 			continue
 		}
@@ -134,7 +141,7 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 	}
 
 	for _, container := range firstPassSuitable {
-		if container.Status.Status == "Running" {
+		if container.Status.Status == weka.Running {
 			//TODO: Integrate/replace with healthcheck mechanics for more elaborate healthcheck
 			selected = append(selected, container)
 		}
@@ -146,7 +153,7 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 		util2.Shuffle(firstPassSuitable)
 
 		for _, container := range firstPassSuitable {
-			if container.Status.Status != "Running" {
+			if container.Status.Status != weka.Running {
 				selected = append(selected, container)
 			}
 			if len(selected) >= numContainers {

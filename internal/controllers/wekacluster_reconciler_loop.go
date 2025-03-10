@@ -332,7 +332,7 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 			}
 		}
 
-		if container.Status.Status != string(wekav1alpha1.ContainerStatePaused) {
+		if container.Status.Status != wekav1alpha1.Paused {
 			return fmt.Errorf("container %s is not paused yet", container.Name)
 		}
 
@@ -542,11 +542,11 @@ func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx conte
 		if container.GetDeletionTimestamp() != nil {
 			continue
 		}
-		if container.Status.Status == Unhealthy {
+		if container.Status.Status == wekav1alpha1.Unhealthy {
 			readyContainers.Ignored = append(readyContainers.Ignored, container)
 			continue
 		}
-		if container.Status.Status != ContainerStatusRunning {
+		if container.Status.Status != wekav1alpha1.Running {
 			continue
 		}
 		// if deviceSubnets are provided, we should only consider containers that have devices in the provided subnets
@@ -1575,11 +1575,11 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	// Idea to bubble up from containers, TODO: Actually use metrics and not accumulated status
 	for _, container := range containers {
 		// count Active containers
-		if container.Status.Status == ContainerStatusRunning && container.Status.ClusterContainerID != nil {
+		if container.Status.Status == wekav1alpha1.Running && container.Status.ClusterContainerID != nil {
 			tickCounter(roleActiveCounts, container.Spec.Mode, 1)
 		}
 		// count Created containers
-		if container.Status.Status != PodStatePodNotRunning {
+		if container.Status.Status != wekav1alpha1.PodNotRunning {
 			tickCounter(roleCreatedCounts, container.Spec.Mode, 1)
 			if container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
 				tickCounter(driveCreatedCounts, container.Spec.Mode, int64(max(container.Spec.NumDrives, 1)))

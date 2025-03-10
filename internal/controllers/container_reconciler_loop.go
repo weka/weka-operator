@@ -51,23 +51,6 @@ import (
 	"github.com/weka/weka-operator/pkg/workers"
 )
 
-const (
-	PodStatePodNotRunning   = "PodNotRunning"
-	PodStatePodRunning      = "PodRunning"
-	PodTerminating          = "PodTerminating"
-	WaitForDrivers          = "WaitForDrivers"
-	ContainerStatusRunning  = "Running"
-	ContainerStatusDeleting = "Deleting"
-	ContainerStatusDegraded = "Degraded"
-	Unhealthy               = "Unhealthy"
-	Error                   = "Error"
-	DrivesAdding            = "DrivesAdding"
-	// for drivers-build and adhoc-op-with-container (sign-dives) container
-	Completed            = "Completed"
-	Building             = "Building"
-	TimestampStopAttempt = "StoppingAttempt"
-)
-
 func NodeIsReady(node *v1.Node) bool {
 	if node == nil {
 		return false
@@ -557,7 +540,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.checkUnhealty,
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						return container.Status.Status != Unhealthy
+						return container.Status.Status != weka.Unhealthy
 					},
 				},
 				ContinueOnPredicatesFalse: true,
@@ -568,7 +551,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					func() bool {
 						// we don't want to reconcile management IPs for containers that are already Running
-						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != ContainerStatusRunning
+						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != weka.Running
 					},
 					func() bool {
 						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
@@ -583,7 +566,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					func() bool {
 						// we don't want to reconcile management IPs for containers that are already Running
-						return container.Status.Status == ContainerStatusRunning
+						return container.Status.Status == weka.Running
 					},
 					func() bool {
 						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
@@ -992,8 +975,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 	// TODO: do we actually use instructions on non-weka containers in weka_runtime? Consider when breaking out into steps
 	// Consider also generating a python mapping along with version script so we can use stuff like IsWekaContainer on python side
 	if r.container.IsWekaContainer() {
-		destroyingStatus := "PodTerminating"
-		if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
+		if err := r.updateContainerStatusIfNotEquals(ctx, weka.PodTerminating); err != nil {
 			return err
 		}
 	}
@@ -1085,8 +1067,8 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 
 		// TODO: changing api to get IsComputeContainer is too much, we should have out-of-api helper functions
 		if container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute {
-			if since, ok := r.container.Status.Timestamps[TimestampStopAttempt]; !ok {
-				r.container.Status.Timestamps[TimestampStopAttempt] = metav1.Time{Time: time.Now()}
+			if since, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; !ok {
+				r.container.Status.Timestamps[string(weka.TimestampStopAttempt)] = metav1.Time{Time: time.Now()}
 				if err := r.Status().Update(ctx, r.container); err != nil {
 					return err
 				}
@@ -1290,7 +1272,7 @@ func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error {
-	if err := r.updateContainerStatusIfNotEquals(ctx, ContainerStatusDeleting); err != nil {
+	if err := r.updateContainerStatusIfNotEquals(ctx, weka.Deleting); err != nil {
 		return err
 	}
 
@@ -1306,8 +1288,7 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
-	destroyingStatus := string(weka.ContainerStateDestroying)
-	if err := r.updateContainerStatusIfNotEquals(ctx, destroyingStatus); err != nil {
+	if err := r.updateContainerStatusIfNotEquals(ctx, weka.Destroying); err != nil {
 		return err
 	}
 
@@ -1326,15 +1307,14 @@ func (r *containerReconcilerLoop) handleStatePaused(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	newStatus := string(weka.ContainerStatePaused)
-	if r.container.Status.Status != newStatus {
+	if r.container.Status.Status != weka.Paused {
 		err := r.stopForceAndEnsureNoPod(ctx)
 		if err != nil {
 			return err
 		}
 
-		logger.Debug("Updating status", "from", r.container.Status.Status, "to", newStatus)
-		r.container.Status.Status = newStatus
+		logger.Debug("Updating status", "from", r.container.Status.Status, "to", weka.Paused)
+		r.container.Status.Status = weka.Paused
 
 		if err := r.Status().Update(ctx, r.container); err != nil {
 			err = errors.Wrap(err, "Failed to update status")
@@ -1458,11 +1438,11 @@ func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
 	node := r.node
 
 	if node != nil && NodeIsUnschedulable(node) {
-		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+		return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
 	}
 
 	if node != nil && !NodeIsReady(node) {
-		return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+		return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
 	}
 
 	// check ContainersReady
@@ -1479,7 +1459,7 @@ func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			if containerStatus.Name == "weka-container" {
 				if containerStatus.RestartCount > 0 {
-					return r.updateContainerStatusIfNotEquals(ctx, Unhealthy)
+					return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
 				}
 			}
 		}
@@ -2081,7 +2061,7 @@ func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context) error {
-	return r.updateContainerStatusIfNotEquals(ctx, WaitForDrivers)
+	return r.updateContainerStatusIfNotEquals(ctx, weka.WaitForDrivers)
 }
 
 func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
@@ -2199,7 +2179,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	if container.Status.Stats != nil {
 		if int(container.Status.Stats.Drives.DriveCounters.Active) == len(container.Status.Allocations.Drives) {
-			return r.updateContainerStatusIfNotEquals(ctx, ContainerStatusRunning)
+			return r.updateContainerStatusIfNotEquals(ctx, weka.Running)
 		}
 	}
 
@@ -2300,7 +2280,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	logger.InfoWithStatus(codes.Ok, "All drives added")
 
-	return r.updateContainerStatusIfNotEquals(ctx, ContainerStatusRunning)
+	return r.updateContainerStatusIfNotEquals(ctx, weka.Running)
 }
 
 func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor util.Exec) (map[string]operations.DriveInfo, error) {
@@ -2967,7 +2947,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
 	if err != nil {
 		if strings.Contains(err.Error(), "container not found") {
-			if err := r.updateContainerStatusIfNotEquals(ctx, Unhealthy); err != nil {
+			if err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); err != nil {
 				return err
 			}
 			return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
@@ -3003,13 +2983,13 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	status := response[0].RunStatus
 	// skip status update for DrivesAdding
-	if status == ContainerStatusRunning && container.Status.Status == DrivesAdding {
+	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding {
 		return nil
 	}
-
-	if container.Status.Status != status {
+	containerStatus := weka.ContainerStatus(status)
+	if container.Status.Status != containerStatus {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
-		container.Status.Status = status
+		container.Status.Status = containerStatus
 		if err := r.Status().Update(ctx, container); err != nil {
 			return err
 		}
@@ -3028,20 +3008,20 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	reason := fmt.Sprintf("%sError", stepName)
 	r.RecordEvent(v1.EventTypeWarning, reason, err.Error())
 
-	if r.container.Status.Status == Error || r.container.Status.Status == Unhealthy {
+	if r.container.Status.Status == weka.Error || r.container.Status.Status == weka.Unhealthy {
 		return nil
 	}
-	r.container.Status.Status = Error
+	r.container.Status.Status = weka.Error
 	return r.Status().Update(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ string, err error) error {
 	r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", err.Error())
 
-	if r.container.Status.Status == DrivesAdding {
+	if r.container.Status.Status == weka.DrivesAdding {
 		return nil
 	}
-	r.container.Status.Status = DrivesAdding
+	r.container.Status.Status = weka.DrivesAdding
 	return r.Status().Update(ctx, r.container)
 }
 
@@ -3152,7 +3132,7 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	}
 
 	complete := func() error {
-		r.container.Status.Status = Completed
+		r.container.Status.Status = weka.Completed
 		return r.Status().Update(ctx, r.container)
 	}
 
@@ -3227,7 +3207,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 	}
 
 	complete := func() error {
-		r.container.Status.Status = Completed
+		r.container.Status.Status = weka.Completed
 		return r.Status().Update(ctx, r.container)
 	}
 
@@ -3414,7 +3394,7 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 }
 
 func (r *containerReconcilerLoop) updateDriversBuilderStatus(ctx context.Context) error {
-	return r.updateContainerStatusIfNotEquals(ctx, Building)
+	return r.updateContainerStatusIfNotEquals(ctx, weka.Building)
 }
 
 func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
@@ -3422,17 +3402,17 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 }
 
 func (r *containerReconcilerLoop) ensurePodNotRunningState(ctx context.Context) error {
-	return r.updateContainerStatusIfNotEquals(ctx, PodStatePodNotRunning)
+	return r.updateContainerStatusIfNotEquals(ctx, weka.PodNotRunning)
 }
 
 func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error {
 	if r.pod.Status.Phase == v1.PodRunning {
-		return r.updateContainerStatusIfNotEquals(ctx, PodStatePodRunning)
+		return r.updateContainerStatusIfNotEquals(ctx, weka.PodRunning)
 	}
 	return nil
 }
 
-func (r *containerReconcilerLoop) updateContainerStatusIfNotEquals(ctx context.Context, newStatus string) error {
+func (r *containerReconcilerLoop) updateContainerStatusIfNotEquals(ctx context.Context, newStatus weka.ContainerStatus) error {
 	if r.container.Status.Status != newStatus {
 		r.container.Status.Status = newStatus
 		err := r.Status().Update(ctx, r.container)
@@ -3783,7 +3763,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return errors.New("Pod is not running yet")
 	}
 
-	if container.Status.Status != ContainerStatusRunning {
+	if container.Status.Status != weka.Running {
 		logger.Info("Container is not running yet")
 		return errors.New("Container is not running yet")
 	}
@@ -3801,20 +3781,20 @@ func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) err
 	if r.container.Status.Timestamps == nil {
 		return nil
 	}
-	if _, ok := r.container.Status.Timestamps[TimestampStopAttempt]; !ok {
+	if _, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; !ok {
 		return nil
 	}
-	delete(r.container.Status.Timestamps, TimestampStopAttempt)
+	delete(r.container.Status.Timestamps, string(weka.TimestampStopAttempt))
 	return r.Status().Update(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) IsStatusOvervwritableByLocal() bool {
 	// we do not want to overwrite this statuses, as they proxy some higher-level state
 	if slices.Contains(
-		[]string{
-			string(weka.ContainerStateDeleting),
-			string(weka.WekaClusterStatusDestroying),
-			PodTerminating,
+		[]weka.ContainerStatus{
+			weka.Deleting,
+			weka.Destroying,
+			weka.PodTerminating,
 		}, r.container.Status.Status) {
 		return false
 	}
