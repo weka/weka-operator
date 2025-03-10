@@ -1,0 +1,83 @@
+{
+  "description": "Validate that a Weka cluster with s3Containers set to 2 can be provisioned, and deletion of s3 container finishes within 10 minutes",
+  "name": "weka_s3_container_provision_delete_replace_test",
+  "steps": [
+    {
+      "name": "generate_cluster_name",
+      "requirements": "Generate a unique cluster name starting with 'test-s3-prov-del-' followed by a random string. The name should be K8s compliant and not exceed 32 characters.",
+      "outputs": ["cluster_name"]
+    },
+    {
+      "name": "create_namespace",
+      "requirements": "Create a Kubernetes namespace with prefix 'test-' followed by a random string for running the test.",
+      "outputs": ["namespace"]
+    },
+    {
+      "name": "create_cluster_yaml",
+      "requirements": "Create a WekaCluster YAML file with the following configuration:\n- apiVersion: weka.weka.io/v1alpha1\n- kind: WekaCluster\n- metadata.name: $generate_cluster_name__cluster_name\n- metadata.namespace: $create_namespace__namespace\n- spec.template: dynamic\n- spec.dynamicTemplate.computeContainers: 8\n- spec.dynamicTemplate.driveContainers: 8\n- spec.dynamicTemplate.computeCores: 2\n- spec.dynamicTemplate.driveCores: 2\n- spec.dynamicTemplate.computeHugepages: 10000\n- spec.dynamicTemplate.numDrives: 2\n- spec.dynamicTemplate.s3Containers: 2\n- spec.hotSpare: 1\n- spec.leadershipRaftSize: 5\n- spec.bucketRaftSize: 5\n- spec.redundancyLevel: 2\n- spec.stripeWidth: 4\n- spec.gracefulDestroyDuration: 0s\n- spec.startIoConditions.minNumDrives: 14\n- spec.nodeSelector.weka.io/dedicated: 'anton'\n- spec.network.deviceSubnets: ['10.200.0.0/16']\n- spec.image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\n- spec.imagePullSecret: 'quay-io-robot-secret'\n- spec.driversDistService: 'https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002'",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_yaml"]
+    },
+    {
+      "name": "apply_cluster_yaml",
+      "requirements": "Apply the WekaCluster YAML $create_cluster_yaml__cluster_yaml to the Kubernetes cluster using kubectl apply -f. Ensure the command is executed with proper handling of whitespace and YAML formatting.",
+      "inputs": ["create_cluster_yaml.cluster_yaml"],
+      "outputs": ["apply_result"]
+    },
+    {
+      "name": "extract_cluster_uid",
+      "requirements": "Extract the UID (metadata.uid) of the WekaCluster CR with name $generate_cluster_name__cluster_name in namespace $create_namespace__namespace using 'kubectl get wekacluster $generate_cluster_name__cluster_name -n $create_namespace__namespace -o jsonpath='{.metadata.uid}'.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_uid"]
+    },
+    {
+      "name": "monitor_cluster_status",
+      "requirements": "Poll the WekaCluster CR status.status field until it reaches 'Ready' or timeout after 10 minutes. Use cluster name $generate_cluster_name__cluster_name in namespace $create_namespace__namespace. Command: 'kubectl get wekacluster $generate_cluster_name__cluster_name -n $create_namespace__namespace -o jsonpath='{.status.status}'. If status doesn't reach 'Ready' within 10 minutes, fail the test.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_ready", "provision_time"]
+    },
+    {
+      "name": "identify_s3_containers",
+      "requirements": "List all S3 WekaContainers associated with the cluster using label selector weka.io/cluster-id=$extract_cluster_uid__cluster_uid,weka.io/mode=s3 in namespace $create_namespace__namespace. Command: 'kubectl get wekacontainer -n $create_namespace__namespace -l weka.io/cluster-id=$extract_cluster_uid__cluster_uid,weka.io/mode=s3 -o name'. Verify there are exactly 2 S3 containers. Store the list of container names.",
+      "inputs": ["extract_cluster_uid.cluster_uid", "create_namespace.namespace"],
+      "outputs": ["s3_containers", "original_s3_count"]
+    },
+    {
+      "name": "select_container_to_delete",
+      "requirements": "Select one S3 WekaContainer from $identify_s3_containers__s3_containers to delete. Pick the first container in the list.",
+      "inputs": ["identify_s3_containers.s3_containers"],
+      "outputs": ["container_to_delete"]
+    },
+    {
+      "name": "delete_s3_container",
+      "requirements": "Delete the selected S3 WekaContainer $select_container_to_delete__container_to_delete in namespace $create_namespace__namespace using kubectl delete with --wait=false. Command: 'kubectl delete $select_container_to_delete__container_to_delete -n $create_namespace__namespace --wait=false'. Record the timestamp when deletion was initiated.",
+      "inputs": ["select_container_to_delete.container_to_delete", "create_namespace.namespace"],
+      "outputs": ["deletion_timestamp"]
+    },
+    {
+      "name": "monitor_deletion",
+      "requirements": "Poll for the deletion of the S3 WekaContainer $select_container_to_delete__container_to_delete in namespace $create_namespace__namespace. Command: 'kubectl get $select_container_to_delete__container_to_delete -n $create_namespace__namespace'. Wait up to 5 minutes for the 'not found' response indicating deletion is complete. Calculate the deletion duration. Abort test if not deleted within 5 minutes.",
+      "inputs": ["select_container_to_delete.container_to_delete", "create_namespace.namespace", "deletion_timestamp"],
+      "outputs": ["deletion_completed", "deletion_duration"]
+    },
+    {
+      "name": "verify_replacement",
+      "requirements": "After deletion is confirmed, wait 30 seconds to allow for replacement container creation, then list all S3 WekaContainers using the same label selector as in identify_s3_containers step. Command: 'kubectl get wekacontainer -n $create_namespace__namespace -l weka.io/cluster-id=$extract_cluster_uid__cluster_uid,weka.io/mode=s3 -o name'. Verify that there are still 2 S3 containers, indicating a new one was created to replace the deleted container. Compare the current list with $identify_s3_containers__s3_containers to identify the new container.",
+      "inputs": ["extract_cluster_uid.cluster_uid", "create_namespace.namespace", "identify_s3_containers.s3_containers", "original_s3_count"],
+      "outputs": ["new_s3_containers", "replacement_container", "replacement_verified"]
+    },
+    {
+      "name": "get_compute_container",
+      "requirements": "Get any compute container pod for the cluster to run weka CLI commands. Use label selector weka.io/cluster-id=$extract_cluster_uid__cluster_uid,weka.io/mode=compute in namespace $create_namespace__namespace. Command: 'kubectl get pod -n $create_namespace__namespace -l weka.io/cluster-id=$extract_cluster_uid__cluster_uid,weka.io/mode=compute -o name | head -1'.",
+      "inputs": ["extract_cluster_uid.cluster_uid", "create_namespace.namespace"],
+      "outputs": ["compute_pod"]
+    },
+    {
+      "name": "verify_s3_operational",
+      "requirements": "Execute 'weka s3 cluster status' command in the compute pod $get_compute_container__compute_pod and verify all S3 containers show 'Online' status. Command: 'kubectl exec -n $create_namespace__namespace $get_compute_container__compute_pod -- weka s3 cluster status'. Poll this command every 30 seconds for up to 5 minutes until all containers show Online status. Specifically verify that the newly created container $verify_replacement__replacement_container is showing as Online.",
+      "inputs": ["get_compute_container.compute_pod", "create_namespace.namespace", "verify_replacement.replacement_container"],
+      "outputs": ["s3_status", "operational_verified"]
+    }
+  ],
+  "documentation": "# Weka S3 Container Testing\n\nThis test validates that a Weka cluster with s3Containers set to 2 can be provisioned successfully, and that deletion of an s3 container finishes within 10 minutes with proper replacement.\n\n## Test Environment Requirements\n\n- Physical environment with 10.200.0.0/16 subnet for testing\n- Nodes with label weka.io/dedicated=anton available\n- Kubernetes cluster with Weka operator installed\n- kubectl access configured\n\n## Test Procedure\n\n1. Generate a unique cluster name and create a namespace\n2. Create a WekaCluster CR with the following configuration:\n   - 8 compute containers\n   - 8 drive containers\n   - 2 drives per container\n   - 4 stripe width\n   - 2 redundancy level\n   - 1 hot spare\n   - 5 leadership raft\n   - 5 buckets raft\n   - 14 minDrive startio condition\n   - s3Containers set to 2\n3. Apply the CR and wait for the cluster to reach 'Ready' status (up to 10 minutes)\n4. Identify the S3 WekaContainers using labels\n5. Delete one S3 WekaContainer with --wait=false\n6. Monitor the deletion (up to 5 minutes)\n7. Verify a replacement S3 WekaContainer is created\n8. Verify the new S3 container shows 'Online' status in 'weka s3 cluster status' output\n\n## Important Notes\n\n- Do not delete the WekaCluster CR after test execution\n- Do not delete any Kubernetes resources other than the specified S3 container\n- Use the specified node selector for all objects\n- Use label selectors to accurately identify containers belonging to the test cluster\n- The test runs on a physical environment, so network configuration is critical\n- The gracefulDestroyDuration is set to 0s for quicker deletion\n- When executing weka CLI commands, use any compute or drive container in the cluster\n\n## Expected Results\n\n1. WekaCluster should reach 'Ready' status within 10 minutes\n2. There should be exactly 2 S3 containers initially\n3. Deleted S3 container should be removed within 5 minutes\n4. A replacement S3 container should be created\n5. The new S3 container should show 'Online' status within 5 minutes\n\n## Troubleshooting\n\n- If cluster provisioning times out, check Weka operator logs for issues\n- If container deletion takes too long, investigate if there are any stuck finalizers\n- If the replacement container isn't created, check WekaCluster logs and events\n- If the S3 container doesn't become operational, check the container logs for errors"
+}

@@ -91,6 +91,9 @@ func NodeIsUnschedulable(node *v1.Node) bool {
 }
 
 func CanExecInPod(pod *v1.Pod) bool {
+	// Review uses/split into few functions
+	// pod deletion check is too aggressive, and matters mostly for s3/nfs, while openshift that has problem with deletiontimestamp is not in scope right now
+	// s3 already does not rely on this function, and seems like the only place that actually cares for locality
 	return pod != nil && pod.Status.Phase == v1.PodRunning && pod.DeletionTimestamp == nil
 }
 
@@ -833,7 +836,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 
 	// TODO: temporary check caused by weka s3 container remove behavior
-	if r.container.IsS3Container() && CanExecInPod(r.pod) {
+	if r.container.IsS3Container() && r.pod != nil && r.pod.Status.Phase == v1.PodRunning {
 		// check that local s3 container does not exist anymore
 		// if it does, wait for it to be removed
 		localContainers, err := wekaService.ListLocalContainers(ctx)
