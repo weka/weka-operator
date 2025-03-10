@@ -122,6 +122,29 @@ const (
 	ContainerStateDeleting ContainerState = "deleting"
 )
 
+type ContainerStatus string
+
+const (
+	PodNotRunning  ContainerStatus = "PodNotRunning"
+	PodRunning     ContainerStatus = "PodRunning"
+	PodTerminating ContainerStatus = "PodTerminating"
+	WaitForDrivers ContainerStatus = "WaitForDrivers"
+	Running        ContainerStatus = "Running"
+	Stopped        ContainerStatus = "Stopped"
+	Starting       ContainerStatus = "Starting"
+	Deleting       ContainerStatus = "Deleting"
+	Destroying     ContainerStatus = "Destroying"
+	Paused         ContainerStatus = "Paused"
+	Degraded       ContainerStatus = "Degraded"
+	Unhealthy      ContainerStatus = "Unhealthy"
+	Error          ContainerStatus = "Error"
+	DrivesAdding   ContainerStatus = "DrivesAdding"
+	// for drivers-build and adhoc-op-with-container (sign-dives) container
+	Completed            ContainerStatus = "Completed"
+	Building             ContainerStatus = "Building"
+	TimestampStopAttempt ContainerStatus = "StoppingAttempt"
+)
+
 type WekaContainerSpecOverrides struct {
 	// skips deactivation of container, this is unsafe operation that should be used only when this container will never be back into cluster
 	SkipDeactivate bool `json:"skipDeactivate,omitempty"`
@@ -272,7 +295,7 @@ func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
 }
 
 type WekaContainerStatus struct {
-	Status             string                   `json:"status"`
+	Status             ContainerStatus          `json:"status"`
 	ManagementIP       string                   `json:"managementIP,omitempty"`
 	ManagementIPs      []string                 `json:"managementIPs,omitempty"`
 	ClusterContainerID *int                     `json:"containerID,omitempty"`

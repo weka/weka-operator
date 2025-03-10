@@ -86,7 +86,8 @@ type PodResourcesSpec struct {
 
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
-	// Used in new format
+	// full container image in format of quay.io/weka.io/weka-in-container:VERSION
+	// +kubebuilder:validation:Pattern=`^.+:\d+\.\d+\.\d+.*$`
 	Image           string `json:"image"`
 	ImagePullSecret string `json:"imagePullSecret,omitempty"`
 	// if not set (0), weka will find a free port from the portRange

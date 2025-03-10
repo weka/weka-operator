@@ -217,6 +217,7 @@ type WekaClusterSpec struct {
 	// +kubebuilder:default=dynamic
 	Template string `json:"template,omitempty"`
 	// full container image name in format of quay.io/weka.io/weka-in-container:VERSION
+	// +kubebuilder:validation:Pattern=`^.+:\d+\.\d+\.\d+.*$`
 	Image string `json:"image"`
 	// image pull secret to use for pulling the image
 	ImagePullSecret string `json:"imagePullSecret,omitempty"`
