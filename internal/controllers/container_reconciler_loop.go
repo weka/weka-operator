@@ -2466,7 +2466,9 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 	}
 
 	if activeMounts != nil && *activeMounts != 0 {
-		err := fmt.Errorf("active mounts: %d", *activeMounts)
+		err := fmt.Errorf("%d mounts are still active", *activeMounts)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+
 		return false, err
 	}
 
@@ -3029,7 +3031,7 @@ func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ st
 	return r.Status().Update(ctx, r.container)
 }
 
-func (r *containerReconcilerLoop) RecordEvent(eventtype string, reason string, message string) error {
+func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, message string) error {
 	if r.container == nil {
 		return fmt.Errorf("container is not set")
 	}
@@ -3040,6 +3042,16 @@ func (r *containerReconcilerLoop) RecordEvent(eventtype string, reason string, m
 
 	r.Recorder.Event(r.container, eventtype, reason, message)
 	return nil
+}
+
+func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
+	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
+
+	if !throttler.ShouldRun(eventtype, interval, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+		return nil
+	}
+
+	return r.RecordEvent(eventtype, reason, message)
 }
 
 func (r *containerReconcilerLoop) deleteOnNodeSelectorMismatch(ctx context.Context) error {
@@ -3847,7 +3859,9 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 		return err
 	}
 	if mounts == nil {
-		return errors.New("Mounts are not set")
+		err := errors.New("Mounts are not set")
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+		return err
 	}
 
 	if *mounts == 0 {
@@ -3862,9 +3876,11 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 					return err
 				}
 			}
-			return lifecycle.NewWaitError(errors.New("Mounts are still active"))
 		}
-		return errors.New("Mounts are still active")
+		err := fmt.Errorf("%d mounts are still active", *mounts)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+
+		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}
 }
 
