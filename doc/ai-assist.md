@@ -26,5 +26,6 @@
 - if instructions for cluster provision contain wording such as "configure", "set", "update" some parameter - it does not mean to apply cluster yaml and then re-configure cluster, but instead to adjust initial yaml to such requests. Update requests will be explicitly statet as update in broader context of such task AIMUST
 - K8s resources yamls should be applied using kubectl apply -f file.yaml or other method that works against kubernetes API, just creating the files is never a purpose AIMUST
 - helm should be executed via bash tool, and installation should be validated by validating all pods in NAMESPACE with label release=release: csi-CLUSTER_NAME reaching Running step within 1 minute after running `helm upgrade` #AIMUST
-- When testing with gracefulDestroyDuration not set to 0s(when instructed explicitly by scenario) - do not use blocking kubectl delete as it will take hours to delete to finish, instead do non blocking deletion and then poll/process based on case needs  
+- When testing with gracefulDestroyDuration not set to 0s(when instructed explicitly by scenario) - do not use blocking kubectl delete as it will take hours to delete to finish, instead do non blocking deletion and then poll/process based on case needs
+- node-shell plugin is available and can be used to fetch information from node by executing kubectl node-shell node/NODE_NAME -- COMMAND
   ---------END OF AI ASSISTANT DOCUMENTATION------------

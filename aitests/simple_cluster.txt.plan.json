@@ -1,0 +1,60 @@
+{
+  "description": "Validate that a Weka cluster can be provisioned and deleted successfully in a physical environment",
+  "name": "weka_cluster_provision_delete_validation",
+  "steps": [
+    {
+      "name": "create_test_namespace",
+      "requirements": "Generate a unique namespace name prefixed with 'test-' (e.g., test-weka-prov-del-{random-suffix}) and create the namespace in Kubernetes using kubectl create namespace",
+      "outputs": ["namespace"]
+    },
+    {
+      "name": "generate_cluster_name",
+      "requirements": "Generate a unique cluster name prefixed with 'test-', no longer than 32 characters that reflects the purpose of testing cluster provisioning and deletion (e.g., test-weka-prov-del-{short-random-suffix})",
+      "outputs": ["cluster_name"]
+    },
+    {
+      "name": "create_wekacluster_yaml",
+      "requirements": "Create a WekaCluster CR YAML file with the following specifications:\n- apiVersion: weka.weka.io/v1alpha1\n- kind: WekaCluster\n- metadata.name: $generate_cluster_name__cluster_name\n- metadata.namespace: $create_test_namespace__namespace\n- spec.template: dynamic\n- spec.dynamicTemplate.computeContainers: 8\n- spec.dynamicTemplate.driveContainers: 8\n- spec.dynamicTemplate.numDrives: 2\n- spec.dynamicTemplate.s3Containers: 2\n- spec.hotSpare: 1\n- spec.leadershipRaftSize: 5\n- spec.bucketRaftSize: 5\n- spec.redundancyLevel: 2\n- spec.stripeWidth: 4\n- spec.gracefulDestroyDuration: 0s\n- spec.startIoConditions.minNumDrives: 14\n- spec.image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\n- spec.imagePullSecret: quay-io-robot-secret\n- spec.nodeSelector: $plan_parameters__nodeSelector\n- spec.network.deviceSubnets: [10.200.0.0/16]",
+      "inputs": ["create_test_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.nodeSelector"],
+      "outputs": ["cluster_yaml"]
+    },
+    {
+      "name": "apply_wekacluster_yaml",
+      "requirements": "Apply the WekaCluster CR YAML ($create_wekacluster_yaml__cluster_yaml) to the Kubernetes API using kubectl apply -f in namespace $create_test_namespace__namespace",
+      "inputs": ["create_wekacluster_yaml.cluster_yaml", "create_test_namespace.namespace"],
+      "outputs": ["apply_result"]
+    },
+    {
+      "name": "extract_cluster_id",
+      "requirements": "Extract the metadata.uid of the WekaCluster resource with name $generate_cluster_name__cluster_name in namespace $create_test_namespace__namespace using kubectl get wekacluster and parsing the output",
+      "inputs": ["generate_cluster_name.cluster_name", "create_test_namespace.namespace"],
+      "outputs": ["cluster_id"]
+    },
+    {
+      "name": "monitor_cluster_status",
+      "requirements": "Poll the Kubernetes API every 30 seconds for the WekaCluster resource with name $generate_cluster_name__cluster_name in namespace $create_test_namespace__namespace. Check the status.status field in the output of kubectl get wekacluster. Wait for it to reach 'Ready' within 10 minutes. If it does not, fail the test.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_test_namespace.namespace"],
+      "outputs": ["cluster_ready"]
+    },
+    {
+      "name": "delete_wekacluster",
+      "requirements": "Delete the WekaCluster resource with name $generate_cluster_name__cluster_name in namespace $create_test_namespace__namespace using kubectl delete wekacluster command with --wait=false option",
+      "inputs": ["generate_cluster_name.cluster_name", "create_test_namespace.namespace"],
+      "outputs": ["delete_initiated"]
+    },
+    {
+      "name": "poll_for_cluster_deletion",
+      "requirements": "Poll for the existence of the WekaCluster resource with name $generate_cluster_name__cluster_name in namespace $create_test_namespace__namespace and associated resources (compute and drive containers) using labels weka.io/mode=compute|drive,weka.io/cluster-id=$extract_cluster_id__cluster_id. Check every 30 seconds for a maximum of 5 minutes using kubectl get commands. If the cluster and its associated resources are not fully deleted within this time, abort the test.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_test_namespace.namespace", "extract_cluster_id.cluster_id"],
+      "outputs": ["deletion_verified"]
+    },
+    {
+      "name": "verify_complete_cleanup",
+      "requirements": "Verify that all resources associated with the cluster ID $extract_cluster_id__cluster_id are completely removed from the Kubernetes cluster in namespace $create_test_namespace__namespace. Check for pods, services, wekacontainers, and other resources with label weka.io/cluster-id=$extract_cluster_id__cluster_id",
+      "inputs": ["extract_cluster_id.cluster_id", "create_test_namespace.namespace"],
+      "outputs": ["cleanup_verified"]
+    }
+  ],
+  "plan_parameters": ["nodeSelector"],
+  "documentation": "This test validates the provisioning and deletion of a Weka cluster in a Kubernetes environment. The test provisions a WekaCluster CR with specific configuration and then deletes it after it reaches Ready state, ensuring it is fully deleted within 5 minutes.\n\n## Configuration Details\nThe test creates a WekaCluster with:\n- 8 compute containers\n- 8 drive containers\n- 2 drives per container\n- 4 stripe width\n- 2 redundancy level\n- 1 hot spare\n- 5 leadership raft\n- 5 buckets raft\n- 14 minDrive startio condition\n- 2 s3Containers\n\n## Environment Preparation\n- The test runs on a physical environment using subnet 10.200.0.0/16\n- Node selection is done using the provided nodeSelector parameter\n- The test creates its own namespace prefixed with 'test-'\n\n## Important Notes\n- Do not delete wekacluster after test execution regardless of results, unless asked explicitly\n- Do not delete any k8s resource as part of this testing\n- For filtering compute and drive containers, use: weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id>\n- Cluster ID references the Kubernetes metadata.uid\n- The gracefulDestroyDuration is set to 0s to ensure quicker deletion\n- The cluster image used is: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\n- The image pull secret used is: quay-io-robot-secret\n\n## Expected Results\n- The WekaCluster should be successfully provisioned with the specified configuration\n- The cluster should reach Ready state within 10 minutes\n- After deletion is initiated, all associated resources should be fully removed within 5 minutes\n- The validation should confirm that all resources are properly cleaned up\n\n## Test Steps Flow\n1. Create a test namespace\n2. Generate a unique cluster name\n3. Create the WekaCluster YAML with specified configuration\n4. Apply the YAML to provision the cluster\n5. Extract the cluster ID for resource tracking\n6. Monitor cluster status until it reaches Ready\n7. Delete the cluster with non-blocking option\n8. Poll for complete cluster deletion\n9. Verify all resources are cleaned up"
+}

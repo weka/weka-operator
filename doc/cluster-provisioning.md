@@ -1,6 +1,6 @@
 Basic yaml of cluster provision:
 This is a minimalistic example, for any testing/development purpose start off this yaml
-Do not remove any fields and only adjust if needed
+IMPORTANT: Do not remove any fields and only adjust if needed
 ```
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster

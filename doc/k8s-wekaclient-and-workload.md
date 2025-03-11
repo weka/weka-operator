@@ -13,7 +13,7 @@ metadata:
   name: CLUSTER_NAME-clients
   namespace: NAMESPACE
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2
   imagePullSecret: "quay-io-robot-secret"
   driversDistService: "https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002"
   portRange:
@@ -36,6 +36,7 @@ Created by wekaclient containers are named as wekaclient_CR_NAME-NODE_NAME, so n
 wekaSecretRef - a reference to a secret created by wekacluster CR, in format of weka-client-CLUSTER_NAME
 targetCluster - a wekacluster to connect to, by name and namespace
 nodeSelector - unless instructed explicitly and otherwise, same node selector as one used for cluster should be used
+image - unless instructed explicitly and otherwise, same image as the one used for wekacluster should be used
 
 
 wekaclient will expand into set of wekacontainer with weka.io/mode=client
@@ -171,3 +172,13 @@ spec:
 node selector on workload should match node selector used on wekaclient CR
 if goader pods reached Running state, it is working as expected
 If they are stuck in Pending or other state - something is wrong
+
+When CSI mounts PVC on node, such mount should be visible on node as:
+default on /var/lib/kubelet/pods/f6e76cea-523d-49e7-aaf7-99750e4571f0/volumes/kubernetes.io~csi/pvc-434edd80-6581-44a9-82ce-0a8d363075c3/mount type wekafs
+
+
+When deleting workload-related resources, they must be deleted in following order:
+- Delete workload and wait for completion
+- Delete pvc and wait for completion
+- Delete wekaclient CR and wait for completion (if not needed anymore)
+- Delete wekacluster CR and wait for completion (if not needed anymore)

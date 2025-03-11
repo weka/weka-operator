@@ -1,0 +1,13 @@
+Test goal:
+    - validate that cluster can be provisioned and deleted
+Test scenario
+    - provision a wekacluster CR, 8 compute and 8 drive containers, 2 drives per container, 4 stripe width, 2 redundancy level, 1 hot spare, 5 leadership raft and 5 buckets raft, 14 minDrive startio condition
+    - delete a provisioned cluster after it reached Ready state, and ensure it was fully deleted, rely on --wait=false and poll for status/existence, wait up to 5 minutes for deletion, if not deleted - abort the test
+
+Testing notes:
+- do not delete wekacluster after test execution regardless of results, unless asked explicitly
+- do not delete any k8s resource as part of this testing AIMUST
+- this tests run on physical environment, use 10.200.0.0/16 subnet for testing
+- use weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id> to filter compute and drive containers
+    - cluster id references to kubernetes metadata.uid
+- use nodeSelector user parameter for as node selector for all objects so no resources will be provisioned on nodes that do not match this selector
