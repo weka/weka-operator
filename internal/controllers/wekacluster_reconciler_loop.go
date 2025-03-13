@@ -11,15 +11,24 @@ import (
 	"sync"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
-	"github.com/weka/weka-operator/pkg/workers"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
+	"go.opentelemetry.io/otel/codes"
+	apps "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
@@ -31,17 +40,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
-	"go.opentelemetry.io/otel/codes"
-	apps "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type ReadyForClusterizationContainers struct {
@@ -567,6 +566,24 @@ func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx conte
 	return readyContainers
 }
 
+// InitialContainersReady Logic:
+// there are 4 consts defined in config:
+//   - FormClusterMinDriveContainers   (5 by default)
+//   - FormClusterMinComputeContainers (5 by default)
+//   - FormClusterMaxDriveContainers   (10 by default)
+//   - FormClusterMaxComputeContainers (10 by default)
+//
+// Uses getReadyForClusterCreateContainers to get the containers that are UP and ready for cluster creation
+// and containers that should be ignored (e.g. unhealthy).
+//
+// Expected containers number is derived from the template:
+//   - expectedComputeContainersNum = min(template.ComputeContainers, FormClusterMaxComputeContainers)
+//   - expectedDriveContainersNum = min(template.DriveContainers, FormClusterMaxDriveContainers)
+//
+// The following checks are performed:
+//   - number of "ready" drive containers < FormClusterMinDriveContainers --> error
+//   - number of "ready" compute containers < FormClusterMinComputeContainers --> error
+//   - number of "ready" containers + number of "ignored" containers < expectedComputeContainersNum + expectedDriveContainersNum --> error
 func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -962,12 +979,26 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	s3Containers := r.SelectS3Containers(r.containers)
 	containerIds := []int{}
 	for _, c := range s3Containers {
+		if len(containerIds) == config.Consts.FormS3ClusterMaxContainerCount {
+			logger.Debug("Max S3 containers reached for initial s3 cluster creation", "maxContainers", config.Consts.FormS3ClusterMaxContainerCount)
+			break
+		}
+
 		if c.Status.ClusterContainerID == nil {
-			err := fmt.Errorf("container %s does not have a cluster container id", c.Name)
-			return err
+			msg := fmt.Sprintf("s3 container %s does not have a cluster container id", c.Name)
+			logger.Debug(msg)
+			continue
 		}
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
 	}
+
+	if len(containerIds) == 0 {
+		err := errors.New("Ready S3 containers not found")
+		logger.Error(err, "Cannot create S3 cluster")
+		return err
+	}
+
+	logger.Debug("Creating S3 cluster", "containers", containerIds)
 
 	err = wekaService.CreateS3Cluster(ctx, services.S3Params{
 		EnvoyPort:      cluster.Status.Ports.LbPort,

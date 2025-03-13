@@ -7,9 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"k8s.io/utils/env"
-
 	"k8s.io/klog/v2"
+	"k8s.io/utils/env"
 )
 
 type BindAddress struct {
@@ -142,6 +141,8 @@ var Consts struct {
 	FormClusterMaxComputeContainers int
 	// Max drive containers to be UP before forming a weka cluster
 	FormClusterMaxDriveContainers int
+	// Max containers number that will be part of initial s3 cluster
+	FormS3ClusterMaxContainerCount int
 	// Interval at which CSI secret with container ips will be updated
 	CSILoginCredentialsUpdateInterval time.Duration
 }
@@ -157,6 +158,7 @@ func init() {
 	Consts.FormClusterMinDriveContainers = 5
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
+	Consts.FormS3ClusterMaxContainerCount = 3
 	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
 }
 
