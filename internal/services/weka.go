@@ -19,6 +19,8 @@ import (
 type WekaStatusCapacity struct {
 	UnprovisionedBytes int64 `json:"unprovisioned_bytes"`
 	TotalBytes         int64 `json:"total_bytes"`
+	UnavailableBytes   int64 `json:"unavailable_bytes"`
+	HotSpareBytes      int64 `json:"hot_spare_bytes"`
 }
 
 type WekaStatusActivity struct {

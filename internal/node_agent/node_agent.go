@@ -93,11 +93,13 @@ type ProcessSummary struct {
 
 type LocalConfigStateResponse struct {
 	Result struct {
+		HasLease     *bool `json:"has_lease"`
 		DisksSummary []struct {
 			Uid          string `json:"uid"`
 			SerialNumber string `json:"serial_number"`
 			DevUuid      string `json:"dev_uuid"`
 			Status       string `json:"status"`
+			IsFailed     bool   `json:"isFailed"`
 			Name         string `json:"name"`
 		} `json:"disks_summary"`
 		HostName         string `json:"host_name"`
@@ -288,7 +290,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			}
 
 			for _, disk := range container.containerState.Result.DisksSummary {
-				if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) {
+				if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) || disk.IsFailed {
 					promResponse.AddMetric(metrics2.PromMetric{
 						Metric: "weka_inactive_drives",
 						Help:   "Weka processes",
@@ -461,9 +463,11 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		if err != nil {
 			return err
 		}
-
-		container.containerState = response
-		container.containerStateLastPull = time.Now()
+		if response.Result.HasLease == nil || *response.Result.HasLease {
+			//if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
+			container.containerState = response
+			container.containerStateLastPull = time.Now()
+		}
 
 		var cpuResponse LocalCpuUtilizationResponse
 		err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)

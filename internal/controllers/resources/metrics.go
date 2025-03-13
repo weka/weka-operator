@@ -1,7 +1,9 @@
 package resources
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
+	"slices"
 	"strings"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -65,8 +67,58 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 	})
 	// TODO: Conditionally add s3/nfs
 
+	val := float64(cluster.Status.Stats.AlertsCount)
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric:       "weka_alerts_count",
+		ValuesByTags: []metrics2.TaggedValue{},
+		Value:        &val,
+	})
+
+	if slices.Contains([]string{
+		"OK",
+		"REDISTRIBUTING",
+		"REBUILDING",
+	}, string(cluster.Status.Stats.ClusterStatus)) {
+		val = 1.0
+	} else {
+		val = 0.0
+	}
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_cluster_status",
+		Tags: metrics2.TagMap{
+			"status": string(cluster.Status.Stats.ClusterStatus),
+		},
+		Value: &val,
+	})
+
+	rebuildTaggedValues := []metrics2.TaggedValue{}
+	for rebuildType, rebuildValue := range cluster.Status.Stats.NumFailures {
+		value := rebuildValue.GetValue()
+		rebuildTaggedValues = append(rebuildTaggedValues, metrics2.TaggedValue{
+			Tags:  metrics2.TagMap{"num_failures": fmt.Sprintf("%s", rebuildType)},
+			Value: value,
+		})
+	}
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric:       "weka_protection_level",
+		ValuesByTags: rebuildTaggedValues,
+	})
+
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_cluster_capacity",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "total"}, Value: float64(cluster.Status.Stats.Capacity.TotalBytes)},
+			{Tags: metrics2.TagMap{"type": "unprovisioned"}, Value: float64(cluster.Status.Stats.Capacity.UnprovisionedBytes)},
+			{Tags: metrics2.TagMap{"type": "unavailable"}, Value: float64(cluster.Status.Stats.Capacity.UnavailableBytes)},
+			{Tags: metrics2.TagMap{"type": "hotSpare"}, Value: float64(cluster.Status.Stats.Capacity.HotSpareBytes)},
+		},
+	})
+
 	for i, _ := range metrics {
 		metrics[i].Tags = commonTags
+		if metrics[i].Timestamp.IsZero() {
+			metrics[i].Timestamp = cluster.Status.Stats.LastUpdate.Time
+		}
 	}
 
 	retBuffer := strings.Builder{}

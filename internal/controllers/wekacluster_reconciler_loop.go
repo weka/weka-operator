@@ -1728,6 +1728,17 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	cluster.Status.Stats.IoStats.Iops.Write = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumWrites))
 	cluster.Status.Stats.IoStats.Iops.Metadata = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumOps - wekaStatus.Activity.NumReads - wekaStatus.Activity.NumWrites))
 	cluster.Status.Stats.IoStats.Iops.Total = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumOps))
+	cluster.Status.Stats.AlertsCount = wekav1alpha1.IntMetric(wekaStatus.ActiveAlertsCount)
+	cluster.Status.Stats.ClusterStatus = wekav1alpha1.StringMetric(wekaStatus.Status)
+	cluster.Status.Stats.NumFailures = map[string]wekav1alpha1.FloatMetric{} // resetting every time as some keys might go away
+	for _, rebuildDetails := range wekaStatus.Rebuild.ProtectionState {
+		cluster.Status.Stats.NumFailures[strconv.Itoa(rebuildDetails.NumFailures)] = wekav1alpha1.NewFloatMetric(rebuildDetails.Percent)
+	}
+
+	cluster.Status.Stats.Capacity.TotalBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.TotalBytes)
+	cluster.Status.Stats.Capacity.UnavailableBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.UnavailableBytes)
+	cluster.Status.Stats.Capacity.UnprovisionedBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.UnprovisionedBytes)
+	cluster.Status.Stats.Capacity.HotSpareBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.HotSpareBytes)
 
 	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
 	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)
