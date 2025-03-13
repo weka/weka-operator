@@ -114,7 +114,7 @@ type WekaClientSpec struct {
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
 	// memory to add/decrease from "auto-calculated" memory
 	AdditionalMemory int `json:"additionalMemory,omitempty"`
-	// pod resources to be proxied as-is to the pod spec
+	// experimental: pod resources to be proxied as-is to the pod spec
 	Resources PodResourcesSpec `json:"resources,omitempty"`
 	// hugepages, value in megabytes
 	HugePages int `json:"hugepages,omitempty"`

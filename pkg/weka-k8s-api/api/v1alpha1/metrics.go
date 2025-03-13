@@ -81,11 +81,22 @@ type IoStats struct {
 	Iops       StatusIops       `json:"iops,omitempty"`
 }
 
+type CapacityMetrics struct {
+	TotalBytes         IntMetric `json:"totalBytes,omitempty"`
+	UnprovisionedBytes IntMetric `json:"unprovisionedBytes,omitempty"`
+	UnavailableBytes   IntMetric `json:"unavailableBytes,omitempty"`
+	HotSpareBytes      IntMetric `json:"hotSpareBytes,omitempty"`
+}
+
 type ClusterMetrics struct {
-	Containers ContainersMetrics `json:"containers,omitempty"`
-	IoStats    IoStats           `json:"ioStats,omitempty"`
-	Drives     DriveMetrics      `json:"drives,omitempty"`
-	LastUpdate metav1.Time       `json:"lastUpdate,omitempty"`
+	Containers    ContainersMetrics      `json:"containers,omitempty"`
+	IoStats       IoStats                `json:"ioStats,omitempty"`
+	Drives        DriveMetrics           `json:"drives,omitempty"`
+	AlertsCount   IntMetric              `json:"alertsCount,omitempty"`
+	ClusterStatus StringMetric           `json:"clusterStatus,omitempty"`
+	Capacity      CapacityMetrics        `json:"capacity,omitempty"`
+	NumFailures   map[string]FloatMetric `json:"numFailures,omitempty"`
+	LastUpdate    metav1.Time            `json:"lastUpdate,omitempty"`
 }
 
 type ClusterPrinterColumns struct {
