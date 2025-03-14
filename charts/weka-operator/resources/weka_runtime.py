@@ -1701,7 +1701,7 @@ PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
 
 def is_udp():
-    return NETWORK_DEVICE == "UDP" or UDP_MODE
+    return NETWORK_DEVICE.lower() == "udp" or UDP_MODE
 
 
 async def write_generation():
