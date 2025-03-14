@@ -9,6 +9,7 @@ metadata:
   namespace: NAMESPACE
 spec:
   template: dynamic
+  gracefulDestroyDuration: 0s
   dynamicTemplate:
     computeContainers: 10
     driveContainers: 10
@@ -16,13 +17,6 @@ spec:
     driveCores: 2
     computeHugepages: 10000
     numDrives: 2
-  hotSpare: 1
-  leadershipRaftSize: 9
-  bucketRaftSize: 9
-  redundancyLevel: 4
-  gracefulDestroyDuration: 0s
-  startIoConditions:
-    minNumDrives: 20
   overrides: {}
   image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2
   nodeSelector:
@@ -31,7 +25,7 @@ spec:
   imagePullSecret: "quay-io-robot-secret"
 ```
 
-Note, gracefulDestroyDuration is overriden and set to 0, default is 24h
+Note, spec.gracefulDestroyDuration is overriden and set to 0, default is 24h and not mandatory param
 Setting to 0s allows for quicker cluster deletion
 When wekacluster is deleted with graceful termination > 0, all containers will move to status "paused" (.status.status on wekacontainers)
 At this point there should be no associated pods
@@ -41,7 +35,34 @@ Changing gracefulDestroyDuration to 0s will cause immediate deletion of wekacont
 
 ### Additional flags
 spec.dynamicTemplate.s3Containers = provisions cluster with s3 support
-minNumDrives should be in the range of 80% of driveContainers * numDrives
+
+--
+```yaml
+spec:
+  leadershipRaftSize: 9
+  bucketRaftSize: 9
+```
+Raft params should be set to 9 on clusters with drive/compute containers higher then 10
+Otherwise, do not specify this params at all
+
+--
+When cluster has more then 20 drive containers it is best to set
+```yaml
+spec:
+  redundancyLevel: 4
+  stripeWidth: 16
+```
+This will ensure largest stripe width on erasure coding/raid level and enable +4 protection from failures
+A default is 2 for redundancyLevel and auto-calculated for stripeWidth
+If cluster is smaller - no need to put this params, unless explicitly needed
+--
+
+```yaml
+spec:
+  startIoConditions:
+    minNumDrives: 20
+```
+minNumDrives should be in the range of 80% of driveContainers * numDrives, this parameter is optional, recommended for clusters larger then 10 drive containers and more then 2 drives per container
 
 # Expand
 Expand is done by increasing number of containers of appropriate type
@@ -82,14 +103,6 @@ FIELDS:
 ```
 
 # More optional fields
-When cluster has more then 20 drive containers it is best to set
-```yaml
-spec:
-  redundancyLevel: 4
-  stripeWidth: 16
-```
-This will ensure largest stripe width on erasure coding/raid level and enable +4 protection from failures
-A default is 2 for redundancyLevel and auto-calculated for stripeWidth
 
 
 After cluster was provisioned, a process can be observed by polling kubernetes api against wekacluster object, status.status field should reach Ready
