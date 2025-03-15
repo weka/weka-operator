@@ -198,6 +198,26 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.GetNode},
+			// this will allow go back into deactivate flow if we detected that container joined the cluster
+			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
+			{
+				Run:  lifecycle.ForceNoError(loop.refreshPod),
+				Name: "RefreshPod",
+				Predicates: lifecycle.Predicates{
+					container.IsMarkedForDeletion,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: lifecycle.ForceNoError(loop.ensurePod),
+				Predicates: lifecycle.Predicates{
+					loop.PodNotSet,
+					loop.ShouldDeactivate,
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				Condition:  condition.CondRemovedFromS3Cluster,
 				CondReason: "Deletion",
@@ -225,16 +245,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					loop.ShouldDeactivate,
 					container.IsDriveContainer,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			// this will allow go back into deactivate flow if we detected that container joined the cluster
-			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
-			{
-				Run:  lifecycle.ForceNoError(loop.refreshPod),
-				Name: "RefreshPod",
-				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
