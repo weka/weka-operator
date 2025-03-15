@@ -1080,6 +1080,9 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 
 		// TODO: changing api to get IsComputeContainer is too much, we should have out-of-api helper functions
+		if r.container.Status.Timestamps == nil {
+			r.container.Status.Timestamps = make(map[string]metav1.Time)
+		}
 		if container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute {
 			if since, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; !ok {
 				r.container.Status.Timestamps[string(weka.TimestampStopAttempt)] = metav1.Time{Time: time.Now()}
