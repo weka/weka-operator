@@ -41,3 +41,11 @@ test-raft9resilience-4pblijjlbfj-drive-0dbc4b5e-115a-433d-81bd-e4fabbd43298   dr
 Use `--no-headers` for easier parsing, use combination of grep for values you search and awk for outputting first columns to get the pod name, for example
 ```kubectl get -n infra wekacontainer -o custom-columns=NAME:.metadata.name,SPEC_NAME:.spec.name -l weka.io/cluster-id=550c68b6-8f64-4073-8086-efc3ba69207e,weka.io/mode=drive --no-headers | grep -e drivex07d2d65fx2d75x4791xa737x779ac317a17a -e drivex0dbc4b5ex115ax433dx81bdxe4fabbd43298 | awk '{print $1}'```
 Grepping this command by expected weka container name allows to find the pod name and then exec into it to run weka commands
+
+Example output of `kubectl get wekacontainer -o wide -n infra`
+```
+NAME                                                      STATUS    MODE      MANAGEMENT IPS   NODE      PROCESSES   DRIVES   MOUNTS   CPU    AGE    WEKA CID   MESSAGE
+weka-infra-clients-h12-1-a                                Running   client    10.100.7.13                2/2/2                0        0.14   37h    111
+weka-infra-compute-fdc1e475-e6fc-46b2-a601-7353bce76be4   Running   compute   10.100.7.13      h12-1-a   0/3/3                         0.18   5d8h   102
+weka-infra-drive-fa5408a4-6f0a-4726-bcb5-d1cf75842c72     Running   drive     10.100.5.41      h1-1-a    3/3/3       6/6/6             0.02   5d8h   101
+```
