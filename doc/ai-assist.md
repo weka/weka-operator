@@ -15,6 +15,7 @@
             - generated cluster yaml MUST be fully built yaml that will not undergo anymore any modifications and will be applied AS IS AIMUST
 - pay attention that wekcluster uses apiVersion: weka.weka.io/v1alpha1 api version AIMUST
 - weka cli to get cluster status should be executed within any compute or drive container, weka local commands should be local to specific pod/wekacontainer
+- if user param image does not specify repository - use quay.io/weka.io/weka-in-container:
 - generate cluster name as a separate and early step, so it will be used by refernce in every later stage, including cluster create
 - extract wekacluster metadata.uid (often referenced just as id), as a separate step post provision
 - NEVER select wekacontainer or pod without filtering by specific cluster-id (weka.io/cluster-id=wekacluster.metadat.uid) or by specific container name

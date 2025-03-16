@@ -1,0 +1,110 @@
+{
+  "name": "weka_cluster_provision_and_validation_test",
+  "description": "Validate that a Weka cluster can be provisioned with specified configuration, a client can connect, and a workload can successfully use Weka storage",
+  "steps": [
+    {
+      "name": "generate_cluster_name",
+      "requirements": "Generate a unique cluster name starting with 'test-' that follows K8s naming standards and is no longer than 32 characters",
+      "step_description": "Generate a unique name for the Weka cluster that will be used throughout the test",
+      "outputs": ["cluster_name"]
+    },
+    {
+      "name": "create_namespace",
+      "requirements": "Create a test namespace with a unique name starting with 'test-' followed by random characters",
+      "step_description": "Create a dedicated namespace for test isolation",
+      "outputs": ["namespace"]
+    },
+    {
+      "name": "provision_weka_cluster",
+      "requirements": "Create and apply a WekaCluster CR with name $generate_cluster_name__cluster_name in namespace $create_namespace__namespace with 6 compute containers, 6 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare using image $plan_parameters__image and nodeSelector $plan_parameters__nodeSelector and configured for a physical environment with specified subnets",
+      "step_description": "Provision a Weka cluster with the specified configuration, using the following YAML structure adjusted with the correct values:\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: {{cluster_name}}\n  namespace: {{namespace}}\nspec:\n  template: dynamic\n  gracefulDestroyDuration: 0s\n  dynamicTemplate:\n    computeContainers: 6\n    driveContainers: 6\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n  overrides: {}\n  image: {{image}}\n  nodeSelector:\n    {{nodeSelector_key}}: {{nodeSelector_value}}\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  redundancyLevel: 2\n  stripeWidth: 3\n  hotSpare: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n      - 10.100.0.0/16\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_cr_applied"]
+    },
+    {
+      "name": "wait_for_cluster_ready",
+      "requirements": "Monitor the status.status field of the WekaCluster with name $generate_cluster_name__cluster_name in namespace $create_namespace__namespace until it reaches 'Ready' state or timeout after 10 minutes",
+      "step_description": "Wait for the Weka cluster to initialize and become ready for client connections",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_ready"]
+    },
+    {
+      "name": "get_cluster_id",
+      "requirements": "Extract the metadata.uid of the WekaCluster with name $generate_cluster_name__cluster_name in namespace $create_namespace__namespace using kubectl get command",
+      "step_description": "Get the cluster ID (UID) which will be used for filtering cluster containers",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["cluster_id"]
+    },
+    {
+      "name": "provision_weka_client",
+      "requirements": "Create and apply a WekaClient CR with name $generate_cluster_name__cluster_name-clients targeting the WekaCluster $generate_cluster_name__cluster_name with 1 core in namespace $create_namespace__namespace using image $plan_parameters__image and nodeSelector $plan_parameters__nodeSelector",
+      "step_description": "Provision a Weka client to connect to the cluster, using the following YAML structure adjusted with the correct values:\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaClient\nmetadata:\n  name: {{cluster_name}}-clients\n  namespace: {{namespace}}\nspec:\n  image: {{image}}\n  imagePullSecret: \"quay-io-robot-secret\"\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  portRange:\n    basePort: 45000\n  nodeSelector:\n    {{nodeSelector_key}}: {{nodeSelector_value}}\n  wekaSecretRef: weka-client-{{cluster_name}}\n  targetCluster:\n    name: {{cluster_name}}\n    namespace: {{namespace}}\n  coresNum: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["client_cr_applied"]
+    },
+    {
+      "name": "wait_for_client_connection",
+      "requirements": "Verify that all client containers for WekaClient $generate_cluster_name__cluster_name-clients in namespace $create_namespace__namespace are in Running state and have joined the cluster",
+      "step_description": "Wait for the Weka client containers to initialize and join the cluster",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["client_connected"]
+    },
+    {
+      "name": "verify_clients_connected_weka_side",
+      "requirements": "Verify on the Weka side (using weka status command in a compute or drive container filtered by cluster-id $get_cluster_id__cluster_id) that the expected number of clients are connected",
+      "step_description": "Execute Weka CLI command inside a compute container to confirm client connectivity from Weka's perspective",
+      "inputs": ["get_cluster_id.cluster_id", "create_namespace.namespace"],
+      "outputs": ["weka_status_verified"]
+    },
+    {
+      "name": "install_csi_driver",
+      "requirements": "Install CSI driver for cluster $generate_cluster_name__cluster_name in namespace $create_namespace__namespace using Helm with proper values adjusted for the cluster name and nodeSelector matching the WekaClient",
+      "step_description": "Install the CSI driver to enable Kubernetes PVC creation for Weka storage, using the command:\n```bash\nhelm upgrade csi-{{cluster_name}} -n {{namespace}} --create-namespace -i https://csi-wekafs-plugin-helm.s3.eu-west-1.amazonaws.com/csi-wekafsplugin-2.7.1-sergeyperfilesystemencryption.30.45d78cf.tgz --set logLevel=6 --values csi_values.yaml\n```\n\nWithin csi_values.yaml, include:\n```yaml\npluginConfig:\n  allowInsecureHttps: true\n  skipGarbageCollection: true\ncontrollerPluginTolerations:\n - operator: Exists\nnodePluginTolerations:\n - operator: Exists\ncontroller:\n  nodeSelector:\n    {{nodeSelector_key}}: {{nodeSelector_value}}\nnode:   \n  nodeSelector:\n    {{nodeSelector_key}}: {{nodeSelector_value}}\ncsiDriverName: {{cluster_name}}.weka.io\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["csi_installed"]
+    },
+    {
+      "name": "create_storage_class",
+      "requirements": "Create a StorageClass for cluster $generate_cluster_name__cluster_name in namespace $create_namespace__namespace with appropriate parameters and secrets",
+      "step_description": "Create a StorageClass that will be used for PVC creation, using the following YAML structure:\n```yaml\nallowVolumeExpansion: true\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: weka-{{cluster_name}}-forcedirect\nparameters:\n  capacityEnforcement: HARD\n  csi.storage.k8s.io/controller-expand-secret-name: weka-csi-{{cluster_name}}\n  csi.storage.k8s.io/controller-expand-secret-namespace: {{namespace}}\n  csi.storage.k8s.io/controller-publish-secret-name: weka-csi-{{cluster_name}}\n  csi.storage.k8s.io/controller-publish-secret-namespace: {{namespace}}\n  csi.storage.k8s.io/node-publish-secret-name: weka-csi-{{cluster_name}}\n  csi.storage.k8s.io/node-publish-secret-namespace: {{namespace}}\n  csi.storage.k8s.io/node-stage-secret-name: weka-csi-{{cluster_name}}\n  csi.storage.k8s.io/node-stage-secret-namespace: {{namespace}}\n  csi.storage.k8s.io/provisioner-secret-name: weka-csi-{{cluster_name}}\n  csi.storage.k8s.io/provisioner-secret-namespace: {{namespace}}\n  filesystemName: default\n  mountOptions: forcedirect\n  volumeType: dir/v1\nprovisioner: {{cluster_name}}.weka.io\nreclaimPolicy: Delete\nvolumeBindingMode: Immediate\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["storage_class_created"]
+    },
+    {
+      "name": "create_pvc",
+      "requirements": "Create a PVC using the StorageClass weka-$generate_cluster_name__cluster_name-forcedirect in namespace $create_namespace__namespace, with 500Gi storage and ReadWriteMany access mode",
+      "step_description": "Create a PVC that will be used by the workload, using the following YAML structure:\n```yaml\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: {{cluster_name}}-goader-pvc\n  namespace: {{namespace}}\nspec:\n  accessModes:\n    - ReadWriteMany\n  storageClassName: weka-{{cluster_name}}-forcedirect\n  resources:\n    requests:\n      storage: 500Gi\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["pvc_created"]
+    },
+    {
+      "name": "wait_for_pvc_bound",
+      "requirements": "Verify that PVC $generate_cluster_name__cluster_name-goader-pvc in namespace $create_namespace__namespace enters Bound state within 2 minutes",
+      "step_description": "Wait for the PVC to be bound to a PV",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["pvc_bound"]
+    },
+    {
+      "name": "deploy_workload",
+      "requirements": "Deploy a Goader workload as a DaemonSet using the PVC $generate_cluster_name__cluster_name-goader-pvc in namespace $create_namespace__namespace, with nodeSelector matching the one used for WekaClient",
+      "step_description": "Deploy a test workload that will use the Weka storage through the PVC, using the following YAML structure:\n```yaml\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: goader-smallios-{{cluster_name}}\n  namespace: {{namespace}}\n  labels:\n    app: goader-smallios-{{cluster_name}}\n    cluster: {{cluster_name}}\nspec:\n  updateStrategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxUnavailable: 100%\n  selector:\n    matchLabels:\n      app: goader-smallios-{{cluster_name}}\n      cluster: {{cluster_name}}\n  template:\n    metadata:\n      labels:\n        app: goader-smallios-{{cluster_name}}\n        cluster: {{cluster_name}}\n    spec:\n      nodeSelector:\n        {{nodeSelector_key}}: {{nodeSelector_value}}\n      containers:\n        - name: goader\n          imagePullPolicy: Always\n          image: public.ecr.aws/weka/goader:latest\n          env:\n            - name: GOADER_PARAMS\n              value: \"-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NNN/NN\"\n            - name: NODE_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: spec.nodeName\n          volumeMounts:\n            - name: goader-storage\n              mountPath: /data\n      volumes:\n        - name: goader-storage\n          persistentVolumeClaim:\n            claimName: {{cluster_name}}-goader-pvc\n```\nEnsure to substitute all template variables with actual values.",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["workload_deployed"]
+    },
+    {
+      "name": "verify_workload_running",
+      "requirements": "Verify that all pods of the DaemonSet goader-smallios-$generate_cluster_name__cluster_name in namespace $create_namespace__namespace are in Running state",
+      "step_description": "Verify that the workload is running correctly",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["workload_running"]
+    },
+    {
+      "name": "verify_pvc_mount",
+      "requirements": "Connect to one of the goader pods and verify that the PVC mount is visible and is of filesystem type 'wekafs'",
+      "step_description": "Verify that the PVC is correctly mounted with the Weka filesystem type by checking mount points within a pod using 'mount' command",
+      "inputs": ["generate_cluster_name.cluster_name", "create_namespace.namespace"],
+      "outputs": ["pvc_mount_verified"]
+    }
+  ],
+  "documentation": "## Weka Cluster Provisioning and Testing\n\nThis test validates that a Weka cluster can be provisioned with the specified configuration, a client can connect to it, and a workload can successfully use Weka storage.\n\n### Test Scenario\n- Provision a WekaCluster CR with:\n  - 6 compute containers\n  - 6 drive containers\n  - 2 drives per container\n  - 3 stripe width\n  - 2 redundancy level\n  - 1 hot spare\n- Provision a WekaClient CR with 1 core\n- Apply both objects and wait for the WekaCluster to become ready\n- Wait for all client containers to join and verify on Weka side\n- Set up CSI, StorageClass, PVC, and a workload\n- Ensure the workload is running\n- Ensure the PVC mount is visible on the node and is of \"wekafs\" filesystem type\n\n### Important Notes\n- This test runs on a physical environment, using 10.200.0.0/16 and 10.100.0.0/16 subnets for testing\n- Use `weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id>` to filter compute and drive containers\n- The `cluster-id` references the Kubernetes `metadata.uid` of the WekaCluster\n- Use the `nodeSelector` user parameter for all objects\n- Use the `image` user parameter for WekaCluster/WekaClient objects\n- **Do not delete any resources** as part of this testing\n\n### WekaCluster CR Structure\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: <cluster_name>\n  namespace: <namespace>\nspec:\n  template: dynamic\n  gracefulDestroyDuration: 0s\n  dynamicTemplate:\n    computeContainers: 6\n    driveContainers: 6\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n  overrides: {}\n  image: <image>\n  nodeSelector:\n    <nodeSelector_key>: <nodeSelector_value>\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  redundancyLevel: 2\n  stripeWidth: 3\n  hotSpare: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n      - 10.100.0.0/16\n```\n\n### WekaClient CR Structure\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaClient\nmetadata:\n  name: <cluster_name>-clients\n  namespace: <namespace>\nspec:\n  image: <image>\n  imagePullSecret: \"quay-io-robot-secret\"\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  portRange:\n    basePort: 45000\n  nodeSelector:\n    <nodeSelector_key>: <nodeSelector_value>\n  wekaSecretRef: weka-client-<cluster_name>\n  targetCluster:\n    name: <cluster_name>\n    namespace: <namespace>\n  coresNum: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n```\n\n### CSI Installation\n```bash\nhelm upgrade csi-<cluster_name> -n <namespace> --create-namespace -i https://csi-wekafs-plugin-helm.s3.eu-west-1.amazonaws.com/csi-wekafsplugin-2.7.1-sergeyperfilesystemencryption.30.45d78cf.tgz --set logLevel=6 --values csi_values.yaml\n```\n\n### StorageClass Structure\n```yaml\nallowVolumeExpansion: true\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: weka-<cluster_name>-forcedirect\nparameters:\n  capacityEnforcement: HARD\n  csi.storage.k8s.io/controller-expand-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/controller-expand-secret-namespace: <namespace>\n  csi.storage.k8s.io/controller-publish-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/controller-publish-secret-namespace: <namespace>\n  csi.storage.k8s.io/node-publish-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/node-publish-secret-namespace: <namespace>\n  csi.storage.k8s.io/node-stage-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/node-stage-secret-namespace: <namespace>\n  csi.storage.k8s.io/provisioner-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/provisioner-secret-namespace: <namespace>\n  filesystemName: default\n  mountOptions: forcedirect\n  volumeType: dir/v1\nprovisioner: <cluster_name>.weka.io\nreclaimPolicy: Delete\nvolumeBindingMode: Immediate\n```\n\n### PVC Structure\n```yaml\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: <cluster_name>-goader-pvc\n  namespace: <namespace>\nspec:\n  accessModes:\n    - ReadWriteMany\n  storageClassName: weka-<cluster_name>-forcedirect\n  resources:\n    requests:\n      storage: 500Gi\n```\n\n### Workload (DaemonSet) Structure\n```yaml\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: goader-smallios-<cluster_name>\n  namespace: <namespace>\n  labels:\n    app: goader-smallios-<cluster_name>\n    cluster: <cluster_name>\nspec:\n  updateStrategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxUnavailable: 100%\n  selector:\n    matchLabels:\n      app: goader-smallios-<cluster_name>\n      cluster: <cluster_name>\n  template:\n    metadata:\n      labels:\n        app: goader-smallios-<cluster_name>\n        cluster: <cluster_name>\n    spec:\n      nodeSelector:\n        <nodeSelector_key>: <nodeSelector_value>\n      containers:\n        - name: goader\n          imagePullPolicy: Always\n          image: public.ecr.aws/weka/goader:latest\n          env:\n            - name: GOADER_PARAMS\n              value: \"-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NNN/NN\"\n            - name: NODE_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: spec.nodeName\n          volumeMounts:\n            - name: goader-storage\n              mountPath: /data\n      volumes:\n        - name: goader-storage\n          persistentVolumeClaim:\n            claimName: <cluster_name>-goader-pvc\n```\n\n### Verification\n- Wait for the WekaCluster status to reach \"Ready\" (timeout: 10 minutes)\n- Verify that all client containers are in Running state and have joined the cluster\n- Ensure that the PVC is Bound within 2 minutes\n- Confirm that all workload pods reach Running state\n- Verify that the PVC mount is visible and is of filesystem type \"wekafs\"\n\n### Weka CLI\n- To check cluster status, execute `weka status` inside any compute or drive container filtered by the specific cluster-id\n- Use `weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id>` to filter containers"
+}

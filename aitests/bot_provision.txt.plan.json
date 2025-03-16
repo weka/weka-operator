@@ -1,0 +1,48 @@
+{
+  "name": "provision_and_validate_wekacluster",
+  "description": "Validate that a WekaCluster can be provisioned with 6 compute and 6 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare, and then document deletion process",
+  "steps": [
+    {
+      "name": "generate_cluster_resources",
+      "requirements": "Generate a unique cluster name starting with 'test-' and namespace name starting with 'test-' that conform to Kubernetes resource name conventions",
+      "step_description": "Generate a unique cluster name and namespace using Python. Cluster name should be max 32 chars with the auto-generated part not exceeding 16 chars. Names should follow K8s conventions.",
+      "outputs": ["cluster_name", "namespace_name"]
+    },
+    {
+      "name": "create_and_apply_wekacluster",
+      "requirements": "Create and apply WekaCluster YAML with 6 compute containers, 6 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, using $generate_cluster_resources__cluster_name and $generate_cluster_resources__namespace_name, with $plan_parameters__image and $plan_parameters__nodeSelector",
+      "inputs": ["generate_cluster_resources.cluster_name", "generate_cluster_resources.namespace_name", "plan_parameters.image", "plan_parameters.nodeSelector"],
+      "step_description": "Create the WekaCluster YAML according to specifications and apply it directly to the cluster using kubectl apply",
+      "outputs": ["wekacluster_yaml", "apply_result"]
+    },
+    {
+      "name": "monitor_cluster_provisioning",
+      "requirements": "Monitor the WekaCluster status until it reaches 'Ready' state or times out after 10 minutes, using $generate_cluster_resources__namespace_name and $generate_cluster_resources__cluster_name",
+      "inputs": ["generate_cluster_resources.cluster_name", "generate_cluster_resources.namespace_name"],
+      "step_description": "Poll the Kubernetes API for the WekaCluster's status.status field, waiting for it to reach 'Ready' within 10 minutes",
+      "outputs": ["provisioning_status", "cluster_id"]
+    },
+    {
+      "name": "validate_container_counts",
+      "requirements": "Validate that there are exactly 6 compute containers and 6 drive containers for the cluster with ID $monitor_cluster_provisioning__cluster_id in namespace $generate_cluster_resources__namespace_name",
+      "inputs": ["monitor_cluster_provisioning.cluster_id", "generate_cluster_resources.namespace_name"],
+      "step_description": "Use kubectl to list all WekaContainers with the specific cluster-id and validate that compute and drive container counts match the expected values",
+      "outputs": ["compute_containers_count", "drive_containers_count", "container_validation_result"]
+    },
+    {
+      "name": "validate_cluster_configuration",
+      "requirements": "Validate that the cluster has 3 stripe width, 2 redundancy level, and 2 drives per container using $monitor_cluster_provisioning__cluster_id and $generate_cluster_resources__namespace_name",
+      "inputs": ["monitor_cluster_provisioning.cluster_id", "generate_cluster_resources.namespace_name"],
+      "step_description": "Use kubectl and weka CLI to verify the cluster's configuration parameters including stripe width, redundancy level, and drives per container",
+      "outputs": ["configuration_validation_result"]
+    },
+    {
+      "name": "document_deletion_steps",
+      "requirements": "Document the steps required to delete the WekaCluster, but do not actually perform the deletion",
+      "inputs": ["generate_cluster_resources.cluster_name", "generate_cluster_resources.namespace_name"],
+      "step_description": "Create documentation for how to properly delete the WekaCluster when needed",
+      "outputs": ["deletion_documentation"]
+    }
+  ],
+  "documentation": "# WekaCluster Provisioning and Deletion Test\n\n## Test Overview\nThis test validates that a WekaCluster can be provisioned with the specified configuration and documents (but does not execute) the deletion process.\n\n## Cluster Configuration\n- 6 compute containers\n- 6 drive containers\n- 2 drives per container\n- 3 stripe width\n- 2 redundancy level\n- 1 hot spare\n\n## Required User Parameters\n- `image`: The Weka container image to use (e.g., quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2)\n- `nodeSelector`: NodeSelector to ensure resources are provisioned on appropriate nodes\n\n## Network Configuration\n- Uses 10.200.0.0/16 subnet for testing (physical environment)\n\n## YAML Template Structure\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: demo-provision # Will be replaced with auto-generated name\n  namespace: NAMESPACE # Will be replaced with auto-generated namespace\nspec:\n  template: dynamic\n  gracefulDestroyDuration: 0s\n  dynamicTemplate:\n    computeContainers: 6\n    driveContainers: 6\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n  overrides: {}\n  image: WILL_BE_REPLACED # Will use image parameter\n  nodeSelector:\n    WILL_BE_REPLACED # Will use nodeSelector parameter\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n  redundancyLevel: 2\n  stripeWidth: 3\n```\n\n## Important Commands\n- Getting cluster status: `kubectl get -n NAMESPACE wekacluster CLUSTER_NAME -o jsonpath='{.status.status}'`\n- Extracting cluster ID: `kubectl get -n NAMESPACE wekacluster CLUSTER_NAME -o jsonpath='{.metadata.uid}'`\n- Filtering containers: Use labels `weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id>`\n- Finding container counts: `kubectl get -n NAMESPACE wekacontainer -l weka.io/cluster-id=CLUSTER_ID,weka.io/mode=compute|drive --no-headers | wc -l`\n- Executing Weka CLI in containers: `kubectl exec -it -n NAMESPACE POD_NAME -- weka COMMAND`\n\n## Important Notes\n- **DO NOT** delete any Kubernetes resources as part of this test\n- Always filter WekaContainers or pods by the specific cluster-id\n- The status should reach `Ready` within 10 minutes\n- The cluster ID references the Kubernetes metadata.uid"
+}

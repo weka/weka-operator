@@ -35,6 +35,7 @@ Changing gracefulDestroyDuration to 0s will cause immediate deletion of wekacont
 
 ### Additional flags
 spec.dynamicTemplate.s3Containers = provisions cluster with s3 support
+spec.hotSpare - number of FDs to be used as hot spare capacity-wise, default is 0
 
 --
 ```yaml

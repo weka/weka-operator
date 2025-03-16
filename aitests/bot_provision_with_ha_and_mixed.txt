@@ -1,0 +1,18 @@
+Test goal:
+    - validate that cluster can be provisioned and deleted
+Test scenario
+    - provision a wekacluster CR, 6 compute and 6 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare
+    - provision a wekaclient CR, 1 core
+    - apply both objects and wait for wekacluster to become ready, then wait for all clients container to join, then ensure on the weka side that weka status shows expected numbers of clients connected
+    - set up CSI, storageclass, pvc and workload
+    - ensure workload is running
+    - ensure that PVC mount is visible on node and that it is of "wekafs" filesystem type
+
+Testing notes:
+- do not delete wekacluster after test execution regardless of results, unless asked explicitly
+- do not delete any k8s resource as part of this testing AIMUST
+- this tests run on physical environment, use 10.200.0.0/16 and 10.100.0.0/16 subnets for testing
+- use weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id> to filter compute and drive containers
+    - cluster id references to kubernetes metadata.uid
+- use nodeSelector user parameter for as node selector for all objects so no resources will be provisioned on nodes that do not match this selector
+- use image user parameter to use as image for wekacluster/wekaclient objects
