@@ -94,6 +94,16 @@ type ProcessSummary struct {
 	Total int `json:"total"`
 }
 
+type WekaDrive struct {
+	DiskId       string `json:"disk_id"` // "DiskId<1>",
+	Uid          string `json:"uid"`
+	SerialNumber string `json:"serial_number"`
+	DevUuid      string `json:"dev_uuid"`
+	Status       string `json:"status"`
+	IsFailed     bool   `json:"isFailed"`
+	Name         string `json:"name"`
+}
+
 type LocalConfigStateResponse struct {
 	Result struct {
 		HasLease           *bool `json:"has_lease"`
@@ -101,17 +111,9 @@ type LocalConfigStateResponse struct {
 			FilesystemId string `json:"filesystem_id"` // FSId<0>
 			Name         string `json:"name"`          // .config_fs
 		} `json:"filesystems_summary"`
-		DisksSummary []struct {
-			DiskId       string `json:"disk_id"` // "DiskId<1>",
-			Uid          string `json:"uid"`
-			SerialNumber string `json:"serial_number"`
-			DevUuid      string `json:"dev_uuid"`
-			Status       string `json:"status"`
-			IsFailed     bool   `json:"isFailed"`
-			Name         string `json:"name"`
-		} `json:"disks_summary"`
-		HostName         string `json:"host_name"`
-		HostId           string `json:"host_id"`
+		DisksSummary     []WekaDrive `json:"disks_summary"`
+		HostName         string      `json:"host_name"`
+		HostId           string      `json:"host_id"`
 		ProcessesSummary struct {
 			Drive      ProcessSummary `json:"drive"`
 			Dataserv   ProcessSummary `json:"dataserv"`
@@ -464,7 +466,8 @@ type LocalCpuUtilizationResponse struct {
 
 type WekaStat struct {
 	Params struct {
-		FsId string `json:"fS,omitempty"` // integer in string format
+		FsId string `json:"fS,omitempty"`   // integer in string format
+		Disk string `json:"disk,omitempty"` // integer in string format
 	} `json:"params"`
 	Stat     string `json:"stat"`
 	NodeId   string `json:"nodeId"` //NodeId<25011>
@@ -695,10 +698,11 @@ type CategoryStat struct {
 type GrouppedMetrics map[CategoryStat][]WekaStat
 
 type processedStat struct {
-	Stat   string  `json:"stat"`
-	Value  float64 `json:"value"`
-	NodeId int     `json:"nodeId"`
-	FsName string  `json:"fsName"`
+	Stat         string    `json:"stat"`
+	Value        float64   `json:"value"`
+	NodeId       int       `json:"nodeId"`
+	FsName       string    `json:"fsName"`
+	DriveDetails WekaDrive `json:"driveDetails"`
 }
 
 func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) processedStat {
@@ -723,11 +727,33 @@ func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) p
 		}
 	}
 
+	var wekaDrive WekaDrive
+	if stat.Params.Disk != "" {
+		for _, disk := range container.containerState.Result.DisksSummary {
+			configDriveIdInt, err := resources.DriveIdToInteger(disk.DiskId)
+			if err != nil {
+				logger.Error(err, "Failed to parse disk id", "serialNumber", disk.SerialNumber)
+				continue
+			}
+			paramDriveInt, err := strconv.Atoi(stat.Params.Disk)
+			if err != nil {
+				logger.Error(err, "Failed to parse disk id", "diskId", stat.Params.Disk)
+				continue
+			}
+
+			if configDriveIdInt == paramDriveInt {
+				wekaDrive = disk
+				break
+			}
+		}
+	}
+
 	return processedStat{
-		Stat:   stat.Stat,
-		Value:  floatVal,
-		NodeId: nodeIdInt,
-		FsName: fsName,
+		Stat:         stat.Stat,
+		Value:        floatVal,
+		NodeId:       nodeIdInt,
+		FsName:       fsName,
+		DriveDetails: wekaDrive,
 	}
 }
 
@@ -896,6 +922,46 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			response.AddMetric(metrics2.PromMetric{
 				Metric: "weka_port_rx_bytes",
 				Help:   "Total bytes received per weka node",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_READ_OPS", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_read_ops",
+				Help:   "Total read operations per weka drive",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_WRITE_OPS", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_write_ops",
+				Help:   "Total write operations per weka drive",
 				Type:   "counter",
 			}, taggedValues)
 		}
