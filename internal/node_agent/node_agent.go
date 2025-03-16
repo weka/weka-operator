@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,8 @@ type ContainerInfo struct {
 	mode                   string
 	scrapeTargets          []ScrapeTarget
 	scrappedData           map[ScrapeTarget][]byte
+	statsResponse          StatsResponse
+	statsResponseLastPoll  time.Time
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -93,8 +96,13 @@ type ProcessSummary struct {
 
 type LocalConfigStateResponse struct {
 	Result struct {
-		HasLease     *bool `json:"has_lease"`
+		HasLease           *bool `json:"has_lease"`
+		FilesystemsSummary []struct {
+			FilesystemId string `json:"filesystem_id"` // FSId<0>
+			Name         string `json:"name"`          // .config_fs
+		} `json:"filesystems_summary"`
 		DisksSummary []struct {
+			DiskId       string `json:"disk_id"` // "DiskId<1>",
 			Uid          string `json:"uid"`
 			SerialNumber string `json:"serial_number"`
 			DevUuid      string `json:"dev_uuid"`
@@ -298,9 +306,10 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 						[]metrics2.TaggedValue{
 							{
 								Tags: util.MergeMaps(containerLabels, metrics2.TagMap{
-									"status":   disk.Status,
-									"serial":   disk.SerialNumber,
-									"weka_uid": disk.Uid,
+									"status":    disk.Status,
+									"serial":    disk.SerialNumber,
+									"weka_uid":  disk.Uid,
+									"is_failed": strconv.FormatBool(disk.IsFailed),
 								}),
 								Value:     1,
 								Timestamp: container.containerStateLastPull,
@@ -310,6 +319,8 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				}
 			}
 		}
+		// Process local stats-based metrics
+		a.addLocalNodeStats(ctx, promResponse, container, containerLabels)
 	}
 
 	// Write the response
@@ -451,6 +462,21 @@ type LocalCpuUtilizationResponse struct {
 	} `json:"result"`
 }
 
+type WekaStat struct {
+	Params struct {
+		FsId string `json:"fS,omitempty"` // integer in string format
+	} `json:"params"`
+	Stat     string `json:"stat"`
+	NodeId   string `json:"nodeId"` //NodeId<25011>
+	Category string `json:"category"`
+	Value    string `json:"value"`
+	Unit     string `json:"unit"`
+}
+
+type StatsResponse struct {
+	Result []WekaStat `json:"result"`
+}
+
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
 	// WARNING: no lock here, while calling in parallel from multiple places
 
@@ -476,6 +502,15 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 		container.cpuInfo = cpuResponse
 		container.cpuInfoLastPoll = time.Now()
+
+		var statsResponse StatsResponse
+		err = jrpcCall(ctx, container, "fetch_multiple_local_stats", &statsResponse)
+		if err != nil {
+			logger.Error(err, "Failed to fetch stats")
+		} else {
+			container.statsResponse = statsResponse
+			container.statsResponseLastPoll = time.Now()
+		}
 	}
 
 	for _, target := range container.scrapeTargets {
@@ -651,6 +686,281 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts})
+}
+
+type CategoryStat struct {
+	Stat     string `json:"stat"`
+	Category string `json:"category"`
+}
+type GrouppedMetrics map[CategoryStat][]WekaStat
+
+type processedStat struct {
+	Stat   string  `json:"stat"`
+	Value  float64 `json:"value"`
+	NodeId int     `json:"nodeId"`
+	FsName string  `json:"fsName"`
+}
+
+func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) processedStat {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	floatVal, err := strconv.ParseFloat(stat.Value, 64)
+	if err != nil {
+		logger.Info("Failed to parse float", "value", stat.Value)
+	}
+
+	nodeIdInt, err := resources.NodeIdToProcessId(stat.NodeId)
+	if err != nil {
+		logger.Info("Failed to parse node id", "nodeId", stat.NodeId)
+	}
+
+	fsName := ""
+	if stat.Params.FsId != "" {
+		fsName = deduceFsName(ctx, container, stat.Params.FsId)
+		if fsName == "" {
+			logger.Info("Failed to determine fs name")
+		}
+	}
+
+	return processedStat{
+		Stat:   stat.Stat,
+		Value:  floatVal,
+		NodeId: nodeIdInt,
+		FsName: fsName,
+	}
+}
+
+func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.PromResponse, container *ContainerInfo, labels map[string]string) {
+	_, _, end := instrumentation.GetLogSpan(ctx, "addLocalNodeStats")
+	defer end()
+
+	if time.Since(container.containerStateLastPull) > 5*time.Minute {
+		return // ignoring all data
+	}
+	if time.Since(container.statsResponseLastPoll) > 5*time.Minute {
+		return //ignoring all data
+	}
+
+	//group metrics
+	groupedMetrics := make(GrouppedMetrics)
+	for _, stat := range container.statsResponse.Result {
+		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
+	}
+
+	for categoryStat, stats := range groupedMetrics {
+		taggedValues := []metrics2.TaggedValue{}
+		switch categoryStat {
+		case CategoryStat{Stat: "READS", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+				// TODO Parametrize by cluster->container config to allow user to choose if to aggregate for them
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			// we first build taggedValues as a proxy, and then doing another pass to summarize dropping one tag and groupping by rest of tags
+
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_reads",
+				Help:   "Number of reads per weka filesystem",
+				Type:   "counter",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "WRITES", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_writes",
+				Help:   "Number of writes per weka filesystem",
+				Type:   "counter",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "READ_LATENCY", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_read_latency",
+				Help:   "Total read latency per weka filesystem, divide by reads to get average",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "WRITE_LATENCY", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_write_latency",
+				Help:   "Total write latency per weka filesystem, divide by writes to get average",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "READ_BYTES", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_read_bytes",
+				Help:   "Total read bytes per weka filesystem",
+				Type:   "counter",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "WRITE_BYTES", Category: "fs_stats"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"fs_id":      stat.Params.FsId,
+						"fs_name":    processed.FsName,
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_fs_write_bytes",
+				Help:   "Total write bytes per weka filesystem",
+				Type:   "counter",
+			}, reducedTaggedValues)
+		case CategoryStat{Stat: "PORT_TX_BYTES", Category: "network"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_port_tx_bytes",
+				Help:   "Total bytes transmitted per weka node",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "PORT_RX_BYTES", Category: "network"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_port_rx_bytes",
+				Help:   "Total bytes received per weka node",
+				Type:   "counter",
+			}, taggedValues)
+		}
+	}
+}
+
+func sumTagsBy(sumBy string, keepTags []string, values []metrics2.TaggedValue) []metrics2.TaggedValue {
+	// sum values by sumBy tag, keeping only keepTags
+
+	getKey := func(tags []string, value metrics2.TaggedValue) string {
+		var key string
+		for _, tag := range tags {
+			key += ":" + value.Tags[tag]
+		}
+		return key
+	}
+
+	// sum values by sumBy tag
+	sums := make(map[string]float64)
+	for _, value := range values {
+		key := getKey([]string{sumBy}, value)
+		sums[key] += value.Value
+	}
+
+	// last pass, keep track of processed key, if proceesed just continue, as we have sums
+	ret := []metrics2.TaggedValue{}
+	processed := make(map[string]bool)
+	for _, value := range values {
+		key := getKey(keepTags, value)
+		if processed[key] {
+			continue
+		}
+		processed[key] = true
+		newValue := metrics2.TaggedValue{
+			Tags:      value.Tags, // we preserve all keys, so whatever was not listed as key to sum by, will be kept, but potentially discrepancy will be created if something should have been respected as key and was not
+			Value:     sums[getKey([]string{sumBy}, value)],
+			Timestamp: value.Timestamp,
+		}
+		delete(newValue.Tags, sumBy)
+		ret = append(ret, newValue)
+	}
+
+	return ret
+}
+
+func deduceFsName(ctx context.Context, container *ContainerInfo, id string) string {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	targetIdInt, err := strconv.Atoi(id)
+	if err != nil {
+		logger.Error(err, "Failed to convert fs id to int", "fs_id", id)
+		return ""
+	}
+	for _, fs := range container.containerState.Result.FilesystemsSummary {
+		intId, err := resources.FsIdToInteger(fs.FilesystemId)
+		if err != nil {
+			logger.Error(err, "Failed to convert fs id to int", "fs_id", fs.FilesystemId, "fs", fs)
+			continue
+		}
+		if intId == targetIdInt {
+			return fs.Name
+		}
+	}
+	return ""
 }
 
 func EnsureNodeAgentSecret(ctx context.Context, mgr ctrl.Manager) error {

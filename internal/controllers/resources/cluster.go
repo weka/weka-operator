@@ -44,6 +44,24 @@ func NodeIdToProcessId(nodeId string) (int, error) {
 	return wekaId, nil
 }
 
+func FsIdToInteger(fsId string) (int, error) {
+	wekaId, err := WekaIdToInteger("FSId", fsId)
+	if err != nil {
+		return 0, err
+	}
+
+	return wekaId, nil
+}
+
+func DriveIdToInteger(driveId string) (int, error) {
+	wekaId, err := WekaIdToInteger("DiskId", driveId)
+	if err != nil {
+		return 0, err
+	}
+
+	return wekaId, nil
+}
+
 func WekaIdToInteger(prefix string, wekaId string) (int, error) {
 	wekaId = strings.Replace(wekaId, prefix+"<", "", 1)
 	wekaId = strings.Replace(wekaId, ">", "", 1)
