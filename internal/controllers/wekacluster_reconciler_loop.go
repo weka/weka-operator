@@ -490,7 +490,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 			// desired labels = cluster labels + required labels
 			// priority-wise, required labels have the highest priority
-			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, container.Spec.Mode)
+			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, container.Spec.Mode)
 			newLabels := util2.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLables)
 			if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
 				container.Labels = newLabels

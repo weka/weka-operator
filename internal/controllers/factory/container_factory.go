@@ -19,7 +19,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	template allocator.ClusterTemplate,
 	role, name string,
 ) (*wekav1alpha1.WekaContainer, error) {
-	labels := RequiredWekaContainerLabels(cluster.UID, role)
+	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
 
 	var hugePagesNum int

@@ -7,9 +7,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func RequiredWekaContainerLabels(clusterUID types.UID, role string) map[string]string {
+func RequiredWekaContainerLabels(clusterUID types.UID, clusterName string, role string) map[string]string {
 	return util.MergeMaps(RequiredAnyWekaContainerLabels(role), map[string]string{
-		domain.WekaLabelClusterId: string(clusterUID),
+		domain.WekaLabelClusterId:   string(clusterUID),
+		domain.WekaLabelClusterName: clusterName,
 	})
 }
 

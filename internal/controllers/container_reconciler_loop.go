@@ -219,6 +219,52 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Name: "SetStatusMetrics",
+				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+					func() bool {
+						return slices.Contains(
+							[]string{
+								weka.WekaContainerModeCompute,
+								weka.WekaContainerModeClient,
+								weka.WekaContainerModeS3,
+								weka.WekaContainerModeNfs,
+								weka.WekaContainerModeDrive,
+								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
+							}, container.Spec.Mode)
+					},
+				},
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Name: "RegisterContainerOnMetrics",
+				Run:  lifecycle.ForceNoError(loop.RegisterContainerOnMetrics),
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+					func() bool {
+						return slices.Contains(
+							[]string{
+								weka.WekaContainerModeCompute,
+								weka.WekaContainerModeClient,
+								weka.WekaContainerModeS3,
+								weka.WekaContainerModeNfs,
+								weka.WekaContainerModeDrive,
+								weka.WekaContainerModeEnvoy,
+							}, container.Spec.Mode)
+					},
+				},
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Name:                      "ReportOtelMetrics",
+				Run:                       lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Throttled:                 config.Config.Metrics.Containers.PollingRate,
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:  condition.CondRemovedFromS3Cluster,
 				CondReason: "Deletion",
 				Run:        loop.RemoveFromS3Cluster,
@@ -238,16 +284,16 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{
-				Condition:  condition.CondContainerDrivesDeactivated,
-				CondReason: "Deletion",
-				Run:        loop.DeactivateDrives,
-				Predicates: lifecycle.Predicates{
-					loop.ShouldDeactivate,
-					container.IsDriveContainer,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
+			//{
+			//	Condition:  condition.CondContainerDrivesDeactivated,
+			//	CondReason: "Deletion",
+			//	Run:        loop.DeactivateDrives,
+			//	Predicates: lifecycle.Predicates{
+			//		loop.ShouldDeactivate,
+			//		container.IsDriveContainer,
+			//	},
+			//	ContinueOnPredicatesFalse: true,
+			//},
 			{
 				Condition:  condition.CondContainerDeactivated,
 				CondReason: "Deletion",
@@ -645,53 +691,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					container.IsNfsContainer,
 					container.HasJoinIps,
 				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Name: "SetStatusMetrics",
-				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
-					func() bool {
-						return slices.Contains(
-							[]string{
-								weka.WekaContainerModeCompute,
-								weka.WekaContainerModeClient,
-								weka.WekaContainerModeS3,
-								weka.WekaContainerModeNfs,
-								weka.WekaContainerModeDrive,
-								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
-							}, container.Spec.Mode)
-					},
-				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Name: "RegisterContainerOnMetrics",
-				Run:  lifecycle.ForceNoError(loop.RegisterContainerOnMetrics),
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
-					func() bool {
-						return slices.Contains(
-							[]string{
-								weka.WekaContainerModeCompute,
-								weka.WekaContainerModeClient,
-								weka.WekaContainerModeS3,
-								weka.WekaContainerModeNfs,
-								weka.WekaContainerModeDrive,
-								weka.WekaContainerModeEnvoy,
-								// TODO: Expand to clients, introduce API-level(or not) HasManagement check
-							}, container.Spec.Mode)
-					},
-				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Name:                      "ReportOtelMetrics",
-				Run:                       lifecycle.ForceNoError(loop.ReportOtelMetrics),
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 		},
