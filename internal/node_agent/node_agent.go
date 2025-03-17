@@ -507,7 +507,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		container.cpuInfoLastPoll = time.Now()
 
 		var statsResponse StatsResponse
-		err = jrpcCall(ctx, container, "fetch_multiple_local_stats", &statsResponse)
+		err = jrpcCall(ctx, container, "fetch_local_stats", &statsResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch stats")
 		} else {
