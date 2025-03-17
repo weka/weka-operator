@@ -3464,6 +3464,9 @@ func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 		logger.Warn("Metrics service is not set")
 		return nil
 	}
+	if r.pod == nil {
+		return nil
+	}
 
 	metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod)
 	if err != nil {
