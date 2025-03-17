@@ -2,8 +2,8 @@
 
 set -e
 
-BASE_IMAGE=cc21256cddb833ab_x86_64
-VERSION=0.0.15
+BASE_IMAGE=f8a10f04603cfddb_x86_64
+VERSION=0.0.18
 
 TARGET_IMAGE=quay.io/weka.io/taskmon:$VERSION-$BASE_IMAGE
 

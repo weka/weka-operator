@@ -2,5 +2,5 @@
 
 set -e
 
-env | grep -i TASKMON
+env | grep -i TASKMON || true
 exec /taskmon/taskmon start

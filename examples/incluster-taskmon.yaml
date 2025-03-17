@@ -5,12 +5,12 @@ metadata:
   namespace: weka-operator-system
 spec:
   action: "remote-traces-session"
-  image: quay.io/weka.io/taskmon:0.0.15-cc21256cddb833ab_x86_64
+  image: quay.io/weka.io/taskmon:0.0.17-b39e025c393f60f3_x86_64
   imagePullSecret: "quay-io-robot-secret"
   payload:
     remoteTracesSessionPayload:
       cluster:
         name: cluster-dev
-        namespace: weka-operator-system
+        namespace: default
       duration: 5m
-      wekahomeEndpointOverride: 10.0.30.81:30052 # direct port of nodeport service, TBD to wrap via envoy and then ALB ingress
+      wekahomeEndpointOverride: weka-home-wekahome-grpc-api.weka-home:50052 # direct port of nodeport service, TBD to wrap via envoy and then ALB ingress
