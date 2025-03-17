@@ -223,6 +223,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+					lifecycle.IsNotFunc(loop.PodNotSet),
 					func() bool {
 						return slices.Contains(
 							[]string{
@@ -259,8 +260,11 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Name:                      "ReportOtelMetrics",
-				Run:                       lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Name: "ReportOtelMetrics",
+				Run:  lifecycle.ForceNoError(loop.ReportOtelMetrics),
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.PodNotSet),
+				},
 				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1171,6 +1175,10 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 	}
 	if len(agentPods) == 0 {
 		return nil, errors.New("There are no agent pods on node")
+	}
+
+	if pod == nil {
+		return nil, errors.New("Pod is nil")
 	}
 
 	for _, agentPod := range agentPods {
@@ -3465,7 +3473,7 @@ func (r *containerReconcilerLoop) ReportOtelMetrics(ctx context.Context) error {
 		return nil
 	}
 	if r.pod == nil {
-		return nil
+		return errors.New("on pod is set")
 	}
 
 	metrics, err := r.MetricsService.GetPodMetrics(ctx, r.pod)
