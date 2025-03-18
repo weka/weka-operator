@@ -1,0 +1,63 @@
+{
+  "name": "recreate_goader_workload_with_new_pvc",
+  "description": "Clean up and recreate goader workload with re-created PVC in a given namespace",
+  "steps": [
+    {
+      "name": "extract_cluster_name",
+      "requirements": "Extract the CLUSTER_NAME from the existing goader DaemonSet name in the namespace $plan_parameters__namespace. Find any DaemonSet with name pattern 'goader-smallios-<CLUSTER_NAME>'.",
+      "inputs": ["plan_parameters.namespace"],
+      "outputs": ["cluster_name"],
+      "step_description": "Use kubectl to list DaemonSets in the namespace and extract the cluster name from the DaemonSet name pattern goader-smallios-<CLUSTER_NAME>."
+    },
+    {
+      "name": "capture_node_selector",
+      "requirements": "Capture the nodeSelector configuration from the existing goader DaemonSet named 'goader-smallios-$extract_cluster_name__cluster_name' in namespace $plan_parameters__namespace.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["node_selector"],
+      "step_description": "Use kubectl get daemonset with yq to extract the nodeSelector field from the DaemonSet specification."
+    },
+    {
+      "name": "delete_goader_daemonset",
+      "requirements": "Delete the existing goader DaemonSet named 'goader-smallios-$extract_cluster_name__cluster_name' in namespace $plan_parameters__namespace.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["daemonset_deleted"],
+      "step_description": "Use kubectl delete daemonset to remove the existing goader DaemonSet."
+    },
+    {
+      "name": "delete_pvc",
+      "requirements": "Delete the existing PersistentVolumeClaim named '$extract_cluster_name__cluster_name-goader-pvc' in namespace $plan_parameters__namespace.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["pvc_delete_initiated"],
+      "step_description": "Use kubectl delete pvc to remove the existing PVC."
+    },
+    {
+      "name": "wait_for_pvc_deletion",
+      "requirements": "Wait for the PersistentVolumeClaim named '$extract_cluster_name__cluster_name-goader-pvc' to be fully deleted in namespace $plan_parameters__namespace. Wait up to 3 minutes for deletion to complete.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["pvc_deleted"],
+      "step_description": "Use kubectl wait --for=delete to wait for the PVC to be fully deleted with a timeout of 3 minutes."
+    },
+    {
+      "name": "create_new_pvc",
+      "requirements": "Create a new PersistentVolumeClaim named '$extract_cluster_name__cluster_name-goader-pvc' with 5000Gi storage in namespace $plan_parameters__namespace. Use storageClassName: weka-$extract_cluster_name__cluster_name-forcedirect.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["pvc_created"],
+      "step_description": "Create a new PVC with the specified name, storage size (5000Gi), and storage class. Use kubectl apply to create the resource."
+    },
+    {
+      "name": "create_goader_daemonset",
+      "requirements": "Create a new goader DaemonSet named 'goader-smallios-$extract_cluster_name__cluster_name' in namespace $plan_parameters__namespace, using the previously captured nodeSelector $capture_node_selector__node_selector and attaching it to the new PVC '$extract_cluster_name__cluster_name-goader-pvc'.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name", "capture_node_selector.node_selector"],
+      "outputs": ["daemonset_created"],
+      "step_description": "Create a new goader DaemonSet with the specified configuration. Use kubectl apply to create the resource."
+    },
+    {
+      "name": "verify_goader_pods",
+      "requirements": "Verify that the goader pods are in Running state for DaemonSet 'goader-smallios-$extract_cluster_name__cluster_name' in namespace $plan_parameters__namespace.",
+      "inputs": ["plan_parameters.namespace", "extract_cluster_name.cluster_name"],
+      "outputs": ["verification_status"],
+      "step_description": "Check the status of the goader pods to ensure they are running correctly. This validates that the PVC is properly mounted and the DaemonSet is operating as expected."
+    }
+  ],
+  "documentation": "# Goader Workload Recreation Test\n\n## Overview\nThis test plan recreates the goader workload with a new PVC in a specified namespace.\n\n## Prerequisites\n- kubectl access to the target Kubernetes cluster\n- Permissions to manage resources in the target namespace\n- Existing goader DaemonSet and PVC in the namespace\n\n## Important Notes\n- The test captures the nodeSelector from the existing DaemonSet before deletion\n- PVC deletion has a timeout of 3 minutes\n- The new PVC is created with 5000Gi storage\n- StorageClass used is 'weka-<CLUSTER_NAME>-forcedirect'\n- The goader container uses image 'public.ecr.aws/weka/goader:latest'\n\n## Verification\n- Successful test execution results in goader pods in Running state\n- If pods are stuck in Pending or other states, there may be issues with the PVC or node selectors\n- When CSI mounts the PVC on a node, the mount should be visible as:\n  ```\n  default on /var/lib/kubelet/pods/<pod-uuid>/volumes/kubernetes.io~csi/<pvc-uuid>/mount type wekafs\n  ```\n\n## DaemonSet Configuration\n- The DaemonSet uses RollingUpdate strategy with maxUnavailable: 100%\n- The goader container runs with these parameters:\n  ```\n  -wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NNN/NN\n  ```\n\n## Resource Naming Convention\n- DaemonSet name: goader-smallios-<CLUSTER_NAME>\n- PVC name: <CLUSTER_NAME>-goader-pvc\n- StorageClass name: weka-<CLUSTER_NAME>-forcedirect"
+}

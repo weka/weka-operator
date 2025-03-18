@@ -1,0 +1,12 @@
+Using user params for:
+- namespace to work with
+
+A namespace already has goader daemonset with attached pvc
+Clean up this resources, and create workload again with re-created pvc
+i.e
+- capture nodeSelector daemonset was using
+- delete goader daemonset
+- delete pvc
+- wait for deletion up to 3 minutes
+- create new pvc, 5000Gi in size
+- create goader daemonset with new pvc using same nodeselector as before

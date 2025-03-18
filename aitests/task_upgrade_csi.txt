@@ -1,0 +1,7 @@
+Using user params for:
+- namespace to install into
+- new csi version to use
+- nodeSelector for all components
+- cluster name it serves
+
+Upgrade csi in a kubernetes cluster using this params, abort if there is insufficient information provided by user

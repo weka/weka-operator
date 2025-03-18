@@ -859,7 +859,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 						"fs_name":    processed.FsName,
 						"process_id": strconv.Itoa(processed.NodeId),
 					}),
-					Value:     processed.Value,
+					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
 					Timestamp: container.statsResponseLastPoll,
 				})
 			}

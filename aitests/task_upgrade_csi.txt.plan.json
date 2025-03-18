@@ -1,0 +1,49 @@
+{
+  "name": "upgrade_csi_driver_with_user_parameters",
+  "description": "Test upgrading CSI driver in a Kubernetes cluster using user-provided parameters for namespace, CSI version, nodeSelector, and cluster name",
+  "steps": [
+    {
+      "name": "validate_required_parameters",
+      "requirements": "Validate that all required parameters are provided: namespace=$plan_parameters__namespace, new_csi_version=$plan_parameters__new_csi_version, nodeSelector=$plan_parameters__node_selector, cluster_name=$plan_parameters__cluster_name. Abort if any of these parameters are missing or empty.",
+      "inputs": ["plan_parameters.namespace", "plan_parameters.new_csi_version", "plan_parameters.node_selector", "plan_parameters.cluster_name"],
+      "outputs": ["parameters_validated"],
+      "step_description": "Check that all required parameters (namespace, new_csi_version, node_selector, cluster_name) are provided before proceeding with the upgrade. Return parameters_validated=true if all parameters exist."
+    },
+    {
+      "name": "create_csi_values_file",
+      "requirements": "Create a csi_values.yaml file with the provided nodeSelector=$plan_parameters__node_selector and cluster_name=$plan_parameters__cluster_name. Ensure that csiDriverName is formatted as '${cluster_name}.weka.io'.",
+      "inputs": ["plan_parameters.node_selector", "plan_parameters.cluster_name"],
+      "outputs": ["values_file_path"],
+      "step_description": "Generate the values file with the following content:\npluginConfig:\n  allowInsecureHttps: true\n  skipGarbageCollection: true\ncontrollerPluginTolerations:\n - operator: Exists\nnodePluginTolerations:\n - operator: Exists\ncontroller:\n  nodeSelector:\n    ${NODE_SELECTOR}\nnode:\n  nodeSelector:\n    ${NODE_SELECTOR}\ncsiDriverName: ${CLUSTER_NAME}.weka.io"
+    },
+    {
+      "name": "construct_helm_upgrade_command",
+      "requirements": "Construct the Helm upgrade command with namespace=$plan_parameters__namespace, new_csi_version=$plan_parameters__new_csi_version, cluster_name=$plan_parameters__cluster_name, and values file path=$create_csi_values_file__values_file_path",
+      "inputs": ["plan_parameters.namespace", "plan_parameters.new_csi_version", "plan_parameters.cluster_name", "create_csi_values_file.values_file_path"],
+      "outputs": ["helm_command"],
+      "step_description": "Build the Helm command in the format: helm upgrade csi-${CLUSTER_NAME} -n ${NAMESPACE} --create-namespace -i https://csi-wekafs-plugin-helm.s3.eu-west-1.amazonaws.com/csi-wekafsplugin-${NEW_CSI_VERSION}.tgz -set logLevel=6 --values csi_values.yaml"
+    },
+    {
+      "name": "execute_helm_upgrade",
+      "requirements": "Execute the Helm upgrade command using the constructed command=$construct_helm_upgrade_command__helm_command",
+      "inputs": ["construct_helm_upgrade_command.helm_command"],
+      "outputs": ["helm_upgrade_executed"],
+      "step_description": "Run the Helm upgrade command and capture the output. This step should use the bash tool to execute the command."
+    },
+    {
+      "name": "validate_csi_pods_running",
+      "requirements": "Verify that all CSI driver pods in the namespace=$plan_parameters__namespace with label release=csi-$plan_parameters__cluster_name are in Running state within 1 minute after upgrade",
+      "inputs": ["plan_parameters.namespace", "plan_parameters.cluster_name"],
+      "outputs": ["pods_running"],
+      "step_description": "Check the status of the pods using kubectl get pods -n ${NAMESPACE} -l release=csi-${CLUSTER_NAME} -o wide command to ensure they are all in the 'Running' state. Retry checking for up to 1 minute with appropriate intervals."
+    },
+    {
+      "name": "verify_node_selector",
+      "requirements": "Verify that the nodeSelector=$plan_parameters__node_selector has been correctly applied to all CSI driver pods in namespace=$plan_parameters__namespace with label release=csi-$plan_parameters__cluster_name",
+      "inputs": ["plan_parameters.namespace", "plan_parameters.cluster_name", "plan_parameters.node_selector"],
+      "outputs": ["node_selector_verified"],
+      "step_description": "Examine the pod configuration using kubectl get pods -n ${NAMESPACE} -l release=csi-${CLUSTER_NAME} -o yaml command to ensure the nodeSelector matches what was specified in both controller and node components."
+    }
+  ],
+  "documentation": "# CSI Driver Upgrade Test\n\nThis test plan validates the CSI driver upgrade process using user-provided parameters.\n\n## Required Parameters:\n- namespace: The Kubernetes namespace where CSI is installed\n- new_csi_version: The new CSI version to upgrade to\n- node_selector: The nodeSelector to apply to all CSI components (controller and node)\n- cluster_name: The name of the weka cluster that the CSI serves\n\n## Process Overview:\n1. Validate all required parameters are provided\n2. Create a csi_values.yaml file with the proper configuration\n3. Construct a Helm upgrade command with all parameters\n4. Execute the Helm upgrade command\n5. Validate that all CSI driver pods are in Running state within 1 minute\n6. Verify that the nodeSelector has been correctly applied to all pods\n\n## Values File Format:\n```yaml\npluginConfig:\n  allowInsecureHttps: true\n  skipGarbageCollection: true\ncontrollerPluginTolerations:\n - operator: Exists\nnodePluginTolerations:\n - operator: Exists\ncontroller:\n  nodeSelector:\n    <user-provided-node-selector>\nnode:\n  nodeSelector:\n    <user-provided-node-selector>\ncsiDriverName: <cluster-name>.weka.io\n```\n\n## Notes:\n- The nodeSelector MUST match values used on the level of wekaClient CR\n- The csiDriverName must follow the format: <cluster-name>.weka.io\n- Helm installation is validated by checking that all pods in the specified namespace with label release=csi-<cluster-name> reach Running state within 1 minute"
+}
