@@ -28,16 +28,6 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		return "", errors.New("cluster stats are not available")
 	}
 
-	// TODO: Deprecate this metric!
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_throughput",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
-			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
-		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "DEPRECATED: Weka clusters throughput",
-	})
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_throughput_bytes_per_second",
 		ValuesByTags: []metrics2.TaggedValue{
@@ -59,18 +49,6 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		Help:      "Weka clusters iops",
 	})
 
-	//TODO: Deprecate this metric! Name does not conform best practices
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_drives",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"status": "desired"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Desired)},
-			{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Active)},
-			{Tags: metrics2.TagMap{"status": "created"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Created)},
-		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "DEPRECATED: Weka cluster drives count, per status",
-	})
-
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_cluster_drives_count",
 		ValuesByTags: []metrics2.TaggedValue{
@@ -80,21 +58,6 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
 		Help:      "Weka cluster drives count, per status",
-	})
-
-	//TODO: Deprecate
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_containers",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Active)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Active)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Desired)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Desired)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Created)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Created)},
-		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "DEPRECATED: Weka containers count, per type and status",
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{

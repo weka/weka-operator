@@ -1160,6 +1160,9 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 }
 
 func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod *v1.Pod) (*v1.Pod, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "findAdjacentNodeAgent", "node", r.container.GetNodeAffinity())
+	defer end()
+
 	agentPods, err := r.getNodeAgentPods(ctx)
 	if err != nil {
 		return nil, errors.New("Failed to get node agent pods")
@@ -1168,12 +1171,18 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 		return nil, errors.New("There are no agent pods on node")
 	}
 
-	if pod == nil {
-		return nil, errors.New("Pod is nil")
+	var targetNodeName string
+	if r.container.GetNodeAffinity() != "" {
+		targetNodeName = string(r.container.GetNodeAffinity())
+	} else {
+		if r.pod == nil {
+			return nil, errors.New("Pod is nil and no affinity on container")
+		}
+		targetNodeName = pod.Spec.NodeName
 	}
 
 	for _, agentPod := range agentPods {
-		if agentPod.Status.NominatedNodeName == pod.Status.NominatedNodeName {
+		if agentPod.Spec.NodeName == targetNodeName {
 			if agentPod.Status.Phase == v1.PodRunning {
 				return &agentPod, nil
 			}

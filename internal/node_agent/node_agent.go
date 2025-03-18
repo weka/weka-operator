@@ -252,24 +252,6 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			if container.containerStateLastPull.Add(5 * time.Minute).Before(time.Now()) {
 				continue
 			}
-
-			promResponse.AddMetric(metrics2.PromMetric{
-				Metric: "weka_processes",
-				Help:   "Weka processes",
-			},
-				[]metrics2.TaggedValue{
-					{
-						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
-						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
-						Timestamp: container.containerStateLastPull,
-					},
-					{
-						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
-						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
-						Timestamp: container.containerStateLastPull,
-					},
-				},
-			)
 			promResponse.AddMetric(metrics2.PromMetric{
 				Metric: "weka_processes_count",
 				Help:   "Weka processes counter by state up/down",
@@ -307,17 +289,6 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 						value = *cpuLoad.Value
 					}
 				}
-
-				promResponse.AddMetric(metrics2.PromMetric{
-					Metric: "weka_cpu_utilization",
-					Help:   "DEPRECATED: Weka container CPU utilization",
-				}, []metrics2.TaggedValue{
-					{
-						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"process_id": processIdStr}),
-						Value:     value,
-						Timestamp: container.cpuInfoLastPoll,
-					},
-				})
 
 				promResponse.AddMetric(metrics2.PromMetric{
 					Metric: "weka_cpu_utilization_percent",
