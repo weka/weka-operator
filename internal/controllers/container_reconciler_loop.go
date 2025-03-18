@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weka/weka-operator/internal/controllers/operations/umount"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
@@ -34,11 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -198,16 +197,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.GetNode},
+			{Run: loop.refreshPod},
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
-			{
-				Run:  lifecycle.ForceNoError(loop.refreshPod),
-				Name: "RefreshPod",
-				Predicates: lifecycle.Predicates{
-					container.IsMarkedForDeletion,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			{
 				Run: lifecycle.ForceNoError(loop.ensurePod),
 				Predicates: lifecycle.Predicates{
@@ -421,7 +413,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
-			{Run: loop.refreshPod},
 			{
 				Run: loop.updatePodLabelsOnChange,
 				Predicates: lifecycle.Predicates{
