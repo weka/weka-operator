@@ -22,7 +22,7 @@ func BuildClientContainerLabels(client *weka.WekaClient) map[string]string {
 		labels[domain.WekaLabelTargetClusterName] = client.Spec.TargetCluster.Name
 	}
 
-	return util.MergeMaps(labels, client.ObjectMeta.GetLabels())
+	return util.MergeMaps(client.ObjectMeta.GetLabels(), labels)
 }
 
 func RequiredAnyWekaContainerLabels(role string) map[string]string {
