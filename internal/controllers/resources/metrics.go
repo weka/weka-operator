@@ -98,7 +98,21 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_containers_count",
+		Metric: "weka_cluster_processes_count",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Active)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Active)},
+			{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Desired)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Desired)},
+			{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Created)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Created)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "Weka containers count, per type and status",
+	})
+
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_cluster_containers_count",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Active)},
 			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Active)},
@@ -114,7 +128,7 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 
 	alertsVal := float64(cluster.Status.Stats.AlertsCount)
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_alerts_count",
+		Metric: "weka_cluster_alerts_count",
 		Value:  &alertsVal,
 	})
 
@@ -148,7 +162,7 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		})
 	}
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric:       "weka_protection_level",
+		Metric:       "weka_cluster_protection_level",
 		ValuesByTags: rebuildTaggedValues,
 	})
 
