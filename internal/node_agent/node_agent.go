@@ -87,7 +87,6 @@ type RegisterContainerPayload struct {
 	Labels            map[string]string `json:"labels"`
 	Mode              string            `json:"mode"`
 	ScrapeTargets     []ScrapeTarget    `json:"scrape_targets"`
-	WekaClusterName   string            `json:"weka_cluster_name"`
 }
 
 type ProcessSummary struct {
@@ -225,6 +224,10 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				"container_name": container.containerName,
 				"mode":           container.mode,
 			})
+		if container.mode == weka.WekaContainerModeClient {
+			//containerLabels[domain] = container.containerName
+			containerLabels["weka_io_cluster_name"] = defaultLabels["weka_io_target_cluster_name"]
+		}
 
 		for _, target := range container.scrapeTargets {
 			if container.scrappedData == nil {
@@ -874,7 +877,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 						"fs_name":    processed.FsName,
 						"process_id": strconv.Itoa(processed.NodeId),
 					}),
-					Value:     processed.Value * 1000 * 1000, // microseconds to seconds
+					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
 					Timestamp: container.statsResponseLastPoll,
 				})
 			}

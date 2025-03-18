@@ -200,13 +200,13 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 		return nil
 	}
 
-	nodeToContainer := make(map[string]string)
+	nodeToContainer := make(map[string]*weka.WekaContainer)
 	for _, container := range c.containers {
 		nodeName := string(container.Spec.NodeAffinity)
-		nodeToContainer[nodeName] = container.Name
+		nodeToContainer[nodeName] = container
 	}
 
-	toCreate := []*weka.WekaContainer{}
+	toUpdate := []*weka.WekaContainer{}
 	for _, node := range c.nodes {
 		if _, ok := nodeToContainer[node.Name]; ok {
 			continue
@@ -215,11 +215,11 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 			if err != nil {
 				return errors.Wrap(err, "failed to build client weka container")
 			}
-			toCreate = append(toCreate, wekaContainer)
+			toUpdate = append(toUpdate, wekaContainer)
 		}
 	}
 
-	return workers.ProcessConcurrently(ctx, toCreate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
+	return workers.ProcessConcurrently(ctx, toUpdate, 32, func(ctx context.Context, wekaContainer *weka.WekaContainer) error {
 		err := ctrl.SetControllerReference(c.wekaClient, wekaContainer, c.Scheme)
 		if err != nil {
 			return errors.Wrap(err, "failed to set controller reference")
@@ -314,8 +314,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		}
 	}
 
-	containerLabels := factory.RequiredWekaClientLabels(wekaClient.ObjectMeta.Name)
-	labels := util2.MergeMaps(wekaClient.ObjectMeta.GetLabels(), containerLabels)
+	labels := factory.BuildClientContainerLabels(wekaClient)
 
 	container := &weka.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -412,7 +411,7 @@ func (c *clientReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	updatableSpec := NewUpdatableClientSpec(&c.wekaClient.Spec, &c.wekaClient.ObjectMeta)
+	updatableSpec := NewUpdatableClientSpec(c.wekaClient)
 	specHash, err := util2.HashStruct(updatableSpec)
 	if err != nil {
 		return err
@@ -550,8 +549,8 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	// desired labels = client's labels + required labels
 	// priority-wise, required labels have the highest priority
-	requiredLables := factory.RequiredWekaClientLabels(c.wekaClient.ObjectMeta.Name)
-	newLabels := util2.MergeMaps(c.wekaClient.ObjectMeta.GetLabels(), requiredLables)
+	newLabels := factory.BuildClientContainerLabels(c.wekaClient)
+	logger.Info("aligning labels", "newLabels", newLabels, "oldLabels", container.Labels)
 	if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
 		container.Labels = newLabels
 		changed = true
@@ -709,8 +708,9 @@ type UpdatableClientSpec struct {
 	UmountOnHost       bool
 }
 
-func NewUpdatableClientSpec(spec *weka.WekaClientSpec, meta *metav1.ObjectMeta) *UpdatableClientSpec {
-	labels := util2.NewHashableMap(meta.Labels)
+func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
+	labels := util2.NewHashableMap(factory.BuildClientContainerLabels(client))
+	spec := client.Spec
 
 	return &UpdatableClientSpec{
 		DriversDistService: spec.DriversDistService,
