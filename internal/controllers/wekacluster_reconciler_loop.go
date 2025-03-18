@@ -1730,6 +1730,7 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	cluster.Status.Stats.IoStats.Iops.Total = wekav1alpha1.IntMetric(int64(wekaStatus.Activity.NumOps))
 	cluster.Status.Stats.AlertsCount = wekav1alpha1.IntMetric(wekaStatus.ActiveAlertsCount)
 	cluster.Status.Stats.ClusterStatus = wekav1alpha1.StringMetric(wekaStatus.Status)
+	cluster.Status.Stats.ClusterStatus = wekav1alpha1.StringMetric(wekaStatus.Status)
 	cluster.Status.Stats.NumFailures = map[string]wekav1alpha1.FloatMetric{} // resetting every time as some keys might go away
 	for _, rebuildDetails := range wekaStatus.Rebuild.ProtectionState {
 		cluster.Status.Stats.NumFailures[strconv.Itoa(rebuildDetails.NumFailures)] = wekav1alpha1.NewFloatMetric(rebuildDetails.Percent)
@@ -1892,7 +1893,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	if err != nil {
 		return err
 	}
-	data, err := resources.BuildClusterPrometheusMetrics(r.cluster)
+	data, err := resources.BuildClusterPrometheusMetrics(ctx, r.cluster)
 	if err != nil {
 		return err
 	}

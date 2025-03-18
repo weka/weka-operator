@@ -87,6 +87,7 @@ type RegisterContainerPayload struct {
 	Labels            map[string]string `json:"labels"`
 	Mode              string            `json:"mode"`
 	ScrapeTargets     []ScrapeTarget    `json:"scrape_targets"`
+	WekaClusterName   string            `json:"weka_cluster_name"`
 }
 
 type ProcessSummary struct {
@@ -266,6 +267,23 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 					},
 				},
 			)
+			promResponse.AddMetric(metrics2.PromMetric{
+				Metric: "weka_processes_count",
+				Help:   "DEPRECATED: Weka processes",
+			},
+				[]metrics2.TaggedValue{
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
+						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
+						Timestamp: container.containerStateLastPull,
+					},
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
+						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
+						Timestamp: container.containerStateLastPull,
+					},
+				},
+			)
 
 			for nodeIdStr, cpuLoad := range container.cpuInfo.Result {
 				// do we care about the node id? should we report per node or containers totals? will stay with totals for now
@@ -289,6 +307,17 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 
 				promResponse.AddMetric(metrics2.PromMetric{
 					Metric: "weka_cpu_utilization",
+					Help:   "DEPRECATED: Weka container CPU utilization",
+				}, []metrics2.TaggedValue{
+					{
+						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"process_id": processIdStr}),
+						Value:     value,
+						Timestamp: container.cpuInfoLastPoll,
+					},
+				})
+
+				promResponse.AddMetric(metrics2.PromMetric{
+					Metric: "weka_cpu_utilization_percent",
 					Help:   "Weka container CPU utilization",
 				}, []metrics2.TaggedValue{
 					{
@@ -795,7 +824,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			// we first build taggedValues as a proxy, and then doing another pass to summarize dropping one tag and groupping by rest of tags
 
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_reads",
+				Metric: "weka_fs_read_requests_total",
 				Help:   "Number of reads per weka filesystem",
 				Type:   "counter",
 			}, reducedTaggedValues)
@@ -814,7 +843,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			}
 			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_writes",
+				Metric: "weka_fs_write_requests_total",
 				Help:   "Number of writes per weka filesystem",
 				Type:   "counter",
 			}, reducedTaggedValues)
@@ -833,7 +862,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			}
 			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_read_latency",
+				Metric: "weka_fs_read_seconds_total",
 				Help:   "Total read latency per weka filesystem, divide by reads to get average",
 			}, reducedTaggedValues)
 		case CategoryStat{Stat: "WRITE_LATENCY", Category: "fs_stats"}:
@@ -845,13 +874,13 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 						"fs_name":    processed.FsName,
 						"process_id": strconv.Itoa(processed.NodeId),
 					}),
-					Value:     processed.Value,
+					Value:     processed.Value * 1000 * 1000, // microseconds to seconds
 					Timestamp: container.statsResponseLastPoll,
 				})
 			}
 			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_write_latency",
+				Metric: "weka_fs_write_seconds_total",
 				Help:   "Total write latency per weka filesystem, divide by writes to get average",
 			}, reducedTaggedValues)
 		case CategoryStat{Stat: "READ_BYTES", Category: "fs_stats"}:
@@ -869,7 +898,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			}
 			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_read_bytes",
+				Metric: "weka_fs_read_bytes_total",
 				Help:   "Total read bytes per weka filesystem",
 				Type:   "counter",
 			}, reducedTaggedValues)
@@ -888,7 +917,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			}
 			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_write_bytes",
+				Metric: "weka_fs_write_bytes_total",
 				Help:   "Total write bytes per weka filesystem",
 				Type:   "counter",
 			}, reducedTaggedValues)
@@ -904,7 +933,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				})
 			}
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_port_tx_bytes",
+				Metric: "weka_port_tx_bytes_total",
 				Help:   "Total bytes transmitted per weka node",
 				Type:   "counter",
 			}, taggedValues)
@@ -920,7 +949,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				})
 			}
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_port_rx_bytes",
+				Metric: "weka_port_rx_bytes_total",
 				Help:   "Total bytes received per weka node",
 				Type:   "counter",
 			}, taggedValues)
@@ -940,7 +969,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				})
 			}
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_read_ops",
+				Metric: "weka_drive_read_requests_total",
 				Help:   "Total read operations per weka drive",
 				Type:   "counter",
 			}, taggedValues)
@@ -960,7 +989,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				})
 			}
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_write_ops",
+				Metric: "weka_drive_write_requests_total",
 				Help:   "Total write operations per weka drive",
 				Type:   "counter",
 			}, taggedValues)

@@ -1,8 +1,11 @@
 package resources
 
 import (
+	"context"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/pkg/util"
 	"slices"
 	"strings"
 
@@ -10,7 +13,9 @@ import (
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 )
 
-func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error) {
+func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster) (string, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BuildClusterPrometheusMetrics")
+	defer end()
 	metrics := []metrics2.PromMetric{}
 
 	commonTags := map[string]string{
@@ -23,8 +28,18 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 		return "", errors.New("cluster stats are not available")
 	}
 
+	// TODO: Deprecate this metric!
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_throughput",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
+			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "DEPRECATED: Weka clusters throughput",
+	})
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_throughput_bytes_per_second",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
 			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
@@ -41,8 +56,10 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 			{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "Weka clusters iops",
 	})
 
+	//TODO: Deprecate this metric! Name does not conform best practices
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_cluster_drives",
 		ValuesByTags: []metrics2.TaggedValue{
@@ -51,8 +68,21 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 			{Tags: metrics2.TagMap{"status": "created"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Created)},
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "DEPRECATED: Weka cluster drives count, per status",
 	})
 
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_cluster_drives_count",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"status": "desired"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Desired)},
+			{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Active)},
+			{Tags: metrics2.TagMap{"status": "created"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Created)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "Weka cluster drives count, per status",
+	})
+
+	//TODO: Deprecate
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_containers",
 		ValuesByTags: []metrics2.TaggedValue{
@@ -64,32 +94,50 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Created)},
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "DEPRECATED: Weka containers count, per type and status",
+	})
+
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_containers_count",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Active)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Active)},
+			{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Desired)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Desired)},
+			{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Created)},
+			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Created)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "Weka containers count, per type and status",
 	})
 	// TODO: Conditionally add s3/nfs
 
-	val := float64(cluster.Status.Stats.AlertsCount)
+	alertsVal := float64(cluster.Status.Stats.AlertsCount)
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric:       "weka_alerts_count",
-		ValuesByTags: []metrics2.TaggedValue{},
-		Value:        &val,
+		Metric: "weka_alerts_count",
+		Value:  &alertsVal,
 	})
 
+	clusterStatusVal := 0.0
 	if slices.Contains([]string{
 		"OK",
 		"REDISTRIBUTING",
 		"REBUILDING",
 	}, string(cluster.Status.Stats.ClusterStatus)) {
-		val = 1.0
+		clusterStatusVal = 1.0
 	} else {
-		val = 0.0
+		clusterStatusVal = 0.0
 	}
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_cluster_status",
-		Tags: metrics2.TagMap{
-			"status": string(cluster.Status.Stats.ClusterStatus),
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{
+				"status":    string(cluster.Status.Stats.ClusterStatus),
+				"cr_status": string(cluster.Status.Status),
+			}, Value: clusterStatusVal},
 		},
-		Value: &val,
 	})
+	logger.Info("cluster statuses", "cluster_status", cluster.Status.Stats.ClusterStatus, "cr_status", cluster.Status.Status)
 
 	rebuildTaggedValues := []metrics2.TaggedValue{}
 	for rebuildType, rebuildValue := range cluster.Status.Stats.NumFailures {
@@ -105,7 +153,7 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_capacity",
+		Metric: "weka_cluster_capacity_bytes",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "total"}, Value: float64(cluster.Status.Stats.Capacity.TotalBytes)},
 			{Tags: metrics2.TagMap{"type": "unprovisioned"}, Value: float64(cluster.Status.Stats.Capacity.UnprovisionedBytes)},
@@ -115,7 +163,7 @@ func BuildClusterPrometheusMetrics(cluster *v1alpha1.WekaCluster) (string, error
 	})
 
 	for i, _ := range metrics {
-		metrics[i].Tags = commonTags
+		metrics[i].Tags = util.MergeMaps(metrics[i].Tags, commonTags)
 		if metrics[i].Timestamp.IsZero() {
 			metrics[i].Timestamp = cluster.Status.Stats.LastUpdate.Time
 		}
