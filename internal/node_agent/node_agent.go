@@ -272,7 +272,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			)
 			promResponse.AddMetric(metrics2.PromMetric{
 				Metric: "weka_processes_count",
-				Help:   "DEPRECATED: Weka processes",
+				Help:   "Weka processes counter by state up/down",
 			},
 				[]metrics2.TaggedValue{
 					{
