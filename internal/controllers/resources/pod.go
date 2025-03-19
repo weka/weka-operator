@@ -951,6 +951,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	var cpuRequestStr string
 	var cpuLimitStr string
 
+	resources := f.container.Spec.Resources
+	if f.container.Spec.Resources == nil {
+		resources = &wekav1alpha1.PodResourcesSpec{}
+	}
+
 	switch cpuPolicy {
 	case wekav1alpha1.CpuPolicyDedicatedHT:
 		totalCores := totalNumCores*2 + 1
@@ -974,16 +979,16 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case wekav1alpha1.CpuPolicyManual:
-		if f.container.Spec.Resources.Limits.Cpu.IsZero() {
+		if resources.Limits.Cpu.IsZero() {
 			cpuLimitStr = fmt.Sprintf("%dm", 1000*(totalNumCores+1))
 			cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
 		} else {
-			cpuLimitStr = f.container.Spec.Resources.Limits.Cpu.String()
-			cpuRequestStr = f.container.Spec.Resources.Requests.Cpu.String()
+			cpuLimitStr = resources.Limits.Cpu.String()
+			cpuRequestStr = resources.Requests.Cpu.String()
 		}
 	case wekav1alpha1.CpuPolicyShared:
-		cpuLimitStr = f.container.Spec.Resources.Limits.Cpu.String()
-		cpuRequestStr = f.container.Spec.Resources.Requests.Cpu.String()
+		cpuLimitStr = resources.Limits.Cpu.String()
+		cpuRequestStr = resources.Requests.Cpu.String()
 	}
 
 	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
@@ -1027,11 +1032,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		managementMemory := 1965
 		perFrontendMemory := 3050
 		buffer := 2000
-		if f.container.Spec.Resources.Requests.Memory.IsZero() {
+		if resources.Requests.Memory.IsZero() {
 			memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 		} else {
-			memRequest = f.container.Spec.Resources.Requests.Memory.String()
-			memLimit = f.container.Spec.Resources.Limits.Memory.String()
+			memRequest = resources.Requests.Memory.String()
+			memLimit = resources.Limits.Memory.String()
 		}
 	}
 
