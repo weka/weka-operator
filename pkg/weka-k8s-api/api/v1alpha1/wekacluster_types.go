@@ -312,6 +312,8 @@ type WekaClusterSpecOverrides struct {
 	PostFormClusterScript string `json:"postFormClusterScript,omitempty"`
 	// unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel
 	UpgradeForceReplace bool `json:"upgradeForceReplace,omitempty"`
+	// unsafe operation, skips graceful stop of drive weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel
+	UpgradeForceReplaceDrives bool `json:"upgradeForceReplaceDrives,omitempty"`
 	// unsafe operation, should not be used unless instructed explicitly by weka personnel
 	UpgradeAllAtOnce bool `json:"upgradeAllAtOnce,omitempty"`
 }
