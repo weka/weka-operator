@@ -43,12 +43,13 @@ wekaclient will expand into set of wekacontainer with weka.io/mode=client
 once containers provisioned, they will be able to mount filesystems from wekacluster, assuming there is a matching CSI
 wekaclient's wekacontainer's and pods can be found by labels:
 `weka.io/client-name: wekaclient_cr_name` + `weka.io/mode: client`
-Note: wekaclient provisioned weka containers do not have weka.io/cluster-id label, as it's not part of cluster, but instead references the cluster
-Filtering of wekaclient containers should be done only by weka.io/client-name=WEKACLIENT_RESOURCE_NAME and weka.io/model=client labels
+Note: wekaclient provisioned weka containers do not have weka.io/cluster-name label, as it's not part of cluster, but instead references the cluster
+Filtering of wekaclient containers could be done by weka.io/client-name=WEKACLIENT_RESOURCE_NAME and weka.io/model=client labels
+In case wekaclient relied on targetCluster (using JoinIps is a rare alternative), wekaclient resource will also have weka.io/target-cluster-name label, which can be used to find cluster's client containers
 
-Wekaclient itself does not have explicit status field that indicates health, instead wekacontainers should be polled, or wide status field can be used:
+Wekaclient itself does not have explicit status field that indicates health, instead wekacontainers should be polled, or wide status field can be used to get summaries:
 ```
-kubectl  get wekaclient -o wide -n infra weka-infra-clients                                                                                                                   [10:18:36]
+kubectl  get wekaclient -o wide -n infra weka-infra-clients
 NAME                 STATUS   TARGET CLUSTER   CORES   JOIN IPS   CONTAINERS(A/C/D)
 weka-infra-clients            weka-infra       1                  4/4/4
 ```
@@ -71,7 +72,7 @@ Containers is a part of status in printer, which consist of aggregated counter m
 
 To install CSI driver
 ```bash
-helm upgrade csi-CLUSTER_NAME -n NAMESPACE --create-namespace -i  https://csi-wekafs-plugin-helm.s3.eu-west-1.amazonaws.com/csi-wekafsplugin-2.7.1-sergeyperfilesystemencryption.30.45d78cf.tgz -set logLevel=6 --values csi_values.yaml
+helm upgrade csi-CLUSTER_NAME -n NAMESPACE --create-namespace -i  https://github.com/weka/csi-wekafs/releases/download/v2.7.1/csi-wekafsplugin-2.7.1.tgz -set logLevel=6 --values csi_values.yaml
 ```
 
 csi_values.yaml should be formed as such:

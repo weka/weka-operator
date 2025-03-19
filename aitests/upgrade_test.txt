@@ -1,13 +1,23 @@
 Test goal:
-    - validate that cluster can be provisioned and deleted
+    - validate that cluster can be provisioned and upgraded to newer version
 Test scenario
-    - provision a wekacluster CR, 6 compute and 6 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare, 5 leadership raft and 5 buckets raft, 14 minDrive startio condition
-    - delete a provisioned cluster after it reached Ready state, and ensure it was fully deleted, rely on --wait=false and poll for status/existence, wait up to 5 minutes for deletion, if not deleted - abort the test
+    - provision a wekacluster CR, 8 compute and 8 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare
+        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
+        - set overrides.upgradeForceReplaceDrives=true on wekacluster CR
+    - provision clients
+        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
+    - provision csi and workload
+    - upgrade cluster
+        - in the same patch that will change an image - also change subnets, should update from single subnet 10.200.0.0/16 to 10.200.0.0/16 + 10.100.0.0/16
+    - set taints, upgrade clients
 
 Testing notes:
-- do not delete wekacluster after test execution regardless of results, unless asked explicitly
-- do not delete any k8s resource as part of this testing AIMUST
 - this tests run on physical environment, use 10.200.0.0/16 subnet for testing
-- use weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id> to filter compute and drive containers
-    - cluster id references to kubernetes metadata.uid
-- use nodeSelector user parameter for as node selector for all objects so no resources will be provisioned on nodes that do not match this selector
+- use weka.io/upgrade taint/toleration to have a mechanism to evict load but not evict wekacluster/wekaclient pods
+- ensure that user provided newVersion and oldVersion parameters and use them
+
+Required user parameters to validate and use:
+ - nodeSelector, to use for provisioning all resources, no nodes should be touched outside of this nodeselector and no resources should be provisioned that are not using this nodeselector
+ - initialVersion, to provision cluster with
+ - newVersion, to upgrade wekacluster and wekaclient to this version
+ - namespace to use for testing, if namespace is not provided - autogenerate one with test- prefix, even if user provided it might not exist and you should create it

@@ -1,0 +1,118 @@
+{
+  "name": "weka_cluster_provision_and_upgrade_test",
+  "description": "Validate that a Weka cluster can be provisioned and upgraded to a newer version on physical environment",
+  "steps": [
+    {
+      "name": "prepare_namespace",
+      "requirements": "Determine and create namespace for testing. If $plan_parameters__namespace is provided, use it; otherwise generate one with 'test-' prefix and random suffix. Verify if namespace exists and create it if needed.",
+      "inputs": ["plan_parameters.namespace"],
+      "outputs": ["namespace"],
+      "step_description": "Create or validate a namespace that will be used for all test resources"
+    },
+    {
+      "name": "generate_cluster_name",
+      "requirements": "Generate a unique cluster name starting with 'test-' and including 'upgrade' in the name for identifying all resources in this test. The name should conform to K8s resource naming conventions.",
+      "outputs": ["cluster_name"],
+      "step_description": "Generate a unique name that will be used for the cluster and related resources throughout the test"
+    },
+    {
+      "name": "provision_weka_cluster",
+      "requirements": "Create and apply a WekaCluster CR with the following specifications:\n- Use $generate_cluster_name__cluster_name for the name\n- Use $prepare_namespace__namespace for the namespace\n- Configure with 8 compute and 8 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare\n- Set toleration for all effects of weka.io/upgrade taint using rawTolerations field\n- Set overrides.upgradeForceReplaceDrives=true\n- Use $plan_parameters__initialVersion for the image (prepend quay.io/weka.io/weka-in-container: if repository not specified)\n- Use $plan_parameters__nodeSelector for node selection\n- Configure network.deviceSubnets with 10.200.0.0/16 for the physical environment",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.nodeSelector", "plan_parameters.initialVersion"],
+      "outputs": ["wekacluster_yaml", "wekacluster_applied"],
+      "step_description": "Provision a Weka cluster with the specified configuration in the test namespace"
+    },
+    {
+      "name": "wait_for_cluster_ready",
+      "requirements": "Monitor the WekaCluster status in $prepare_namespace__namespace with name $generate_cluster_name__cluster_name and wait for it to become 'Ready'. Poll the status periodically for up to 10 minutes. If status does not reach 'Ready' within 10 minutes, consider it failed.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name"],
+      "outputs": ["cluster_ready"],
+      "step_description": "Poll the WekaCluster status until it reaches 'Ready' state or times out after 10 minutes"
+    },
+    {
+      "name": "provision_weka_clients",
+      "requirements": "Create and apply a WekaClient CR with the following specifications:\n- Use $generate_cluster_name__cluster_name-clients for the name\n- Use $prepare_namespace__namespace for the namespace\n- Set toleration for all effects of weka.io/upgrade taint using rawTolerations field\n- Use $plan_parameters__initialVersion for the image (prepend quay.io/weka.io/weka-in-container: if repository not specified)\n- Use $plan_parameters__nodeSelector for node selection\n- Target the provisioned WekaCluster using $generate_cluster_name__cluster_name\n- Configure network.deviceSubnets with 10.200.0.0/16 for the physical environment",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.nodeSelector", "plan_parameters.initialVersion"],
+      "outputs": ["wekaclient_yaml", "wekaclient_applied"],
+      "step_description": "Provision Weka clients with tolerations for weka.io/upgrade taint that connect to the provisioned cluster"
+    },
+    {
+      "name": "wait_for_clients_ready",
+      "requirements": "Verify that the WekaClient containers in $prepare_namespace__namespace with name $generate_cluster_name__cluster_name-clients are active and connected. Check that CONTAINERS(A/C/D) column shows desired containers are active and created.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name"],
+      "outputs": ["clients_ready"],
+      "step_description": "Check that the desired client containers are active and created"
+    },
+    {
+      "name": "provision_csi_driver",
+      "requirements": "Install CSI driver for the Weka cluster in $prepare_namespace__namespace using helm. Create csi_values.yaml with:\n- Controller and node nodeSelector matching $plan_parameters__nodeSelector\n- CSI driver name as $generate_cluster_name__cluster_name.weka.io\n- Tolerations configured properly\nInstall using helm and verify that all pods with label release=csi-$generate_cluster_name__cluster_name reach Running state within 1 minute.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.nodeSelector"],
+      "outputs": ["csi_installed"],
+      "step_description": "Install and verify CSI driver for the Weka cluster"
+    },
+    {
+      "name": "create_storage_class",
+      "requirements": "Create and apply a StorageClass for the Weka cluster with name weka-$generate_cluster_name__cluster_name-forcedirect in $prepare_namespace__namespace. Configure all secret references to use weka-csi-$generate_cluster_name__cluster_name and provisioner to use $generate_cluster_name__cluster_name.weka.io.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name"],
+      "outputs": ["storage_class_created"],
+      "step_description": "Create a storage class for the Weka CSI driver"
+    },
+    {
+      "name": "create_pvc",
+      "requirements": "Create and apply a PVC named $generate_cluster_name__cluster_name-goader-pvc in $prepare_namespace__namespace using storageClassName weka-$generate_cluster_name__cluster_name-forcedirect. Request 500Gi storage with ReadWriteMany access mode. Verify that PVC is bound within 2 minutes.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name"],
+      "outputs": ["pvc_created", "pvc_bound"],
+      "step_description": "Create and verify a PVC for testing"
+    },
+    {
+      "name": "create_workload",
+      "requirements": "Create and apply a DaemonSet workload named goader-smallios-$generate_cluster_name__cluster_name in $prepare_namespace__namespace. Configure it to use the created PVC, use $plan_parameters__nodeSelector, and set appropriate labels. Verify that pods reach Running state.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.nodeSelector"],
+      "outputs": ["workload_created", "workload_running"],
+      "step_description": "Create a workload that uses the PVC for testing I/O"
+    },
+    {
+      "name": "upgrade_weka_cluster",
+      "requirements": "Patch the WekaCluster CR $generate_cluster_name__cluster_name in $prepare_namespace__namespace to update image to $plan_parameters__newVersion and change network.deviceSubnets to include both 10.200.0.0/16 and 10.100.0.0/16. Use kubectl patch with merge strategy.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.newVersion"],
+      "outputs": ["cluster_upgrade_initiated"],
+      "step_description": "Update the cluster image and add a subnet to initiate the upgrade process"
+    },
+    {
+      "name": "verify_cluster_upgrade",
+      "requirements": "Monitor the upgrade progress by polling WekaContainer images in $prepare_namespace__namespace with label weka.io/cluster-name=$generate_cluster_name__cluster_name. Verify that the IMAGE column for all WekaContainers eventually updates to $plan_parameters__newVersion. If no pods are recreated within 10 minutes, consider the upgrade failed.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.newVersion"],
+      "outputs": ["cluster_upgrade_verified"],
+      "step_description": "Monitor and verify the cluster upgrade process"
+    },
+    {
+      "name": "apply_taints",
+      "requirements": "Apply the weka.io/upgrade taint with NoSchedule and NoExecute effects to all nodes matching $plan_parameters__nodeSelector. This will evict the workload pods but not the Weka pods due to the tolerations configured earlier.",
+      "inputs": ["plan_parameters.nodeSelector"],
+      "outputs": ["nodes_tainted"],
+      "step_description": "Apply taints to nodes to test the toleration mechanism during upgrade"
+    },
+    {
+      "name": "upgrade_weka_clients",
+      "requirements": "Patch the WekaClient CR $generate_cluster_name__cluster_name-clients in $prepare_namespace__namespace to update image to $plan_parameters__newVersion. Use kubectl patch with merge strategy.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.newVersion"],
+      "outputs": ["client_upgrade_initiated"],
+      "step_description": "Update the client image to initiate the client upgrade process"
+    },
+    {
+      "name": "verify_client_upgrade",
+      "requirements": "Monitor the client upgrade by checking WekaContainer images in $prepare_namespace__namespace with labels weka.io/client-name=$generate_cluster_name__cluster_name-clients and weka.io/mode=client. Verify that the IMAGE column for all client WekaContainers updates to $plan_parameters__newVersion.",
+      "inputs": ["prepare_namespace.namespace", "generate_cluster_name.cluster_name", "plan_parameters.newVersion"],
+      "outputs": ["client_upgrade_verified"],
+      "step_description": "Monitor and verify the client upgrade process"
+    },
+    {
+      "name": "remove_taints",
+      "requirements": "Remove the weka.io/upgrade taint from all nodes matching $plan_parameters__nodeSelector. This will allow the workload pods to be rescheduled.",
+      "inputs": ["plan_parameters.nodeSelector"],
+      "outputs": ["taints_removed"],
+      "step_description": "Remove taints from nodes to complete the test"
+    }
+  ],
+  "documentation": "## Prerequisites\n\n- Kubernetes cluster access configured for `kubectl`.\n- User parameters: `nodeSelector`, `initialVersion`, `newVersion`, and optionally `namespace`.\n\n## Namespace Handling\n\n- If `namespace` is provided, use it.\n- If no `namespace` is provided, generate one with the `test-` prefix.\n- If the namespace does not exist, create it using `kubectl create namespace <NAMESPACE>`.\n\n## WekaCluster Configuration\n\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: <CLUSTER_NAME>\n  namespace: <NAMESPACE>\nspec:\n  template: dynamic\n  gracefulDestroyDuration: 0s\n  dynamicTemplate:\n    computeContainers: 8\n    driveContainers: 8\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n    stripeWidth: 3\n    redundancyLevel: 2\n    hotSpare: 1\n  overrides:\n    upgradeForceReplaceDrives: true\n  image: <initialVersion>\n  nodeSelector: <nodeSelector>\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n  rawTolerations:\n    - key: \"weka.io/upgrade\"\n      operator: \"Exists\"\n      effect: \"NoSchedule\"\n    - key: \"weka.io/upgrade\"\n      operator: \"Exists\"\n      effect: \"NoExecute\"\n```\n\n## WekaClient Configuration\n\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaClient\nmetadata:\n  name: <CLUSTER_NAME>-clients\n  namespace: <NAMESPACE>\nspec:\n  image: <initialVersion>\n  imagePullSecret: \"quay-io-robot-secret\"\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  portRange:\n    basePort: 45000\n  nodeSelector: <nodeSelector>\n  wekaSecretRef: weka-client-<CLUSTER_NAME>\n  targetCluster:\n    name: <CLUSTER_NAME>\n    namespace: <NAMESPACE>\n  coresNum: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n  rawTolerations:\n    - key: \"weka.io/upgrade\"\n      operator: \"Exists\"\n      effect: \"NoSchedule\"\n    - key: \"weka.io/upgrade\"\n      operator: \"Exists\"\n      effect: \"NoExecute\"\n```\n\n## CSI and Storage Configuration\n\n### CSI Values YAML\n```yaml\npluginConfig:\n  allowInsecureHttps: true\n  skipGarbageCollection: true\ncontrollerPluginTolerations:\n - operator: Exists\nnodePluginTolerations:\n - operator: Exists\ncontroller:\n  nodeSelector:\n    \"<nodeSelector_key>\": \"<nodeSelector_value>\"\nnode:\n  nodeSelector:\n    \"<nodeSelector_key>\": \"<nodeSelector_value>\"\ncsiDriverName: <CLUSTER_NAME>.weka.io\n```\n\n### StorageClass YAML\n```yaml\nallowVolumeExpansion: true\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: weka-<CLUSTER_NAME>-forcedirect\nparameters:\n  capacityEnforcement: HARD\n  csi.storage.k8s.io/controller-expand-secret-name: weka-csi-<CLUSTER_NAME>\n  csi.storage.k8s.io/controller-expand-secret-namespace: <NAMESPACE>\n  csi.storage.k8s.io/controller-publish-secret-name: weka-csi-<CLUSTER_NAME>\n  csi.storage.k8s.io/controller-publish-secret-namespace: <NAMESPACE>\n  csi.storage.k8s.io/node-publish-secret-name: weka-csi-<CLUSTER_NAME>\n  csi.storage.k8s.io/node-publish-secret-namespace: <NAMESPACE>\n  csi.storage.k8s.io/node-stage-secret-name: weka-csi-<CLUSTER_NAME>\n  csi.storage.k8s.io/node-stage-secret-namespace: <NAMESPACE>\n  csi.storage.k8s.io/provisioner-secret-name: weka-csi-<CLUSTER_NAME>\n  csi.storage.k8s.io/provisioner-secret-namespace: <NAMESPACE>\n  filesystemName: default\n  mountOptions: forcedirect\n  volumeType: dir/v1\nprovisioner: <CLUSTER_NAME>.weka.io\nreclaimPolicy: Delete\nvolumeBindingMode: Immediate\n```\n\n### PVC YAML\n```yaml\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: <CLUSTER_NAME>-goader-pvc\n  namespace: <NAMESPACE>\nspec:\n  accessModes:\n    - ReadWriteMany\n  storageClassName: weka-<CLUSTER_NAME>-forcedirect\n  resources:\n    requests:\n      storage: 500Gi\n```\n\n### Workload DaemonSet YAML\n```yaml\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: goader-smallios-<CLUSTER_NAME>\n  namespace: <NAMESPACE>\n  labels:\n    app: goader-smallios-<CLUSTER_NAME>\n    cluster: <CLUSTER_NAME>\nspec:\n  updateStrategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxUnavailable: 100%\n  selector:\n    matchLabels:\n      app: goader-smallios-<CLUSTER_NAME>\n      cluster: <CLUSTER_NAME>\n  template:\n    metadata:\n      labels:\n        app: goader-smallios-<CLUSTER_NAME>\n        cluster: <CLUSTER_NAME>\n    spec:\n      nodeSelector: <nodeSelector>\n      containers:\n        - name: goader\n          imagePullPolicy: Always\n          image: public.ecr.aws/weka/goader:latest\n          env:\n            - name: GOADER_PARAMS\n              value: \"-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NNN/NN\"\n            - name: NODE_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: spec.nodeName\n          volumeMounts:\n            - name: goader-storage\n              mountPath: /data\n      volumes:\n        - name: goader-storage\n          persistentVolumeClaim:\n            claimName: <CLUSTER_NAME>-goader-pvc\n```\n\n## Monitoring and Upgrade Commands\n\n### Monitor WekaCluster Status\n```bash\nkubectl get wekacluster <CLUSTER_NAME> -n <NAMESPACE> -o yaml\n```\n\n### Monitor WekaClient Status\n```bash\nkubectl get wekaclient -o wide -n <NAMESPACE> <CLUSTER_NAME>-clients\n```\n\n### Install CSI Driver\n```bash\nhelm upgrade csi-<CLUSTER_NAME> -n <NAMESPACE> --create-namespace -i https://github.com/weka/csi-wekafs/releases/download/v2.7.1/csi-wekafsplugin-2.7.1.tgz -set logLevel=6 --values csi_values.yaml\n```\n\n### Monitor WekaContainer Images\n```bash\nkubectl get wekacontainer -n <NAMESPACE> -l weka.io/cluster-name=<CLUSTER_NAME> -o custom-columns=NAME:.metadata.name,WEKA_SIDE_CONTAINER_NAME:.spec.name,IMAGE:.spec.image\n```\n\n### Patch WekaCluster for Upgrade\n```bash\nkubectl patch wekacluster <CLUSTER_NAME> -n <NAMESPACE> --type merge -p '{\"spec\":{\"image\":\"<newVersion>\", \"network\":{\"deviceSubnets\": [\"10.200.0.0/16\", \"10.100.0.0/16\"]}}'\n```\n\n### Patch WekaClient for Upgrade\n```bash\nkubectl patch wekaclient <CLUSTER_NAME>-clients -n <NAMESPACE> --type merge -p '{\"spec\":{\"image\":\"<newVersion>\"}}'\n```\n\n### Apply Taints to Nodes\n```bash\nkubectl taint nodes -l <nodeSelector_key>=<nodeSelector_value> weka.io/upgrade=true:NoSchedule weka.io/upgrade=true:NoExecute\n```\n\n### Remove Taints from Nodes\n```bash\nkubectl taint nodes -l <nodeSelector_key>=<nodeSelector_value> weka.io/upgrade- weka.io/upgrade-\n```\n\n## Important Notes\n\n- Physical environment must specify network section by subnet (10.200.0.0/16).\n- All resources must use the provided nodeSelector.\n- The weka.io/upgrade taint is used to evict workload pods but not Weka pods thanks to tolerations.\n- During upgrade, the cluster image is updated and a second subnet (10.100.0.0/16) is added.\n- If image names are provided without repository, prepend quay.io/weka.io/weka-in-container:.\n- For proper monitoring, always filter resources by cluster name or client name."
+}

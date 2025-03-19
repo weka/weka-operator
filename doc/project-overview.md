@@ -36,10 +36,9 @@ WekaContainerModeAdhocOp        = "adhoc-op"
 - signal can be done by multiple ways, but most explicit is to touch /tmp/.allow-stop or /tmp/.allow-force-stop
   - stop-flags do not cause pods to terminate, they only allow to continue when termination is detected. Whenever intention is to terminate pod - it should be done explicitly along with writing stop-signals
   - when pod is deleted it will immediately be re-created by controller with updated config(if changed), name remains same as before,  hence delete flow should use blocking kubectl delete flow and not explicitly poll for absence of container
-- wekacontainers bound to a cluster can be found by pod/wekacontainer labels weka.io/cluster-id=CLUSTER_ID
+- wekacontainers bound to a cluster named CLUSTER_NAME can be found by pod/wekacontainer labels weka.io/cluster-name=CLUSTER_NAME
   - wekacontainer also has label weka.io/mode=mode
     - mode sometimes referenced as a role
-  - CLUSTER_ID in this case represented by k8s metadata.uid of wekacluster CR
 - pod belonging to wekacontainer should never be force deleted, only proper graceful termination that will wait for as long as needed
   - e.g never use --force or --grace-period=X or --timeout
 - pod belonging to wekacontainer named exactly as a wekacontainer, and when re-created re-uses same name. Pod re-created shortly after termination
