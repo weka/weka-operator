@@ -471,6 +471,15 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
+			if container.IsDriversContainer() {
+				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
+					currentOverrides := container.Spec.GetOverrides()
+					currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
+					container.Spec.Overrides = currentOverrides
+					changed = true
+				}
+			}
+
 			targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
 			if err != nil {
 				return err
@@ -2105,15 +2114,16 @@ func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Contex
 }
 
 type UpdatableClusterSpec struct {
-	AdditionalMemory    wekav1alpha1.AdditionalMemory
-	Tolerations         []string
-	RawTolerations      []v1.Toleration
-	DriversDistService  string
-	ImagePullSecret     string
-	Labels              *util2.HashableMap
-	NodeSelector        *util2.HashableMap
-	UpgradeForceReplace bool
-	NetworkSelector     wekav1alpha1.NetworkSelector
+	AdditionalMemory          wekav1alpha1.AdditionalMemory
+	Tolerations               []string
+	RawTolerations            []v1.Toleration
+	DriversDistService        string
+	ImagePullSecret           string
+	Labels                    *util2.HashableMap
+	NodeSelector              *util2.HashableMap
+	UpgradeForceReplace       bool
+	UpgradeForceReplaceDrives bool
+	NetworkSelector           wekav1alpha1.NetworkSelector
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -2121,14 +2131,15 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 	nodeSelector := util2.NewHashableMap(spec.NodeSelector)
 
 	return &UpdatableClusterSpec{
-		AdditionalMemory:    spec.AdditionalMemory,
-		Tolerations:         spec.Tolerations,
-		RawTolerations:      spec.RawTolerations,
-		DriversDistService:  spec.DriversDistService,
-		ImagePullSecret:     spec.ImagePullSecret,
-		Labels:              labels,
-		NodeSelector:        nodeSelector,
-		UpgradeForceReplace: spec.GetOverrides().UpgradeForceReplace,
-		NetworkSelector:     spec.NetworkSelector,
+		AdditionalMemory:          spec.AdditionalMemory,
+		Tolerations:               spec.Tolerations,
+		RawTolerations:            spec.RawTolerations,
+		DriversDistService:        spec.DriversDistService,
+		ImagePullSecret:           spec.ImagePullSecret,
+		Labels:                    labels,
+		NodeSelector:              nodeSelector,
+		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
+		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
+		NetworkSelector:           spec.NetworkSelector,
 	}
 }
