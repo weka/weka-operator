@@ -471,12 +471,37 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 				changed = true
 			}
 
-			if container.IsDriversContainer() {
-				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
-					currentOverrides := container.Spec.GetOverrides()
-					currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
-					container.Spec.Overrides = currentOverrides
-					changed = true
+			if container.IsDriveContainer() {
+				if updatableSpec.UpgradeForceReplaceDrives { // above check will reset to common flag, so we dont need to put reversal direction here
+					if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
+						currentOverrides := container.Spec.GetOverrides()
+						currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
+						container.Spec.Overrides = currentOverrides
+						changed = true
+					}
+				}
+			}
+
+			if container.IsComputeContainer() {
+				if updatableSpec.UpgradeForceReplaceDrives {
+					// if we are in this mode, we also want NOT to force replace computes, otherwise we would use the common flag
+					// and most surely we are with "evict container on pod deletion" mode, so we want to disable it so computes will weka local stop
+					if config.Config.EvictContainerOnDeletion {
+						if container.Spec.GetOverrides().UpgradePreventEviction != true {
+							currentOverrides := container.Spec.GetOverrides()
+							currentOverrides.UpgradePreventEviction = true
+							container.Spec.Overrides = currentOverrides
+							changed = true
+						}
+
+					}
+				} else {
+					if container.Spec.GetOverrides().UpgradePreventEviction != false {
+						currentOverrides := container.Spec.GetOverrides()
+						currentOverrides.UpgradePreventEviction = false
+						container.Spec.Overrides = currentOverrides
+						changed = true
+					}
 				}
 			}
 
