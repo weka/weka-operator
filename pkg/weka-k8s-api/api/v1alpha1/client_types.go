@@ -115,7 +115,7 @@ type WekaClientSpec struct {
 	// memory to add/decrease from "auto-calculated" memory
 	AdditionalMemory int `json:"additionalMemory,omitempty"`
 	// experimental: pod resources to be proxied as-is to the pod spec
-	Resources PodResourcesSpec `json:"resources,omitempty"`
+	Resources *PodResourcesSpec `json:"resources,omitempty"`
 	// hugepages, value in megabytes
 	HugePages int `json:"hugepages,omitempty"`
 	// value in megabytes to offset

@@ -235,7 +235,7 @@ type WekaContainerSpec struct {
 	Overrides         *WekaContainerSpecOverrides `json:"overrides,omitempty"`
 	HostPID           bool                        `json:"hostPID,omitempty"`
 	// resources to be proxied as-is to the pod spec
-	Resources PodResourcesSpec `json:"resources,omitempty"`
+	Resources *PodResourcesSpec `json:"resources,omitempty"`
 }
 
 type AWSNetwork struct {
