@@ -206,7 +206,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.PodNotSet,
 					loop.ShouldDeactivate,
 					container.IsMarkedForDeletion,
-					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
+					lifecycle.IsNotTrueCondition(condition.CondContainerRemoved, &container.Status.Conditions),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
