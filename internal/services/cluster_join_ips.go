@@ -126,7 +126,7 @@ func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterName, na
 		return nil, err
 	}
 
-	return joinIpsResult.GetRandomJoinIps(30), nil
+	return joinIpsResult.GetRandomJoinIps(96), nil
 }
 
 func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers []*weka.WekaContainer, cluster *weka.WekaCluster) error {

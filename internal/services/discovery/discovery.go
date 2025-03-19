@@ -197,7 +197,7 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 	joinIpsByFD := make(map[string][]string)
 
 	//TODO: Integrate FD-selection(best-effort) logic into selectOperational
-	selected := SelectOperationalContainers(containers, 10, nil)
+	selected := SelectOperationalContainers(containers, 12, nil)
 
 	for _, container := range selected {
 		containerJoinIps := make([]string, 0, len(container.Status.GetManagementIps()))
