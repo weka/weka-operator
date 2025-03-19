@@ -269,7 +269,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 	}
 
 	logger.Info("Updating containers with node selector mismatch", "toUpdate", len(toUpdate))
-	updateErrs := workers.ProcessConcurrently(ctx, toUpdate, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+	updateErr := workers.ProcessConcurrently(ctx, toUpdate, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 		patch := []map[string]interface{}{
 			{
 				"op":    "replace",
@@ -288,28 +288,19 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 			r.getClient().Patch(ctx, container, client.RawPatch(types.JSONPatchType, patchBytes)),
 			fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
 		)
-	}).GetTopErrors()
+	}).AsError()
 
 	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
-	deleteErrs := workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-		patch := map[string]interface{}{
-			"spec": map[string]interface{}{
-				"state": wekav1alpha1.ContainerStateDeleting,
-			},
-		}
+	deleteErr := workers.ProcessConcurrently(ctx, toDelete, maxBackendsDeletePerReconcile, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
 		r.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
-		patchBytes, err := json.Marshal(patch)
-		if err != nil {
-			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
-		}
 
 		return errors.Wrap(
-			r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
-			fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
+			services.SetContainerStateDeleting(ctx, container, r.getClient()),
+			fmt.Sprintf("failed to update container state %s", container.Name),
 		)
-	}).GetTopErrors()
+	}).AsError()
 
-	return &workers.MultiError{Errors: append(updateErrs, deleteErrs...)}
+	return &workers.MultiError{Errors: []error{updateErr, deleteErr}}
 }
 
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {
@@ -1618,9 +1609,7 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 			for _, alloc := range *failedAllocs {
 				// we landed in some conflicting place, evicting for rescheduling
 				_ = r.RecordEvent(v1.EventTypeWarning, "RemoveUnschedulable", fmt.Sprintf("Evicting container %s for rescheduling", alloc.Container.Name))
-				patch := client.MergeFrom(alloc.Container.DeepCopy())
-				alloc.Container.Spec.State = wekav1alpha1.ContainerStateDeleting
-				if err := r.getClient().Patch(ctx, alloc.Container, patch); err != nil {
+				if err := services.SetContainerStateDeleting(ctx, alloc.Container, r.getClient()); err != nil {
 					logger.Error(err, "Failed to patch container state to deleting", "container", alloc.Container.Name)
 				}
 			}

@@ -1361,16 +1361,7 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 }
 
 func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error {
-	if r.container.Spec.State != weka.ContainerStateDeleting {
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "setDeletionState")
-		defer end()
-		r.container.Spec.State = weka.ContainerStateDeleting
-		if err := r.Update(ctx, r.container); err != nil {
-			logger.SetError(err, "Failed to update container state")
-			return fmt.Errorf("failed to update container state to deleting: %w", err)
-		}
-	}
-	return nil
+	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }
 
 func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error {

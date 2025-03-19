@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -15,7 +14,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -164,7 +162,10 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		toDelete = append(toDelete, container)
 	}
 
-	err := c.patchContainersState(ctx, toDelete, weka.ContainerStateDestroying)
+	err := workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
+		return services.SetContainerStateDestroying(ctx, container, c.Client)
+	}).AsError()
+
 	if err != nil {
 		return errors.Wrap(err, "failed to mark containers destroying")
 	}
@@ -173,29 +174,6 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
 	}
 	return nil
-}
-
-func (c *clientReconcilerLoop) patchContainersState(ctx context.Context, containers []*weka.WekaContainer, state weka.ContainerState) error {
-	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		if !container.IsMarkedForDeletion() {
-			patch := map[string]interface{}{
-				"spec": map[string]interface{}{
-					"state": state,
-				},
-			}
-
-			patchBytes, err := json.Marshal(patch)
-			if err != nil {
-				return err
-			}
-
-			err = c.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}).AsError()
 }
 
 func (c *clientReconcilerLoop) getCurrentContainers(ctx context.Context) error {
@@ -719,7 +697,9 @@ func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx contex
 			toDelete = append(toDelete, container)
 		}
 	}
-	return c.patchContainersState(ctx, toDelete, weka.ContainerStateDeleting)
+	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
+		return services.SetContainerStateDeleting(ctx, container, c.Client)
+	}).AsError()
 }
 
 func isPortRangeEqual(a, b weka.PortRange) bool {

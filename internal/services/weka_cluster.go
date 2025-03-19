@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"k8s.io/client-go/rest"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -71,24 +69,10 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 	}
 
 	results := workers.ProcessConcurrently(ctx, toDelete, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-		if !container.IsDestroyingState() {
-			patch := map[string]interface{}{
-				"spec": map[string]interface{}{
-					"state": wekav1alpha1.ContainerStateDestroying,
-				},
-			}
-
-			patchBytes, err := json.Marshal(patch)
-			if err != nil {
-				return err
-			}
-
-			err = r.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes))
-			if err != nil {
-				return err
-			}
+		if container.IsDestroyingState() {
+			return nil
 		}
-		return nil
+		return SetContainerStateDestroying(ctx, container, r.Client)
 	})
 
 	if results.AsError() != nil {
