@@ -423,7 +423,7 @@ func (c *CliWekaService) GetInterfaceNameByIpAddress(ctx context.Context, ip str
 func (c *CliWekaService) GenerateJoinSecret(ctx context.Context) (string, error) {
 	var data string
 	err := c.RunJsonCmd(ctx, []string{
-		"wekaauthcli", "cluster", "join-token", "generate", "--json",
+		"wekaauthcli", "cluster", "join-token", "generate", "--access-token-timeout", "5200w", "--json",
 	}, "GenerateJoinSecret", &data)
 	if err != nil {
 		return "", err
