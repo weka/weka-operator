@@ -728,6 +728,10 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 		executeInContainer = discovery.SelectActiveContainer(containers)
 	}
 
+	if executeInContainer == nil {
+		return errors.New("No active container found")
+	}
+
 	logger.Info("Removing container from S3 cluster", "container_id", *containerId)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
@@ -753,6 +757,10 @@ func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
 		executeInContainer = discovery.SelectActiveContainer(containers)
 	}
 
+	if executeInContainer == nil {
+		return errors.New("No active container found")
+	}
+
 	logger.Info("Removing container from NFS", "container_id", *containerId)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
@@ -776,6 +784,10 @@ func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 			return err
 		}
 		executeInContainer = discovery.SelectActiveContainer(containers)
+	}
+
+	if executeInContainer == nil {
+		return errors.New("No active container found")
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
@@ -809,25 +821,43 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 		return errors.New("Container ID is not set")
 	}
 
+	if r.container.IsS3Container() {
+		err := r.s3ContainerPreDeactivate(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	execInContainer := discovery.SelectActiveContainer(containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
+	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+
+	logger.Info("Deactivating container", "container_id", *containerId)
+
+	return wekaService.DeactivateContainer(ctx, *containerId)
+}
+
+func (r *containerReconcilerLoop) s3ContainerPreDeactivate(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "s3ContainerPreDeactivate")
+	defer end()
+
 	executeInContainer := r.container
 
 	nodeReady := NodeIsReady(r.node)
 	podAvailable := r.pod != nil && r.pod.Status.Phase == v1.PodRunning
 
-	if !nodeReady || !podAvailable {
-		logger.Warn("Pod is not available, trying to find active container")
-
-		containers, err := r.getClusterContainers(ctx)
-		if err != nil {
-			return err
-		}
-		executeInContainer = discovery.SelectActiveContainer(containers)
-	}
-
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 
 	// TODO: temporary check caused by weka s3 container remove behavior
-	if r.container.IsS3Container() && podAvailable && nodeReady {
+	if podAvailable && nodeReady {
 		// check that local s3 container does not exist anymore
 		// if it does, wait for it to be removed
 		localContainers, err := wekaService.ListLocalContainers(ctx)
@@ -844,11 +874,12 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 				return err
 			}
 		}
+	} else {
+		err := errors.New("cannot check local s3 container - node is not ready or pod is not available")
+		return err
 	}
 
-	logger.Info("Deactivating container", "container_id", *containerId)
-
-	return wekaService.DeactivateContainer(ctx, *containerId)
+	return nil
 }
 
 func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.Context) error {
@@ -867,6 +898,10 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.
 	}
 
 	execInContainer := discovery.SelectActiveContainer(containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
 	drives, err := wekaService.ListContainerDrives(ctx, *containerId)
@@ -911,6 +946,10 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 	logger.Info("Removing container", "container_id", *containerId)
 
 	execInContainer := discovery.SelectActiveContainer(containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
 	err = wekaService.RemoveContainer(ctx, *containerId)
