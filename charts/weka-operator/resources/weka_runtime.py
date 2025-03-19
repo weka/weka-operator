@@ -1406,6 +1406,7 @@ async def configure_agent(agent_handle_drivers=False):
     cmd = dedent(f"""
         {drivers_handling_cmd}
         sed -i 's/cgroups_mode=auto/cgroups_mode=none/g' /etc/wekaio/service.conf || true
+        sed -i 's/override_core_pattern=true/override_core_pattern=false/g' /etc/wekaio/service.conf || true
         sed -i "s/port=14100/port={AGENT_PORT}/g" /etc/wekaio/service.conf || true
         # sed -i "s/serve_static=false/serve_static=true/g" /etc/wekaio/service.conf || true
         echo '{{"agent": {{"port": \'{AGENT_PORT}\'}}}}' > /etc/wekaio/service.json
