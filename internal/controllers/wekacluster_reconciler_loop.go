@@ -1212,6 +1212,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
+		targetVersion := getSoftwareVersion(cluster.Spec.Image)
 
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
@@ -1251,7 +1252,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeDrives(ctx, driveContainers, cluster.Spec.Image)
+			err := r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -1309,7 +1310,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeCompute(ctx, computeContainers, cluster.Spec.Image)
+			err := r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -1333,7 +1334,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeS3(ctx, s3Containers, cluster.Spec.Image)
+			err := r.prepareForUpgradeS3(ctx, s3Containers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -1370,7 +1371,7 @@ func getSoftwareVersion(image string) string {
 	return parts[0]
 }
 
-func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, image string) error {
+func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")
 	defer end()
 
@@ -1379,8 +1380,6 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 		logger.Error(err, "Failed to create executor")
 		return nil
 	}
-
-	targetVersion := getSoftwareVersion(image)
 
 	cmd := `
 wekaauthcli debug jrpc prepare_leader_for_upgrade
