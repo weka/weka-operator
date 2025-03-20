@@ -840,9 +840,35 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
-	logger.Info("Deactivating container", "container_id", *containerId)
+	wekaContainer, err := wekaService.GetWekaContainer(ctx, *containerId)
+	if err != nil {
+		return err
+	}
 
-	return wekaService.DeactivateContainer(ctx, *containerId)
+	logger.Info("Container status", "container_id", *containerId, "status", wekaContainer.Status)
+
+	switch wekaContainer.Status {
+	case "INACTIVE":
+		// nothing to do
+		return nil
+	case "DEACTIVATING":
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("container is deactivating"),
+			time.Second*15,
+		)
+	default:
+		logger.Info("Deactivating container", "container_id", *containerId)
+
+		err := wekaService.DeactivateContainer(ctx, *containerId)
+		if err != nil {
+			return err
+		}
+
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("container deactivation started"),
+			time.Second*15,
+		)
+	}
 }
 
 func (r *containerReconcilerLoop) s3ContainerPreDeactivate(ctx context.Context) error {

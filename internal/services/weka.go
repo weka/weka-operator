@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/controllers/resources"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -133,6 +133,16 @@ type WekaLocalContainer struct {
 	IsRunning bool   `json:"isRunning"`
 }
 
+type WekaClusterContainer struct {
+	HostId        string `json:"host_id"`
+	HostIp        string `json:"host_ip"`
+	Hostname      string `json:"hostname"`
+	ContainerName string `json:"container_name"`
+	Uid           string `json:"uid"`
+	State         string `json:"state"`
+	Status        string `json:"status"`
+}
+
 type Process struct {
 	Status   string   `json:"status"`
 	NodeId   string   `json:"node_id"`
@@ -197,6 +207,7 @@ type WekaService interface {
 	DeactivateDrive(ctx context.Context, driveUuid string) error
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
+	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -888,4 +899,22 @@ func (c *CliWekaService) GetS3Cluster(ctx context.Context) (*S3Cluster, error) {
 		return nil, err
 	}
 	return &s3Cluster, nil
+}
+
+func (c *CliWekaService) GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error) {
+	cmd := []string{
+		"wekaauthcli", "cluster", "container", strconv.Itoa(containerId), "--json",
+	}
+
+	var containers []WekaClusterContainer
+	err := c.RunJsonCmd(ctx, cmd, "GetWekaContainer", &containers)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("container %d not found", containerId)
+	}
+
+	return &containers[0], nil
 }
