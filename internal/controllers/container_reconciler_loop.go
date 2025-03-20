@@ -3372,8 +3372,18 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 		return nil
 	}
 
-	details := r.container.ToContainerDetails()
-	logger.Info("Try loading drivers", "image", details.Image)
+	if r.container.Status.ExecutionResult == nil {
+		logger.Debug("No execution result, skipping")
+		return nil
+	}
+
+	results := &BuiltDriversResult{}
+	err := json.Unmarshal([]byte(*r.container.Status.ExecutionResult), results)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Try loading drivers", "weka_version", results.WekaVersion, "kernel_signature", results.KernelSignature)
 
 	node := r.node
 	// Builder is not explicitly assigned to any node.
@@ -3402,10 +3412,12 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	wekaVersion := strings.Split(r.container.Spec.Image, ":")[1]
 
 	// assuming `weka driver pack` is supported
-	downloadCmd := fmt.Sprintf("weka driver download --without-agent --version %s", wekaVersion)
+	downloadCmd := fmt.Sprintf(
+		"weka driver download --without-agent --version %s --kernel-signature %s",
+		results.WekaVersion, results.KernelSignature,
+	)
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
 		[]string{"bash", "-ce", downloadCmd},
