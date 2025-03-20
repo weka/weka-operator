@@ -303,6 +303,7 @@ type WekaContainerStatus struct {
 	ClusterID          string                   `json:"clusterID,omitempty"`
 	Conditions         []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 	LastAppliedImage   string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec    string                   `json:"lastAppliedSpec,omitempty"`  // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
 	NodeAffinity       NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
 	ExecutionResult    *string                  `json:"result,omitempty"`
 	Allocations        *ContainerAllocations    `json:"allocations,omitempty"`
