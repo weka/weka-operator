@@ -967,6 +967,146 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				Help:   "Total write operations per weka drive",
 				Type:   "counter",
 			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_WRITE_LATENCY", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_write_seconds_total",
+				Help:   "Total duration of drive writes per drive drive, divide by writes to get average latency",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_READ_LATENCY", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_read_seconds_total",
+				Help:   "Total duration of drive reads per drive drive, divide by reads to get average latency",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_MEDIA_BLOCKS_READ", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value * 4096,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_read_bytes_total",
+				Help:   "Total bytes read per drive",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "DRIVE_MEDIA_BLOCKS_WRITE", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value * 4096,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_write_bytes_total",
+				Help:   "Total bytes written per drive",
+				Type:   "counter",
+			}, taggedValues)
+		case CategoryStat{Stat: "NVME_SMART_MEDIA_ERRORS", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_smart_media_errors_sample",
+				Help:   "Total media errors per drive",
+				Type:   "gauge",
+			}, taggedValues)
+		case CategoryStat{Stat: "NVME_SMART_CRITICAL_WARNING", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_smart_critical_warnings_sample",
+				Help:   "Total critical warnings per drive",
+				Type:   "gauge",
+			}, taggedValues)
+		case CategoryStat{Stat: "NVME_SMART_COMPOSITE_TEMP", Category: "ssd"}:
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				taggedValues = append(taggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"status":     processed.DriveDetails.Status,
+						"serial":     processed.DriveDetails.SerialNumber,
+						"weka_uid":   processed.DriveDetails.Uid,
+						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
+						"process_id": strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			response.AddMetric(metrics2.PromMetric{
+				Metric: "weka_drive_smart_composite_temp",
+				Help:   "Composite temperature of drives",
+				Type:   "gauge",
+			}, taggedValues)
 		}
 	}
 }
