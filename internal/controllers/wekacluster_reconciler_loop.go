@@ -431,133 +431,108 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta)
 	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
-	specHash, err := util2.HashStruct(updatableSpec)
-	if err != nil {
-		return err
-	}
-	if specHash != cluster.Status.LastAppliedSpec {
-		logger.Info("Cluster spec has changed, updating containers")
-		err := workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-			patch := client.MergeFrom(container.DeepCopy())
-			changed := false
-
-			additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
-			if container.Spec.AdditionalMemory != additionalMemory {
-				container.Spec.AdditionalMemory = additionalMemory
-				changed = true
-			}
-
-			newTolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
-			oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
-			if !reflect.DeepEqual(oldTolerations, newTolerations) {
-				container.Spec.Tolerations = newTolerations
-				changed = true
-			}
-
-			if container.Spec.DriversDistService != updatableSpec.DriversDistService {
-				container.Spec.DriversDistService = updatableSpec.DriversDistService
-				changed = true
-			}
-
-			if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
-				container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
-				changed = true
-			}
-
-			if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
-				currentOverrides := container.Spec.GetOverrides()
-				currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
-				container.Spec.Overrides = currentOverrides
-				changed = true
-			}
-
-			if container.IsDriveContainer() {
-				if updatableSpec.UpgradeForceReplaceDrives { // above check will reset to common flag, so we dont need to put reversal direction here
-					if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
-						currentOverrides := container.Spec.GetOverrides()
-						currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
-						container.Spec.Overrides = currentOverrides
-						changed = true
-					}
-				}
-			}
-
-			if container.IsComputeContainer() {
-				if updatableSpec.UpgradeForceReplaceDrives {
-					// if we are in this mode, we also want NOT to force replace computes, otherwise we would use the common flag
-					// and most surely we are with "evict container on pod deletion" mode, so we want to disable it so computes will weka local stop
-					if config.Config.EvictContainerOnDeletion {
-						if container.Spec.GetOverrides().UpgradePreventEviction != true {
-							currentOverrides := container.Spec.GetOverrides()
-							currentOverrides.UpgradePreventEviction = true
-							container.Spec.Overrides = currentOverrides
-							changed = true
-						}
-
-					}
-				} else {
-					if container.Spec.GetOverrides().UpgradePreventEviction != false {
-						currentOverrides := container.Spec.GetOverrides()
-						currentOverrides.UpgradePreventEviction = false
-						container.Spec.Overrides = currentOverrides
-						changed = true
-					}
-				}
-			}
-
-			targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
-			if err != nil {
-				return err
-			}
-			oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
-			if err != nil {
-				return err
-			}
-			targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
-			if err != nil {
-				return err
-			}
-			if oldNetworkHash != targetNetworkHash {
-				container.Spec.Network = targetNetworkSpec
-				changed = true
-			}
-
-			// desired labels = cluster labels + required labels
-			// priority-wise, required labels have the highest priority
-			requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, container.Spec.Mode)
-			newLabels := util2.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLables)
-			if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
-				container.Labels = newLabels
-				changed = true
-			}
-
-			oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
-			role := container.Spec.Mode
-			newNodeSelector := map[string]string{}
-			if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
-				newNodeSelector = cluster.Spec.NodeSelector
-				if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
-					newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
-				}
-			}
-			if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
-				container.Spec.NodeSelector = cluster.Spec.NodeSelector
-				changed = true
-			}
-
-			if changed {
-				return r.getClient().Patch(ctx, container, patch)
-			}
+	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		if container.Status.LastAppliedSpec == cluster.Status.LastAppliedSpec {
 			return nil
-		}).AsError()
+		}
+		logger.Info("Cluster<>Container spec has changed, updating containers")
+		patch := client.MergeFrom(container.DeepCopy())
+
+		additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
+		if container.Spec.AdditionalMemory != additionalMemory {
+			container.Spec.AdditionalMemory = additionalMemory
+		}
+
+		newTolerations := util.ExpandTolerations([]v1.Toleration{}, updatableSpec.Tolerations, updatableSpec.RawTolerations)
+		oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
+		if !reflect.DeepEqual(oldTolerations, newTolerations) {
+			container.Spec.Tolerations = newTolerations
+		}
+
+		if container.Spec.DriversDistService != updatableSpec.DriversDistService {
+			container.Spec.DriversDistService = updatableSpec.DriversDistService
+		}
+
+		if container.Spec.ImagePullSecret != updatableSpec.ImagePullSecret {
+			container.Spec.ImagePullSecret = updatableSpec.ImagePullSecret
+		}
+
+		if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplace {
+			currentOverrides := container.Spec.GetOverrides()
+			currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
+			container.Spec.Overrides = currentOverrides
+		}
+
+		if container.IsDriveContainer() {
+			if updatableSpec.UpgradeForceReplaceDrives { // above check will reset to common flag, so we dont need to put reversal direction here
+				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
+					currentOverrides := container.Spec.GetOverrides()
+					currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplaceDrives
+					container.Spec.Overrides = currentOverrides
+				}
+			}
+		}
+
+		if container.IsComputeContainer() {
+			if updatableSpec.UpgradeForceReplaceDrives {
+				// if we are in this mode, we also want NOT to force replace computes, otherwise we would use the common flag
+				// and most surely we are with "evict container on pod deletion" mode, so we want to disable it so computes will weka local stop
+				if config.Config.EvictContainerOnDeletion {
+					if container.Spec.GetOverrides().UpgradePreventEviction != true {
+						currentOverrides := container.Spec.GetOverrides()
+						currentOverrides.UpgradePreventEviction = true
+						container.Spec.Overrides = currentOverrides
+					}
+
+				}
+			} else {
+				if container.Spec.GetOverrides().UpgradePreventEviction != false {
+					currentOverrides := container.Spec.GetOverrides()
+					currentOverrides.UpgradePreventEviction = false
+					container.Spec.Overrides = currentOverrides
+				}
+			}
+		}
+
+		targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
 		if err != nil {
 			return err
 		}
-		logger.Info("Updating last applied spec", "lastAppliedSpec", cluster.Status.LastAppliedSpec, "newSpec", specHash)
-		cluster.Status.LastAppliedSpec = specHash
-		return r.getClient().Status().Update(ctx, cluster)
-	}
-	return nil
+		oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
+		if err != nil {
+			return err
+		}
+		targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
+		if err != nil {
+			return err
+		}
+		if oldNetworkHash != targetNetworkHash {
+			container.Spec.Network = targetNetworkSpec
+		}
+
+		// desired labels = cluster labels + required labels
+		// priority-wise, required labels have the highest priority
+		requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, container.Spec.Mode)
+		newLabels := util2.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLables)
+		if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
+			container.Labels = newLabels
+		}
+
+		oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
+		role := container.Spec.Mode
+		newNodeSelector := map[string]string{}
+		if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+			newNodeSelector = cluster.Spec.NodeSelector
+			if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
+				newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+			}
+		}
+		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
+			container.Spec.NodeSelector = cluster.Spec.NodeSelector
+		}
+
+		return r.getClient().Patch(ctx, container, patch)
+	}).AsError()
 }
 
 func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx context.Context) *ReadyForClusterizationContainers {
