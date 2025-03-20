@@ -927,23 +927,38 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.
 }
 
 func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
 	containerId := r.container.Status.ClusterContainerID
-
-	containers, err := r.getClusterContainers(ctx)
-	if err != nil {
-		return err
+	if containerId == nil {
+		return errors.New("Container ID is not set")
 	}
 
 	// if less then 1 minute passed from deactivation - hold on the removal
 	throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
 	if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
-		return lifecycle.NewWaitError(errors.New("throttling removal of containers from weka"))
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("throttling removal of containers from weka"),
+			time.Second*15,
+		)
 	}
 
-	logger.Info("Removing container", "container_id", *containerId)
+	err := r.removeDeactivatedContainers(ctx, *containerId)
+	if err != nil {
+		// in case of error - we do not want to throttle
+		throttler.Reset("removeDeactivatedContainers")
+		return err
+	}
+
+	return nil
+}
+
+func (r *containerReconcilerLoop) removeDeactivatedContainers(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
 
 	execInContainer := discovery.SelectActiveContainer(containers)
 	if execInContainer == nil {
@@ -952,11 +967,14 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
-	err = wekaService.RemoveContainer(ctx, *containerId)
+	logger.Info("Removing container", "container_id", containerId)
+
+	err = wekaService.RemoveContainer(ctx, containerId)
 	if err != nil {
 		err = errors.Wrap(err, "Failed to remove container")
 		return err
 	}
+
 	return nil
 }
 
