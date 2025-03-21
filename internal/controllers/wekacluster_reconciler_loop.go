@@ -1214,6 +1214,10 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		logger.Info("Image upgrade sequence")
 		targetVersion := getSoftwareVersion(cluster.Spec.Image)
 
+		if cluster.Spec.Overrides.UpgradePaused {
+			return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
+		}
+
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
 			return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
