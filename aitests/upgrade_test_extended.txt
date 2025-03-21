@@ -1,0 +1,39 @@
+Test goal:
+    - validate that cluster can be provisioned and upgraded to newer version
+Test scenario
+    - provision a wekacluster CR, 16 compute and 8 drive containers, 2 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare
+        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
+        - set overrides.upgradeForceReplaceDrives=true on wekacluster CR
+        - set overrides.upgradePausePreCompute=true on wekacluster CR
+    - provision clients
+        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
+    - provision csi and workload
+    - upgrade cluster
+        - in the same patch that will change an image - also change subnets, should update from single subnet 10.200.0.0/16 to 10.200.0.0/16 + 10.100.0.0/16
+    - once first drive container was replaced (wekacontainer's status.lastAppliedImage becomes equal to target) - add 1 more computeContainers to the cluster, i.e set higher .spec.dynamicTemplate.computeContainers
+        - validate that new compute pod was created and are running, no need to validate connectivity to weka, even more - it is expected of them not to join weka cluster at this stage
+    - wait for all drives containers to rotate to new version, by watching wekacontainer's status.lastAppliedImage to become equal to target version
+    - wait one minute doing nothing
+    - validate that aside of one new compute containers there is no other compute containers with .spec.image equal to target
+    - check that we remain in drive phase by checking "weka status --json | grep upgrade_phase"
+    - change wekacluster .spec.upgradePausePreCompute to false
+    - wait for compute phase to start, by checking "weka status --json | grep upgrade_phase"
+    - wait for all pre-existing computes to rotate
+    - check for status of new computes, by looking up their in-weka container name (.spec.name of wekacontainer)
+        - lookup this name within weka, by running "weka cluster container | grep <name>"
+        - do not abort regardless of result, just capture what was a result, existing on weka cluster side or not
+    - set taints, upgrade clients
+    - validate that all containers, drive, compute and backends are now running with lastAppliedImage equal to target
+    - validate that all containers can be found in weka cluster by running "weka cluster container | grep <name>"
+
+Testing notes:
+- this tests run on physical environment, use 10.200.0.0/16 subnet for testing
+- use weka.io/upgrade taint/toleration to have a mechanism to evict load but not evict wekacluster/wekaclient pods
+- allowed to use tolerations effects: NoSchedule, NoExecute, PreferNoSchedule
+- ensure that user provided newVersion and oldVersion parameters and use them
+
+Required user parameters to validate and use:
+ - nodeSelector, to use for provisioning all resources, no nodes should be touched outside of this nodeselector and no resources should be provisioned that are not using this nodeselector
+ - initialVersion, to provision cluster with
+ - newVersion, to upgrade wekacluster and wekaclient to this version
+ - namespace to use for testing, if namespace is not provided - autogenerate one with test- prefix, even if user provided it might not exist and you should create it

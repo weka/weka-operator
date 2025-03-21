@@ -28,4 +28,5 @@
 - helm should be executed via bash tool, and installation should be validated by validating all pods in NAMESPACE with label release=release: csi-CLUSTER_NAME reaching Running step within 1 minute after running `helm upgrade` #AIMUST
 - When testing with gracefulDestroyDuration not set to 0s(when instructed explicitly by scenario) - do not use blocking kubectl delete as it will take hours to delete to finish, instead do non blocking deletion and then poll/process based on case needs
 - node-shell plugin is available and can be used to fetch information from node by executing kubectl node-shell node/NODE_NAME -- COMMAND
+- do not use long-pollings like 10 minutes, instead do shorter python-scripts pollings (like 1 minute) and then re-run the script if needed, to be more dynamic and allow to adjust for errors quicker AIMUST
   ---------END OF AI ASSISTANT DOCUMENTATION------------

@@ -1,0 +1,229 @@
+{
+  "description": "Validate that a Weka cluster can be provisioned and upgraded to a newer version with full functionality maintained throughout the process",
+  "name": "weka_cluster_upgrade_validation",
+  "steps": [
+    {
+      "name": "generate_unique_cluster_name",
+      "requirements": "Generate a unique cluster name using the date and a random string",
+      "outputs": ["cluster_name"],
+      "step_description": "Generate a unique cluster name to avoid conflicts with existing clusters"
+    },
+    {
+      "name": "setup_namespace",
+      "requirements": "If namespace parameter $plan_parameters__namespace is not provided, generate one with a 'test-' prefix. Create the namespace if it doesn't exist",
+      "inputs": ["plan_parameters.namespace"],
+      "outputs": ["namespace"],
+      "step_description": "Set up the test namespace and ensure it exists"
+    },
+    {
+      "name": "provision_weka_cluster",
+      "requirements": "Create and apply the WekaCluster CR with specified parameters using cluster name $generate_unique_cluster_name__cluster_name and namespace $setup_namespace__namespace. Configure with 16 compute containers, 8 drive containers, 2 drives per container, stripe width 3, redundancy level 2, and 1 hot spare. Use nodeSelector $plan_parameters__nodeSelector, image $plan_parameters__initialVersion, and set upgradeForceReplaceDrives=true and upgradePausePreCompute=true",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.nodeSelector", "plan_parameters.initialVersion"],
+      "outputs": ["cluster_cr_applied"],
+      "step_description": "Create and apply the WekaCluster CR with the required configuration"
+    },
+    {
+      "name": "wait_for_cluster_ready",
+      "requirements": "Wait for the WekaCluster with name $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to reach 'Ready' state",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["cluster_ready"],
+      "step_description": "Monitor the cluster status until it reaches Ready state"
+    },
+    {
+      "name": "provision_weka_clients",
+      "requirements": "Create and apply the WekaClient CR referencing the cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace. Use nodeSelector $plan_parameters__nodeSelector and image $plan_parameters__initialVersion. Set toleration for weka.io/upgrade taint",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.nodeSelector", "plan_parameters.initialVersion"],
+      "outputs": ["clients_cr_applied"],
+      "step_description": "Create and apply the WekaClient CR with the required configuration"
+    },
+    {
+      "name": "wait_for_clients_ready",
+      "requirements": "Wait for the WekaClient with name $generate_unique_cluster_name__cluster_name-clients in namespace $setup_namespace__namespace to have all desired containers active",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["clients_ready"],
+      "step_description": "Monitor the client status until all desired containers are active"
+    },
+    {
+      "name": "create_csi_values_file",
+      "requirements": "Create a values file for CSI installation with nodeSelector $plan_parameters__nodeSelector and cluster name $generate_unique_cluster_name__cluster_name",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "plan_parameters.nodeSelector"],
+      "outputs": ["csi_values_created"],
+      "step_description": "Create the CSI values file for helm installation"
+    },
+    {
+      "name": "install_csi_driver",
+      "requirements": "Install the CSI driver using Helm with the created values file, in namespace $setup_namespace__namespace and for cluster $generate_unique_cluster_name__cluster_name",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["csi_installed"],
+      "step_description": "Install the CSI driver using Helm"
+    },
+    {
+      "name": "wait_for_csi_pods",
+      "requirements": "Wait for CSI pods labeled with release=csi-$generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to be ready",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["csi_pods_ready"],
+      "step_description": "Verify all CSI pods are ready"
+    },
+    {
+      "name": "create_storage_class",
+      "requirements": "Create a StorageClass for the cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["storage_class_created"],
+      "step_description": "Create the StorageClass for provisioning persistent volumes"
+    },
+    {
+      "name": "create_pvc",
+      "requirements": "Create a PVC using the storage class for cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["pvc_created"],
+      "step_description": "Create a PersistentVolumeClaim for the workload"
+    },
+    {
+      "name": "wait_for_pvc_bound",
+      "requirements": "Wait for PVC $generate_unique_cluster_name__cluster_name-goader-pvc in namespace $setup_namespace__namespace to be bound",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["pvc_bound"],
+      "step_description": "Verify the PVC is successfully bound to a PV"
+    },
+    {
+      "name": "create_workload",
+      "requirements": "Create a DaemonSet workload using the PVC with cluster name $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace and nodeSelector $plan_parameters__nodeSelector",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.nodeSelector"],
+      "outputs": ["workload_created"],
+      "step_description": "Create the workload DaemonSet for testing"
+    },
+    {
+      "name": "verify_workload_running",
+      "requirements": "Verify that the workload pods for DaemonSet goader-smallios-$generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace are running",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["workload_running"],
+      "step_description": "Confirm the workload pods are successfully running"
+    },
+    {
+      "name": "upgrade_cluster_image_and_subnet",
+      "requirements": "Patch the WekaCluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to upgrade image to $plan_parameters__newVersion and add subnet 10.100.0.0/16 alongside the existing 10.200.0.0/16",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["cluster_patched_for_upgrade"],
+      "step_description": "Initiate the cluster upgrade process and update the network configuration"
+    },
+    {
+      "name": "wait_for_first_drive_upgrade",
+      "requirements": "Monitor drive containers in namespace $setup_namespace__namespace with labels weka.io/cluster-name=$generate_unique_cluster_name__cluster_name,weka.io/mode=drive until at least one has lastAppliedImage=$plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["first_drive_upgraded", "first_upgraded_drive_name"],
+      "step_description": "Wait for the first drive container to complete upgrading"
+    },
+    {
+      "name": "add_compute_container",
+      "requirements": "After first drive container is upgraded, patch the WekaCluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to increase computeContainers from 16 to 17",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "first_drive_upgraded"],
+      "outputs": ["compute_container_added"],
+      "step_description": "Add an additional compute container during the upgrade process"
+    },
+    {
+      "name": "verify_new_compute_pod",
+      "requirements": "Verify that a new compute pod for cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace has been created",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["new_compute_pod_created"],
+      "step_description": "Confirm the new compute pod was created successfully"
+    },
+    {
+      "name": "wait_for_all_drive_containers_upgrade",
+      "requirements": "Wait for all drive containers in namespace $setup_namespace__namespace with labels weka.io/cluster-name=$generate_unique_cluster_name__cluster_name,weka.io/mode=drive to have lastAppliedImage=$plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["all_drives_upgraded"],
+      "step_description": "Monitor until all drive containers have been upgraded"
+    },
+    {
+      "name": "wait_one_minute",
+      "requirements": "Wait for one minute before proceeding",
+      "outputs": ["wait_completed"],
+      "step_description": "Introduce a delay before checking compute container status"
+    },
+    {
+      "name": "verify_compute_containers_status",
+      "requirements": "Verify that only the newly added compute container has image=$plan_parameters__newVersion, and pre-existing compute containers still have the old image",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["compute_containers_verified"],
+      "step_description": "Check the status of compute containers to confirm only the new one has the updated image"
+    },
+    {
+      "name": "check_upgrade_phase",
+      "requirements": "Check that the cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace is still in the drive upgrade phase by running 'weka status --json | grep upgrade_phase'",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["upgrade_phase"],
+      "step_description": "Confirm the cluster is still in the drive phase of the upgrade process"
+    },
+    {
+      "name": "allow_compute_phase",
+      "requirements": "Patch the WekaCluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to set upgradePausePreCompute=false",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["compute_phase_allowed"],
+      "step_description": "Allow the upgrade to proceed to the compute phase"
+    },
+    {
+      "name": "wait_for_compute_phase",
+      "requirements": "Wait for the cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace to enter the compute upgrade phase by checking 'weka status --json | grep upgrade_phase'",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["compute_phase_started"],
+      "step_description": "Monitor until the upgrade enters the compute phase"
+    },
+    {
+      "name": "wait_for_preexisting_compute_upgrade",
+      "requirements": "Wait for all pre-existing compute containers (16) in namespace $setup_namespace__namespace with labels weka.io/cluster-name=$generate_unique_cluster_name__cluster_name,weka.io/mode=compute to have lastAppliedImage=$plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["preexisting_computes_upgraded"],
+      "step_description": "Monitor until all pre-existing compute containers have been upgraded"
+    },
+    {
+      "name": "check_new_compute_status",
+      "requirements": "Check the status of the new compute container for cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace within the weka cluster by running 'weka cluster container | grep <container-name>'",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["new_compute_status"],
+      "step_description": "Verify whether the new compute container is recognized within the weka cluster"
+    },
+    {
+      "name": "apply_node_taints",
+      "requirements": "Apply weka.io/upgrade=true:NoSchedule taint to all nodes matching nodeSelector $plan_parameters__nodeSelector",
+      "inputs": ["plan_parameters.nodeSelector"],
+      "outputs": ["taints_applied"],
+      "step_description": "Apply taints to nodes to prepare for client upgrade"
+    },
+    {
+      "name": "upgrade_clients",
+      "requirements": "Patch the WekaClient $generate_unique_cluster_name__cluster_name-clients in namespace $setup_namespace__namespace to upgrade image to $plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["clients_patched_for_upgrade"],
+      "step_description": "Initiate the client upgrade process"
+    },
+    {
+      "name": "wait_for_clients_upgrade",
+      "requirements": "Wait for the WekaClient $generate_unique_cluster_name__cluster_name-clients in namespace $setup_namespace__namespace to have lastAppliedImage=$plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["clients_upgraded"],
+      "step_description": "Monitor until all clients have been upgraded"
+    },
+    {
+      "name": "final_validation_containers",
+      "requirements": "Verify that all containers (drive, compute, clients) for cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace are running with the new image $plan_parameters__newVersion",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace", "plan_parameters.newVersion"],
+      "outputs": ["all_containers_upgraded"],
+      "step_description": "Perform final validation of container images"
+    },
+    {
+      "name": "verify_containers_in_weka",
+      "requirements": "Verify that all containers for cluster $generate_unique_cluster_name__cluster_name in namespace $setup_namespace__namespace can be found in the weka cluster by running 'weka cluster container | grep <container-name>' for each container",
+      "inputs": ["generate_unique_cluster_name.cluster_name", "setup_namespace.namespace"],
+      "outputs": ["containers_verified_in_weka"],
+      "step_description": "Confirm all containers are recognized within the weka cluster"
+    },
+    {
+      "name": "remove_node_taints",
+      "requirements": "Remove weka.io/upgrade taint from all nodes matching nodeSelector $plan_parameters__nodeSelector",
+      "inputs": ["plan_parameters.nodeSelector"],
+      "outputs": ["taints_removed"],
+      "step_description": "Clean up node taints after successful upgrade"
+    }
+  ],
+  "documentation": "# Cluster Upgrade Testing Documentation\n\n## Goal Summary\nTest the capability to provision a Weka cluster and upgrade it to a newer version, validating all functionality works correctly through the upgrade process.\n\n## Required Parameters\n- `nodeSelector`: Used for provisioning all resources. No nodes outside this selector should be used.\n- `initialVersion`: Version to provision the initial cluster with\n- `newVersion`: Version to upgrade the cluster and client to\n- `namespace`: Namespace for testing. If not provided, autogenerate one with \"test-\" prefix.\n\n## Test Execution Details\n\n### 1. Setup Environment\n```bash\n# Generate unique cluster name\ncluster_name=\"test-weka-upgrade-$(date +%m%d%H%M)-$(head /dev/urandom | tr -dc a-z0-9 | head -c 4)\"\n\n# Create namespace if needed\nif [ -z \"$namespace\" ]; then\n  namespace=\"test-$(date +%m%d%H%M)\"\nfi\nkubectl create namespace $namespace --dry-run=client -o yaml | kubectl apply -f -\n```\n\n### 2. Provision Weka Cluster\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaCluster\nmetadata:\n  name: <cluster_name>\n  namespace: <namespace>\nspec:\n  template: dynamic\n  gracefulDestroyDuration: 0s\n  dynamicTemplate:\n    computeContainers: 16\n    driveContainers: 8\n    computeCores: 2\n    driveCores: 2\n    computeHugepages: 10000\n    numDrives: 2\n  redundancyLevel: 2\n  stripeWidth: 3\n  hotSpare: 1\n  overrides:\n    upgradeForceReplaceDrives: true\n    upgradePausePreCompute: true\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n  image: <initialVersion>\n  nodeSelector: <nodeSelector>\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  rawTolerations:\n    - key: weka.io/upgrade\n      operator: Exists\n```\n\n### 3. Provision Weka Clients\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaClient\nmetadata:\n  name: <cluster_name>-clients\n  namespace: <namespace>\nspec:\n  image: <initialVersion>\n  imagePullSecret: \"quay-io-robot-secret\"\n  driversDistService: \"https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002\"\n  portRange:\n    basePort: 45000\n  nodeSelector: <nodeSelector>\n  wekaSecretRef: weka-client-<cluster_name>\n  targetCluster:\n    name: <cluster_name>\n    namespace: <namespace>\n  coresNum: 1\n  network:\n    deviceSubnets:\n      - 10.200.0.0/16\n  rawTolerations:\n    - key: weka.io/upgrade\n      operator: Exists\n```\n\n### 4. Provision CSI and Workload\n```yaml\n# csi_values.yaml\npluginConfig:\n  allowInsecureHttps: true\n  skipGarbageCollection: true\ncontrollerPluginTolerations:\n - operator: Exists\nnodePluginTolerations:\n - operator: Exists\ncontroller:\n  nodeSelector: <nodeSelector>\nnode:   \n  nodeSelector: <nodeSelector>\ncsiDriverName: <cluster_name>.weka.io\n```\n\nInstall CSI driver and create resources:\n```bash\nhelm upgrade csi-<cluster_name> -n <namespace> --create-namespace -i https://github.com/weka/csi-wekafs/releases/download/v2.7.1/csi-wekafsplugin-2.7.1.tgz --set logLevel=6 --values csi_values.yaml\n\n# Create StorageClass\ncat <<EOF | kubectl apply -f -\nallowVolumeExpansion: true\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: weka-<cluster_name>-forcedirect\nparameters:\n  capacityEnforcement: HARD\n  csi.storage.k8s.io/controller-expand-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/controller-expand-secret-namespace: <namespace>\n  csi.storage.k8s.io/controller-publish-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/controller-publish-secret-namespace: <namespace>\n  csi.storage.k8s.io/node-publish-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/node-publish-secret-namespace: <namespace>\n  csi.storage.k8s.io/node-stage-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/node-stage-secret-namespace: <namespace>\n  csi.storage.k8s.io/provisioner-secret-name: weka-csi-<cluster_name>\n  csi.storage.k8s.io/provisioner-secret-namespace: <namespace>\n  filesystemName: default\n  mountOptions: forcedirect\n  volumeType: dir/v1\nprovisioner: <cluster_name>.weka.io\nreclaimPolicy: Delete\nvolumeBindingMode: Immediate\nEOF\n\n# Create PVC\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: <cluster_name>-goader-pvc\n  namespace: <namespace>\nspec:\n  accessModes:\n    - ReadWriteMany\n  storageClassName: weka-<cluster_name>-forcedirect\n  resources:\n    requests:\n      storage: 500Gi\nEOF\n\n# Create workload\ncat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: goader-smallios-<cluster_name>\n  namespace: <namespace>\n  labels:\n    app: goader-smallios-<cluster_name>\n    cluster: <cluster_name>\nspec:\n  updateStrategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxUnavailable: 100%\n  selector:\n    matchLabels:\n      app: goader-smallios-<cluster_name>\n      cluster: <cluster_name>\n  template:\n    metadata:\n      labels:\n        app: goader-smallios-<cluster_name>\n        cluster: <cluster_name>\n    spec:\n      nodeSelector: <nodeSelector>\n      containers:\n        - name: goader\n          imagePullPolicy: Always\n          image: public.ecr.aws/weka/goader:latest\n          env:\n            - name: GOADER_PARAMS\n              value: \"-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/\\${NODE_NAME}/NN/NNN/NN\"\n            - name: NODE_NAME\n              valueFrom:\n                fieldRef:\n                  fieldPath: spec.nodeName\n          volumeMounts:\n            - name: goader-storage\n              mountPath: /data\n      volumes:\n        - name: goader-storage\n          persistentVolumeClaim:\n            claimName: <cluster_name>-goader-pvc\nEOF\n```\n\n### 5. Upgrade Process\n\n#### Initiate Upgrade\n```bash\n# Patch cluster to upgrade image and add subnet\nkubectl patch wekacluster <cluster_name> -n <namespace> --type='merge' -p='{\n  \"spec\": {\n    \"image\": \"<newVersion>\",\n    \"network\": {\n      \"deviceSubnets\": [\"10.200.0.0/16\", \"10.100.0.0/16\"]\n    }\n  }\n}'\n```\n\n#### Add Compute Container\nAfter first drive container is upgraded:\n```bash\nkubectl patch wekacluster <cluster_name> -n <namespace> --type='merge' -p='{\n  \"spec\": {\n    \"dynamicTemplate\": {\n      \"computeContainers\": 17\n    }\n  }\n}'\n```\n\n#### Allow Compute Phase\nAfter all drive containers are upgraded:\n```bash\nkubectl patch wekacluster <cluster_name> -n <namespace> --type='merge' -p='{\n  \"spec\": {\n    \"overrides\": {\n      \"upgradePausePreCompute\": false\n    }\n  }\n}'\n```\n\n#### Upgrade Clients\n```bash\n# Apply taints\nnodes=$(kubectl get nodes -l <nodeSelector key>=<nodeSelector value> -o name)\nfor node in $nodes; do\n    kubectl taint $node weka.io/upgrade=true:NoSchedule\ndone\n\n# Patch clients\nkubectl patch wekaclient <cluster_name>-clients -n <namespace> --type='merge' -p='{\n  \"spec\": {\n    \"image\": \"<newVersion>\"\n  }\n}'\n```\n\n### 6. Verification Commands\n\n```python\n# Check cluster status\ndef is_cluster_ready():\n    result = subprocess.run(\n        [\"kubectl\", \"get\", \"wekacluster\", cluster_name, \"-n\", namespace, \"-o\", \"json\"], \n        capture_output=True, text=True\n    )\n    data = json.loads(result.stdout)\n    return data.get(\"status\", {}).get(\"status\") == \"Ready\"\n\n# Check container images\ndef check_all_containers_upgraded():\n    result = subprocess.run(\n        [\"kubectl\", \"get\", \"wekacontainer\", \"-n\", namespace, \"-l\", \n         f\"weka.io/cluster-name={cluster_name}\", \"-o\", \"json\"],\n        capture_output=True, text=True\n    )\n    containers = json.loads(result.stdout).get(\"items\", [])\n    for container in containers:\n        if container.get(\"status\", {}).get(\"lastAppliedImage\") != new_version:\n            return False\n    return True\n\n# Check upgrade phase\npod_name=$(kubectl get pods -n <namespace> -l weka.io/cluster-name=<cluster_name>,weka.io/mode=compute --no-headers | head -1 | awk '{print $1}')\nkubectl exec -n <namespace> $pod_name -- weka status --json | grep upgrade_phase\n\n# Verify containers in weka cluster\nfor container in $(kubectl get wekacontainer -n <namespace> -l weka.io/cluster-name=<cluster_name> -o jsonpath='{.items[*].spec.name}'); do\n    kubectl exec -n <namespace> $pod_name -- weka cluster container | grep $container\ndone\n```"
+}
