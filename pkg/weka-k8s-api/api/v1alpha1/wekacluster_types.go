@@ -318,6 +318,8 @@ type WekaClusterSpecOverrides struct {
 	UpgradeAllAtOnce bool `json:"upgradeAllAtOnce,omitempty"`
 	// Pause upgrade
 	UpgradePaused bool `json:"upgradePaused,omitempty"`
+	// Prevent from moving into compute phase
+	UpgradePausePreCompute bool `json:"upgradePausePreCompute,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
