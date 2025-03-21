@@ -430,9 +430,13 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 	containers := r.containers
 
 	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta)
+	specHash, err := util2.HashStruct(updatableSpec)
+	if err != nil {
+		return errors.Wrap(err, "failed to hash struct")
+	}
 	// Preserving whole Spec for more generic approach on status, while being able to update only specific fields on containers
 	return workers.ProcessConcurrently(ctx, containers, 32, func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
-		if container.Status.LastAppliedSpec == cluster.Status.LastAppliedSpec {
+		if container.Status.LastAppliedSpec == specHash {
 			return nil
 		}
 		logger.Info("Cluster<>Container spec has changed, updating containers")
@@ -531,7 +535,12 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.NodeSelector = cluster.Spec.NodeSelector
 		}
 
-		return r.getClient().Patch(ctx, container, patch)
+		err = r.getClient().Patch(ctx, container, patch)
+		if err != nil {
+			return err
+		}
+		container.Status.LastAppliedSpec = specHash
+		return r.getClient().Status().Patch(ctx, container, patch)
 	}).AsError()
 }
 
