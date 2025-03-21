@@ -316,6 +316,8 @@ type WekaClusterSpecOverrides struct {
 	UpgradeForceReplaceDrives bool `json:"upgradeForceReplaceDrives,omitempty"`
 	// unsafe operation, should not be used unless instructed explicitly by weka personnel
 	UpgradeAllAtOnce bool `json:"upgradeAllAtOnce,omitempty"`
+	// Pause upgrade
+	UpgradePaused bool `json:"upgradePaused,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
