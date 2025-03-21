@@ -1260,7 +1260,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		prepareForUpgrade := true
 		for _, container := range driveContainers {
 			//i.e if any container already on new target version - we should not prepare for drive phase
-			if container.Spec.Image == cluster.Spec.Image {
+			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -1319,9 +1319,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if r.cluster.Spec.GetOverrides().UpgradePausePreCompute {
 			return lifecycle.NewWaitError(errors.New("Upgrade paused before compute phase"))
 		}
-		// if any compute container changed version - do not prepare for compute
 		for _, container := range computeContainers {
-			if container.Spec.Image == cluster.Spec.Image {
+			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -1346,7 +1345,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		prepareForUpgrade = true
 		// if any s3 container changed version - do not prepare for s3
 		for _, container := range s3Containers {
-			if container.Spec.Image == cluster.Spec.Image {
+			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
@@ -1399,8 +1398,8 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context,
 	}
 
 	cmd := `
-wekaauthcli debug jrpc prepare_leader_for_upgrade
-wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
+wekaauthcli status --json | grep upgrade_phase | grep -i drive || wekaauthcli debug jrpc prepare_leader_for_upgrade
+wekaauthcli status --json | grep upgrade_phase | grep -i drive ||  wekaauthcli debug jrpc upgrade_phase_start target_phase_type=DrivePhase target_version_name=` + targetVersion + `
 `
 
 	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeDrives", []string{"bash", "-ce", cmd})
@@ -1422,8 +1421,8 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeCompute(ctx context.Context
 	}
 
 	cmd := `
-wekaauthcli status --json | grep upgrade_phase | grep -i compute ||  wekaauthcli debug jrpc upgrade_phase_finish
-wekaauthcli debug jrpc upgrade_phase_start target_phase_type=ComputeRollingPhase target_version_name=` + targetVersion + `
+wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli status --json | grep upgrade_phase | grep -i compute || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=ComputeRollingPhase target_version_name=` + targetVersion + `
 `
 
 	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeCompute", []string{"bash", "-ce", cmd})
@@ -1450,8 +1449,8 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeS3(ctx context.Context, con
 	}
 
 	cmd := `
-wekaauthcli debug jrpc upgrade_phase_finish
-wekaauthcli debug jrpc upgrade_phase_start target_phase_type=FrontendPhase target_version_name=` + targetVersion + `
+wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_finish
+wekaauthcli status --json | grep upgrade_phase | grep -i frontend || wekaauthcli debug jrpc upgrade_phase_start target_phase_type=FrontendPhase target_version_name=` + targetVersion + `
 `
 	_, stderr, err := executor.ExecNamed(ctx, "PrepareForUpgradeS3", []string{"bash", "-ce", cmd})
 	if err != nil {
