@@ -1316,12 +1316,16 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 
 		prepareForUpgrade = true
+		if r.cluster.Spec.GetOverrides().UpgradePausePreCompute {
+			return lifecycle.NewWaitError(errors.New("Upgrade paused before compute phase"))
+		}
 		// if any compute container changed version - do not prepare for compute
 		for _, container := range computeContainers {
 			if container.Spec.Image == cluster.Spec.Image {
 				prepareForUpgrade = false
 			}
 		}
+		//
 		if prepareForUpgrade {
 			err := r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
 			if err != nil {
