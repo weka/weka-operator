@@ -11,26 +11,19 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/pkg/domain"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/weka/go-weka-observability/instrumentation"
-
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/services/discovery"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
 const inPodHostBinds = "/host-binds"
-
-type WekaLocalPs struct {
-	Name            string `json:"name"`
-	RunStatus       string `json:"runStatus"`
-	LastFailureText string `json:"lastFailureText"`
-}
 
 type WekaLocalStatusSlot struct {
 	ClusterID string `json:"cluster_guid"`

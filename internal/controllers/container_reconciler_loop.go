@@ -542,7 +542,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.WaitForRunning},
-
 			{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
@@ -3002,25 +3001,15 @@ func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nod
 	})
 }
 
-func (r *containerReconcilerLoop) handleWekaLocalPsResponse(ctx context.Context, stdout []byte, psErr error) (response []resources.WekaLocalPs, err error) {
-	if psErr != nil {
-		return nil, psErr
-	}
-
+func (r *containerReconcilerLoop) checkContainerNotFound(ctx context.Context, localPsResponse []services.WekaLocalContainer, psErr error) error {
 	container := r.container
 
-	err = json.Unmarshal(stdout, &response)
-	if err != nil {
-		return
-	}
-
-	if len(response) == 0 {
-		err = errors.New("weka local ps response is empty")
-		return
+	if len(localPsResponse) == 0 {
+		return errors.New("weka local ps response is empty")
 	}
 
 	found := false
-	for _, c := range response {
+	for _, c := range localPsResponse {
 		if c.Name == container.Spec.WekaContainerName {
 			found = true
 			break
@@ -3031,10 +3020,9 @@ func (r *containerReconcilerLoop) handleWekaLocalPsResponse(ctx context.Context,
 	}
 
 	if !found {
-		err = errors.New("weka container not found")
-		return
+		return errors.New("weka container not found")
 	}
-	return
+	return nil
 }
 
 func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
@@ -3042,28 +3030,15 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	defer end()
 
 	container := r.container
-	pod := r.pod
 
 	wekaLocalPsTimeout := 10 * time.Second
-	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &wekaLocalPsTimeout)
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &wekaLocalPsTimeout)
+
+	localContainers, err := wekaService.ListLocalContainers(ctx)
 	if err != nil {
-		return err
-	}
-
-	statusCommand := "weka local ps -J"
-	stdout, stderr, err := executor.ExecNamed(ctx, "WekaLocalPs", []string{"bash", "-ce", statusCommand})
-
-	response, err := r.handleWekaLocalPsResponse(ctx, stdout.Bytes(), err)
-	if err != nil {
-		if strings.Contains(err.Error(), "container not found") {
-			if err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); err != nil {
-				return err
-			}
-			return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
-		}
-		logger.Error(err, "Error getting weka local ps", "stderr", stderr.String())
-
+		logger.Error(err, "Error getting weka local ps")
 		// TODO: Validate agent-specific errors, but should not be very important
+
 		// check if drivers should be force-reloaded
 		loaded, driversErr := r.driversLoaded(ctx)
 		if driversErr != nil {
@@ -3084,13 +3059,33 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 				return lifecycle.NewWaitError(err)
 			}
 
-			err = fmt.Errorf("weka local ps failed: %v, stderr: %s", err, stderr.String())
+			err = fmt.Errorf("weka local ps failed: %v", err)
 			return lifecycle.NewWaitError(err)
 		}
 		return lifecycle.NewWaitError(err)
 	}
 
-	status := response[0].RunStatus
+	err = r.checkContainerNotFound(ctx, localContainers, err)
+	if err != nil {
+		if err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy); err != nil {
+			return err
+		}
+		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
+	}
+
+	localContainer := localContainers[0]
+	status := localContainer.RunStatus
+
+	// check local container status and propagate failure message (if any) as event
+	internalStatus := localContainer.InternalStatus.DisplayStatus
+	if internalStatus != "READY" && localContainer.LastFailure != "" {
+		msg := fmt.Sprintf(
+			"Container is not ready, status: %s, last failure: %s (%s)",
+			internalStatus, localContainer.LastFailure, localContainer.LastFailureTime,
+		)
+		r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", msg, time.Minute)
+	}
+
 	// skip status update for DrivesAdding
 	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding {
 		return nil
@@ -3115,7 +3110,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	}
 
 	reason := fmt.Sprintf("%sError", stepName)
-	r.RecordEvent(v1.EventTypeWarning, reason, err.Error())
+	r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Minute)
 
 	if r.container.Status.Status == weka.Error || r.container.Status.Status == weka.Unhealthy {
 		return nil
@@ -3150,7 +3145,7 @@ func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, message string)
 func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
 	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
 
-	if !throttler.ShouldRun(eventtype, interval, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+	if !throttler.ShouldRun(eventtype+reason, interval, util.ThrolltingSettings{EnsureStepSuccess: false}) {
 		return nil
 	}
 
