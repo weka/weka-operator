@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -126,11 +127,48 @@ type WekaUserResponse struct {
 	Username string `json:"username"`
 }
 
+// Examples of internalStatus:
+// - when container is part of the cluster:
+//
+//	"internalStatus": {
+//		"action": "NONE",
+//		"display_status": "READY",
+//		"message": "Ready",
+//		"state": "READY"
+//	}
+//
+// - when container cannot join cluster:
+//
+//	 "internalStatus": {
+//		"action": "NONE",
+//		"display_status": "CLUSTERIZING",
+//		"message": "Joining cluster",
+//		"state": "READY"
+//	}
+//
+// - when container is in STEM mode:
+//
+//	"internalStatus": {
+//		"action": "NONE",
+//		"display_status": "STEM",
+//		"message": "STEM mode",
+//		"state": "READY"
+//	}
+type WekaLocalInternalStatus struct {
+	Action        string `json:"action"`
+	DisplayStatus string `json:"display_status"`
+	Message       string `json:"message"`
+	State         string `json:"state"`
+}
+
 type WekaLocalContainer struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	RunStatus string `json:"runStatus"`
-	IsRunning bool   `json:"isRunning"`
+	Name            string                  `json:"name"`
+	Type            string                  `json:"type"`
+	RunStatus       string                  `json:"runStatus"`
+	IsRunning       bool                    `json:"isRunning"`
+	LastFailure     string                  `json:"lastFailure"`
+	LastFailureTime string                  `json:"lastFailureTime"`
+	InternalStatus  WekaLocalInternalStatus `json:"internalStatus"`
 }
 
 type WekaClusterContainer struct {
@@ -218,6 +256,14 @@ func NewWekaService(ExecService exec.ExecService, container *v1alpha1.WekaContai
 	}
 }
 
+func NewWekaServiceWithTimeout(ExecService exec.ExecService, container *v1alpha1.WekaContainer, timeout *time.Duration) WekaService {
+	return &CliWekaService{
+		ExecService: ExecService,
+		Container:   container,
+		timeout:     timeout,
+	}
+}
+
 type FilesystemGroupExists struct {
 	error
 }
@@ -241,6 +287,7 @@ type NfsInterfaceGroupAlreadyJoined struct {
 type CliWekaService struct {
 	ExecService exec.ExecService
 	Container   *v1alpha1.WekaContainer
+	timeout     *time.Duration
 }
 
 func (c *CliWekaService) ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error) {
@@ -768,7 +815,7 @@ func (c *CliWekaService) RunJsonCmd(ctx context.Context, cmd []string, name stri
 	ctx, _, end := instrumentation.GetLogSpan(ctx, name)
 	defer end()
 
-	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	executor, err := c.ExecService.GetExecutorWithTimeout(ctx, c.Container, c.timeout)
 	if err != nil {
 		return err
 	}
