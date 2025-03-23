@@ -24,7 +24,7 @@ Test scenario
         - do not abort regardless of result, just capture what was a result, existing on weka cluster side or not
     - set taints, upgrade clients
     - validate that all backend containers (drive, compute) are now running with lastAppliedImage equal to target
-    - validate that all containers can be found in weka cluster by running "weka cluster container | grep <name>"
+    - validate that all containers can be found in weka cluster and have status UP by running "weka cluster container | grep <name> | grep UP"
 
 Testing notes:
 - this tests run on physical environment, use 10.200.0.0/16 subnet for testing
