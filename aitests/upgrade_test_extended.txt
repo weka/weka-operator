@@ -23,7 +23,7 @@ Test scenario
         - lookup this name within weka, by running "weka cluster container | grep <name>"
         - do not abort regardless of result, just capture what was a result, existing on weka cluster side or not
     - set taints, upgrade clients
-    - validate that all containers, drive, compute and backends are now running with lastAppliedImage equal to target
+    - validate that all backend containers (drive, compute) are now running with lastAppliedImage equal to target
     - validate that all containers can be found in weka cluster by running "weka cluster container | grep <name>"
 
 Testing notes:
