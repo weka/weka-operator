@@ -180,7 +180,7 @@ spec:
           image: public.ecr.aws/weka/goader:latest
           env:
             - name: GOADER_PARAMS
-              value: "-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NNN/NN"
+              value: "-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NN"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

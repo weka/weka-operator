@@ -20,7 +20,7 @@ spec:
   overrides: {}
   image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2
   nodeSelector:
-    weka.io/dedicated: "net-migration"
+    weka.io/dedicated: "dedicated-group"
   driversDistService: "https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
 ```
