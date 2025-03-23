@@ -5,11 +5,12 @@ import (
 	"net"
 	"slices"
 
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 )
 
 type NodeName types.NodeName
@@ -161,6 +162,8 @@ type WekaContainerSpecOverrides struct {
 	PreRunScript string `json:"preRunScript,omitempty"`
 	// unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner
 	ForceDrain bool `json:"forceDrain,omitempty"`
+	// option to skip active mounts check before deleting client containers
+	SkipActiveMountsCheck bool `json:"skipActiveMountsCheck,omitempty"`
 	// unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host
 	UmountOnHost bool `json:"umountOnHost,omitempty"`
 	// DebugSleepOnTerminate specifies the number of seconds to sleep on container abnormal exit for debugging purposes
