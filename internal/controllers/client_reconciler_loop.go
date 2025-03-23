@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/resources/csi"
 	"reflect"
 	"time"
 
@@ -119,6 +120,13 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.EnsureClientsWekaContainers},
+			{
+				Run: loop.EnsureCSIPlugin,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CSIInstallationEnabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
 			{
@@ -924,4 +932,75 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 
 func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka.WekaContainer {
 	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
+}
+
+func (c *clientReconcilerLoop) EnsureCSIPlugin(ctx context.Context) error {
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return err
+	}
+	csiBaseName := csi.GetCsiBaseName(c.wekaClient)
+
+	tolerations := tolerationsToObj(c.wekaClient.Spec.Tolerations)
+	fileSystemName := config.Consts.CSIFileSystemName
+	csiDriverName := csi.GenerateCsiDriverName(csiBaseName)
+
+	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: csiDriverName},
+		func() client.Object { return csi.NewCSIDriver(csiDriverName) }); err != nil {
+		return err
+	}
+
+	storageClassName := csi.GenerateStorageClassName(csiDriverName, fileSystemName)
+	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
+		func() client.Object {
+			return csi.NewCSIStorageClass(csiBaseName, csiDriverName, storageClassName, fileSystemName)
+		}); err != nil {
+		return err
+	}
+
+	mountOptions := []string{"forcedirect"}
+	storageClassForceDirectName := csi.GenerateStorageClassName(csiDriverName, fileSystemName, mountOptions...)
+	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
+		func() client.Object {
+			return csi.NewCSIStorageClass(csiBaseName, csiDriverName,
+				storageClassForceDirectName, fileSystemName, mountOptions...)
+		}); err != nil {
+		return err
+	}
+
+	controllerDeploymentName := csiBaseName + "-csi-controller"
+	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: namespace},
+		func() client.Object {
+			return csi.NewCSIControllerDeployment(controllerDeploymentName, namespace,
+				csiDriverName, tolerations)
+		}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *clientReconcilerLoop) createIfNotExists(ctx context.Context, key client.ObjectKey,
+	objectFactory func() client.Object) error {
+
+	newObj := objectFactory()
+	typeName := fmt.Sprintf("%T", newObj)
+	err := c.Create(ctx, newObj)
+	if client.IgnoreAlreadyExists(err) != nil {
+		return fmt.Errorf("failed to create %s %s: %w", typeName, key.Name, err)
+	}
+
+	return nil
+}
+
+func tolerationsToObj(tolerations []string) []v1.Toleration {
+	tolerationObjects := make([]v1.Toleration, len(tolerations))
+	for i, toleration := range tolerations {
+		tolerationObjects[i] = v1.Toleration{
+			Effect:   v1.TaintEffectNoSchedule,
+			Key:      toleration,
+			Operator: v1.TolerationOpExists,
+		}
+	}
+	return tolerationObjects
 }

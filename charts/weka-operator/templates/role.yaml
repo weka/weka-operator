@@ -98,6 +98,16 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - storage.k8s.io
+  resources:
+  - csidrivers
+  - storageclasses
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
   - weka.weka.io
   resources:
   - driveclaims

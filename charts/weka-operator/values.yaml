@@ -164,3 +164,15 @@ dnsPolicy:
   k8sNetwork: ""
   # dns policy for the pods with hostNetwork: true
   hostNetwork: ""
+
+csi:
+  namespace: weka-operator-system
+  installationEnabled: false
+  driverVersion: "2.7.2"
+  image: "quay.io/weka.io/csi-wekafs:v2.7.2"
+  provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.1.0"
+  attacherImage: "registry.k8s.io/sig-storage/csi-attacher:v4.8.0"
+  livenessProbeImage: "registry.k8s.io/sig-storage/livenessprobe:v2.15.0"
+  resizerImage: "registry.k8s.io/sig-storage/csi-resizer:v1.13.1"
+  snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0"
+  registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0"

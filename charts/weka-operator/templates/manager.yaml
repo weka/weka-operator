@@ -214,6 +214,24 @@ spec:
               value: "{{ .Values.evictContainerOnDeletion }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
+            - name: CSI_INSTALLATION_ENABLED
+              value: "{{ .Values.csi.installationEnabled }}"
+            - name: CSI_IMAGE
+              value: "{{ .Values.csi.image }}"
+            - name: CSI_PROVISIONER_IMAGE
+              value: "{{ .Values.csi.provisionerImage }}"
+            - name: CSI_ATTACHER_IMAGE
+              value: "{{ .Values.csi.attacherImage }}"
+            - name: CSI_LIVENESSPROBE_IMAGE
+              value: "{{ .Values.csi.livenessProbeImage }}"
+            - name: CSI_RESIZER_IMAGE
+              value: "{{ .Values.csi.resizerImage }}"
+            - name: CSI_SNAPSHOTTER_IMAGE
+              value: "{{ .Values.csi.snapshotterImage }}"
+            - name: CSI_REGISTRAR_IMAGE
+              value: "{{ .Values.csi.registrarImage }}"
+            - name: CSI_DRIVER_VERSION
+              value: "{{ .Values.csi.driverVersion }}"
 
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/resources/csi"
 	"go/types"
 	"io"
 	"net/http"
@@ -747,6 +748,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					container.IsNfsContainer,
 					container.HasJoinIps,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.EnsureCsiNodeServerPod,
+				Predicates: lifecycle.Predicates{
+					container.IsClientContainer,
+					lifecycle.BoolValue(config.Config.CSIInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -4468,4 +4477,54 @@ func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
 	// Returning an error here forces a requeue, allowing the reconciler to
 	// proceed with pod creation using the updated spec (without PVC).
 	return lifecycle.NewExpectedError(errors.New("requeue after successful PVC migration and spec update"))
+}
+
+func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureCsiNodeServerPod")
+	defer end()
+
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return errors.New("node affinity is not set")
+	}
+
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		return err
+	}
+
+	tolerations := r.container.Spec.Tolerations
+	name := fmt.Sprintf("%s-csi-node", r.container.Name)
+
+	wekaClient, err := r.getParentWekaClient(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get parent WekaClient")
+	}
+
+	csiBaseName := csi.GetCsiBaseName(wekaClient)
+	csiDriverName := csi.GenerateCsiDriverName(csiBaseName)
+
+	logger.Info("Creating CSI node pod")
+	podSpec := csi.NewCSINodePod(name, namespace, csiDriverName, string(nodeName), tolerations)
+	if err = r.Create(ctx, podSpec); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return errors.Wrap(err, "failed to create CSI node pod")
+		}
+	}
+
+	return nil
+}
+
+func (r *containerReconcilerLoop) getParentWekaClient(ctx context.Context) (*weka.WekaClient, error) {
+	ownerReferences := r.container.GetOwnerReferences()
+	if len(ownerReferences) == 0 {
+		return nil, fmt.Errorf("no owner references found")
+	}
+	wekaClientName := ownerReferences[0].Name
+	wekaClient := &weka.WekaClient{}
+	err := r.Get(ctx, client.ObjectKey{Name: wekaClientName, Namespace: r.container.Namespace}, wekaClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get WekaClient: %w", err)
+	}
+	return wekaClient, nil
 }

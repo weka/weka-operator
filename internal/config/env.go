@@ -119,6 +119,16 @@ var Config struct {
 	CleanupContainersOnTolerationsMismatch bool
 	EvictContainerOnDeletion               bool
 	SkipClientsTolerationValidation        bool
+
+	CSIInstallationEnabled bool
+	CSIImage               string
+	CSIDriverVersion       string
+	CSIProvisionerImage    string
+	CSIAttacherImage       string
+	CSILivenessProbeImage  string
+	CSIResizerImage        string
+	CSISnapshotterImage    string
+	CSIRegistrarImage      string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -164,6 +174,8 @@ var Consts struct {
 	FormS3ClusterMaxContainerCount int
 	// Interval at which CSI secret with container ips will be updated
 	CSILoginCredentialsUpdateInterval time.Duration
+	// Filesystem name for CSI storage class
+	CSIFileSystemName string
 	// Max containers to delete at once on node selector mismatch
 	MaxContainersDeletedOnSelectorMismatch int
 	// Interval for cleanup of containers on node selector mismatch
@@ -183,6 +195,7 @@ func init() {
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
 	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
+	Consts.CSIFileSystemName = "default"
 	Consts.MaxContainersDeletedOnSelectorMismatch = 4
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 }
@@ -258,6 +271,18 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
+
+	// CSI configuration
+	Config.CSIInstallationEnabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
+	Config.CSIImage = env.GetString("CSI_IMAGE", "")
+	Config.CSIProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
+	Config.CSIAttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
+	Config.CSILivenessProbeImage = env.GetString("CSI_LIVENESSPROBE_IMAGE", "")
+	Config.CSIResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
+	Config.CSISnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
+	Config.CSIRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
+	Config.CSIDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
+
 }
 
 func getEnvOrFail(envKey string) string {
