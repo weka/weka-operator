@@ -7,14 +7,20 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/weka/weka-operator/pkg/workers"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -23,13 +29,7 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const defaultPortRangeBase = 45000
@@ -355,6 +355,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
 				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
+				SkipActiveMountsCheck:    wekaClient.Spec.GetOverrides().SkipActiveMountsCheck,
 				UmountOnHost:             wekaClient.Spec.GetOverrides().UmountOnHost,
 			},
 			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
@@ -518,6 +519,14 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 			container.Spec.Overrides = &weka.WekaContainerSpecOverrides{}
 		}
 		container.Spec.GetOverrides().ForceDrain = newClientSpec.ForceDrain
+		changed = true
+	}
+
+	if container.Spec.GetOverrides().SkipActiveMountsCheck != newClientSpec.SkipActiveMountsCheck {
+		if container.Spec.Overrides == nil {
+			container.Spec.Overrides = &weka.WekaContainerSpecOverrides{}
+		}
+		container.Spec.GetOverrides().SkipActiveMountsCheck = newClientSpec.SkipActiveMountsCheck
 		changed = true
 	}
 
@@ -689,23 +698,24 @@ func isPortRangeEqual(a, b weka.PortRange) bool {
 }
 
 type UpdatableClientSpec struct {
-	DriversDistService string
-	ImagePullSecret    string
-	WekaSecretRef      string
-	AdditionalMemory   int
-	UpgradePolicy      weka.UpgradePolicy
-	AllowHotUpgrade    bool
-	DriversLoaderImage string
-	Port               int
-	AgentPort          int
-	PortRange          *weka.PortRange
-	CoresNumber        int
-	Tolerations        []string
-	RawTolerations     []v1.Toleration
-	Labels             *util2.HashableMap
-	AutoRemoveTimeout  metav1.Duration
-	ForceDrain         bool
-	UmountOnHost       bool
+	DriversDistService    string
+	ImagePullSecret       string
+	WekaSecretRef         string
+	AdditionalMemory      int
+	UpgradePolicy         weka.UpgradePolicy
+	AllowHotUpgrade       bool
+	DriversLoaderImage    string
+	Port                  int
+	AgentPort             int
+	PortRange             *weka.PortRange
+	CoresNumber           int
+	Tolerations           []string
+	RawTolerations        []v1.Toleration
+	Labels                *util2.HashableMap
+	AutoRemoveTimeout     metav1.Duration
+	ForceDrain            bool
+	SkipActiveMountsCheck bool
+	UmountOnHost          bool
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -713,22 +723,23 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 	spec := client.Spec
 
 	return &UpdatableClientSpec{
-		DriversDistService: spec.DriversDistService,
-		ImagePullSecret:    spec.ImagePullSecret,
-		WekaSecretRef:      spec.WekaSecretRef,
-		AdditionalMemory:   spec.AdditionalMemory,
-		UpgradePolicy:      spec.UpgradePolicy,
-		AllowHotUpgrade:    spec.AllowHotUpgrade,
-		DriversLoaderImage: spec.DriversLoaderImage,
-		Port:               spec.Port,
-		AgentPort:          spec.AgentPort,
-		PortRange:          spec.PortRange,
-		CoresNumber:        spec.CoresNumber,
-		Tolerations:        spec.Tolerations,
-		RawTolerations:     spec.RawTolerations,
-		Labels:             labels,
-		AutoRemoveTimeout:  spec.AutoRemoveTimeout,
-		ForceDrain:         spec.GetOverrides().ForceDrain,
-		UmountOnHost:       spec.GetOverrides().UmountOnHost,
+		DriversDistService:    spec.DriversDistService,
+		ImagePullSecret:       spec.ImagePullSecret,
+		WekaSecretRef:         spec.WekaSecretRef,
+		AdditionalMemory:      spec.AdditionalMemory,
+		UpgradePolicy:         spec.UpgradePolicy,
+		AllowHotUpgrade:       spec.AllowHotUpgrade,
+		DriversLoaderImage:    spec.DriversLoaderImage,
+		Port:                  spec.Port,
+		AgentPort:             spec.AgentPort,
+		PortRange:             spec.PortRange,
+		CoresNumber:           spec.CoresNumber,
+		Tolerations:           spec.Tolerations,
+		RawTolerations:        spec.RawTolerations,
+		Labels:                labels,
+		AutoRemoveTimeout:     spec.AutoRemoveTimeout,
+		ForceDrain:            spec.GetOverrides().ForceDrain,
+		SkipActiveMountsCheck: spec.GetOverrides().SkipActiveMountsCheck,
+		UmountOnHost:          spec.GetOverrides().UmountOnHost,
 	}
 }

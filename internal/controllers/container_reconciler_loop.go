@@ -352,6 +352,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					container.IsMarkedForDeletion,
 					container.IsClientContainer,
 					lifecycle.IsNotFunc(loop.PodNotSet),
+					func() bool {
+						return !container.Spec.GetOverrides().SkipActiveMountsCheck
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2559,6 +2562,10 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context) (bool, error) {
 	// do not check active mounts for s3 containers
 	if r.container.IsS3Container() {
+		return true, nil
+	}
+
+	if r.container.Spec.GetOverrides().SkipActiveMountsCheck {
 		return true, nil
 	}
 
