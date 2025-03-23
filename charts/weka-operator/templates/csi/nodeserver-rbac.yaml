@@ -1,0 +1,56 @@
+{{- if .Values.csi.installationEnabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "csi-wekafs-node-sa"
+  namespace: {{.Values.csi.namespace}}
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: "csi-wekafs-node-cr"
+  namespace: {{.Values.csi.namespace}}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["create", "delete", "get", "list", "watch", "update"]
+  - apiGroups: [""]
+    resources: ["persistentvolumesclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments"]
+    verbs: ["get", "list", "watch", "update"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "csi-wekafs-node-crb"
+  namespace: {{.Values.csi.namespace}}
+subjects:
+  - kind: ServiceAccount
+    name: "csi-wekafs-node-sa"
+    namespace: {{.Values.csi.namespace}}
+roleRef:
+  kind: ClusterRole
+  name: "csi-wekafs-node-cr"
+  apiGroup: rbac.authorization.k8s.io
+{{- end}}

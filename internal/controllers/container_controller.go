@@ -81,6 +81,8 @@ func (c *ContainerController) RunGC(ctx context.Context) {}
 //+kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+//+kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=create;get;list;watch
+//+kubebuilder:rbac:groups=storage.k8s.io,resources=csidrivers,verbs=create;get;list;watch
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
