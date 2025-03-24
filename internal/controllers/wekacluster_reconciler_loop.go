@@ -1223,7 +1223,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		logger.Info("Image upgrade sequence")
 		targetVersion := getSoftwareVersion(cluster.Spec.Image)
 
-		if cluster.Spec.Overrides.UpgradePaused {
+		if cluster.Spec.GetOverrides().UpgradePaused {
 			return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
 		}
 
