@@ -19,9 +19,10 @@ package v1alpha1
 import (
 	"time"
 
-	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/weka/weka-k8s-api/util"
 )
 
 type WekaClusterStatusEnum string
@@ -67,6 +68,8 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.S3
 	case WekaContainerModeNfs:
 		additionalMemory = a.Nfs
+	case WekaContainerModeEnvoy:
+		additionalMemory = a.Envoy
 	}
 	return additionalMemory
 }
