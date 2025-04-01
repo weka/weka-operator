@@ -1250,7 +1250,8 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 
 	agentPods, err := r.getNodeAgentPods(ctx)
 	if err != nil {
-		return nil, errors.New("Failed to get node agent pods")
+		err = fmt.Errorf("failed to get node agent pods: %w", err)
+		return nil, err
 	}
 	if len(agentPods) == 0 {
 		return nil, errors.New("There are no agent pods on node")
@@ -3970,6 +3971,13 @@ func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error 
 func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) error {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "waitForMountsOrDrain")
 	defer end()
+
+	if r.node == nil {
+		// no reason to wait for mounts if node does not exist
+		_ = r.RecordEventThrottled(v1.EventTypeNormal, "NodeNotFound", "Node is not found", time.Minute)
+		return nil
+	}
+
 	// TODO: This logic should become native FE logic
 	// meanwhile we are working around on operator side
 	// if container is being deleted and pos is still alive - we should ensnure no mounts, and drain if drain flag is set to true
