@@ -493,6 +493,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.checkPodUnhealty,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return container.Status.Status != weka.Unhealthy
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.ensurePodNotRunningState,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotRunning,
@@ -536,7 +545,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.WaitForRunning},
+			{Run: loop.WaitForNodeReady},
+			{Run: loop.WaitForPodRunning},
 			{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
@@ -582,15 +592,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.checkUnhealty,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						return container.Status.Status != weka.Unhealthy
-					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
 				Name: "ReconcileManagementIPs",
 				Run:  loop.reconcileManagementIPs,
 				Predicates: lifecycle.Predicates{
@@ -610,11 +611,11 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:  lifecycle.ForceNoError(loop.reconcileManagementIPs),
 				Predicates: lifecycle.Predicates{
 					func() bool {
-						// we don't want to reconcile management IPs for containers that are already Running
+						// we want to periodically reconcile management IPs for containers that are already Running
 						return container.Status.Status == weka.Running
 					},
 					func() bool {
-						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
+						return container.IsBackend() || container.IsClientContainer()
 					},
 				},
 				ContinueOnPredicatesFalse: true,
@@ -1559,17 +1560,8 @@ func (r *containerReconcilerLoop) podLabelsChanged() bool {
 	return !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(oldLabels))
 }
 
-func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
+func (r *containerReconcilerLoop) checkPodUnhealty(ctx context.Context) error {
 	pod := r.pod
-	node := r.node
-
-	if node != nil && NodeIsUnschedulable(node) {
-		return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
-	}
-
-	if node != nil && !NodeIsReady(node) {
-		return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
-	}
 
 	// check ContainersReady
 	podContainersReady := false
@@ -1585,7 +1577,13 @@ func (r *containerReconcilerLoop) checkUnhealty(ctx context.Context) error {
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			if containerStatus.Name == "weka-container" {
 				if containerStatus.RestartCount > 0 {
-					return r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
+					err := r.updateContainerStatusIfNotEquals(ctx, weka.Unhealthy)
+					if err != nil {
+						return err
+					}
+					// stop here, no reason to go to the next steps
+					err = errors.New("pod is unhealthy")
+					return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 				}
 			}
 		}
@@ -2165,15 +2163,38 @@ func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) erro
 	return nil
 }
 
-func (r *containerReconcilerLoop) WaitForRunning(ctx context.Context) error {
+func (r *containerReconcilerLoop) WaitForNodeReady(ctx context.Context) error {
+	node := r.node
+
+	if node != nil && !NodeIsReady(node) {
+		err := fmt.Errorf("node %s is not ready", node.Name)
+
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+
+		// stop here, no reason to go to the next steps
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+	}
+
+	// if node is unschedulable, just send the event
+	if node != nil && NodeIsUnschedulable(node) {
+		msg := fmt.Sprintf("node %s is unschedulable", node.Name)
+
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
+
+		return nil
+	}
+
+	return nil
+}
+
+func (r *containerReconcilerLoop) WaitForPodRunning(ctx context.Context) error {
 	pod := r.pod
 
 	if pod.Status.Phase == v1.PodRunning {
 		return nil
 	}
 
-	return lifecycle.NewWaitError(errors.New("Pod is not running"))
-
+	return lifecycle.NewWaitErrorWithDuration(errors.New("Pod is not running"), time.Second*10)
 }
 
 func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
@@ -3127,6 +3148,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding {
 		return nil
 	}
+
 	containerStatus := weka.ContainerStatus(status)
 	if container.Status.Status != containerStatus {
 		logger.Info("Updating status", "from", container.Status.Status, "to", status)
