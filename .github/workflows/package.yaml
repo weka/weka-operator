@@ -40,6 +40,8 @@ jobs:
     if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
+    outputs:
+      operator-version: ${{ steps.version_output.outputs.VERSION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -113,6 +115,9 @@ jobs:
         id: version
         if: github.event_name != 'workflow_dispatch'
         run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
+      - name: Set output for operator version
+        id: version_output
+        run: echo "VERSION=${{ env.VERSION }}" >> $GITHUB_OUTPUT
       - name: build version
         if: ${{ env.VERSION != '' }}
         run: VERSION=${{ env.VERSION }} ./build-release.sh

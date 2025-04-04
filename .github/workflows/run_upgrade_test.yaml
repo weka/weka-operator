@@ -1,0 +1,96 @@
+name: Run Upgrade Test
+run-name: ${{ github.actor }} is running the upgrade test
+on:
+  workflow_run:
+    workflows:
+      - Package Operator (HELM)
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      operator-version:
+        description: 'Name of the existing operator version'
+        required: true
+      weka-initial-version:
+        description: 'Initial Weka version'
+        required: true
+        default: quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha
+      weka-new-version:
+        description: 'New Weka version'
+        required: true
+        default: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3
+
+jobs:
+  optimize_ci:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check_skip.outputs.skip }}
+    steps:
+    - name: Optimize CI
+      id: check_skip
+      uses: withgraphite/graphite-ci-action@main
+      with:
+        graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
+
+  build:
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false' && ${{ github.event.workflow_run.conclusion == 'success' }}
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - name: Check out weka-k8s-testing private repo
+        uses: actions/checkout@v4
+        with:
+          repository: weka/weka-k8s-testing
+          ssh-key: ${{ secrets.WEKA_K8S_TESTING_DEPLOY_SSH_KEY }}
+      - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.GO_STEPS_ENGINE_DEPLOY_SSH_KEY }}
+            ${{ secrets.WEKA_K8S_API_DEPLOY_SSH_KEY }}
+            ${{ secrets.GO_WEKA_OBSERVABILITY_DEPLOY_SSH_KEY }}
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."ssh://git@github.com/".insteadOf https://github.com/
+
+      - name: Install submodules
+        run: git submodule update --init --recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Build Go Binary
+        run: |
+          go build -o weka-k8s-testing main.go
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weka-k8s-testing-binary
+          path: ./weka-k8s-testing
+          overwrite: true
+          retention-days: 1
+
+  upgrade_test:
+    needs: build
+    runs-on: scalar-runners
+    steps:
+    - uses: azure/k8s-set-context@v3
+      with:
+        kubeconfig: ${{ secrets.UPGRADE_TEST_KUBECONFIG }}
+    - name: Download Weka K8s Testing Binary
+      uses: actions/download-artifact@v4
+      with:
+        name: weka-k8s-testing-binary
+    - name: Make binary executable
+      run: chmod +x ./weka-k8s-testing
+    - name: Run upgrade test
+      run: |
+        ./weka-k8s-testing upgrade-extended \
+          --initial-version ${{ github.event.inputs.weka-initial-version || 'quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha' }} \
+          --new-version ${{ github.event.inputs.weka-new-version || 'quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3' }} \
+          --operator-version ${{ github.event.workflow_run.outputs.operator-version || github.event.inputs.operator-version }} \
+          --node-selector weka.io/dedicated:upgrade-extended \
+          --namespace test-upgrade-extended \
+          --cluster-name upgrade-extended \
+          --cleanup
