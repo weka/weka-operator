@@ -1,0 +1,791 @@
+GROUP:      weka.weka.io
+KIND:       WekaCluster
+VERSION:    v1alpha1
+
+DESCRIPTION:
+    <empty>
+FIELDS:
+  apiVersion	<string>
+  kind	<string>
+  metadata	<ObjectMeta>
+    annotations	<map[string]string>
+    creationTimestamp	<string>
+    deletionGracePeriodSeconds	<integer>
+    deletionTimestamp	<string>
+    finalizers	<[]string>
+    generateName	<string>
+    generation	<integer>
+    labels	<map[string]string>
+    managedFields	<[]ManagedFieldsEntry>
+      apiVersion	<string>
+      fieldsType	<string>
+      fieldsV1	<FieldsV1>
+      manager	<string>
+      operation	<string>
+      subresource	<string>
+      time	<string>
+    name	<string>
+    namespace	<string>
+    ownerReferences	<[]OwnerReference>
+      apiVersion	<string> -required-
+      blockOwnerDeletion	<boolean>
+      controller	<boolean>
+      kind	<string> -required-
+      name	<string> -required-
+      uid	<string> -required-
+    resourceVersion	<string>
+    selfLink	<string>
+    uid	<string>
+  spec	<Object>
+    additionalMemory	<Object>
+      compute	<integer>
+      drive	<integer>
+      envoy	<integer>
+      nfs	<integer>
+      s3	<integer>
+    bucketRaftSize	<integer>
+    cpuPolicy	<string>
+    enum: auto, shared, dedicated, dedicated_ht, ....
+    csiConfig	<Object>
+      endpointsSubnets	<[]string>
+    driversDistService	<string>
+    dynamicTemplate	<Object>
+      computeContainers	<integer>
+      computeCores	<integer>
+      computeHugepages	<integer>
+      computeHugepagesOffset	<integer>
+      driveContainers	<integer>
+      driveCores	<integer>
+      driveHugepages	<integer>
+      driveHugepagesOffset	<integer>
+      envoyCores	<integer>
+      nfsContainers	<integer>
+      nfsCores	<integer>
+      nfsExtraCores	<integer>
+      nfsFrontendHugepages	<integer>
+      nfsFrontendHugepagesOffset	<integer>
+      numDrives	<integer>
+      s3Containers	<integer>
+      s3Cores	<integer>
+      s3ExtraCores	<integer>
+      s3FrontendHugepages	<integer>
+      s3FrontendHugepagesOffset	<integer>
+    expandEndpoints	<[]string>
+    failureDomain	<Object>
+      compositeLabels	<[]string>
+      label	<string>
+      skew	<integer>
+    gracefulDestroyDuration	<string>
+    hotSpare	<integer>
+    image	<string> -required-
+    imagePullSecret	<string>
+    ipv6	<boolean>
+    leadershipRaftSize	<integer>
+    network	<Object>
+      aws	<Object>
+        deviceSlots	<[]integer>
+      deviceSubnets	<[]string>
+      ethDevice	<string>
+      ethDevices	<[]string>
+      ethSlots	<[]string>
+      gateway	<string>
+      udpMode	<boolean>
+    nodeSelector	<map[string]string>
+    operatorSecretRef	<string>
+    overrides	<Object>
+      allowS3ClusterDestroy	<boolean>
+      disregardRedundancy	<boolean>
+      driversLoaderImage	<string>
+      forceAio	<boolean>
+      postFormClusterScript	<string>
+      upgradeAllAtOnce	<boolean>
+      upgradeForceReplace	<boolean>
+      upgradeForceReplaceDrives	<boolean>
+      upgradePausePreCompute	<boolean>
+      upgradePaused	<boolean>
+    podConfig	<Object>
+      affinity	<Object>
+        nodeAffinity	<Object>
+          preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+            preference	<Object> -required-
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchFields	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+            weight	<integer> -required-
+          requiredDuringSchedulingIgnoredDuringExecution	<Object>
+            nodeSelectorTerms	<[]Object> -required-
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchFields	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+        podAffinity	<Object>
+          preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+            podAffinityTerm	<Object> -required-
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+            weight	<integer> -required-
+          requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+            labelSelector	<Object>
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchLabels	<map[string]string>
+            matchLabelKeys	<[]string>
+            mismatchLabelKeys	<[]string>
+            namespaceSelector	<Object>
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchLabels	<map[string]string>
+            namespaces	<[]string>
+            topologyKey	<string> -required-
+        podAntiAffinity	<Object>
+          preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+            podAffinityTerm	<Object> -required-
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+            weight	<integer> -required-
+          requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+            labelSelector	<Object>
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchLabels	<map[string]string>
+            matchLabelKeys	<[]string>
+            mismatchLabelKeys	<[]string>
+            namespaceSelector	<Object>
+              matchExpressions	<[]Object>
+                key	<string> -required-
+                operator	<string> -required-
+                values	<[]string>
+              matchLabels	<map[string]string>
+            namespaces	<[]string>
+            topologyKey	<string> -required-
+      roleAffinity	<Object>
+        compute	<Object>
+          nodeAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              preference	<Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<Object>
+              nodeSelectorTerms	<[]Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+          podAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+          podAntiAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+        drive	<Object>
+          nodeAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              preference	<Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<Object>
+              nodeSelectorTerms	<[]Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+          podAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+          podAntiAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+        nfs	<Object>
+          nodeAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              preference	<Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<Object>
+              nodeSelectorTerms	<[]Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+          podAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+          podAntiAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+        s3	<Object>
+          nodeAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              preference	<Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<Object>
+              nodeSelectorTerms	<[]Object> -required-
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchFields	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+          podAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+          podAntiAffinity	<Object>
+            preferredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              podAffinityTerm	<Object> -required-
+                labelSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                matchLabelKeys	<[]string>
+                mismatchLabelKeys	<[]string>
+                namespaceSelector	<Object>
+                  matchExpressions	<[]Object>
+                    key	<string> -required-
+                    operator	<string> -required-
+                    values	<[]string>
+                  matchLabels	<map[string]string>
+                namespaces	<[]string>
+                topologyKey	<string> -required-
+              weight	<integer> -required-
+            requiredDuringSchedulingIgnoredDuringExecution	<[]Object>
+              labelSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              matchLabelKeys	<[]string>
+              mismatchLabelKeys	<[]string>
+              namespaceSelector	<Object>
+                matchExpressions	<[]Object>
+                  key	<string> -required-
+                  operator	<string> -required-
+                  values	<[]string>
+                matchLabels	<map[string]string>
+              namespaces	<[]string>
+              topologyKey	<string> -required-
+      roleTopologySpreadConstraints	<Object>
+        compute	<[]Object>
+          labelSelector	<Object>
+            matchExpressions	<[]Object>
+              key	<string> -required-
+              operator	<string> -required-
+              values	<[]string>
+            matchLabels	<map[string]string>
+          matchLabelKeys	<[]string>
+          maxSkew	<integer> -required-
+          minDomains	<integer>
+          nodeAffinityPolicy	<string>
+          nodeTaintsPolicy	<string>
+          topologyKey	<string> -required-
+          whenUnsatisfiable	<string> -required-
+        drive	<[]Object>
+          labelSelector	<Object>
+            matchExpressions	<[]Object>
+              key	<string> -required-
+              operator	<string> -required-
+              values	<[]string>
+            matchLabels	<map[string]string>
+          matchLabelKeys	<[]string>
+          maxSkew	<integer> -required-
+          minDomains	<integer>
+          nodeAffinityPolicy	<string>
+          nodeTaintsPolicy	<string>
+          topologyKey	<string> -required-
+          whenUnsatisfiable	<string> -required-
+        nfs	<[]Object>
+          labelSelector	<Object>
+            matchExpressions	<[]Object>
+              key	<string> -required-
+              operator	<string> -required-
+              values	<[]string>
+            matchLabels	<map[string]string>
+          matchLabelKeys	<[]string>
+          maxSkew	<integer> -required-
+          minDomains	<integer>
+          nodeAffinityPolicy	<string>
+          nodeTaintsPolicy	<string>
+          topologyKey	<string> -required-
+          whenUnsatisfiable	<string> -required-
+        s3	<[]Object>
+          labelSelector	<Object>
+            matchExpressions	<[]Object>
+              key	<string> -required-
+              operator	<string> -required-
+              values	<[]string>
+            matchLabels	<map[string]string>
+          matchLabelKeys	<[]string>
+          maxSkew	<integer> -required-
+          minDomains	<integer>
+          nodeAffinityPolicy	<string>
+          nodeTaintsPolicy	<string>
+          topologyKey	<string> -required-
+          whenUnsatisfiable	<string> -required-
+      topologySpreadConstraints	<[]Object>
+        labelSelector	<Object>
+          matchExpressions	<[]Object>
+            key	<string> -required-
+            operator	<string> -required-
+            values	<[]string>
+          matchLabels	<map[string]string>
+        matchLabelKeys	<[]string>
+        maxSkew	<integer> -required-
+        minDomains	<integer>
+        nodeAffinityPolicy	<string>
+        nodeTaintsPolicy	<string>
+        topologyKey	<string> -required-
+        whenUnsatisfiable	<string> -required-
+    ports	<Object>
+      basePort	<integer>
+      lbAdminPort	<integer>
+      lbPort	<integer>
+      portRange	<integer>
+      s3Port	<integer>
+    rawTolerations	<[]Object>
+      effect	<string>
+      key	<string>
+      operator	<string>
+      tolerationSeconds	<integer>
+      value	<string>
+    redundancyLevel	<integer>
+    roleNodeSelector	<Object>
+      compute	<map[string]string>
+      drive	<map[string]string>
+      nfs	<map[string]string>
+      s3	<map[string]string>
+    startIoConditions	<Object>
+      minNumDrives	<integer>
+    stripeWidth	<integer>
+    template	<string>
+    tolerations	<[]string>
+    tracesConfiguration	<Object>
+      ensureFreeSpace	<integer>
+      maxCapacityPerIoNode	<integer>
+    wekaHome	<Object>
+      allowInsecure	<boolean>
+      cacertSecret	<string>
+      enableStats	<boolean>
+      endpoint	<string>
+  status	<Object>
+    clusterID	<string>
+    conditions	<[]Object>
+      lastTransitionTime	<string> -required-
+      message	<string> -required-
+      observedGeneration	<integer>
+      reason	<string> -required-
+      status	<string> -required-
+      enum: True, False, Unknown
+      type	<string> -required-
+    lastAppliedImage	<string>
+    lastAppliedSpec	<string>
+    ports	<Object>
+      basePort	<integer>
+      lbAdminPort	<integer>
+      lbPort	<integer>
+      portRange	<integer>
+      s3Port	<integer>
+    printer	<Object>
+      computeContainers	<string>
+      driveContainers	<string>
+      drives	<string>
+      iops	<string>
+      throughput	<string>
+    spanId	<string>
+    stats	<Object>
+      alertsCount	<integer>
+      capacity	<Object>
+        hotSpareBytes	<integer>
+        totalBytes	<integer>
+        unavailableBytes	<integer>
+        unprovisionedBytes	<integer>
+      clusterStatus	<string>
+      containers	<Object>
+        compute	<Object>
+          cpuUtilization	<string>
+          numContainers	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+          processes	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+        drive	<Object>
+          cpuUtilization	<string>
+          numContainers	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+          processes	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+        nfs	<Object>
+          cpuUtilization	<string>
+          numContainers	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+          processes	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+        s3	<Object>
+          cpuUtilization	<string>
+          numContainers	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+          processes	<Object>
+            active	<integer>
+            created	<integer>
+            desired	<integer>
+      drives	<Object>
+        counters	<Object>
+          active	<integer>
+          created	<integer>
+          desired	<integer>
+        failures	<[]Object>
+          serialId	<string>
+          wekaDriveId	<string>
+      ioStats	<Object>
+        iops	<Object>
+          metadata	<integer> -required-
+          read	<integer> -required-
+          total	<integer> -required-
+          write	<integer> -required-
+        throughput	<Object>
+          read	<integer> -required-
+          write	<integer> -required-
+      lastUpdate	<string>
+      numFailures	<map[string]string>
+    status	<string> -required-
+    timestamps	<map[string]string>
+    traceId	<string>
+
