@@ -12,7 +12,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 ## Directory Structure
 
 ```
-doc/
+./
 ├── core/                            # Core documentation organized by topic
 │   ├── ai/                          # AI assistant guidelines
 │   ├── clients/                     # Client-related documentation
