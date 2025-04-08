@@ -2549,6 +2549,13 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 		return true, nil
 	}
 
+	// if container did not join cluster, we can skip active mounts check
+	// NOTE: case - pod was stuck in Pending state and wekacontainer CR was deleted afterwards
+	// we'd want to allow this container to be recreated by client reconciler
+	if r.container.Status.ClusterContainerID == nil {
+		return true, nil
+	}
+
 	if r.container.Spec.GetOverrides().SkipActiveMountsCheck {
 		return true, nil
 	}
