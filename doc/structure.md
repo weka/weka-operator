@@ -21,9 +21,9 @@ doc/
 │   ├── networking/                  # Networking documentation
 │   └── operations/                  # Operational procedures
 ├── spec_dump/                       # Custom resource specifications (DO NOT MODIFY)
-├── missing_data.txt                 # Identified gaps in documentation
-├── structure.txt                    # This file - documentation guidelines
-└── summary.txt                      # Reference guide for all documentation
+├── missing_data.md                  # Identified gaps in documentation
+├── structure.md                     # This file - documentation guidelines
+└── summary.md                       # Reference guide for all documentation
 ```
 
 ## Documentation File Guidelines
@@ -86,14 +86,14 @@ doc/
 
 ## Special Files
 
-### summary.txt
+### summary.md
 - Serves as the primary reference for all documentation
 - Should be updated whenever new documentation is added
 - Includes keywords for each document to aid in discovery
 - Provides concise summaries of each document's content
 - Also includes information about spec_dump contents
 
-### missing_data.txt
+### missing_data.md
 - Documents gaps in current documentation
 - Proposes file names and locations for new documentation
 - Should be updated as gaps are filled or new gaps identified
@@ -111,18 +111,18 @@ doc/
 1. Identify the appropriate directory based on the topic
 2. Create the file following naming conventions
 3. Update cross-references in related files
-4. Add an entry to summary.txt
-5. Remove from missing_data.txt if the topic was listed there
+4. Add an entry to summary.md
+5. Remove from missing_data.md if the topic was listed there
 
 ### Updating Existing Documentation
 1. Maintain the same format and structure
 2. Update cross-references if content references change
-3. Update the entry in summary.txt if the content scope changes
+3. Update the entry in summary.md if the content scope changes
 
 ### Reorganizing Documentation
 1. Update all cross-references
 2. Update the directory structure description in this file
-3. Update summary.txt to reflect new locations
+3. Update summary.md to reflect new locations
 
 ## Future Expansion
 As the Weka Operator evolves, this documentation structure should expand to include:

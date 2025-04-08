@@ -48,7 +48,7 @@ This document serves as the primary reference for all Weka Operator documentatio
 
 ## Documentation Structure
 
-### /doc/structure.txt
+### /doc/structure.md
 **Keywords**: documentation structure, guidelines, file naming, content organization, maintenance
 **Summary**: Guidelines for maintaining and extending the Weka Operator documentation, including directory structure, file naming conventions, content structure, and procedures for adding or updating documentation.
 
@@ -72,4 +72,4 @@ When working with Kubernetes YAML files for the Weka Operator, refer to these sp
 
 ## Missing Documentation
 
-See `/doc/missing_data.txt` for a list of topics that require additional documentation coverage.
+See `/doc/missing_data.md` for a list of topics that require additional documentation coverage.
