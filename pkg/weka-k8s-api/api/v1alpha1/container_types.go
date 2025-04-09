@@ -140,6 +140,7 @@ const (
 	Unhealthy      ContainerStatus = "Unhealthy"
 	Error          ContainerStatus = "Error"
 	DrivesAdding   ContainerStatus = "DrivesAdding"
+	Draining       ContainerStatus = "Draining" // for client containers that are waiting for deletion due to active mounts
 	// for drivers-build and adhoc-op-with-container (sign-dives) container
 	Completed            ContainerStatus = "Completed"
 	Building             ContainerStatus = "Building"
