@@ -284,7 +284,7 @@ func getBoolEnvOrDefault(envKey string, defaultVal bool) bool {
 
 	ival, err := strconv.ParseBool(val)
 	if err != nil {
-		err = fmt.Errorf("failed to parse boolean value %s from env vars", val)
+		err = fmt.Errorf("failed to parse boolean value %s from env var %s", val, envKey)
 		klog.Error(err)
 		os.Exit(1)
 	}
@@ -299,7 +299,7 @@ func getIntEnvOrDefault(envKey string, defaultVal int) int {
 
 	ival, err := strconv.Atoi(val)
 	if err != nil {
-		err = fmt.Errorf("failed to parse integer value %s from env vars", val)
+		err = fmt.Errorf("failed to parse integer value %s from env var %s", val, envKey)
 		klog.Error(err)
 		os.Exit(1)
 	}
@@ -317,7 +317,7 @@ func getDurationEnv(envKey string) time.Duration {
 
 	duration, err := time.ParseDuration(val)
 	if err != nil {
-		err = fmt.Errorf("failed to parse duration value %s from env vars", val)
+		err = fmt.Errorf("failed to parse duration value %s from env var %s", val, envKey)
 		klog.Error(err)
 		os.Exit(1)
 	}
