@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/weka/weka-operator/internal/controllers/resources"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -217,6 +218,11 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 		for key, value := range container.labels {
 			label := metrics2.NormalizeLabelName(key)
 			defaultLabels[label] = value
+		}
+
+		// Add node_name to all metrics
+		if config.Config.MetricsServerEnv.NodeName != "" {
+			defaultLabels["node_name"] = config.Config.MetricsServerEnv.NodeName
 		}
 
 		containerLabels := util.MergeMaps(defaultLabels,

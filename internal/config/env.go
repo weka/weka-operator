@@ -70,6 +70,10 @@ const (
 	OperatorModeNodeAgent OperatorMode = "node-agent"
 )
 
+type MetricsServerEnv struct {
+	NodeName string
+}
+
 var Config struct {
 	Version                        string
 	OperatorPodUID                 string
@@ -97,6 +101,7 @@ var Config struct {
 	SkipUnhealthyToleration        bool
 	SkipClientNoScheduleToleration bool
 	SkipAuxNoScheduleToleration    bool
+	MetricsServerEnv               MetricsServerEnv
 	Upgrade                        struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
@@ -232,6 +237,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CleanupClientsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
+
+	// Metrics server environment configuration
+	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
 }
 
 func getEnvOrFail(envKey string) string {

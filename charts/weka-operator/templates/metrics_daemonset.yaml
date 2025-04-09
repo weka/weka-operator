@@ -84,6 +84,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: OTEL_DEPLOYMENT_IDENTIFIER
               value: "{{ .Values.deploymentIdentifier }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
