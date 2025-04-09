@@ -180,6 +180,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{Run: loop.GetNode},
+			{Run: loop.refreshPod},
 			// if cluster marked container state as deleting, update status and put deletion timestamp
 			{
 				Run: loop.handleStateDeleting,
@@ -196,8 +198,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.GetNode},
-			{Run: loop.refreshPod},
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
 			{
@@ -1365,8 +1365,22 @@ func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error {
-	if err := r.updateContainerStatusIfNotEquals(ctx, weka.Deleting); err != nil {
-		return err
+	statusUpdated := false
+
+	if r.container.IsClientContainer() {
+		activeMounts, _ := r.getCachedActiveMounts(ctx)
+		if activeMounts != nil && *activeMounts > 0 {
+			if err := r.updateContainerStatusIfNotEquals(ctx, weka.Draining); err != nil {
+				return err
+			}
+			statusUpdated = true
+		}
+	}
+
+	if !statusUpdated {
+		if err := r.updateContainerStatusIfNotEquals(ctx, weka.Deleting); err != nil {
+			return err
+		}
 	}
 
 	if !r.container.IsMarkedForDeletion() {
@@ -1381,8 +1395,22 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) handleStateDestroying(ctx context.Context) error {
-	if err := r.updateContainerStatusIfNotEquals(ctx, weka.Destroying); err != nil {
-		return err
+	statusUpdated := false
+
+	if r.container.IsClientContainer() {
+		activeMounts, _ := r.getCachedActiveMounts(ctx)
+		if activeMounts != nil && *activeMounts > 0 {
+			if err := r.updateContainerStatusIfNotEquals(ctx, weka.Draining); err != nil {
+				return err
+			}
+			statusUpdated = true
+		}
+	}
+
+	if !statusUpdated {
+		if err := r.updateContainerStatusIfNotEquals(ctx, weka.Destroying); err != nil {
+			return err
+		}
 	}
 
 	if !r.container.IsMarkedForDeletion() {
@@ -3906,6 +3934,7 @@ func (r *containerReconcilerLoop) IsStatusOvervwritableByLocal() bool {
 		[]weka.ContainerStatus{
 			weka.Deleting,
 			weka.Destroying,
+			weka.Draining,
 			weka.PodTerminating,
 		}, r.container.Status.Status) {
 		return false

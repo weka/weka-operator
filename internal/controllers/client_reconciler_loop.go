@@ -81,7 +81,13 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnPredicatesFalse: true,
 				FinishOnSuccess:           true,
 			},
-			{Run: loop.ensureFinalizer},
+			{
+				Run: loop.ensureFinalizer,
+				Predicates: lifecycle.Predicates{
+					func() bool { return wekaClient.GetFinalizers() == nil },
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				Run: loop.deleteContainersOnNodeSelectorMismatch,
 				Predicates: lifecycle.Predicates{
@@ -92,6 +98,13 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			{Run: loop.EnsureClientsWekaContainers},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
+			{
+				Run: loop.setStatusRunning,
+				Predicates: lifecycle.Predicates{
+					func() bool { return wekaClient.Status.Status != weka.WekaClientStatusRunning },
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 		},
 	}
 }
@@ -102,6 +115,10 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 
 	if !controllerutil.ContainsFinalizer(c.wekaClient, WekaFinalizer) {
 		return nil
+	}
+
+	if err := c.updateStatusIfNotEquals(ctx, weka.WekaClientStatusDestroying); err != nil {
+		return err
 	}
 
 	if err := c.finalizeClient(ctx); err != nil {
@@ -134,10 +151,6 @@ func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason string, mes
 func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
-
-	if c.wekaClient.GetFinalizers() != nil {
-		return nil
-	}
 
 	logger.Info("Adding Finalizer for weka client")
 	if ok := controllerutil.AddFinalizer(c.wekaClient, WekaFinalizer); !ok {
@@ -601,6 +614,11 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 		return nil
 	}
 
+	err := c.setStatusUpgrading(ctx)
+	if err != nil {
+		return err
+	}
+
 	switch c.wekaClient.Spec.UpgradePolicy.Type {
 	case weka.UpgradePolicyTypeAllAtOnce:
 		return uController.AllAtOnceUpgrade(ctx)
@@ -700,6 +718,25 @@ func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx contex
 	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
 		return services.SetContainerStateDeleting(ctx, container, c.Client)
 	}).AsError()
+}
+
+func (c *clientReconcilerLoop) setStatusRunning(ctx context.Context) error {
+	return c.updateStatusIfNotEquals(ctx, weka.WekaClientStatusRunning)
+}
+
+func (c *clientReconcilerLoop) setStatusUpgrading(ctx context.Context) error {
+	return c.updateStatusIfNotEquals(ctx, weka.WekaClientStatusUpgrading)
+}
+
+func (c *clientReconcilerLoop) updateStatusIfNotEquals(ctx context.Context, newStatus weka.WekaClientStatusEnum) error {
+	if c.wekaClient.Status.Status != newStatus {
+		c.wekaClient.Status.Status = newStatus
+		err := c.Status().Update(ctx, c.wekaClient)
+		if err != nil {
+			return errors.Wrap(err, "failed to update wekaClient status")
+		}
+	}
+	return nil
 }
 
 func isPortRangeEqual(a, b weka.PortRange) bool {
