@@ -1,20 +1,22 @@
-package resources
+package controllers
 
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/pkg/util"
 	"slices"
 	"strings"
+
+	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/pkg/util"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 )
 
-func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster) (string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BuildClusterPrometheusMetrics")
+func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster, wekaStatus services.WekaStatusResponse) (string, error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildClusterPrometheusMetrics")
 	defer end()
 	metrics := []metrics2.PromMetric{}
 
@@ -109,8 +111,11 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		Metric: "weka_cluster_status",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{
-				"status":    string(cluster.Status.Stats.ClusterStatus),
-				"cr_status": string(cluster.Status.Status),
+				"status":           string(cluster.Status.Stats.ClusterStatus),
+				"cr_status":        string(cluster.Status.Status),
+				"stripe_width":     fmt.Sprintf("%d", wekaStatus.StripeWidth),
+				"redundancy_level": fmt.Sprintf("%d", wekaStatus.RedundancyLevel),
+				"hot_spare":        fmt.Sprintf("%d", wekaStatus.HotSpare),
 			}, Value: clusterStatusVal},
 		},
 	})

@@ -84,6 +84,9 @@ type WekaStatusResponse struct {
 	Containers        WekaStatusContainers    `json:"containers"`
 	Drives            WekaStatusObjectCounter `json:"drives"`
 	Rebuild           WekaStatusRebuild       `json:"rebuild"`
+	HotSpare          int                     `json:"hot_spare"`
+	StripeWidth       int                     `json:"stripe_data_drives"`
+	RedundancyLevel   int                     `json:"stripe_protection_drives"`
 }
 
 type WekaFilesystem struct {

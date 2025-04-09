@@ -2020,7 +2020,18 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	if err != nil {
 		return err
 	}
-	data, err := resources.BuildClusterPrometheusMetrics(ctx, r.cluster)
+
+
+	container := discovery.SelectActiveContainer(r.containers)
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+	status, err := wekaService.GetWekaStatus(ctx)
+	if err != nil {
+		return err
+	}
+
+
+	data, err := BuildClusterPrometheusMetrics(ctx, r.cluster, status)
 	if err != nil {
 		return err
 	}
