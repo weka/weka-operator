@@ -43,12 +43,12 @@ jobs:
       with:
         graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
 
-  build:
+  get_operator_version:
     runs-on: ubuntu-latest
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip == 'false' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
-    env:
-      GOPRIVATE: github.com/weka
+    outputs:
+      should_run: ${{ steps.check_artifact.outputs.should_run }}
     steps:
       - name: Download operator version artifact
         uses: actions/download-artifact@v4
@@ -57,15 +57,27 @@ jobs:
           name: operator-version
           repository: ${{ github.event.workflow_run.repository.full_name }}
           run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
       - name: Check if operator version is empty
-        id: check_version
+        id: check_artifact
         if: github.event_name == 'workflow_run'
         run: |
           if [ ! -f operator-version.txt ] || [ ! -s operator-version.txt ]; then
             echo "Operator version is empty. Stopping the workflow."
-            exit 0
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Operator version: ${OPERATOR_VERSION}"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
           fi
+
+  build:
+    runs-on: ubuntu-latest
+    needs: get_operator_version
+    if: needs.get_operator_version.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
       - name: Read operator version
         id: read_version
         if: github.event_name == 'workflow_run'
