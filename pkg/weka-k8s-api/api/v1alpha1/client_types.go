@@ -25,6 +25,15 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+type WekaClientStatusEnum string
+
+const (
+	WekaClientStatusInit       WekaClientStatusEnum = "Init"
+	WekaClientStatusRunning    WekaClientStatusEnum = "Running"
+	WekaClientStatusUpgrading  WekaClientStatusEnum = "Upgrading"
+	WekaClientStatusDestroying WekaClientStatusEnum = "Destroying"
+)
+
 type DriverSpec struct{}
 
 type ClientContainerSpec struct {
@@ -139,11 +148,13 @@ type WekaClientSpec struct {
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions      []metav1.Condition   `json:"conditions,omitempty"`
-	LastAppliedSpec string               `json:"lastAppliedSpec,omitempty"`
-	Status          string               `json:"status,omitempty"` // Status is the status of the resource, may be either PROGRESSING, FAILED, or READY
-	Stats           *ClientMetrics       `json:"stats,omitempty"`
-	PrinterColumns  ClientPrinterColumns `json:"printer,omitempty"`
+	Conditions      []metav1.Condition `json:"conditions,omitempty"`
+	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
+	// +kubebuilder:validation:Enum=Init;Running;Upgrading;Destroying
+	// +kubebuilder:default=Init
+	Status         WekaClientStatusEnum `json:"status,omitempty"`
+	Stats          *ClientMetrics       `json:"stats,omitempty"`
+	PrinterColumns ClientPrinterColumns `json:"printer,omitempty"`
 }
 
 type ClientPrinterColumns struct {
