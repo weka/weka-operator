@@ -32,6 +32,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 - Use kebab-case for all filenames (e.g., `cluster-provisioning.md`)
 - Names should be descriptive but concise
 - Avoid special characters and spaces
+- When referencing filenames in documentation, wrap them in backticks (e.g., `filename.md`) to ensure they're properly formatted when transferred between LLMs or other systems
 
 ### File Content Structure
 - Start with a clear title using a single H1 (`#`)
