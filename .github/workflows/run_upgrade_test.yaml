@@ -35,7 +35,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false' && ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: needs.optimize_ci.outputs.skip == 'false' && ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.outputs.operator-version != '') }}
     env:
       GOPRIVATE: github.com/weka
     steps:
