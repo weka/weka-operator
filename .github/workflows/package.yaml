@@ -134,3 +134,4 @@ jobs:
         with:
           name: operator-version
           path: operator-version.txt
+          retention-days: 1
