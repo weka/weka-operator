@@ -13,13 +13,15 @@ This document provides guidelines for maintaining and extending the Weka Operato
 
 ```
 ./
-├── core/                            # Core documentation organized by topic
+├── operator/                        # Operator documentation organized by topic
 │   ├── ai/                          # AI assistant guidelines
 │   ├── clients/                     # Client-related documentation
 │   ├── concepts/                    # Fundamental concepts and architecture
 │   ├── deployment/                  # Deployment-related documentation
 │   ├── networking/                  # Networking documentation
 │   └── operations/                  # Operational procedures
+├── weka/                            # Weka-specific documentation
+│   └── cli/                         # CLI reference documentation
 ├── spec_dump/                       # Custom resource specifications (DO NOT MODIFY)
 ├── missing_data.md                  # Identified gaps in documentation
 ├── structure.md                     # This file - documentation guidelines
@@ -49,41 +51,47 @@ This document provides guidelines for maintaining and extending the Weka Operato
 
 ## Directory-Specific Guidelines
 
-### core/concepts/
+### operator/concepts/
 - Focus on fundamental architecture and design concepts
 - Explain relationships between components
 - Define terminology consistently
 - Avoid procedure-specific instructions
 
-### core/deployment/
+### operator/deployment/
 - Include clear step-by-step procedures
 - Provide complete YAML examples
 - Explain all relevant configuration options
 - Cover initial deployment and configuration tasks
 
-### core/networking/
+### operator/networking/
 - Document all networking options for different environments
 - Include diagrams where helpful
 - Cover physical, cloud, and hybrid scenarios
 - Explain performance implications of different network configurations
 
-### core/operations/
+### operator/operations/
 - Focus on day-2 operations tasks
 - Include monitoring, upgrading, scaling, and troubleshooting
 - Provide clear command examples
 - Document expected output and how to interpret it
 
-### core/clients/
+### operator/clients/
 - Cover client deployment and configuration
 - Document CSI driver installation and configuration
 - Include workload examples with PVCs and volumes
 - Explain performance optimization for client workloads
 
-### core/ai/
+### operator/ai/
 - Maintain guidelines for AI assistants
 - Document important conventions and patterns
 - Keep critical instructions updated with AIMUST tags
 - Ensure AI can properly parse and understand the documentation
+
+### weka/cli/
+- Document Weka CLI commands and their usage
+- Provide examples with expected output
+- Include JSON reference for programmatic usage
+- Document command parameters and options
 
 ## Special Files
 
