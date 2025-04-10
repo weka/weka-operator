@@ -144,6 +144,10 @@ type WekaClientSpec struct {
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
 	AutoRemoveTimeout metav1.Duration `json:"autoRemoveTimeout,omitempty"`
 	GlobalPVC         *PVCConfig      `json:"globalPVC,omitempty"`
+
+	// +kubebuilder:validation:Type=string
+	// if set, allows to reuse the same csi resources for multiple clients
+	CSIGroup string `json:"csiGroup,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
