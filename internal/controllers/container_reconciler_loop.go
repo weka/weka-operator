@@ -1854,6 +1854,11 @@ func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Nod
 
 func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.DiscoveryNodeInfo, error) {
 	container := r.container
+
+	if container.IsDiscoveryContainer() {
+		return nil, errors.New("cannot get node info for discovery container")
+	}
+
 	nodeAffinity := container.GetNodeAffinity()
 	if container.GetNodeAffinity() == "" {
 		node, err := r.pickMatchingNode(ctx)
