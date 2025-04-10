@@ -3,13 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,6 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 type CleanupPersistentDirPayload struct {
@@ -81,7 +83,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		return nil
 	}
 
-	ttl := int32(60 * 5) // 5 minutes
+	ttl := int32(60 * 15) // 15 minutes
 	jobName := o.getJobName()
 	namespace, err := util.GetPodNamespace()
 	if err != nil {
