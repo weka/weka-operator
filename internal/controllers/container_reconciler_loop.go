@@ -882,6 +882,11 @@ func (r *containerReconcilerLoop) s3ContainerPreDeactivate(ctx context.Context) 
 		// if it does, wait for it to be removed
 		localContainers, err := wekaService.ListLocalContainers(ctx)
 		if err != nil {
+			if strings.Contains(err.Error(), "weka-agent isn't running") {
+				logger.Info("weka-agent isn't running, skipping local containers check")
+				return nil
+			}
+
 			err = errors.Wrap(err, "Failed to list weka local containers")
 			return err
 		}
