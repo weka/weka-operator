@@ -114,10 +114,11 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	}
 
 	containerDataPath := fmt.Sprintf("%s/%s", persistencePath, containerId)
-	var mountPath string
+	var mountPath, subPath string
 	if config.Config.LocalDataPvc != "" {
-		// If PVC is specified, mount at /opt/k8s-weka and clean specific container dir under it
-		mountPath = "/opt/k8s-weka"
+		// If PVC is specified, mount at /opt/k8s-weka/containers and clean specific container dir under it
+		mountPath = persistencePath
+		subPath = "containers"
 	} else {
 		// Otherwise use the container-specific path for both mounting and cleanup
 		mountPath = containerDataPath
@@ -127,6 +128,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		{
 			Name:      "weka-container-data",
 			MountPath: mountPath,
+			SubPath:   subPath,
 		},
 	}
 	volumes := []corev1.Volume{}

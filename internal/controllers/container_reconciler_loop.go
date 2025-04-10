@@ -1806,8 +1806,9 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 		persistencePath = nodeInfo.GetHostsideContainerPersistence()
 	} else {
-		persistencePath = weka.PersistencePathBase
+		persistencePath = weka.PersistencePathBase + "/containers"
 	}
+
 	payload := operations.CleanupPersistentDirPayload{
 		NodeName:        container.GetNodeAffinity(),
 		ContainerId:     string(container.UID),
