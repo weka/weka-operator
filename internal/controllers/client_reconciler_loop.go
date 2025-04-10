@@ -55,6 +55,8 @@ type clientReconcilerLoop struct {
 	wekaClient    *weka.WekaClient
 	ThrottlingMap *util2.ThrottlingSyncMap
 	nodes         []v1.Node
+	// keep in state for future steps referencing
+	upgradeInProgress bool
 }
 
 func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
@@ -101,7 +103,10 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			{
 				Run: loop.setStatusRunning,
 				Predicates: lifecycle.Predicates{
-					func() bool { return wekaClient.Status.Status != weka.WekaClientStatusRunning },
+					// upgrade step migth not fail (with ExpectedError) so check if upgrade is in progress
+					func() bool {
+						return !loop.upgradeInProgress && wekaClient.Status.Status != weka.WekaClientStatusRunning
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -613,6 +618,8 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	if uController.AreUpgraded() {
 		return nil
 	}
+
+	c.upgradeInProgress = true
 
 	err := c.setStatusUpgrading(ctx)
 	if err != nil {
