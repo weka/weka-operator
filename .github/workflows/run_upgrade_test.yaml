@@ -49,6 +49,7 @@ jobs:
     if: needs.optimize_ci.outputs.skip == 'false' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
     outputs:
       should_run: ${{ steps.check_artifact.outputs.should_run }}
+      operator_version: ${{ steps.check_artifact.outputs.operator_version }}
     steps:
       - name: Download operator version artifact
         uses: actions/download-artifact@v4
@@ -67,7 +68,10 @@ jobs:
             echo "Operator version is empty. Stopping the workflow."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           else
+            OPERATOR_VERSION=$(cat operator-version.txt)
             echo "Operator version: ${OPERATOR_VERSION}"
+
+            echo "operator_version=${OPERATOR_VERSION}" >> "$GITHUB_OUTPUT"
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -78,12 +82,6 @@ jobs:
     env:
       GOPRIVATE: github.com/weka
     steps:
-      - name: Read operator version
-        id: read_version
-        if: github.event_name == 'workflow_run'
-        run: |
-          export OPERATOR_VERSION=$(cat operator-version.txt)
-          echo "OPERATOR_VERSION=${OPERATOR_VERSION}" >> $GITHUB_ENV
       - name: Check out weka-k8s-testing private repo
         uses: actions/checkout@v4
         with:
@@ -117,8 +115,10 @@ jobs:
           retention-days: 1
 
   upgrade_test:
-    needs: build
+    needs: [get_operator_version, build]
     runs-on: scalar-runners
+    env:
+      OPERATOR_VERSION: ${{ needs.get_operator_version.outputs.operator_version }}
     steps:
     - uses: azure/k8s-set-context@v3
       with:
