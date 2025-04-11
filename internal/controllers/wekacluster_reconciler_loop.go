@@ -303,6 +303,24 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 	return &workers.MultiError{Errors: []error{updateErr, deleteErr}}
 }
 
+func (r *wekaClusterReconcilerLoop) deleteContainersOnTolerationsMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	toDelete := services.FilterContainersForDeletion(r.containers, func(container *wekav1alpha1.WekaContainer) bool {
+		return container.Status.NotToleratedOnReschedule
+	})
+	if len(toDelete) == 0 {
+		return nil
+	}
+
+	logger.Info("Deleting containers with tolerations mismatch", "toDelete", len(toDelete))
+	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *wekav1alpha1.WekaContainer) error {
+		r.Recorder.Event(container, v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container")
+		return services.SetContainerStateDeleting(ctx, container, r.getClient())
+	}).AsError()
+}
+
 func (r *wekaClusterReconcilerLoop) getClient() client.Client {
 	return r.Manager.GetClient()
 }

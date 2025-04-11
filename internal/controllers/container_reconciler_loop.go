@@ -406,6 +406,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{Run: loop.initState},
 			{Run: loop.deleteIfNoNode},
+			{
+				Run: loop.checkTolerations,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsNotFunc(loop.NodeNotSet),
+					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{
@@ -2774,6 +2782,10 @@ func (r *containerReconcilerLoop) PodNotSet() bool {
 	return r.pod == nil
 }
 
+func (r *containerReconcilerLoop) NodeNotSet() bool {
+	return r.node == nil
+}
+
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
 	fdConfig := r.container.Spec.FailureDomain
 	if fdConfig == nil {
@@ -4126,4 +4138,15 @@ func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) e
 		return err
 	}
 	return op.Cleanup(ctx)
+}
+
+func (r *containerReconcilerLoop) checkTolerations(ctx context.Context) error {
+	notTolerated := !util.CheckTolerations(r.node.Spec.Taints, r.container.Spec.Tolerations)
+
+	if notTolerated == r.container.Status.NotToleratedOnReschedule {
+		return nil
+	}
+
+	r.container.Status.NotToleratedOnReschedule = notTolerated
+	return r.Status().Update(ctx, r.container)
 }
