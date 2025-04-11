@@ -116,6 +116,8 @@ cleanupRemovedNodes: false
 cleanupOnNodeSelectorMismatch: false
 # -- if true, the operator will delete client wekacontainers from the nodes that do not match node selectors
 cleanupClientsOnNodeSelectorMismatch: false
+# -- if true, the operator will delete any wekacontainers from the nodes that do not tolerate taints
+cleanupContainersOnTolerationsMismatch: false
 # -- if true, the operator will enforce deactivation on pod removal
 evictContainerOnDeletion: false
 skipClientsTolerationValidation: false

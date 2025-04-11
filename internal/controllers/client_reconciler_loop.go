@@ -97,6 +97,13 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{
+				Run: loop.deleteContainersOnTolerationsMismatch,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.EnsureClientsWekaContainers},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
@@ -707,21 +714,43 @@ func (c *clientReconcilerLoop) getHugepagesOffset() int {
 }
 
 func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	applicableNodes := make(map[string]struct{}, len(c.nodes))
 	for _, node := range c.nodes {
 		applicableNodes[node.Name] = struct{}{}
 	}
 
-	// delete containers that are not on applicable nodes
-	toDelete := []*weka.WekaContainer{}
-	for _, container := range c.containers {
-		if container.IsMarkedForDeletion() || container.IsDeletingState() || container.IsDestroyingState() {
-			continue
-		}
+	toDelete := services.FilterContainersForDeletion(c.containers, func(container *weka.WekaContainer) bool {
+		shouldDelete := false
 		if _, ok := applicableNodes[string(container.Spec.NodeAffinity)]; !ok {
-			toDelete = append(toDelete, container)
+			shouldDelete = true
 		}
+		return shouldDelete
+	})
+
+	if len(toDelete) == 0 {
+		return nil
 	}
+	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
+	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
+		return services.SetContainerStateDeleting(ctx, container, c.Client)
+	}).AsError()
+}
+
+func (c *clientReconcilerLoop) deleteContainersOnTolerationsMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	toDelete := services.FilterContainersForDeletion(c.containers, func(container *weka.WekaContainer) bool {
+		return container.Status.NotToleratedOnReschedule
+	})
+
+	if len(toDelete) == 0 {
+		return nil
+	}
+	logger.Info("Deleting containers with tolerations mismatch", "toDelete", len(toDelete))
 	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
 		return services.SetContainerStateDeleting(ctx, container, c.Client)
 	}).AsError()

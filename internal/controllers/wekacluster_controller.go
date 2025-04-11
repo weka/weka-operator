@@ -194,6 +194,13 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.deleteContainersOnTolerationsMismatch,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition:             condition.CondContainerResourcesAllocated,
 				Run:                   loop.AllocateResources,
 				SkipOwnConditionCheck: true,
