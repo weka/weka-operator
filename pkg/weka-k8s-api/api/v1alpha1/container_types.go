@@ -28,7 +28,6 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".status.stats.cpuUtilization",description="CPU Utilization",priority=1
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time since creation",priority=0
 // +kubebuilder:printcolumn:name="Weka cID",type="string",JSONPath=".status.containerID",description="Weka container ID",priority=1
-// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.message",description="Weka container message",priority=1
 type WekaContainer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -457,23 +456,23 @@ func (w *WekaContainer) HasFrontend() bool {
 }
 
 func (w *WekaContainer) IsS3Container() bool {
-	return slices.Contains([]string{WekaContainerModeS3}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeS3
 }
 
 func (w *WekaContainer) IsNfsContainer() bool {
-	return slices.Contains([]string{WekaContainerModeNfs}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeNfs
 }
 
 func (w *WekaContainer) HasJoinIps() bool {
-	return w.Spec.JoinIps != nil && len(w.Spec.JoinIps) > 0
+	return len(w.Spec.JoinIps) > 0
 }
 
 func (w *WekaContainer) IsDriveContainer() bool {
-	return slices.Contains([]string{WekaContainerModeDrive}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeDrive
 }
 
 func (w *WekaContainer) IsComputeContainer() bool {
-	return slices.Contains([]string{WekaContainerModeCompute}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeCompute
 }
 
 func (w *WekaContainer) IsWekaContainer() bool {
@@ -540,7 +539,7 @@ func (w *WekaContainer) IsOneOff() bool {
 }
 
 func (w *WekaContainer) IsClientContainer() bool {
-	return slices.Contains([]string{WekaContainerModeClient}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeClient
 }
 
 func (w *WekaContainer) IsProtocolContainer() bool {
@@ -558,7 +557,7 @@ func (w *WekaContainer) GetParentClusterId() string {
 }
 
 func (w *WekaContainer) IsEnvoy() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy}, w.Spec.Mode)
+	return w.Spec.Mode == WekaContainerModeEnvoy
 }
 
 func (w *WekaContainer) GetPort() int {
