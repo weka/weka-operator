@@ -422,7 +422,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.PodNotSet),
 					func() bool {
-						return container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute
+						return container.IsDriveContainer() || container.IsComputeContainer()
 					},
 					func() bool {
 						return loop.pod.DeletionTimestamp == nil
@@ -493,6 +493,18 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.deletePodIfUnschedulable,
+				Predicates: lifecycle.Predicates{
+					container.IsDriversContainer,
+					func() bool {
+						// if node affinity is set in container status, try to reschedule pod
+						// (do not delete pod if node affinity is set on wekacontainer's spec)
+						return loop.pod.Status.Phase == v1.PodPending && container.Status.NodeAffinity != ""
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.checkPodUnhealty,
 				Predicates: lifecycle.Predicates{
 					func() bool {
@@ -517,22 +529,17 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.EnsureDrivers, //drivers might be off at this point if we had to wait for node affinity
+				Run: loop.setNodeAffinityStatus,
 				Predicates: lifecycle.Predicates{
-					container.RequiresDrivers,
-					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
+					lifecycle.IsNotFunc(loop.HasNodeAffinity),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.CleanupUnschedulable,
+				Run: loop.EnsureDrivers, //drivers might be off at this point if we had to wait for node affinity
 				Predicates: lifecycle.Predicates{
-					func() bool {
-						if loop.pod == nil {
-							panic("pod is nil, it must be set at this point")
-						}
-						return loop.pod.Status.Phase == v1.PodPending
-					},
+					container.RequiresDrivers,
+					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1160,7 +1167,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		if r.container.Status.Timestamps == nil {
 			r.container.Status.Timestamps = make(map[string]metav1.Time)
 		}
-		if container.IsDriveContainer() || container.Spec.Mode == weka.WekaContainerModeCompute {
+		if container.IsDriveContainer() || container.IsComputeContainer() {
 			if since, ok := r.container.Status.Timestamps[string(weka.TimestampStopAttempt)]; !ok {
 				r.container.Status.Timestamps[string(weka.TimestampStopAttempt)] = metav1.Time{Time: time.Now()}
 				if err := r.Status().Update(ctx, r.container); err != nil {
@@ -1458,23 +1465,30 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 		r.container.Status.Conditions = []metav1.Condition{}
 	}
 
+	if r.container.Status.PrinterColumns == nil {
+		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
+	}
+
+	changed := false
+
+	if r.HasNodeAffinity() && r.container.Status.PrinterColumns.NodeAffinity == "" {
+		r.container.Status.PrinterColumns.NodeAffinity = string(r.container.GetNodeAffinity())
+		changed = true
+	}
+
 	// save printed management IPs if not set (for the back-compatibility with "single" managementIP)
 	if r.container.Status.GetPrinterColumns().ManagementIPs == "" && len(r.container.Status.GetManagementIps()) > 0 {
-		if r.container.Status.PrinterColumns == nil {
-			r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
-		}
-
 		r.container.Status.PrinterColumns.SetManagementIps(r.container.Status.GetManagementIps())
+		changed = true
+	}
 
+	if changed {
 		if err := r.Status().Update(ctx, r.container); err != nil {
 			return errors.Wrap(err, "Failed to update status")
 		}
 	}
 	return nil
 }
-
-// Implement the remaining methods (ensurePod, driversLoaded, reconcileManagementIP, etc.)
-// by adapting the logic from the original container_controller.go file.
 
 func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureBootConfigMapInTargetNamespace")
@@ -1607,9 +1621,6 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 	if !util.SliceEquals(container.Status.ManagementIPs, ipAddresses) {
 		container.Status.ManagementIPs = ipAddresses
 
-		if r.container.Status.PrinterColumns == nil {
-			r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
-		}
 		r.container.Status.PrinterColumns.SetManagementIps(ipAddresses)
 		if err := r.Status().Update(ctx, container); err != nil {
 			logger.Error(err, "Error updating status")
@@ -2106,59 +2117,6 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	err = r.refreshPod(ctx)
 	if err != nil {
 		return err
-	}
-	return nil
-}
-
-func (r *containerReconcilerLoop) CleanupUnschedulable(ctx context.Context) error {
-	kubeService := r.KubeService
-
-	pod := r.pod
-	container := r.container
-
-	unschedulable := false
-	unschedulableSince := time.Time{}
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionFalse && condition.Reason == "Unschedulable" {
-			unschedulable = true
-			unschedulableSince = condition.LastTransitionTime.Time
-		}
-	}
-
-	if !unschedulable {
-		return nil // cleanin up only unschedulable
-	}
-
-	if pod.Spec.NodeName != "" {
-		return nil // cleaning only such that scheduled by node affinity
-	}
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupIfNeeded")
-	defer end()
-
-	nodeName := container.GetNodeAffinity()
-	if nodeName == "" {
-		err := errors.New("Node affinity not set")
-		return err
-	}
-
-	_, err := kubeService.GetNode(ctx, types.NodeName(nodeName))
-	if !apierrors.IsNotFound(err) {
-		return nil // node still exists, handling only not found node
-	}
-
-	// We are safe to delete clients after a configurable while
-	// TODO: Make configurable, for now we delete after 5 minutes since downtime
-	// relying onlastTransitionTime of Unschedulable condition
-	rescheduleAfter := 30 * time.Second
-	if time.Since(unschedulableSince) > rescheduleAfter {
-		logger.Info("Deleting unschedulable pod")
-		err := r.Delete(ctx, container)
-		if err != nil {
-			logger.Error(err, "Error deleting client container")
-			return err
-		}
-		return errors.New("Pod is outdated and will be deleted")
 	}
 	return nil
 }
@@ -3042,7 +3000,16 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		// no one else is using this node, we can safely set it
 	}
 	r.container.Status.NodeAffinity = weka.NodeName(node)
+	r.container.Status.PrinterColumns.NodeAffinity = node
 	logger.Info("binding to node", "node", node, "container_name", r.container.Name)
+	return r.Status().Update(ctx, r.container)
+}
+
+func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) error {
+	nodeName := r.pod.Spec.NodeName
+
+	r.container.Status.NodeAffinity = weka.NodeName(nodeName)
+	r.container.Status.PrinterColumns.NodeAffinity = nodeName
 	return r.Status().Update(ctx, r.container)
 }
 
@@ -3211,10 +3178,68 @@ func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, messag
 	return r.RecordEvent(eventtype, reason, message)
 }
 
+func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	pod := r.pod
+
+	unschedulable := false
+	unschedulableSince := time.Time{}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionFalse && condition.Reason == "Unschedulable" {
+			unschedulable = true
+			unschedulableSince = condition.LastTransitionTime.Time
+		}
+	}
+
+	if !unschedulable {
+		return nil // cleaning up only unschedulable
+	}
+
+	// relying on lastTransitionTime of Unschedulable condition
+	rescheduleAfter := 1 * time.Minute
+	if time.Since(unschedulableSince) > rescheduleAfter {
+		logger.Debug("Pod is unschedulable, cleaning container status", "unschedulable_since", unschedulableSince)
+
+		// clear status before deleting pod (let reconciler start from the beginning)
+		if err := r.clearStatus(ctx); err != nil {
+			err = fmt.Errorf("error clearing status: %w", err)
+			return err
+		}
+
+		logger.Debug("Deleting pod", "pod", pod.Name)
+		err := r.Delete(ctx, pod)
+		if err != nil {
+			logger.Error(err, "Error deleting client container")
+			return err
+		}
+		return errors.New("Pod is unschedulable and is being deleted")
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
-	if r.container.IsMarkedForDeletion() {
+	container := r.container
+
+	if container.IsMarkedForDeletion() {
 		return nil
 	}
+
+	ownerRefs := container.GetOwnerReferences()
+	// if no owner references, we can only delete one-off containers and discovery
+	// if we have owner references, we are allowed to delete CRs:
+	// - for client containers - always
+	// - for backend containers - only if cleanupBackendsOnNodeNotFound is set
+	if len(ownerRefs) == 0 && container.IsDriversContainer() {
+		// do not clean up drivers containers
+		return nil
+	}
+
+	if container.IsBackend() && !config.Config.CleanupRemovedNodes {
+		return nil
+	}
+
 	affinity := r.container.GetNodeAffinity()
 	if affinity != "" {
 		_, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
@@ -3468,24 +3493,6 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 
 	logger.Info("Try loading drivers", "weka_version", results.WekaVersion, "kernel_signature", results.KernelSignature)
 
-	node := r.node
-	// Builder is not explicitly assigned to any node.
-	// Pick one and keep it in status.nodeAffinity.
-	// If node get deleted, r.node will be nil, and we will pick another one
-	if node == nil {
-		var err error
-		node, err = r.pickMatchingNode(ctx)
-		if err != nil {
-			return err
-		}
-
-		r.container.Status.NodeAffinity = weka.NodeName(node.Name)
-		if err := r.Status().Update(ctx, r.container); err != nil {
-			err = fmt.Errorf("error updating nodeAffinity in status: %w", err)
-			return err
-		}
-	}
-
 	targetDistContainer, err := r.getTargetContainer(ctx)
 	if err != nil {
 		return err
@@ -3509,13 +3516,13 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 		err = fmt.Errorf("error downloading drivers: %w, stderr: %s", err, stderr.String())
 		logger.Debug(err.Error())
 
-		if strings.Contains(stderr.String(), "Failed to download the drivers") {
+		if strings.Contains(stderr.String(), "Failed to download the drivers") || strings.Contains(stderr.String(), "Version missing") {
 			msg := "Cannot load drivers, trigger re-build and re-upload"
 			logger.Info(msg)
 
 			r.RecordEvent("", "DriversRebuild", msg)
 
-			if err := r.clearBuilderStatus(ctx); err != nil {
+			if err := r.clearStatus(ctx); err != nil {
 				err = fmt.Errorf("error clearing builder results: %w", err)
 				return err
 			}
@@ -3527,7 +3534,7 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 	return nil
 }
 
-func (r *containerReconcilerLoop) clearBuilderStatus(ctx context.Context) error {
+func (r *containerReconcilerLoop) clearStatus(ctx context.Context) error {
 	r.container.Status = weka.WekaContainerStatus{}
 	return r.Status().Update(ctx, r.container)
 }

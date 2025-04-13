@@ -36,6 +36,7 @@ RECONCILE_TIMEOUT ?= 10m
 KUBE_EXEC_TIMEOUT ?= 2m
 METRICS_CLUSTERS_ENABLED ?= true
 METRICS_CONTAINERS_ENABLED ?= true
+CLEANUP_REMOVED_NODES ?= true
 CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH ?= false
 CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH ?= false
 
@@ -202,6 +203,7 @@ runcontroller: ## Run a controller from your host.
 	KUBE_EXEC_TIMEOUT=$(KUBE_EXEC_TIMEOUT) \
 	METRICS_CLUSTERS_ENABLED=$(METRICS_CLUSTERS_ENABLED) \
 	METRICS_CONTAINERS_ENABLED=$(METRICS_CONTAINERS_ENABLED) \
+	CLEANUP_REMOVED_NODES=$(CLEANUP_REMOVED_NODES) \
 	CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH=$(CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH) \
 	CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH=$(CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH) \
 	OPERATOR_METRICS_BIND_ADDRESS=":8080" \
@@ -275,6 +277,7 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--set gkeCompatibility.hugepageConfiguration.enabled=true \
 		--set gkeCompatibility.disableDriverSigning=true \
 		--set deploymentIdentifier="dev-${USER}" \
+		--set cleanupRemovedNodes=$(CLEANUP_REMOVED_NODES) \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
         --set skipUnhealthyToleration=true
 

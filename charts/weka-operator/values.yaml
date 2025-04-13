@@ -110,6 +110,7 @@ skipAuxNoScheduleToleration: false
 deploymentIdentifier: ""
 
 # -- if true, the operator will consider nodes that are gone as totally gone (not in the cluster anymore)
+# the operator will delete backend wekacontainers from the nodes that are not part of the k8s cluster anymore
 cleanupRemovedNodes: false
 # -- if true, the operator will delete backend wekacontainers from the nodes that do not match node selectors
 cleanupOnNodeSelectorMismatch: false
