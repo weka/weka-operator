@@ -21,7 +21,7 @@ type NodeName types.NodeName
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Weka container status",priority=0
 // +kubebuilder:printcolumn:name="Mode",type="string",JSONPath=".spec.mode",description="Weka container mode",priority=0
 // +kubebuilder:printcolumn:name="Management IPs",type="string",JSONPath=".status.printer.managementIPs",description="Management IPs",priority=0
-// +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.nodeAffinity",description="Node affinity of container",priority=0
+// +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".status.printer.nodeAffinity",description="Node affinity of container",priority=0
 // +kubebuilder:printcolumn:name="Processes",type="string",JSONPath=".status.printer.processes",description="Number of processes per state",priority=1
 // +kubebuilder:printcolumn:name="Drives",type="string",JSONPath=".status.printer.drives",description="Number of drives per state",priority=1
 // +kubebuilder:printcolumn:name="Mounts",type="string",JSONPath=".status.printer.activeMounts",description="Number of active mounts",priority=1
@@ -284,6 +284,8 @@ type ContainerPrinterColumns struct {
 	ActiveMounts StringMetric `json:"activeMounts,omitempty"`
 	// pretty-printed management IPs
 	ManagementIPs string `json:"managementIPs,omitempty"`
+	// node name where the container is running
+	NodeAffinity string `json:"nodeAffinity,omitempty"`
 }
 
 func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
