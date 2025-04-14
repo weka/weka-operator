@@ -301,20 +301,21 @@ func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
 }
 
 type WekaContainerStatus struct {
-	Status             ContainerStatus          `json:"status"`
-	ManagementIP       string                   `json:"managementIP,omitempty"`
-	ManagementIPs      []string                 `json:"managementIPs,omitempty"`
-	ClusterContainerID *int                     `json:"containerID,omitempty"`
-	ClusterID          string                   `json:"clusterID,omitempty"`
-	Conditions         []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
-	LastAppliedImage   string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
-	LastAppliedSpec    string                   `json:"lastAppliedSpec,omitempty"`  // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
-	NodeAffinity       NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
-	ExecutionResult    *string                  `json:"result,omitempty"`
-	Allocations        *ContainerAllocations    `json:"allocations,omitempty"`
-	Stats              *WekaContainerMetrics    `json:"stats,omitempty"`
-	PrinterColumns     *ContainerPrinterColumns `json:"printer,omitempty"`
-	Timestamps         map[string]metav1.Time   `json:"timestamps,omitempty"`
+	Status                   ContainerStatus          `json:"status"`
+	ManagementIP             string                   `json:"managementIP,omitempty"`
+	ManagementIPs            []string                 `json:"managementIPs,omitempty"`
+	ClusterContainerID       *int                     `json:"containerID,omitempty"`
+	ClusterID                string                   `json:"clusterID,omitempty"`
+	Conditions               []metav1.Condition       `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
+	LastAppliedImage         string                   `json:"lastAppliedImage,omitempty"` // Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later
+	LastAppliedSpec          string                   `json:"lastAppliedSpec,omitempty"`  // set by weka cluster or client or other higher level controller, to track if higher level spec was propagated
+	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
+	ExecutionResult          *string                  `json:"result,omitempty"`
+	Allocations              *ContainerAllocations    `json:"allocations,omitempty"`
+	Stats                    *WekaContainerMetrics    `json:"stats,omitempty"`
+	PrinterColumns           *ContainerPrinterColumns `json:"printer,omitempty"`
+	Timestamps               map[string]metav1.Time   `json:"timestamps,omitempty"`
+	NotToleratedOnReschedule bool                     `json:"notToleratedOnReschedule,omitempty"`
 }
 
 func (s *WekaContainerStatus) GetManagementIps() []string {
