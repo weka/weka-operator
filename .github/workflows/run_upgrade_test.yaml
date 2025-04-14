@@ -68,7 +68,7 @@ jobs:
             echo "Operator version is empty. Stopping the workflow."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           else
-            OPERATOR_VERSION=$(cat operator-version.txt)
+            OPERATOR_VERSION=v$(cat operator-version.txt)
             echo "Operator version: ${OPERATOR_VERSION}"
 
             echo "operator_version=${OPERATOR_VERSION}" >> "$GITHUB_OUTPUT"
