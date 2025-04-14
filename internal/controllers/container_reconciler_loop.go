@@ -486,6 +486,18 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				// let drivers being re-built if node with drivers container is not found
+				Run: loop.clearStatusOnNodeNotFound,
+				Predicates: lifecycle.Predicates{
+					container.IsDriversContainer,
+					loop.HasNodeAffinity,
+					func() bool {
+						return loop.node == nil
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
 					loop.PodNotSet,
@@ -3176,6 +3188,26 @@ func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, messag
 	}
 
 	return r.RecordEvent(eventtype, reason, message)
+}
+
+func (r *containerReconcilerLoop) clearStatusOnNodeNotFound(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	nodeName := r.container.GetNodeAffinity()
+
+	_, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Node not found, clearing status")
+			err = r.clearStatus(ctx)
+			if err != nil {
+				return err
+			}
+			return lifecycle.NewWaitError(errors.New("node not found"))
+		}
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) error {
