@@ -157,6 +157,9 @@ spec:
             claimName: CLUSTER_NAME-goader-pvc
 ```
 
+### Labels
+when provisioned using targetCluster, containers that belong to wekaclient will be marked with label `weka.io/target-cluster-name: CLUSTER_NAME`
+
 ## Resource Cleanup
 When removing workload resources, follow this order:
 1. Delete workload and wait for completion
