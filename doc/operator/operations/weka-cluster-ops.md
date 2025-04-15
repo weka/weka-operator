@@ -56,9 +56,9 @@ weka cluster processes -o id,container -L
 ### Container Name Mapping
 Weka container names can be correlated to Kubernetes container names using the WekaContainer's `spec.name` field.
 
-### Finding Weka Containers by Cluster ID
+### Finding Weka Containers related to a specific cluster
 ```bash
-kubectl get -n NAMESPACE wekacontainer -o custom-columns=NAME:.metadata.name,SPEC_NAME:.spec.name -l weka.io/cluster-id=CLUSTER_ID,weka.io/mode=drive
+kubectl get -n NAMESPACE wekacontainer -o custom-columns=NAME:.metadata.name,SPEC_NAME:.spec.name -l weka.io/cluster-name=CLUSTER_NAME,weka.io/mode=drive
 ```
 
 Sample output:

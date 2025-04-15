@@ -13,7 +13,7 @@ The Weka Operator manages the following key resources:
 
 ### WekaContainer
 - Kubernetes custom resource representing individual Weka containers
-- Each WekaContainer is represented by a Pod in Kubernetes
+- Each WekaContainer is represented by a Pod in Kubernetes, labels from wekacontainer propagated to their respective pods
 - Each Pod contains a Weka agent that runs Weka Linux containers within the Pod
 
 ## Container Types
@@ -34,6 +34,8 @@ WekaContainerModeEnvoy          = "envoy"          # Envoy proxy mode
 WekaContainerModeAdhocOpWC      = "adhoc-op-with-container" # Ad-hoc operation with container
 WekaContainerModeAdhocOp        = "adhoc-op"       # Ad-hoc operation
 ```
+
+Container types reflected as a label on weka containers, as weka.io/mode=compute 
 
 ## WekaContainer Lifecycle
 

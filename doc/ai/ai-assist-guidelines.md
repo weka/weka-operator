@@ -22,9 +22,7 @@ This document provides guidance for AI assistants when helping users with the We
 
 ## Command Execution
 - Weka CLI commands to get cluster status should be executed within compute or drive containers
-- Local Weka commands should be local to the specific pod/WekaContainer
-- Generate cluster name as a separate and early step to use throughout the process
-- Never select a WekaContainer or pod without filtering by specific cluster name (`weka.io/cluster-name=wekacluster.metadata.name`) or by specific container name
+- For weka cli commands execution via exec - never select a WekaContainer or pod without filtering by specific cluster name (`weka.io/cluster-name=wekacluster.metadata.name`) or by specific container name
 
 ## Cluster Configuration
 - If instructions contain wording such as "configure", "set", or "update" some parameter, adjust the initial YAML to such requests
