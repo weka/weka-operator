@@ -56,3 +56,5 @@ go.work*
 *.orig
 
 changelog_generator.log
+
+test_artifacts/

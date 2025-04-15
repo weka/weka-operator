@@ -37,3 +37,4 @@ Required user parameters to validate and use:
  - initialVersion, to provision cluster with
  - newVersion, to upgrade wekacluster and wekaclient to this version
  - namespace to use for testing, if namespace is not provided - autogenerate one with test- prefix, even if user provided it might not exist and you should create it
+ 

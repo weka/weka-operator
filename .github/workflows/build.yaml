@@ -2,8 +2,7 @@
 name: Build
 on:
   push:
-permissions:
-  contents: write
+
 jobs:
   optimize_ci:
     runs-on: ubuntu-latest
@@ -25,8 +24,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
       - name: Set up SSH # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -39,26 +36,16 @@ jobs:
           git config --global url."ssh://git@github.com/".insteadOf https://github.com/
       - name: Install submodules
         run: git submodule update --init --recursive
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/.local/share/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('package-lock.json') }}
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
+      - name: Setup Go (supports caching)
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.23.3"
+          go-version-file: 'go.mod'
 
       - name: Setup go
         run: |
           go version
           go mod download
-
 
       - name: Setup envtest
         run: |
