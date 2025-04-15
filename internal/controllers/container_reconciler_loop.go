@@ -3271,12 +3271,13 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 	}
 
 	ownerRefs := container.GetOwnerReferences()
-	// if no owner references, we can only delete one-off containers and discovery
+	// if no owner references, we cannot delete CRs
 	// if we have owner references, we are allowed to delete CRs:
 	// - for client containers - always
 	// - for backend containers - only if cleanupBackendsOnNodeNotFound is set
-	if len(ownerRefs) == 0 && container.IsDriversContainer() {
-		// do not clean up drivers containers
+
+	if len(ownerRefs) == 0 {
+		// do not clean up containers without owner references
 		return nil
 	}
 
