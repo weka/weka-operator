@@ -3703,18 +3703,13 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	// TODO: Should we be do this locally? it actually will be better to find failures from different container
 	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything throught just one
 	// tldr: we need a proper service gateway for weka api, that will both healthcheck and distribute
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetStatusMetrics")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	// submit http request to metrics pod
-	pods, err2 := r.getNodeAgentPods(ctx)
-	if err2 != nil {
-		return err2
-	}
-
-	if len(pods) == 0 {
-		logger.Info("No metrics pod found")
-		return nil
+	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	if err != nil {
+		return errors.Wrap(err, "No metrics pod found")
 	}
 
 	token, err := r.getNodeAgentToken(ctx)
@@ -3724,50 +3719,40 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 
 	payload := node_agent.GetContainerInfoRequest{ContainerId: string(r.container.GetUID())}
 
-	var response node_agent.ContainerInfoResponse
-	foundAlive := false
-	for _, pod := range pods {
-		if pod.Status.Phase == v1.PodRunning {
-			// if multiple found - register on each one of them
-			// make post request to metrics pod
+	url := "http://" + agentPod.Status.PodIP + ":8090/getContainerInfo"
 
-			url := "http://" + pod.Status.PodIP + ":8090/getContainerInfo"
-
-			// Convert the payload to JSON
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				return err
-			}
-
-			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return err
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				err := fmt.Errorf("getContainerInfo failed: %s, status: %d", string(body), resp.StatusCode)
-				return err
-			}
-
-			err = json.NewDecoder(bytes.NewReader(body)).Decode(&response)
-			if err != nil {
-				logger.Error(err, "Error decoding response body", "body", string(body))
-				return err
-			}
-
-			foundAlive = true
-			break // trying just one pod, even if have multiple, for simplicity of error propagation
-		}
+	// Convert the payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return errors.Wrap(err, "Error marshalling payload")
 	}
 
-	if !foundAlive {
-		return errors.New("No response from metrics pod")
+	// limit the getContainerInfo request
+	timeout := config.Config.Metrics.Containers.RequestsTimeouts.GetContainerInfo
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("getContainerInfo failed: %s, status: %d", string(body), resp.StatusCode)
+		return err
+	}
+
+	var response node_agent.ContainerInfoResponse
+	err = json.NewDecoder(bytes.NewReader(body)).Decode(&response)
+	if err != nil {
+		logger.Error(err, "Error decoding response body", "body", string(body))
+		return err
 	}
 
 	patch := client.MergeFrom(r.container.DeepCopy())
@@ -3837,9 +3822,6 @@ func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
 }
 
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RegisterContainerOnMetrics")
-	defer end()
-
 	scrapeTargets := []node_agent.ScrapeTarget{}
 
 	if r.container.Spec.Mode == weka.WekaContainerModeEnvoy {
@@ -3866,14 +3848,9 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		ScrapeTargets:     scrapeTargets,
 	}
 	// submit http request to metrics pod
-	pods, err2 := r.getNodeAgentPods(ctx)
-	if err2 != nil {
-		return err2
-	}
-
-	if len(pods) == 0 {
-		logger.Info("No metrics pod found")
-		return nil
+	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	if err != nil {
+		return errors.Wrap(err, "No metrics pod found")
 	}
 
 	token, err := r.getNodeAgentToken(ctx)
@@ -3881,32 +3858,27 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		return err
 	}
 
-	for _, pod := range pods {
-		if pod.Status.Phase == v1.PodRunning {
-			// if multiple found - register on each one of them
-			// make post request to metrics pod
+	url := "http://" + agentPod.Status.PodIP + ":8090/register"
 
-			url := "http://" + pod.Status.PodIP + ":8090/register"
+	// Convert the payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return errors.Wrap(err, "Error marshalling payload")
+	}
 
-			// Convert the payload to JSON
-			jsonData, err := json.Marshal(payload)
-			if err != nil {
-				logger.Error(err, "Error marshalling payload")
-				continue
-			}
+	// limit the register request
+	timeout := config.Config.Metrics.Containers.RequestsTimeouts.Register
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-			resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-			if err != nil {
-				logger.Error(err, "Error sending register request")
-				continue
-			}
+	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return errors.Wrap(err, "Error sending register request")
+	}
 
-			_ = resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				logger.Error(err, "Error sending register request", "status", resp.Status)
-				continue
-			}
-		}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("error sending register request, status: " + resp.Status)
 	}
 
 	return nil
@@ -3915,6 +3887,10 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
 	if r.node == nil {
 		return nil, errors.New("Node is not set")
+	}
+
+	if !NodeIsReady(r.node) {
+		return nil, errors.New("Node is not ready")
 	}
 
 	ns, err := util.GetPodNamespace()

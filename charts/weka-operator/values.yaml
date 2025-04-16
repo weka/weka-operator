@@ -144,6 +144,10 @@ metrics:
   containers:
     enabled: true
     pollingRate: 60s
+    requestsTimeouts:
+      register: 3s
+      getContainerInfo: 10s
+
 localDataStorageClass: ""
 localDataPvc: ""
 upgrade:

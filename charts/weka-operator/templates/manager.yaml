@@ -182,6 +182,10 @@ spec:
               value: "{{ .Values.metrics.containers.enabled }}"
             - name: METRICS_CONTAINERS_POLLING_RATE
               value: "{{ .Values.metrics.containers.pollingRate }}"
+            - name: METRICS_CONTAINERS_REQUEST_TIMEOUT_REGISTER
+              value: "{{ .Values.metrics.containers.requestsTimeouts.register }}"
+            - name: METRICS_CONTAINERS_REQUEST_TIMEOUT_GET_CONTAINER_INFO
+              value: "{{ .Values.metrics.containers.requestsTimeouts.getContainerInfo }}"
             - name: LOCAL_DATA_PVC
               value: "{{ .Values.localDataPvc }}"
             - name: SIGN_DRIVES_IMAGE

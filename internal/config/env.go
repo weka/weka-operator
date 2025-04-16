@@ -115,6 +115,11 @@ var Config struct {
 	SkipClientsTolerationValidation        bool
 }
 
+type NodeAgentRequestsTimeouts struct {
+	Register         time.Duration
+	GetContainerInfo time.Duration
+}
+
 type Metrics struct {
 	Clusters struct {
 		Enabled     bool
@@ -122,8 +127,9 @@ type Metrics struct {
 		Image       string
 	}
 	Containers struct {
-		Enabled     bool
-		PollingRate time.Duration
+		Enabled          bool
+		PollingRate      time.Duration
+		RequestsTimeouts NodeAgentRequestsTimeouts
 	}
 	NodeAgentSecretName string
 }
@@ -226,6 +232,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
+	Config.Metrics.Containers.RequestsTimeouts.Register = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_REGISTER", time.Second*3)
+	Config.Metrics.Containers.RequestsTimeouts.GetContainerInfo = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_GET_CONTAINER_INFO", time.Second*10)
 	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
