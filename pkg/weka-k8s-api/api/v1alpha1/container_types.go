@@ -302,6 +302,7 @@ func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
 
 type WekaContainerStatus struct {
 	Status                   ContainerStatus          `json:"status"`
+	InternalStatus           string                   `json:"internalStatus,omitempty"` // weka local container internal status
 	ManagementIP             string                   `json:"managementIP,omitempty"`
 	ManagementIPs            []string                 `json:"managementIPs,omitempty"`
 	ClusterContainerID       *int                     `json:"containerID,omitempty"`
