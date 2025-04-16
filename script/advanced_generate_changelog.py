@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run --no-project --with openai-agents
 import argparse
+import random
 import subprocess
 import sys
 import os
@@ -266,7 +267,8 @@ def process_commit(commit, recent_prs, dry_run=False):
 
     return commit_info
 
-def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
+
+def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, abort_on_miss=False):
     # Only include non-ignored
     included = [ci for ci in commit_infos if ci and not ci.ignored]
     if not included:
@@ -275,7 +277,7 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
     input_items = []
     for ci in included:
         input_item = "<item>"
-        input_item += f"Commit: {ci.sha}:\n {ci.release_notes}"
+        input_item += f"Commit: {ci.sha[:7]}:\n {ci.release_notes}"
         if review_mode and ci.pr_number:
             pr_link = f"https://github.com/{REPO}/pull/{ci.pr_number}"
             input_item += f"\nPR: {pr_link}"
@@ -311,13 +313,13 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
     
     agent = Agent(
         name="final_release_notes_aggregator",
-        # model="o3",
+        # model="o4-mini",
         model=final_release_notes_model,
         instructions=instructions,
         model_settings=ModelSettings(
             max_tokens=65536,
             # reasoning=dict(
-            #     effort="high",
+                # effort="high",
             # ),
         )
     )
@@ -329,19 +331,23 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
     
     # Validate commits (SHAs)
     sha_pattern = r"[0-9a-f]{7,40}"  # SHA-1 hashes (7+ hex chars)
-    found_shas = set(re.findall(sha_pattern, final_output))
-    expected_shas = set(ci.sha for ci in included)
+    found_shas = set(sha[:7] for sha in re.findall(sha_pattern, final_output))
+    expected_shas = set(ci.sha[:7] for ci in included)
     if found_shas != expected_shas:
         logger.warning(f"Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).")
         missing = expected_shas - found_shas
         extra = found_shas - expected_shas
         if missing:
-             logger.warning(f"  Missing SHAs in output: {', '.join(missing)}")
-            # raise Exception("Missing SHAs in output", missing) # Keep as warning for now
+            msg = f"Missing SHAs in output: {', '.join(missing)}"
+            if abort_on_miss:
+                raise Exception(msg)
+            logger.warning(msg)
         if extra:
-             logger.warning(f"  Extra SHAs in output: {', '.join(extra)}")
-            # raise Exception("Extra SHAs in output", extra) # Keep as warning for now
-    
+            msg = f"Extra SHAs in output: {', '.join(extra)}"
+            logger.warning(msg)
+            if abort_on_miss:
+                raise Exception(msg)
+
     # Validate PR links
     pr_pattern = fr"https://github\.com/{REPO}/pull/\d+"
     found_prs = set(re.findall(pr_pattern, final_output))
@@ -406,6 +412,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Do not update PRs, just print what would be updated')
     parser.add_argument('--force', action='store_true', help='Continue even if some commits have no matching PRs')
     parser.add_argument('--review', action='store_true', help='Include PR links in the output for review purposes')
+    parser.add_argument('--abort-on-miss', action='store_true', help='Abort if any SHA is missing from final output')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     args = parser.parse_args()
 
@@ -454,7 +461,7 @@ def main():
         # Removed early exit if PR not found, process_commit handles it
 
     logger.info("Aggregating release notes...")
-    final_output = aggregate_release_notes(commit_infos, review_mode=args.review)
+    final_output = aggregate_release_notes(commit_infos, review_mode=args.review, abort_on_miss=args.abort_on_miss)
     # Only the final output goes to stdout
     print(final_output)
 
