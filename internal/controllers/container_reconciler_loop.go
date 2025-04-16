@@ -2325,7 +2325,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		return err
 	}
 
-	wekaService := services.NewWekaService(r.ExecService, container)
+	timeout := time.Minute * 2
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 
 	driveListoptions := services.DriveListOptions{
 		ContainerId: container.Status.ClusterContainerID,
