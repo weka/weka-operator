@@ -201,7 +201,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
 			{
-				Run: lifecycle.ForceNoError(loop.ensurePod),
+				Name: "ensurePodOnDeletion",
+				Run:  lifecycle.ForceNoError(loop.ensurePod),
 				Predicates: lifecycle.Predicates{
 					loop.PodNotSet,
 					loop.ShouldDeactivate,
@@ -319,7 +320,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: lifecycle.ForceNoError(loop.reconcileClusterStatus),
+				Name: "reconcileClusterStatusOnDeletion",
+				Run:  lifecycle.ForceNoError(loop.reconcileClusterStatus),
 				Predicates: lifecycle.Predicates{
 					container.ShouldJoinCluster,
 					container.IsMarkedForDeletion,
