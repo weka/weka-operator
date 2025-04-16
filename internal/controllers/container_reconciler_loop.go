@@ -932,7 +932,7 @@ func (r *containerReconcilerLoop) s3ContainerPreDeactivate(ctx context.Context) 
 		}
 	} else {
 		err := errors.New("cannot check local s3 container - node is not ready or pod is not available")
-		return err
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	return nil
@@ -1053,7 +1053,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 			}
 		}
 		err := fmt.Errorf("container node is not ready or is unschedulable, cannot perform resign drives operation")
-		return err
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	deactivatedContainer := r.container
@@ -1812,11 +1812,11 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 		if r.node != nil && NodeIsUnschedulable(r.node) {
 			err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
-			return err
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 		}
 		if r.node != nil && !NodeIsReady(r.node) {
 			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
-			return err
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 		}
 
 		nodeInfo, err := r.GetNodeInfo(ctx)
@@ -3893,7 +3893,8 @@ func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Po
 	}
 
 	if !NodeIsReady(r.node) {
-		return nil, errors.New("Node is not ready")
+		err := errors.New("Node is not ready")
+		return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	ns, err := util.GetPodNamespace()
