@@ -9,7 +9,7 @@ import requests
 import logging
 from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
-from typing import Optional, List
+from typing import Optional, List, final
 import math # Added for ceiling division
 
 MAX_DIFF_SIZE = 16 * 1024  # 16 KB
@@ -18,17 +18,31 @@ CHUNK_SIZE = 300           # bytes for large file deltas
 GITHUB_API_URL = "https://api.github.com"
 REPO = "weka/weka-operator"
 
-GOOGLE_OPENAI_ENDPOINT="https://generativelanguage.googleapis.com/v1beta/openai/"
+# ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY")
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
-gemini_client = AsyncOpenAI(base_url=GOOGLE_OPENAI_ENDPOINT, api_key=GEMINI_API_KEY)
-final_release_notes_model = OpenAIChatCompletionsModel(
+gemini_client = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=GEMINI_API_KEY)
+
+gemini_pro_model = OpenAIChatCompletionsModel(
     model="gemini-2.5-pro-preview-03-25",
     openai_client=gemini_client
 )
+
+final_release_notes_model = gemini_pro_model
+
+# anthropic_client = AsyncOpenAI(
+#     api_key=ANTHROPIC_API_KEY,  # Your Anthropic API key
+#     base_url="https://api.anthropic.com/v1/"  # Anthropic's API endpoint
+# )
+
+# sonnet_3_7_nothinking_model = OpenAIChatCompletionsModel(
+#     model="claude-3-7-sonnet-20250219",
+#     openai_client=anthropic_client
+# )
+
 
 
 class CommitInfo:
@@ -317,7 +331,7 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
         model=final_release_notes_model,
         instructions=instructions,
         model_settings=ModelSettings(
-            max_tokens=65536,
+            max_tokens=64000,
             # reasoning=dict(
                 # effort="high",
             # ),
