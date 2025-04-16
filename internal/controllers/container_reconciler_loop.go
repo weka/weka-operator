@@ -860,7 +860,8 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 		return errors.New("No active container found")
 	}
 
-	wekaService := services.NewWekaService(r.ExecService, execInContainer)
+	timeout := 30 * time.Second
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
 
 	wekaContainer, err := wekaService.GetWekaContainer(ctx, *containerId)
 	if err != nil {
