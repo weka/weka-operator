@@ -54,3 +54,5 @@ go.work*
 .envrc.private
 .vscode
 *.orig
+
+changelog_generator.log

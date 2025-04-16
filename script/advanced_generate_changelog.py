@@ -5,6 +5,7 @@ import sys
 import os
 import re
 import requests
+import logging
 from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
 from typing import Optional, List
@@ -18,6 +19,9 @@ REPO = "weka/weka-operator"
 
 GOOGLE_OPENAI_ENDPOINT="https://generativelanguage.googleapis.com/v1beta/openai/"
 GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY")
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 gemini_client = AsyncOpenAI(base_url=GOOGLE_OPENAI_ENDPOINT, api_key=GEMINI_API_KEY)
 final_release_notes_model = OpenAIChatCompletionsModel(
@@ -43,7 +47,7 @@ class CommitInfo:
 def run_git(cmd, **kwargs):
     result = subprocess.run(['git'] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
     if result.returncode != 0:
-        print(f"Error running git {' '.join(cmd)}: {result.stderr.decode()}", file=sys.stderr)
+        logger.error(f"Error running git {' '.join(cmd)}: {result.stderr.decode()}")
         sys.exit(1)
     return result.stdout.decode()
 
@@ -131,10 +135,10 @@ def fetch_recent_closed_prs(count):
             if remaining <= 0:
                 break
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching PRs (page {page}): {e}", file=sys.stderr)
+            logger.error(f"Error fetching PRs (page {page}): {e}")
             sys.exit(1)
     for pr in prs:
-        print(pr['title'])
+        logger.debug(pr['title'])
     return prs
 
 def fetch_pr_body(pr_url):
@@ -145,21 +149,21 @@ def fetch_pr_body(pr_url):
         resp.raise_for_status()
         return resp.json().get("body", "")
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching PR body for {pr_url}: {e}", file=sys.stderr)
+        logger.error(f"Error fetching PR body for {pr_url}: {e}")
         return None # Allow continuing if one PR fetch fails maybe?
 
 def update_pr_body(pr_number, new_body, dry_run=False):
     headers = _get_github_headers()
     url = f"{GITHUB_API_URL}/repos/{REPO}/pulls/{pr_number}"
     if dry_run:
-        print(f"---\n[DRY RUN] Would update PR #{pr_number} ({REPO}#{pr_number}) with new body:\n{new_body}\n---")
+        logger.info(f"---\n[DRY RUN] Would update PR #{pr_number} ({REPO}#{pr_number}) with new body:\n{new_body}\n---")
         return
     try:
         resp = requests.patch(url, headers=headers, json={"body": new_body}, timeout=10)
         resp.raise_for_status()
-        print(f"Successfully updated PR #{pr_number}")
+        logger.info(f"Successfully updated PR #{pr_number}")
     except requests.exceptions.RequestException as e:
-        print(f"Failed to update PR #{pr_number}: {e} - {resp.text if 'resp' in locals() else 'N/A'}", file=sys.stderr)
+        logger.error(f"Failed to update PR #{pr_number}: {e} - {resp.text if 'resp' in locals() else 'N/A'}")
 
 def extract_release_notes_tag(pr_body):
     if not pr_body:
@@ -219,23 +223,23 @@ def process_commit(commit, recent_prs, dry_run=False):
             if rn_tag.lower() == "ignored":
                 commit_info.release_notes = "Ignored"
                 commit_info.ignored = True
-                print(f"Commit {commit[:7]}: Found existing 'Ignored' tag in PR #{pr_number}. Skipping.")
+                logger.info(f"Commit {commit[:7]}: Found existing 'Ignored' tag in PR #{pr_number}. Skipping.")
                 return commit_info # Already processed and ignored
             else:
                 commit_info.release_notes = rn_tag
-                print(f"Commit {commit[:7]}: Found existing release notes tag in PR #{pr_number}.")
+                logger.info(f"Commit {commit[:7]}: Found existing release notes tag in PR #{pr_number}.")
                 return commit_info # Use existing notes
 
         # No valid <release_notes> tag found in matched PR, generate and update PR
-        print(f"Commit {commit[:7]}: No release notes tag in PR #{pr_number}. Generating...")
+        logger.info(f"Commit {commit[:7]}: No release notes tag in PR #{pr_number}. Generating...")
         commit_show = get_commit_show(commit)
         rn = agent_generate_release_notes(commit_info, commit_show)
         commit_info.release_notes = rn
         if rn.lower() == "ignored":
             commit_info.ignored = True
-            print(f"Commit {commit[:7]}: Generated 'Ignored'. Updating PR #{pr_number}.")
+            logger.info(f"Commit {commit[:7]}: Generated 'Ignored'. Updating PR #{pr_number}.")
         else:
-             print(f"Commit {commit[:7]}: Generated release notes. Updating PR #{pr_number}.")
+             logger.info(f"Commit {commit[:7]}: Generated release notes. Updating PR #{pr_number}.")
 
         # Append or replace <release_notes> in PR body
         new_body = pr_body # Already fetched
@@ -249,16 +253,16 @@ def process_commit(commit, recent_prs, dry_run=False):
 
     # If we reach here, either no PR was matched OR fetching PR body failed.
     if not matched_pr:
-        print(f"Commit {commit[:7]}: No matching PR found by title '{subject}'. Generating release notes without PR context.")
+        logger.info(f"Commit {commit[:7]}: No matching PR found by title '{subject}'. Generating release notes without PR context.")
     # Generate release notes without PR interaction
     commit_show = get_commit_show(commit)
     rn = agent_generate_release_notes(commit_info, commit_show)
     commit_info.release_notes = rn
     if rn.lower() == "ignored":
         commit_info.ignored = True
-        print(f"Commit {commit[:7]}: Generated 'Ignored' (no PR). Skipping.")
+        logger.info(f"Commit {commit[:7]}: Generated 'Ignored' (no PR). Skipping.")
     else:
-        print(f"Commit {commit[:7]}: Generated release notes (no PR).")
+        logger.info(f"Commit {commit[:7]}: Generated release notes (no PR).")
 
     return commit_info
 
@@ -285,6 +289,7 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
         You may merge similar/related commits into a single entry, but preserve all commits SHAs.
         You may drop items if they are not user-facing, with high level of confidence.
         Output in markdown. Each change must be clearly referenced by commit SHA.
+        Consolidate Reverts/Disable of features into a single entry, but keep references. Rely on PR number to establish if revert was done before or after feature was introduced. If there are newer(by PR number) PRs that mention the feature after it was reverted/disabled - assume that feature was re-enabled. If conclusion is that feature is disabled at final state - mention all relevant PRs as dropped 
         <instructions>
         - Do not wrap pull requests as markdown links, just put links as-is, as a space separated list. Make sure to include all PRs in appropriate place
         - Make sure to include all input items in the output, do not drop any of them, they are separated by <item> tags in the input
@@ -306,31 +311,54 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False):
     
     agent = Agent(
         name="final_release_notes_aggregator",
+        # model="o3",
         model=final_release_notes_model,
         instructions=instructions,
         model_settings=ModelSettings(
             max_tokens=65536,
+            # reasoning=dict(
+            #     effort="high",
+            # ),
         )
     )
 
-    # print(instructions)
-    # print(input_text)
+    # logger.debug(instructions)
+    # logger.debug(input_text)
     result = Runner.run_sync(agent, input_text)
     final_output = result.final_output
-    # Count unique commit SHAs in the final output
+    
+    # Validate commits (SHAs)
     sha_pattern = r"[0-9a-f]{7,40}"  # SHA-1 hashes (7+ hex chars)
     found_shas = set(re.findall(sha_pattern, final_output))
     expected_shas = set(ci.sha for ci in included)
     if found_shas != expected_shas:
-        print(f"WARNING: Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).", file=sys.stderr)
+        logger.warning(f"Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).")
         missing = expected_shas - found_shas
         extra = found_shas - expected_shas
         if missing:
-             print(f"  Missing SHAs in output: {', '.join(missing)}", file=sys.stderr)
+             logger.warning(f"  Missing SHAs in output: {', '.join(missing)}")
             # raise Exception("Missing SHAs in output", missing) # Keep as warning for now
         if extra:
-             print(f"  Extra SHAs in output: {', '.join(extra)}", file=sys.stderr)
+             logger.warning(f"  Extra SHAs in output: {', '.join(extra)}")
             # raise Exception("Extra SHAs in output", extra) # Keep as warning for now
+    
+    # Validate PR links
+    pr_pattern = fr"https://github\.com/{REPO}/pull/\d+"
+    found_prs = set(re.findall(pr_pattern, final_output))
+    expected_prs = set()
+    for ci in included:
+        if ci.pr_number:
+            expected_prs.add(f"https://github.com/{REPO}/pull/{ci.pr_number}")
+    
+    if found_prs != expected_prs:
+        logger.warning(f"Number of unique PR links in output ({len(found_prs)}) does not match expected number ({len(expected_prs)}).")
+        missing_prs = expected_prs - found_prs
+        extra_prs = found_prs - expected_prs
+        if missing_prs:
+            logger.warning(f"  Missing PR links in output: {', '.join(missing_prs)}")
+        if extra_prs:
+            logger.warning(f"  Extra PR links in output: {', '.join(extra_prs)}")
+    
     return final_output
 
 def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False):
@@ -340,7 +368,7 @@ def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False)
     """
     missing_matches = []
     
-    print("Validating all commits have matching PRs...")
+    logger.info("Validating all commits have matching PRs...")
     for i, commit in enumerate(commits):
         message = get_commit_message(commit)
         if infer_type(message) not in ('fix', 'feature', 'breaking'):
@@ -356,17 +384,17 @@ def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False)
                 
         if not matched:
             missing_matches.append((commit, subject))
-            print(f"WARNING: No matching PR found for commit {commit[:7]}: '{subject}'", file=sys.stderr)
+            logger.warning(f"No matching PR found for commit {commit[:7]}: '{subject}'")
     
     if missing_matches:
-        print(f"\n⚠️  Found {len(missing_matches)} commits without matching PRs:", file=sys.stderr)
+        logger.warning(f"\n⚠️  Found {len(missing_matches)} commits without matching PRs:")
         for commit, subject in missing_matches:
-            print(f"  - {commit[:10]}: {subject}", file=sys.stderr)
+            logger.warning(f"  - {commit[:10]}: {subject}")
             
         if not continue_on_missing:
             response = input("\nDo you want to continue anyway? (y/N): ").strip().lower()
             if response != 'y':
-                print("Aborting changelog generation. Please fix missing PR links.")
+                logger.info("Aborting changelog generation. Please fix missing PR links.")
                 return False
                 
     return True
@@ -378,25 +406,37 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Do not update PRs, just print what would be updated')
     parser.add_argument('--force', action='store_true', help='Continue even if some commits have no matching PRs')
     parser.add_argument('--review', action='store_true', help='Include PR links in the output for review purposes')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     args = parser.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler("changelog_generator.log"),
+            logging.StreamHandler(sys.stderr)
+        ]
+    )
 
     gfrom = args.gfrom or get_latest_tag()
     gto = args.gto
     if not gfrom:
-        print('No --from specified and no tags found in repo.', file=sys.stderr)
+        logger.error('No --from specified and no tags found in repo.')
         sys.exit(1)
 
     commits = get_commit_range(gfrom, gto)
     if not commits:
-        print(f'No commits found in range {gfrom}..{gto}', file=sys.stderr)
+        logger.error(f'No commits found in range {gfrom}..{gto}')
         sys.exit(0)
 
     # Fetch recent PRs once
     num_commits = len(commits)
     num_prs_to_fetch = math.ceil(num_commits * 2)
-    print(f"Fetching {num_prs_to_fetch} recent closed PRs...")
+    logger.info(f"Fetching {num_prs_to_fetch} recent closed PRs...")
     recent_prs = fetch_recent_closed_prs(num_prs_to_fetch)
-    print(f"Fetched {len(recent_prs)} PRs.")
+    logger.info(f"Fetched {len(recent_prs)} PRs.")
     
     # Validate all commits have matching PRs before proceeding
     if not validate_commits_against_prs(commits, recent_prs, continue_on_missing=args.force):
@@ -406,16 +446,16 @@ def main():
     processed_commit_count = 0
     for commit in commits:
         processed_commit_count += 1
-        print(f"Processing commit {processed_commit_count}/{num_commits}: {commit[:7]}...")
+        logger.info(f"Processing commit {processed_commit_count}/{num_commits}: {commit[:7]}...")
         ci = process_commit(commit, recent_prs, dry_run=args.dry_run)
         # process_commit now handles the case where no matching PR is found
         if ci:
             commit_infos.append(ci)
         # Removed early exit if PR not found, process_commit handles it
 
-    print("Aggregating release notes...")
+    logger.info("Aggregating release notes...")
     final_output = aggregate_release_notes(commit_infos, review_mode=args.review)
-    print("\n=== FINAL CHANGELOG ===\n")
+    # Only the final output goes to stdout
     print(final_output)
 
 if __name__ == '__main__':
