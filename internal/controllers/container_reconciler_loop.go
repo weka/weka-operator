@@ -684,6 +684,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return len(loop.container.Status.Allocations.Drives) > 0
 					},
+					func() bool {
+						return loop.container.Status.InternalStatus == "READY"
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setDrivesErrorStatus,
@@ -3144,17 +3147,22 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	// skip status update for DrivesAdding
 	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding {
+		// update internal status if it changed (this part is for backward compatibility)
+		if container.Status.InternalStatus != internalStatus {
+			return fmt.Errorf("internal status changed: %s -> %s", container.Status.InternalStatus, internalStatus)
+		}
 		return nil
 	}
 
 	containerStatus := weka.ContainerStatus(status)
-	if container.Status.Status != containerStatus {
-		logger.Info("Updating status", "from", container.Status.Status, "to", status)
+	if container.Status.Status != containerStatus || container.Status.InternalStatus != internalStatus {
+		logger.Debug("Updating status", "old_status", container.Status.Status, "new_status", containerStatus, "old_internal_status", container.Status.InternalStatus, "new_internal_status", internalStatus)
 		container.Status.Status = containerStatus
+		container.Status.InternalStatus = internalStatus
 		if err := r.Status().Update(ctx, container); err != nil {
 			return err
 		}
-		logger.WithValues("status", status).Info("Status updated")
+		logger.WithValues("status", status, "internal_status", internalStatus).Info("Status updated")
 		return nil
 	}
 	return nil
