@@ -1277,6 +1277,10 @@ func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod
 	defer end()
 
 	agentPods, err := r.getNodeAgentPods(ctx)
+	var waitErr *lifecycle.WaitError
+	if err != nil && errors.As(err, &waitErr) {
+		return nil, err
+	}
 	if err != nil {
 		err = fmt.Errorf("failed to get node agent pods: %w", err)
 		return nil, err
@@ -1770,7 +1774,6 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// then ensure we deleted container data
 	err = r.cleanupPersistentDir(ctx)
 	if err != nil {
-		err = errors.Wrap(err, "Failed to cleanup persistent dir")
 		return err
 	}
 
@@ -2468,7 +2471,8 @@ func (r *containerReconcilerLoop) JoinS3Cluster(ctx context.Context) error {
 func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) error {
 	wekaService := services.NewWekaService(r.ExecService, r.container)
 	err := wekaService.JoinNfsInterfaceGroups(ctx, *r.container.Status.ClusterContainerID)
-	if !errors.As(err, &services.NfsInterfaceGroupAlreadyJoined{}) {
+	var nfsErr *services.NfsInterfaceGroupAlreadyJoined
+	if !errors.As(err, &nfsErr) {
 		return err
 	}
 	return nil
@@ -2487,7 +2491,6 @@ func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*i
 		return r.activeMounts, nil
 	}
 	if err != nil {
-		err = fmt.Errorf("error getting active mounts: %w", err)
 		return nil, err
 	}
 	r.activeMounts = activeMounts
@@ -3712,7 +3715,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	// submit http request to metrics pod
 	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
 	if err != nil {
-		return errors.Wrap(err, "No metrics pod found")
+		return err
 	}
 
 	token, err := r.getNodeAgentToken(ctx)
@@ -3853,7 +3856,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	// submit http request to metrics pod
 	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
 	if err != nil {
-		return errors.Wrap(err, "No metrics pod found")
+		return err
 	}
 
 	token, err := r.getNodeAgentToken(ctx)

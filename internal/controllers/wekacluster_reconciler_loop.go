@@ -1130,7 +1130,8 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		ContainerIds:   containerIds,
 	})
 	if err != nil {
-		if !errors.As(err, &services.S3ClusterExists{}) {
+		var s3ClusterExists *services.S3ClusterExists
+		if !errors.As(err, &s3ClusterExists) {
 			return err
 		}
 	}
@@ -1227,7 +1228,8 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	})
 
 	if err != nil {
-		if !errors.As(err, &services.NfsInterfaceGroupExists{}) {
+		var nfsIgExists *services.NfsInterfaceGroupExists
+		if !errors.As(err, &nfsIgExists) {
 			return err
 		}
 	}
@@ -2021,7 +2023,6 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		return err
 	}
 
-
 	container := discovery.SelectActiveContainer(r.containers)
 
 	wekaService := services.NewWekaService(r.ExecService, container)
@@ -2029,7 +2030,6 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	if err != nil {
 		return err
 	}
-
 
 	data, err := BuildClusterPrometheusMetrics(ctx, r.cluster, status)
 	if err != nil {
