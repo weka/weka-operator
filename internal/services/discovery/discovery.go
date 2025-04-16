@@ -6,16 +6,16 @@ import (
 	"slices"
 	"strconv"
 
-	util2 "github.com/weka/weka-operator/pkg/util"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -119,6 +119,9 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			}
 		}
 		if container.Status.ClusterContainerID == nil {
+			continue
+		}
+		if container.Status.InternalStatus != "READY" {
 			continue
 		}
 		if len(container.Status.GetManagementIps()) == 0 {

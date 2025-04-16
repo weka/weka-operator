@@ -1943,7 +1943,7 @@ func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getActiveContainers")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getClusterContainers")
 	defer end()
 
 	if r.clusterContainers != nil {
