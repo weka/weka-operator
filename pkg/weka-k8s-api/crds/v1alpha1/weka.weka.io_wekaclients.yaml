@@ -62,12 +62,20 @@ spec:
             description: WekaClientSpec defines the desired state of WekaClient
             properties:
               additionalMemory:
+                description: memory to add/decrease from "auto-calculated" memory
                 type: integer
               agentPort:
                 description: if not set (0), weka will find a free port from the portRange
                 type: integer
               allowHotUpgrade:
                 type: boolean
+              autoRemoveTimeout:
+                default: 24h
+                description: sets weka cluster-side timeout, if client is not coming
+                  back in specified duration it will be auto removed from cluster
+                  config
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                type: string
               coreIds:
                 items:
                   type: integer
@@ -83,12 +91,21 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
+              cpuRequest:
+                type: string
               driversDistService:
                 type: string
               driversLoaderImage:
                 type: string
+              hugepages:
+                description: hugepages, value in megabytes
+                type: integer
+              hugepagesOffset:
+                description: value in megabytes to offset
+                type: integer
               image:
-                description: Used in new format
+                description: full container image in format of quay.io/weka.io/weka-in-container:VERSION
+                pattern: ^.+:\d+\.\d+\.\d+.*$
                 type: string
               imagePullSecret:
                 type: string
@@ -134,10 +151,24 @@ spec:
                 type: object
               overrides:
                 properties:
+                  forceDrain:
+                    description: unsafe operation, forces drain on the node where
+                      the container is running, should not be used unless instructed
+                      explicitly by weka personnel, the effect of drain is throwing
+                      away all IOs and acknowledging all umounts in unsafe manner
+                    type: boolean
                   machineIdentifierNodeRef:
                     description: used to override machine identifier node reference
                       for client containers
                     type: string
+                  skipActiveMountsCheck:
+                    description: option to skip active mounts check before deleting
+                      client containers
+                    type: boolean
+                  umountOnHost:
+                    description: unsafe operation, runs nsenter in root namespace
+                      to umount all wekafs mounts visible on host
+                    type: boolean
                 type: object
               port:
                 description: if not set (0), weka will find a free port from the portRange
@@ -196,6 +227,41 @@ spec:
                       type: string
                   type: object
                 type: array
+              resources:
+                description: 'experimental: pod resources to be proxied as-is to the
+                  pod spec'
+                properties:
+                  limits:
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  requests:
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                type: object
               targetCluster:
                 properties:
                   name:
@@ -229,6 +295,7 @@ spec:
                     - manual
                     - all-at-once
                     - rolling
+                    - all-at-once-force
                     type: string
                 type: object
               wekaHome:
@@ -330,6 +397,12 @@ spec:
                     type: object
                 type: object
               status:
+                default: Init
+                enum:
+                - Init
+                - Running
+                - Upgrading
+                - Destroying
                 type: string
             type: object
         type: object

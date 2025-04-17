@@ -28,7 +28,7 @@ spec:
       name: Management IPs
       type: string
     - description: Node affinity of container
-      jsonPath: .status.nodeAffinity
+      jsonPath: .status.printer.nodeAffinity
       name: Node
       type: string
     - description: Number of processes per state
@@ -58,11 +58,6 @@ spec:
     - description: Weka container ID
       jsonPath: .status.containerID
       name: Weka cID
-      priority: 1
-      type: string
-    - description: Weka container message
-      jsonPath: .status.message
-      name: Message
       priority: 1
       type: string
     name: v1alpha1
@@ -1018,6 +1013,13 @@ spec:
                 type: integer
               allowHotUpgrade:
                 type: boolean
+              autoRemoveTimeout:
+                default: 0s
+                description: sets weka cluster-side timeout, if client is not coming
+                  back in specified duration it will be auto removed from cluster
+                  config
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                type: string
               coreIds:
                 items:
                   type: integer
@@ -1108,6 +1110,8 @@ spec:
                 type: object
               group:
                 type: string
+              hostPID:
+                type: boolean
               hugepages:
                 type: integer
               hugepagesOffset:
@@ -1196,12 +1200,28 @@ spec:
                 type: integer
               overrides:
                 properties:
+                  debugSleepOnTerminate:
+                    description: DebugSleepOnTerminate specifies the number of seconds
+                      to sleep on container abnormal exit for debugging purposes
+                    type: integer
+                  forceDrain:
+                    description: unsafe operation, forces drain on the node where
+                      the container is running, should not be used unless instructed
+                      explicitly by weka personnel, the effect of drain is throwing
+                      away all IOs and acknowledging all umounts in unsafe manner
+                    type: boolean
                   machineIdentifierNodeRef:
                     type: string
+                  podDeleteForceReplace:
+                    type: boolean
                   preRunScript:
                     description: script to be executed post initial persistency(if
                       needed) configuration, before running actual workload
                     type: string
+                  skipActiveMountsCheck:
+                    description: option to skip active mounts check before deleting
+                      client containers
+                    type: boolean
                   skipCleanupPersistentDir:
                     description: skips cleanup of persistent directory, if this operation
                       was omit local data of container will remain in persistent location(/opt/k8s-weka
@@ -1217,10 +1237,16 @@ spec:
                       on removal of drive container we will not be able to reuse them,
                       and manual operation with force resign will be required
                     type: boolean
+                  umountOnHost:
+                    description: unsafe operation, runs nsenter in root namespace
+                      to umount all wekafs mounts visible on host
+                    type: boolean
                   upgradeForceReplace:
                     description: unsafe operation, skips graceful stop of weka container
                       for a quick replacement to a new image, should not be used unless
                       instructed explicitly by weka personnel
+                    type: boolean
+                  upgradePreventEviction:
                     type: boolean
                 type: object
               port:
@@ -1239,6 +1265,40 @@ spec:
                     type: integer
                 required:
                 - basePort
+                type: object
+              resources:
+                description: resources to be proxied as-is to the pod spec
+                properties:
+                  limits:
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  requests:
+                    properties:
+                      cpu:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      memory:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
                 type: object
               serviceAccountName:
                 type: string
@@ -1482,6 +1542,7 @@ spec:
                 - manual
                 - all-at-once
                 - rolling
+                - all-at-once-force
                 type: string
               uploadResultsTo:
                 type: string
@@ -1673,7 +1734,11 @@ spec:
                 type: array
               containerID:
                 type: integer
+              internalStatus:
+                type: string
               lastAppliedImage:
+                type: string
+              lastAppliedSpec:
                 type: string
               managementIP:
                 type: string
@@ -1704,6 +1769,8 @@ spec:
                   this is _not_ always the same as the hostname: if\n\twe are using
                   a custom DHCP domain it won't be."
                 type: string
+              notToleratedOnReschedule:
+                type: boolean
               printer:
                 properties:
                   activeMounts:
@@ -1712,6 +1779,9 @@ spec:
                     type: string
                   managementIPs:
                     description: pretty-printed management IPs
+                    type: string
+                  nodeAffinity:
+                    description: node name where the container is running
                     type: string
                   processes:
                     type: string

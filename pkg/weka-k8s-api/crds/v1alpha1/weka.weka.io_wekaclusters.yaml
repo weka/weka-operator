@@ -97,6 +97,13 @@ spec:
                 - dedicated_ht
                 - manual
                 type: string
+              csiConfig:
+                properties:
+                  endpointsSubnets:
+                    items:
+                      type: string
+                    type: array
+                type: object
               driversDistService:
                 description: endpoint for distribution service, global https://drivers.weka.io
                   or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001"
@@ -203,6 +210,7 @@ spec:
                 type: integer
               image:
                 description: full container image name in format of quay.io/weka.io/weka-in-container:VERSION
+                pattern: ^.+:\d+\.\d+\.\d+.*$
                 type: string
               imagePullSecret:
                 description: image pull secret to use for pulling the image
@@ -276,10 +284,25 @@ spec:
                     description: script to run post cluster create (i.e before starting
                       io)
                     type: string
+                  upgradeAllAtOnce:
+                    description: unsafe operation, should not be used unless instructed
+                      explicitly by weka personnel
+                    type: boolean
                   upgradeForceReplace:
                     description: unsafe operation, skips graceful stop of weka container
                       for a quick replacement to a new image, should not be used unless
                       instructed explicitly by weka personnel
+                    type: boolean
+                  upgradeForceReplaceDrives:
+                    description: unsafe operation, skips graceful stop of drive weka
+                      container for a quick replacement to a new image, should not
+                      be used unless instructed explicitly by weka personnel
+                    type: boolean
+                  upgradePausePreCompute:
+                    description: Prevent from moving into compute phase
+                    type: boolean
+                  upgradePaused:
+                    description: Pause upgrade
                     type: boolean
                 type: object
               podConfig:
@@ -6063,6 +6086,26 @@ spec:
                 type: string
               stats:
                 properties:
+                  alertsCount:
+                    format: int64
+                    type: integer
+                  capacity:
+                    properties:
+                      hotSpareBytes:
+                        format: int64
+                        type: integer
+                      totalBytes:
+                        format: int64
+                        type: integer
+                      unavailableBytes:
+                        format: int64
+                        type: integer
+                      unprovisionedBytes:
+                        format: int64
+                        type: integer
+                    type: object
+                  clusterStatus:
+                    type: string
                   containers:
                     properties:
                       compute:
@@ -6244,6 +6287,10 @@ spec:
                   lastUpdate:
                     format: date-time
                     type: string
+                  numFailures:
+                    additionalProperties:
+                      type: string
+                    type: object
                 type: object
               status:
                 type: string
