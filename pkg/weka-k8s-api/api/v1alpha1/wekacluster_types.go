@@ -364,6 +364,7 @@ type WekaClusterStatus struct {
 // +kubebuilder:printcolumn:name="DRVS(A/C/D)",type="string",JSONPath=".status.printer.drives",description="Number of Drives: Active/Created/Desired",priority=0
 // +kubebuilder:printcolumn:name="IOPS(R/W/M)",type="string",JSONPath=".status.printer.iops",description="IOPS Read/Write/Metadata",priority=1
 // +kubebuilder:printcolumn:name="THRPT(R/W)",type="string",JSONPath=".status.printer.throughput",description="Throughput Read/Write",priority=1
+// +kubebuilder:printcolumn:name="FS(Capacity)",type="string",JSONPath=".status.printer.filesystemCapacity",description="Filesystem Capacity",priority=1
 
 type WekaCluster struct {
 	metav1.TypeMeta   `json:",inline"`

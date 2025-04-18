@@ -2,8 +2,9 @@ package v1alpha1
 
 import (
 	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strconv"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type IntMetric int64
@@ -88,6 +89,29 @@ type CapacityMetrics struct {
 	HotSpareBytes      IntMetric `json:"hotSpareBytes,omitempty"`
 }
 
+// FilesystemMetrics contains metrics about filesystem usage
+type FilesystemMetrics struct {
+	// TotalProvisionedCapacity is the sum of total_budget for all filesystems
+	TotalProvisionedCapacity IntMetric `json:"totalProvisionedCapacity,omitempty"`
+
+	// TotalUsedCapacity is the sum of used_total for all filesystems
+	TotalUsedCapacity IntMetric `json:"totalUsedCapacity,omitempty"`
+
+	// TotalAvailableCapacity is the difference between TotalProvisionedCapacity and TotalUsedCapacity
+	TotalAvailableCapacity IntMetric `json:"totalAvailableCapacity,omitempty"`
+
+	// SSD-specific metrics
+	TotalProvisionedSSDCapacity IntMetric `json:"totalProvisionedSSDCapacity,omitempty"`
+	TotalUsedSSDCapacity        IntMetric `json:"totalUsedSSDCapacity,omitempty"`
+	TotalAvailableSSDCapacity   IntMetric `json:"totalAvailableSSDCapacity,omitempty"`
+
+	// Object Store metrics
+	HasTieredFilesystems bool      `json:"hasTieredFilesystems,omitempty"`
+	TotalObsCapacity     IntMetric `json:"totalObsCapacity,omitempty"`
+	ObsBucketCount       IntMetric `json:"obsBucketCount,omitempty"`
+	ActiveObsBucketCount IntMetric `json:"activeObsBucketCount,omitempty"`
+}
+
 type ClusterMetrics struct {
 	Containers    ContainersMetrics      `json:"containers,omitempty"`
 	IoStats       IoStats                `json:"ioStats,omitempty"`
@@ -97,6 +121,7 @@ type ClusterMetrics struct {
 	Capacity      CapacityMetrics        `json:"capacity,omitempty"`
 	NumFailures   map[string]FloatMetric `json:"numFailures,omitempty"`
 	LastUpdate    metav1.Time            `json:"lastUpdate,omitempty"`
+	Filesystem    FilesystemMetrics      `json:"filesystem,omitempty"`
 }
 
 type ClusterPrinterColumns struct {
@@ -105,6 +130,8 @@ type ClusterPrinterColumns struct {
 	Drives            StringMetric `json:"drives,omitempty"`
 	Throughput        StringMetric `json:"throughput,omitempty"`
 	Iops              StringMetric `json:"iops,omitempty"`
+	// Information about filesystem capacity: Available/Used
+	FilesystemCapacity StringMetric `json:"filesystemCapacity,omitempty"`
 }
 
 type StatusThroughput struct {
