@@ -35,7 +35,8 @@ if GEMINI_API_KEY:
     # Assuming the same client setup is okay for the aggregator
     gemini_client_agg = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=GEMINI_API_KEY)
     final_release_notes_model = OpenAIChatCompletionsModel(
-        model="gemini-2.5-pro-preview-03-25", # Or potentially a larger/different model for aggregation
+        # model="gemini-2.5-pro-preview-03-25", # Or potentially a larger/different model for aggregation
+        model="gemini-2.5-flash-preview-04-17", # Or potentially a larger/different model for aggregation
         openai_client=gemini_client_agg
     )
 else:
@@ -129,13 +130,17 @@ def extract_release_notes_tag(pr_body):
 
 def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: str, dry_run=False):
     message = get_commit_message(commit)
+    subject = message.splitlines()[0]
     # Use imported infer_type
     ctype = infer_type(message)
-    # Allow 'other' type through initially, generation function will handle ignoring if needed
-    # if ctype not in ('fix', 'feature', 'breaking'):
-    #     logger.debug(f"Commit {commit[:7]} type '{ctype}' is not fix/feature/breaking, skipping generation for now.")
-    #     return None # Skip commits not matching the required types for now? Or let generation decide? Let's let generation decide.
-    subject = message.splitlines()[0]
+
+    # Immediately ignore commits that are not fix, feature, or breaking
+    if ctype not in ('fix', 'feature', 'breaking'):
+        logger.info(f"Commit {commit[:7]} type '{ctype}' is not fix/feature/breaking. Marking as ignored.")
+        # Create CommitInfo marked as ignored and return
+        return CommitInfo(sha=commit, subject=subject, ctype=ctype, ignored=True, release_notes="Ignored (type)")
+
+    # If type is valid, proceed with creating CommitInfo and finding PR
     commit_info = CommitInfo(sha=commit, subject=subject, ctype=ctype)
 
     # Find PR by matching title with commit subject
