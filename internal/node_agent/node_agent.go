@@ -17,21 +17,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weka/weka-operator/internal/controllers/resources"
-
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	metrics2 "github.com/weka/weka-operator/pkg/metrics"
-	"github.com/weka/weka-operator/pkg/util"
 	"golang.org/x/exp/rand"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	metrics2 "github.com/weka/weka-operator/pkg/metrics"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 type NodeAgent struct {

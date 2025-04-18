@@ -1813,6 +1813,9 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 }
 
 func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	cluster := r.cluster
 
 	if cluster.IsTerminating() || r.cluster.Status.Status != wekav1alpha1.WekaClusterStatusReady {
@@ -1825,6 +1828,13 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get Weka status")
+	}
+
+	// Get filesystem capacity information
+	capacity, err := wekaService.GetCapacity(ctx)
+	if err != nil {
+		// Log error but continue - we still want to update other metrics
+		logger.Error(err, "Failed to get filesystem capacity information")
 	}
 
 	if cluster.Status.Stats == nil {
@@ -1869,6 +1879,38 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 	cluster.Status.Stats.Capacity.UnavailableBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.UnavailableBytes)
 	cluster.Status.Stats.Capacity.UnprovisionedBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.UnprovisionedBytes)
 	cluster.Status.Stats.Capacity.HotSpareBytes = wekav1alpha1.IntMetric(wekaStatus.Capacity.HotSpareBytes)
+
+	// Update filesystem capacity metrics if available
+	if len(capacity.Filesystems) > 0 {
+		// Initialize the Filesystem field if it's nil
+		if cluster.Status.Stats.Filesystem.TotalProvisionedCapacity == 0 {
+			cluster.Status.Stats.Filesystem = wekav1alpha1.FilesystemMetrics{}
+		}
+
+		// Update the metrics with data from GetCapacity
+		cluster.Status.Stats.Filesystem.TotalProvisionedCapacity = wekav1alpha1.IntMetric(capacity.TotalProvisionedCapacity)
+		cluster.Status.Stats.Filesystem.TotalUsedCapacity = wekav1alpha1.IntMetric(capacity.TotalUsedCapacity)
+		cluster.Status.Stats.Filesystem.TotalAvailableCapacity = wekav1alpha1.IntMetric(capacity.TotalAvailableCapacity)
+
+		// SSD-specific metrics
+		cluster.Status.Stats.Filesystem.TotalProvisionedSSDCapacity = wekav1alpha1.IntMetric(capacity.TotalProvisionedSSDCapacity)
+		cluster.Status.Stats.Filesystem.TotalUsedSSDCapacity = wekav1alpha1.IntMetric(capacity.TotalUsedSSDCapacity)
+		cluster.Status.Stats.Filesystem.TotalAvailableSSDCapacity = wekav1alpha1.IntMetric(capacity.TotalAvailableSSDCapacity)
+
+		// Object Store information
+		cluster.Status.Stats.Filesystem.HasTieredFilesystems = capacity.HasTieredFilesystems
+		cluster.Status.Stats.Filesystem.ObsBucketCount = wekav1alpha1.IntMetric(capacity.ObsBucketCount)
+		cluster.Status.Stats.Filesystem.ActiveObsBucketCount = wekav1alpha1.IntMetric(capacity.ActiveObsBucketCount)
+
+		if capacity.HasTieredFilesystems && capacity.TotalObsCapacity > 0 {
+			cluster.Status.Stats.Filesystem.TotalObsCapacity = wekav1alpha1.IntMetric(capacity.TotalObsCapacity)
+		}
+
+		// Add filesystem capacity information to printer columns
+		availableGiB := util2.HumanReadableSize(int64(cluster.Status.Stats.Filesystem.TotalAvailableCapacity))
+		usedGiB := util2.HumanReadableSize(int64(cluster.Status.Stats.Filesystem.TotalUsedCapacity))
+		cluster.Status.PrinterColumns.FilesystemCapacity = wekav1alpha1.StringMetric(fmt.Sprintf("%s/%s", usedGiB, availableGiB))
+	}
 
 	tpsRead := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesRead)
 	tpsWrite := util2.HumanReadableThroughput(wekaStatus.Activity.SumBytesWritten)

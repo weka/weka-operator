@@ -8,11 +8,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/services"
-	"github.com/weka/weka-operator/pkg/util"
-
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+
+	"github.com/weka/weka-operator/internal/services"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster, wekaStatus services.WekaStatusResponse) (string, error) {
@@ -73,7 +73,7 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Created)},
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka containers count, per type and status",
+		Help:      "Weka clusters processes count, per type and status",
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
@@ -142,7 +142,58 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 			{Tags: metrics2.TagMap{"type": "unavailable"}, Value: float64(cluster.Status.Stats.Capacity.UnavailableBytes)},
 			{Tags: metrics2.TagMap{"type": "hotSpare"}, Value: float64(cluster.Status.Stats.Capacity.HotSpareBytes)},
 		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "Weka cluster capacity in bytes",
 	})
+
+	// Add filesystem capacity metrics if they are populated
+	if cluster.Status.Stats.Filesystem.TotalProvisionedCapacity > 0 {
+		metrics = append(metrics, metrics2.PromMetric{
+			Metric: "weka_filesystem_capacity_bytes",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "provisioned"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedCapacity)},
+				{Tags: metrics2.TagMap{"type": "used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedCapacity)},
+				{Tags: metrics2.TagMap{"type": "available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableCapacity)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka filesystem capacity in bytes",
+		})
+
+		// Add SSD-specific metrics
+		metrics = append(metrics, metrics2.PromMetric{
+			Metric: "weka_filesystem_ssd_capacity_bytes",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "provisioned"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedSSDCapacity)},
+				{Tags: metrics2.TagMap{"type": "used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedSSDCapacity)},
+				{Tags: metrics2.TagMap{"type": "available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableSSDCapacity)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka filesystem SSD capacity in bytes",
+		})
+
+		// Add Object Store metrics if available
+		if cluster.Status.Stats.Filesystem.HasTieredFilesystems {
+			// Add OBS bucket count metrics
+			metrics = append(metrics, metrics2.PromMetric{
+				Metric: "weka_filesystem_obs_buckets_count",
+				ValuesByTags: []metrics2.TaggedValue{
+					{Tags: metrics2.TagMap{"status": "total"}, Value: float64(cluster.Status.Stats.Filesystem.ObsBucketCount)},
+					{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Filesystem.ActiveObsBucketCount)},
+				},
+				Timestamp: cluster.Status.Stats.LastUpdate.Time,
+				Help:      "Number of Object Store buckets",
+			})
+
+			if cluster.Status.Stats.Filesystem.TotalObsCapacity > 0 {
+				obsCapacityVal := float64(cluster.Status.Stats.Filesystem.TotalObsCapacity)
+				metrics = append(metrics, metrics2.PromMetric{
+					Metric: "weka_filesystem_obs_capacity_bytes",
+					Value:  &obsCapacityVal,
+					Help:   "Total Object Store capacity in bytes",
+				})
+			}
+		}
+	}
 
 	for i, _ := range metrics {
 		metrics[i].Tags = util.MergeMaps(metrics[i].Tags, commonTags)

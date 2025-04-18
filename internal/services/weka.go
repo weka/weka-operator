@@ -89,7 +89,69 @@ type WekaStatusResponse struct {
 	RedundancyLevel   int                     `json:"stripe_protection_drives"`
 }
 
+// WekaObsBucket represents an Object Store bucket in a Weka filesystem
+type WekaObsBucket struct {
+	DetachProgress interface{} `json:"detachProgress"`
+	DetachTaskId   string      `json:"detachTaskId"`
+	Mode           string      `json:"mode"`
+	Name           string      `json:"name"`
+	ObsBucketId    string      `json:"obsBucketId"`
+	State          string      `json:"state"`
+	Status         string      `json:"status"`
+	Uid            string      `json:"uid"`
+}
+
+// WekaFilesystem represents an individual filesystem from the weka fs command
 type WekaFilesystem struct {
+	AvailableSsd int64           `json:"available_ssd"`
+	FsId         string          `json:"fs_id"`
+	GroupId      string          `json:"group_id"`
+	GroupName    string          `json:"group_name"`
+	IsReady      bool            `json:"is_ready"`
+	Name         string          `json:"name"`
+	ObsBuckets   []WekaObsBucket `json:"obs_buckets"`
+	SsdBudget    int64           `json:"ssd_budget"`
+	Status       string          `json:"status"`
+	TotalBudget  int64           `json:"total_budget"`
+	Uid          string          `json:"uid"`
+	UsedSsd      int64           `json:"used_ssd"`
+	UsedTotal    int64           `json:"used_total"`
+}
+
+// WekaCapacityInfo provides information about total provisioned capacity
+type WekaCapacityInfo struct {
+	// TotalProvisionedCapacity is the sum of total_budget for all filesystems
+	TotalProvisionedCapacity int64 `json:"total_provisioned_capacity"`
+
+	// TotalUsedCapacity is the sum of used_total for all filesystems
+	TotalUsedCapacity int64 `json:"total_used_capacity"`
+
+	// TotalAvailableCapacity is the difference between TotalProvisionedCapacity and TotalUsedCapacity
+	TotalAvailableCapacity int64 `json:"total_available_capacity"`
+
+	// TotalAvailableSSDCapacity is the sum of available_ssd for all filesystems
+	TotalAvailableSSDCapacity int64 `json:"total_available_ssd_capacity"`
+
+	// TotalProvisionedSSDCapacity is the sum of ssd_budget for all filesystems
+	TotalProvisionedSSDCapacity int64 `json:"total_provisioned_ssd_capacity"`
+
+	// TotalUsedSSDCapacity is the sum of used_ssd for all filesystems
+	TotalUsedSSDCapacity int64 `json:"total_used_ssd_capacity"`
+
+	// HasTieredFilesystems indicates if any filesystem is using Object Store capacity
+	HasTieredFilesystems bool `json:"has_tiered_filesystems"`
+
+	// TotalObsCapacity is the total Object Store capacity if present
+	TotalObsCapacity int64 `json:"total_obs_capacity,omitempty"`
+
+	// Filesystems contains capacity details for each filesystem
+	Filesystems []WekaFilesystem `json:"filesystems"`
+
+	// ObsBucketCount is the total number of OBS buckets
+	ObsBucketCount int64 `json:"obs_bucket_count"`
+
+	// ActiveObsBucketCount is the number of active OBS buckets
+	ActiveObsBucketCount int64 `json:"active_obs_bucket_count"`
 }
 
 type FSParams struct {
@@ -249,6 +311,7 @@ type WekaService interface {
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
+	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -976,4 +1039,69 @@ func (c *CliWekaService) GetWekaContainer(ctx context.Context, containerId int) 
 	}
 
 	return &containers[0], nil
+}
+
+// GetCapacity returns information about the total provisioned capacity for all filesystems
+func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetCapacity")
+	defer end()
+
+	var filesystems []WekaFilesystem
+	err := c.RunJsonCmd(ctx, []string{
+		"weka", "fs", "--json",
+	}, "GetFilesystems", &filesystems)
+	if err != nil {
+		logger.SetError(err, "Failed to get filesystems")
+		return WekaCapacityInfo{}, err
+	}
+
+	capacity := WekaCapacityInfo{
+		Filesystems: filesystems,
+	}
+
+	// Count OBS buckets
+	var obsCount, activeObsCount int64
+
+	// Calculate total capacity information
+	for _, fs := range filesystems {
+		// Skip filesystems that are not ready
+		if !fs.IsReady {
+			continue
+		}
+
+		// Total capacity calculations
+		capacity.TotalProvisionedCapacity += fs.TotalBudget
+		capacity.TotalUsedCapacity += fs.UsedTotal
+
+		// SSD capacity calculations
+		capacity.TotalAvailableSSDCapacity += fs.AvailableSsd
+		capacity.TotalProvisionedSSDCapacity += fs.SsdBudget
+		capacity.TotalUsedSSDCapacity += fs.UsedSsd
+
+		// Check if this filesystem has Object Store buckets
+		if len(fs.ObsBuckets) > 0 {
+			capacity.HasTieredFilesystems = true
+
+			// Count the total number of buckets and active buckets
+			obsCount += int64(len(fs.ObsBuckets))
+
+			// Count active buckets (with status "UP")
+			for _, bucket := range fs.ObsBuckets {
+				if bucket.Status == "UP" {
+					activeObsCount++
+				}
+			}
+		}
+	}
+
+	// Set OBS metrics
+	capacity.ObsBucketCount = obsCount
+	capacity.ActiveObsBucketCount = activeObsCount
+
+	// TODO: figure out how to get the total used capacity for the object store - TotalObsCapacity
+
+	// Calculate available capacity
+	capacity.TotalAvailableCapacity = capacity.TotalProvisionedCapacity - capacity.TotalUsedCapacity
+
+	return capacity, nil
 }
