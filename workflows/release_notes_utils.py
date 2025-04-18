@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import re
@@ -7,28 +8,10 @@ from openai import AsyncOpenAI
 # Set up logging for this module
 logger = logging.getLogger(__name__)
 
-# --- AI Model Setup ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    logger.warning("GEMINI_API_KEY environment variable not set. Release note generation will likely fail.")
-    # Or raise an error if the key is absolutely required:
-    # raise ValueError("GEMINI_API_KEY environment variable is required for release note generation.")
-
-# Initialize client only if key exists
-gemini_client = None
-if GEMINI_API_KEY:
-    gemini_client = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=GEMINI_API_KEY)
 
 # Define the model, handle case where client couldn't be initialized
-release_notes_generation_model = None
-if gemini_client:
-    release_notes_generation_model = OpenAIChatCompletionsModel(
-        model="gemini-2.5-pro-preview-03-25", # Using gemini pro as decided previously
-        openai_client=gemini_client
-    )
-else:
-    logger.error("Cannot initialize release notes generation model due to missing API key.")
-
+from util_gemini import gemini_flash
+release_notes_generation_model = gemini_flash
 
 # --- Utility Functions ---
 
@@ -95,7 +78,7 @@ def generate_release_notes(title: str, ctype: str, original_body: str, diff_or_s
 
     agent = Agent(
         name="release_notes_generator",
-        model="gpt-4.1-mini",
+        model=release_notes_generation_model,
         instructions= f"""You are provided with the title, inferred type, and code changes (diff or commit show output) for a specific change (commit or Pull Request).
             Your task is to generate concise, user-facing release notes for this change.
 
@@ -121,7 +104,10 @@ def generate_release_notes(title: str, ctype: str, original_body: str, diff_or_s
 
     try:
         # Run the agent synchronously
-        result = Runner.run_sync(agent, input_text)
+        result = asyncio.run(
+            Runner.run(agent, input_text)
+        )
+        # result = Runner.run(agent, input_text)
         output = result.final_output.strip()
 
         # Basic validation: Check if output is just "Ignored" or seems like a formatted note

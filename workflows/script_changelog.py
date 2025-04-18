@@ -1,52 +1,39 @@
 #!/usr/bin/env -S uv run --no-project --with openai-agents
 import argparse
-import random
-import subprocess
-import sys
-import os
-import re
+import asyncio
 # Removed requests import, handled by GitHubClient
 import logging
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel
-from openai import AsyncOpenAI
-from typing import Optional, List, final
-import math # Added for ceiling division
-from github import GitHubClient, GitHubError # Import the new client
-from release_notes_utils import infer_type, generate_release_notes # Import shared utils
+import math  # Added for ceiling division
+import re
+import subprocess
+import sys
+from typing import List
+
+from agents import Agent, Runner, ModelSettings
+
+from github import GitHubClient, GitHubError  # Import the new client
+from release_notes_utils import infer_type, generate_release_notes  # Import shared utils
 
 MAX_DIFF_SIZE = 16 * 1024  # 16 KB - Maximum total diff size before summarizing individual files
-MAX_FILE_DELTA = 1024      # 1 KB - Maximum size for a single file's diff before summarizing it
-CHUNK_SIZE = 300           # bytes for summarizing large file deltas
+MAX_FILE_DELTA = 1024  # 1 KB - Maximum size for a single file's diff before summarizing it
+CHUNK_SIZE = 300  # bytes for summarizing large file deltas
 # GITHUB_API_URL and REPO are now handled by GitHubClient
 # REPO = "weka/weka-operator" # Define repo name for client initialization
 
 # --- AI Model Setup for Aggregation ---
 # Individual commit notes generation model is now in release_notes_utils.py
 # Keep the aggregation model setup here if it's different or specifically for this script.
-GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY") # Still needed if aggregation uses Gemini
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Aggregation Model Setup (assuming it might be different or needs separate config)
-# If it's the same model, this could potentially be imported too, but let's keep it separate for now.
-final_release_notes_model = None
-if GEMINI_API_KEY:
-    # Assuming the same client setup is okay for the aggregator
-    gemini_client_agg = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=GEMINI_API_KEY)
-    final_release_notes_model = OpenAIChatCompletionsModel(
-        # model="gemini-2.5-pro-preview-03-25", # Or potentially a larger/different model for aggregation
-        model="gemini-2.5-flash-preview-04-17", # Or potentially a larger/different model for aggregation
-        openai_client=gemini_client_agg
-    )
-else:
-    logger.error("Cannot initialize final release notes aggregation model due to missing API key.")
-    # Consider exiting or providing a fallback if aggregation is critical
-
+from util_gemini import gemini_pro
+final_release_notes_model = gemini_pro
 
 # --- Commit Info Class ---
 class CommitInfo:
-    def __init__(self, sha, subject, ctype, pr_url=None, pr_body=None, release_notes=None, ignored=False, pr_number=None):
+    def __init__(self, sha, subject, ctype, pr_url=None, pr_body=None, release_notes=None, ignored=False,
+                 pr_number=None):
         self.sha = sha
         self.subject = subject
         self.ctype = ctype
@@ -59,6 +46,7 @@ class CommitInfo:
     def __repr__(self):
         return f"CommitInfo(sha={self.sha}, subject={self.subject}, ctype={self.ctype}, pr_url={self.pr_url}, ignored={self.ignored})"
 
+
 def run_git(cmd, **kwargs):
     result = subprocess.run(['git'] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
     if result.returncode != 0:
@@ -66,22 +54,28 @@ def run_git(cmd, **kwargs):
         sys.exit(1)
     return result.stdout.decode()
 
+
 def get_latest_tag():
     tags = run_git(['tag', '--sort=-creatordate']).splitlines()
     return tags[0] if tags else None
+
 
 def get_commit_range(gfrom, gto):
     commits = run_git(['rev-list', '--reverse', f'{gfrom}..{gto}']).splitlines()
     return commits
 
+
 def get_commit_message(commit):
     return run_git(['log', '--format=%B', '-n', '1', commit]).strip()
+
 
 def get_commit_show(commit):
     return run_git(['show', '--format=fuller', commit])
 
+
 def get_commit_show_stat(commit):
     return run_git(['show', '--stat', '--format=fuller', commit])
+
 
 def get_commit_files_and_deltas(commit):
     stat = run_git(['show', '--numstat', '--format=', commit])
@@ -97,21 +91,25 @@ def get_commit_files_and_deltas(commit):
             files.append((path, delta))
     return files
 
+
 def get_file_diff(commit, path):
     return run_git(['show', f'{commit}:{path}'])
+
 
 def get_file_patch(commit, path):
     return run_git(['show', commit, '--', path])
 
+
 def summarize_large_file_diff(file_patch_content):
     """Summarizes a large file patch content."""
     # Assumes file_patch_content is already fetched
-    if len(file_patch_content.encode('utf-8')) < CHUNK_SIZE * 2: # Check bytes
+    if len(file_patch_content.encode('utf-8')) < CHUNK_SIZE * 2:  # Check bytes
         return file_patch_content
     # Ensure we handle potential multi-byte characters correctly if slicing bytes
     # For simplicity, let's assume CHUNK_SIZE is large enough or content is mostly ASCII
     # A more robust solution might involve byte-level slicing with care for character boundaries
     return file_patch_content[:CHUNK_SIZE] + '\n...\n' + file_patch_content[-CHUNK_SIZE:]
+
 
 # infer_type is now imported from release_notes_utils
 
@@ -125,6 +123,7 @@ def extract_release_notes_tag(pr_body):
     if match:
         return match.group(1).strip()
     return None
+
 
 # agent_generate_release_notes is replaced by the imported generate_release_notes
 
@@ -154,7 +153,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
         # pr_url = matched_pr["url"] # URL is less commonly needed now
         pr_number = matched_pr["number"]
         # Fetch body using client if needed, but it's often in the fetched PR list already
-        pr_body = matched_pr.get("body", "") or "" # Use .get with fallback
+        pr_body = matched_pr.get("body", "") or ""  # Use .get with fallback
 
         # commit_info.pr_url = pr_url # Store number instead of API URL
         commit_info.pr_body = pr_body
@@ -166,11 +165,11 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                 commit_info.release_notes = "Ignored"
                 commit_info.ignored = True
                 logger.info(f"Commit {commit[:7]}: Found existing 'Ignored' tag in PR #{pr_number}. Skipping.")
-                return commit_info # Already processed and ignored
+                return commit_info  # Already processed and ignored
             else:
                 commit_info.release_notes = rn_tag
                 logger.info(f"Commit {commit[:7]}: Found existing release notes tag in PR #{pr_number}.")
-                return commit_info # Use existing notes
+                return commit_info  # Use existing notes
 
         # No valid <release_notes> tag found in matched PR, generate and update PR
         logger.info(f"Commit {commit[:7]}: No release notes tag in PR #{pr_number}. Preparing diff and generating...")
@@ -190,25 +189,27 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                     logger.debug(f"  - Including full diff for {path} ({len(file_patch.encode('utf-8'))} bytes)")
                 else:
                     content_to_include = summarize_large_file_diff(file_patch)
-                    logger.debug(f"  - Summarizing diff for {path} ({len(file_patch.encode('utf-8'))} bytes > {MAX_FILE_DELTA})")
+                    logger.debug(
+                        f"  - Summarizing diff for {path} ({len(file_patch.encode('utf-8'))} bytes > {MAX_FILE_DELTA})")
                 diff_parts.append(f'<file path="{path}">\n{content_to_include}\n</file>')
             diff_for_generation = "\n".join(diff_parts)
         else:
-            logger.debug(f"Commit {commit[:7]}: Diff size within limit ({len(commit_show_content.encode('utf-8'))} bytes). Using full diff.")
+            logger.debug(
+                f"Commit {commit[:7]}: Diff size within limit ({len(commit_show_content.encode('utf-8'))} bytes). Using full diff.")
             diff_for_generation = commit_show_content
         # --- End Diff Preparation ---
 
         # Use imported generate_release_notes, passing PR body as original_body and prepared diff
         rn = generate_release_notes(commit_info.subject, commit_info.ctype, commit_info.pr_body, diff_for_generation)
         commit_info.release_notes = rn
-        if rn == "Ignored": # Check for exact "Ignored" string
+        if rn == "Ignored":  # Check for exact "Ignored" string
             commit_info.ignored = True
             logger.info(f"Commit {commit[:7]}: Generated 'Ignored'. Updating PR #{pr_number}.")
         else:
-             logger.info(f"Commit {commit[:7]}: Generated release notes. Updating PR #{pr_number}.")
+            logger.info(f"Commit {commit[:7]}: Generated release notes. Updating PR #{pr_number}.")
 
         # Append or replace <release_notes> in PR body
-        new_body = pr_body # Already fetched
+        new_body = pr_body  # Already fetched
         tag_to_insert = f"<release_notes>\n{rn}\n</release_notes>"
         if re.search(r"<release_notes>.*?</release_notes>", new_body, re.DOTALL):
             new_body = re.sub(r"<release_notes>.*?</release_notes>", tag_to_insert, new_body, flags=re.DOTALL)
@@ -217,7 +218,8 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
 
         # Use GitHubClient to update PR body
         if dry_run:
-             logger.info(f"---\n[DRY RUN] Would update PR #{pr_number} ({repo_name}#{pr_number}) with new body:\n{new_body}\n---")
+            logger.info(
+                f"---\n[DRY RUN] Would update PR #{pr_number} ({repo_name}#{pr_number}) with new body:\n{new_body}\n---")
         else:
             try:
                 github_client.update_pr_body(pr_number, new_body)
@@ -232,7 +234,8 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
 
     # If we reach here, no PR was matched by title.
     if not matched_pr:
-        logger.info(f"Commit {commit[:7]}: No matching PR found by title '{subject}'. Preparing diff and generating release notes without PR context.")
+        logger.info(
+            f"Commit {commit[:7]}: No matching PR found by title '{subject}'. Preparing diff and generating release notes without PR context.")
 
         # --- Diff Preparation Logic (Duplicated for no-PR case) ---
         commit_show_content = get_commit_show(commit)
@@ -249,11 +252,13 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                     logger.debug(f"  - Including full diff for {path} ({len(file_patch.encode('utf-8'))} bytes)")
                 else:
                     content_to_include = summarize_large_file_diff(file_patch)
-                    logger.debug(f"  - Summarizing diff for {path} ({len(file_patch.encode('utf-8'))} bytes > {MAX_FILE_DELTA})")
+                    logger.debug(
+                        f"  - Summarizing diff for {path} ({len(file_patch.encode('utf-8'))} bytes > {MAX_FILE_DELTA})")
                 diff_parts.append(f'<file path="{path}">\n{content_to_include}\n</file>')
             diff_for_generation = "\n".join(diff_parts)
         else:
-            logger.debug(f"Commit {commit[:7]}: Diff size within limit ({len(commit_show_content.encode('utf-8'))} bytes). Using full diff.")
+            logger.debug(
+                f"Commit {commit[:7]}: Diff size within limit ({len(commit_show_content.encode('utf-8'))} bytes). Using full diff.")
             diff_for_generation = commit_show_content
         # --- End Diff Preparation ---
 
@@ -261,7 +266,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     # Use imported generate_release_notes, passing the full commit message as original_body
     rn = generate_release_notes(commit_info.subject, commit_info.ctype, message, diff_for_generation)
     commit_info.release_notes = rn
-    if rn == "Ignored": # Check for exact "Ignored" string
+    if rn == "Ignored":  # Check for exact "Ignored" string
         commit_info.ignored = True
         logger.info(f"Commit {commit[:7]}: Generated 'Ignored' (no PR).")
     else:
@@ -285,9 +290,8 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
         # For now, let's assume a fixed repo name for link generation,
         # but ideally, this should come from the client instance used.
         # TODO: Pass repo_name explicitly or get from client if possible
-        repo_name_for_links = "weka/weka-operator" # Hardcoded for now, replace if needed
+        repo_name_for_links = "weka/weka-operator"  # Hardcoded for now, replace if needed
         logger.warning(f"Using hardcoded repo name '{repo_name_for_links}' for PR links in aggregation.")
-
 
     input_items = []
     for ci in included:
@@ -298,9 +302,9 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
             input_item += f"\nPR: {pr_link}"
         input_item += "</item>"
         input_items.append(input_item)
-    
+
     input_text = "\n\n".join(input_items)
-    
+
     instructions = """You are provided with release notes for multiple commits. 
         Combine and structure them into a user-facing release notes.
         You may merge similar/related commits into a single entry, but preserve all commits SHAs.
@@ -315,7 +319,7 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
             - If there is no content for the group do not include it  
         <instructions>
         """
-    
+
     instructions += """Output in following format:
         <format>
         # [Group name]
@@ -325,31 +329,32 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
         PRs: PR_LINK, PR_LINK, ... //if any
         </format>
         """
-    
+
     agent = Agent(
         name="final_release_notes_aggregator",
         # model="o4-mini", # Example alternative
-        model=final_release_notes_model, # Use the aggregator model defined above
+        model=final_release_notes_model,  # Use the aggregator model defined above
         instructions=instructions,
         model_settings=ModelSettings(
             max_tokens=64000,
             # reasoning=dict(
-                # effort="high",
+            # effort="high",
             # ),
         )
     )
 
     # logger.debug(instructions)
     # logger.debug(input_text)
-    result = Runner.run_sync(agent, input_text)
+    result = asyncio.run(Runner.run(agent, input_text))
     final_output = result.final_output
-    
+
     # Validate commits (SHAs)
     sha_pattern = r"[0-9a-f]{7,40}"  # SHA-1 hashes (7+ hex chars)
     found_shas = set(sha[:7] for sha in re.findall(sha_pattern, final_output))
     expected_shas = set(ci.sha[:7] for ci in included)
     if found_shas != expected_shas:
-        logger.warning(f"Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).")
+        logger.warning(
+            f"Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).")
         missing = expected_shas - found_shas
         extra = found_shas - expected_shas
         if missing:
@@ -365,7 +370,7 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
 
     # Validate PR links - Requires repo name used during generation
     # TODO: Use the actual repo name used for link generation
-    repo_name_for_links = "weka/weka-operator" # Hardcoded for now
+    repo_name_for_links = "weka/weka-operator"  # Hardcoded for now
     pr_pattern = fr"https://github\.com/{repo_name_for_links}/pull/\d+"
     found_prs = set(re.findall(pr_pattern, final_output))
     expected_prs = set()
@@ -382,8 +387,9 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
             logger.warning(f"  Missing PR links in output: {', '.join(missing_prs)}")
         if extra_prs:
             logger.warning(f"  Extra PR links in output: {', '.join(extra_prs)}")
-    
+
     return final_output
+
 
 def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False):
     """
@@ -391,13 +397,13 @@ def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False)
     Returns True if validation passes or user chooses to continue, False to abort.
     """
     missing_matches = []
-    
+
     logger.info("Validating all commits have matching PRs...")
     for i, commit in enumerate(commits):
         message = get_commit_message(commit)
         if infer_type(message) not in ('fix', 'feature', 'breaking'):
             continue  # Skip commits of unrecognized types
-            
+
         subject = message.splitlines()[0]
         # Find matching PR
         matched = False
@@ -405,23 +411,24 @@ def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False)
             if pr.get("title") == subject:
                 matched = True
                 break
-                
+
         if not matched:
             missing_matches.append((commit, subject))
             logger.warning(f"No matching PR found for commit {commit[:7]}: '{subject}'")
-    
+
     if missing_matches:
         logger.warning(f"\n⚠️  Found {len(missing_matches)} commits without matching PRs:")
         for commit, subject in missing_matches:
             logger.warning(f"  - {commit[:10]}: {subject}")
-            
+
         if not continue_on_missing:
             response = input("\nDo you want to continue anyway? (y/N): ").strip().lower()
             if response != 'y':
                 logger.info("Aborting changelog generation. Please fix missing PR links.")
                 return False
-                
+
     return True
+
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced changelog generator')
@@ -474,9 +481,9 @@ def main():
         recent_prs = github_client.fetch_recent_closed_prs(num_prs_to_fetch)
         # Logging is handled within the client method
     except GitHubError as e:
-         logger.error(f"Failed to fetch recent PRs: {e}")
-         # Decide whether to exit or continue without PR matching
-         sys.exit(1) # Exit for now, as PR matching is crucial
+        logger.error(f"Failed to fetch recent PRs: {e}")
+        # Decide whether to exit or continue without PR matching
+        sys.exit(1)  # Exit for now, as PR matching is crucial
 
     # Validate all commits have matching PRs before proceeding
     if not validate_commits_against_prs(commits, recent_prs, continue_on_missing=args.force):
@@ -484,7 +491,7 @@ def main():
 
     commit_infos = []
     processed_commit_count = 0
-    repo_name = args.repo # Pass repo name for potential use in process_commit
+    repo_name = args.repo  # Pass repo name for potential use in process_commit
     for commit in commits:
         processed_commit_count += 1
         logger.info(f"Processing commit {processed_commit_count}/{num_commits}: {commit[:7]}...")
@@ -505,5 +512,6 @@ def main():
     # Only the final output goes to stdout
     print(final_output)
 
+
 if __name__ == '__main__':
-    main() 
+    main()
