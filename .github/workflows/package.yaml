@@ -128,8 +128,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
       - name: Add operator version as artifact
+        if: ${{ env.VERSION != '' }}
         run: echo "${{ env.VERSION }}" > operator-version.txt
       - name: Upload artifact
+        if: ${{ env.VERSION != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: operator-version
