@@ -1,0 +1,36 @@
+# Your Task
+Your goal is to generate plan that will write hook files and txt plans,  that will be executed later. It is not your direct goal to execute
+
+Given the provided context and the details below, make the decision if you are able to test the changes introduced in the PR using the existing upgrade test hooks
+(while upgrade test is running) and generate the necessary files for that.
+
+This test is executed on top of existing environment in the middle of other test, details will follow in form of `<context>`, `<environment_details>` and so on
+
+If YES:
+Generate the test-in-the-hook plan text file assuming that you dessribe the steps running in the middle of existing test.
+   - Rely on available environment variable specified in test description
+   - Use the plain text format, describing steps to test new functionality
+   - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
+   - Create a hook script that contains ./wekai call with the generated text plan as the request file.
+    - You must use ./wekai call in hook, wekai will be executing plan.txt file
+   - Both the test plan and the hook script should be placed in the ./test_artifacts
+   - For each hook to be used place them under `./test_artifacts/hook_HOOK_NAME/hook.sh and `./test_artifacts/hook_HOOK_NAME/plan.txt`
+   - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point
+   - In generated files (plan.txt, hook.sh) do not mention HOOK_NAME and anything about the hooks.
+If NO:
+    - Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs)
+    - Generate a standalone test plan that will be used instead of running upgrade test
+  or explain why this PR cannot/shouldn't be tested.
+    - Place the test plan in the ./test_artifacts directory with the name test_plan.txt
+<additional_instructions>
+- you must write hook files when applicable, using provided write_multiple_files tool
+- you do not have access to any repository files, you're working only with weka CRs and k8s resources
+- If the PR is only changing documentation, comments, or making cosmetic changes, it doesn't make sense to run the upgrade test at all.
+- Your goal is to determine the most efficient way to test the changes in this PR, if testing is needed at all.
+- you do not have access to repository files, so any file that was added/removed in change description is NOT available to you
+- you do not have access to github tools, the only entry point available for you are described hooks, they run in isolated environment with access to bash,kubectl, but not project files/github
+- generated test plan should not mention your instructions/scenario, it should only contain what needs to be done, omitting general context of why this being done
+- in generated test plan break down each hook handling to separate step, writing required files into target location
+- never rely on project files to validate new functionality, files diff provided only for context of what functionality has changed
+    - only rely on states of system being tested and hooks of this validation framework
+</additional_instructions>

@@ -1,0 +1,33 @@
+## Hook Script Best Practices
+
+1. Make scripts executable (`chmod +x your_script.sh`)
+2. Use the shebang line (`#!/bin/bash`)
+3. Set `set -e` to fail on errors
+4. Use the provided environment variables
+5. Return non-zero exit code to fail the test if validation fails
+6. Log clearly what the script is doing
+
+## Example Hook Script
+
+```bash
+#!/bin/bash
+set -e
+
+echo "==== Running verification hook ===="
+echo "Cluster name: $CLUSTER_NAME"
+echo "Namespace: $CLUSTER_NAMESPACE"
+
+# Execute verifications using kubectl
+kubectl get wekacluster $CLUSTER_NAME -n $CLUSTER_NAMESPACE -o json | \
+  jq '.status.phase' | \
+  grep -q "Ready" || exit 1
+
+# Check for specific conditions
+kubectl get pods -n $CLUSTER_NAMESPACE | grep -q "container-name" || {
+  echo "Error: Expected pod not found"
+  exit 1
+}
+
+echo "==== Verification completed successfully ===="
+exit 0
+```

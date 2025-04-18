@@ -3,6 +3,7 @@ import dataclasses
 import logging
 import os
 import sys
+import argparse
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -12,14 +13,12 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 CURRENT_FILE_ABSOLUTE_PATH = Path(os.path.abspath(__file__))
-DIR_PATH = CURRENT_FILE_ABSOLUTE_PATH.parent.parent / 'doc'
+DEFAULT_DOCS_DIR_PATH = CURRENT_FILE_ABSOLUTE_PATH.parent.parent / 'doc'
 
 # ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY")
 
 # Set up logging
-
-
 log_level = logging.DEBUG
 logging.basicConfig(
     level=log_level,
@@ -105,24 +104,31 @@ def read_file(file_path: str) -> str:
     if not allowed_path:
         return f"Error: Access denied or invalid path: {file_path}"
 
-    if not allowed_path.is_file():
-        return f"Error: Path is not a file: {allowed_path}"
+    file_path = Path(file_path)
+    if not file_path.is_file():
+        return f"Error: Path is not a file: {file_path}"
 
     try:
-        content = allowed_path.read_text(encoding='utf-8', errors='ignore')
-        logger.info(f"Successfully read file: {allowed_path}")
+        content = file_path.read_text(encoding='utf-8', errors='ignore')
+        logger.info(f"Successfully read file: {file_path}")
         # Consider limiting file size read?
         return content
     except PermissionError:
-        logger.warning(f"Permission denied for reading file: {allowed_path}")
-        return f"Error: Permission denied for file: {allowed_path}"
+        logger.warning(f"Permission denied for reading file: {file_path}")
+        return f"Error: Permission denied for file: {file_path}"
     except FileNotFoundError: # Should be caught by is_path_allowed(strict=True) but good failsafe
-        logger.warning(f"File not found during read attempt: {allowed_path}")
-        return f"Error: File not found: {allowed_path}"
+        logger.warning(f"File not found during read attempt: {file_path}")
+        return f"Error: File not found: {file_path}"
     except Exception as e:
-        logger.error(f"Error reading file {allowed_path}: {e}")
+        logger.error(f"Error reading file {file_path}: {e}")
         return f"Error: Could not read file: {e}"
+    
 
+def read_file_or_fail(file_path: str) -> str:
+    result = read_file(file_path)
+    if result.startswith("Error:"):
+        raise Exception(result)
+    return result
 
 
 def read_multiple_files(file_paths: List[str]) -> Dict[str, str]:
@@ -184,9 +190,6 @@ def write_file(file_path: str, content: str) -> str:
         return f"Error: Could not write to file: {e}"
 
 
-import dataclasses
-from typing import List, Dict # Added List for type hinting
-
 # Assuming FileParams and FileWriteResult are defined as shown in the context
 @dataclasses.dataclass
 class FileParams:
@@ -233,7 +236,6 @@ def write_multiple_files(files: List[FileParams]) -> List[FileWriteResult]:
 
     logger.info(f"Finished processing multiple files. Results count: {len(results)}")
     return results
-
 
 
 def get_directory_contents(dir_path: Path) -> str:
@@ -287,166 +289,56 @@ def get_directory_contents(dir_path: Path) -> str:
         return f"Error processing directory {dir_path}: {e}"
 
 
-def generate_hooks():
-    instructions = """
-    # Your Task
-Your goal is to generate plan that will write hook files and txt plans,  that will be executed later. It is not your direct goal to execute
-
-Given the provided context and the details below, make the decision if you are able to test the changes introduced in the PR using the existing upgrade test hooks
-(while upgrade test is running) and generate the necessary files for that.
-
-This test is executed on top of existing environment in the middle of other test, details will follow in form of `<context>`, `<environment_details>` and so on
-
-If YES:
-Generate the test-in-the-hook plan text file assuming that you dessribe the steps running in the middle of existing test.
-   - Rely on available environment variable specified in test description
-   - Use the plain text format, describing steps to test new functionality
-   - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
-   - Create a hook script that contains ./wekai call with the generated text plan as the request file.
-    - You must use ./wekai call in hook, wekai will be executing plan.txt file
-   - Both the test plan and the hook script should be placed in the ./test_artifacts
-   - For each hook to be used place them under `./test_artifacts/hook_HOOK_NAME/hook.sh and `./test_artifacts/hook_HOOK_NAME/plan.txt`
-   - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point
-If NO:
-    - Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs)
-    - Generate a standalone test plan that will be used instead of running upgrade test
-  or explain why this PR cannot/shouldn't be tested.
-    - Place the test plan in the ./test_artifacts directory with the name test_plan.txt
-<additional_instructions>
-- you must write hook files when applicable, using provided write_multiple_files tool
-- you do not have access to any repository files, you're working only with weka CRs and k8s resources
-- If the PR is only changing documentation, comments, or making cosmetic changes, it doesn't make sense to run the upgrade test at all.
-- Your goal is to determine the most efficient way to test the changes in this PR, if testing is needed at all.
-- you do not have access to repository files, so any file that was added/removed in change description is NOT available to you
-- you do not have access to github tools, the only entry point available for you are described hooks, they run in isolated environment with access to bash,kubectl, but not project files/github
-- generated test plan should not mention your instructions/scenario, it should only contain what needs to be done, omitting general context of why this being done
-- in generated test plan break down each hook handling to separate step, writing required files into target location
-- never rely on project files to validate new functionality, files diff provided only for context of what functionality has changed
-    - only rely on states of system being tested and hooks of this validation framework
-</additional_instructions>
+@dataclasses.dataclass
+class InputFilePaths:
+    docs_dir: str
+    base_instructions: str
+    upgrade_test_description_path: str
+    upgrade_test_hooks_description_path: str
+    upgrade_test_hooks_env_vars_path: str
+    hooks_guidance_path: str
+    pr_description: str
+    pr_diff: str
 
 
+def generate_hooks(input: InputFilePaths):
+    instructions = read_file_or_fail(input.base_instructions)
+    
+    dir_path = Path(input.docs_dir)
+    if not dir_path.is_dir():
+        logger.error(f"Provided docs directory is not valid: {dir_path}, using default")
+        dir_path = DEFAULT_DOCS_DIR_PATH
+
+    logger.info(f"Using docs directory: {dir_path}")
+
+    upgrade_test_description = read_file_or_fail(input.upgrade_test_description_path)
+    upgrade_test_hooks_description = read_file_or_fail(input.upgrade_test_hooks_description_path)
+    upgrade_test_hooks_env_vars = read_file_or_fail(input.upgrade_test_hooks_env_vars_path)
+    hooks_guidance = read_file_or_fail(input.hooks_guidance_path)
+    pr_description = read_file_or_fail(input.pr_description)
+    pr_diff = read_file_or_fail(input.pr_diff)
+
+
+    instructions += f"""
 <environment_description>
 You are running in the middle of execution of another workflow, that workflow has hooks/entry-points to run additional tasks
 
 <parent_workflow>
-Test goal:
-    - validate that cluster can be provisioned and upgraded to newer version
-Test scenario
-    - provision a wekacluster CR, 7 compute and 7 drive containers, 6 drives per container, 3 stripe width, 2 redundancy level, 1 hot spare
-        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
-        - set overrides.upgradeForceReplaceDrives=true on wekacluster CR
-        - set overrides.upgradePausePreCompute=true on wekacluster CR
-    - provision clients
-        - set toleration for all effects of weka.io/upgrade taint, use rawTolerations field which is in the form of a list of k8s toleration objects
-    - provision csi and workload
-    - upgrade cluster
-    - once first drive container was replaced (wekacontainer's status.lastAppliedImage becomes equal to target) - add 1 more computeContainers to the cluster, i.e set higher .spec.dynamicTemplate.computeContainers
-        - validate that new compute pod was created and are running, no need to validate connectivity to weka, even more - it is expected of them not to join weka cluster at this stage
-    - wait for all drives containers to rotate to new version, by watching wekacontainer's status.lastAppliedImage to become equal to target version
-    - wait one minute doing nothing
-    - validate that aside of one new compute containers there is no other compute containers with .spec.image equal to target
-    - check that we remain in drive phase by checking "weka status --json | grep upgrade_phase"
-    - change wekacluster .spec.upgradePausePreCompute to false
-    - wait for compute phase to start, by checking "weka status --json | grep upgrade_phase"
-    - wait for all pre-existing computes to rotate
-    - check for status of new computes, by looking up their in-weka container name (.spec.name of wekacontainer)
-        - lookup this name within weka, by running "weka cluster container | grep <name>"
-        - do not abort regardless of result, just capture what was a result, existing on weka cluster side or not
-    - set taints, upgrade clients
-    - validate that all backend containers (drive, compute) are now running with lastAppliedImage equal to target
-    - validate that all containers can be found in weka cluster and have status UP by running "weka cluster container | grep <name> | grep UP"
-Testing notes:
-- this tests run on physical environment, use 10.200.0.0/16 subnet for testing
-- use weka.io/upgrade taint/toleration to have a mechanism to evict load but not evict wekacluster/wekaclient pods
-- allowed to use tolerations effects: NoSchedule, NoExecute, PreferNoSchedule
-- ensure that user provided newVersion and oldVersion parameters and use them
-Required user parameters to validate and use:
- - nodeSelector, to use for provisioning all resources, no nodes should be touched outside of this nodeselector and no resources should be provisioned that are not using this nodeselector
- - initialVersion, to provision cluster with
- - newVersion, to upgrade wekacluster and wekaclient to this version
- - namespace to use for testing, if namespace is not provided - autogenerate one with test- prefix, even if user provided it might not exist and you should create it
+{upgrade_test_description}
 </parent_workflow>
+
 <hooks>
-Hooks allow you to run custom scripts at predefined points in the upgrade flow.
-This enables additional validations, customizations, or data collection during tests.
-## Available Hook Points
-The following hooks are available for the upgrade-extended test:
-1. **PRE_SETUP_HOOK**
-   - Runs before any setup begins
-   - Example: Validate pre-conditions or prepare test environment
-2. **POST_SETUP_HOOK**
-   - Runs after the environment is set up (cluster, client, CSI, workload)
-   - Example: Verify initial setup or collect baseline metrics
-3. **PRE_UPGRADE_HOOK**
-   - Runs just before starting the upgrade process
-   - Example: Perform additional validation before upgrade or backup data
-4. **POST_DRIVE_UPGRADE_HOOK**
-   - Runs after all drive containers are upgraded
-   - Example: Verify drive health or check cluster status
-5. **PRE_COMPUTE_UPGRADE_HOOK**
-   - Runs before starting compute upgrade phase
-   - Example: Check system readiness before proceeding to compute upgrade
-6. **POST_COMPUTE_UPGRADE_HOOK**
-   - Runs after all compute containers are upgraded
-   - Example: Verify compute health or perform computation tests
-7. **PRE_CLIENT_UPGRADE_HOOK**
-   - Runs before client upgrade begins
-   - Example: Check client status or prepare for client upgrade
-8. **POST_CLIENT_UPGRADE_HOOK**
-   - Runs after client upgrade completes
-   - Example: Verify client functionality or run client tests
-9. **POST_TEST_HOOK**
-   - Runs after the test completes
-   - Example: Collect final metrics or generate reports
-10. **PRE_CLEANUP_HOOK**
-    - Runs before cleanup begins
-    - Example: Save logs or perform custom cleanup operations
+{upgrade_test_hooks_description}
 </hooks>
 
 When plan that you will generate will run it will have following environment variables set, you can rely on them to fetch information
 
 <hooks_environmnent_variables>
-## Environment Variables
-The following environment variables are automatically passed to all hook scripts:
-| Variable | Description |
-|----------|-------------|
-| `CLUSTER_NAME` | Name of the Weka cluster |
-| `CLUSTER_NAMESPACE` | Kubernetes namespace where resources are deployed |
-| `CLIENT_NAME` | Name of the Weka client |
-| `INITIAL_VERSION` | Initial version of the Weka software |
-| `NEW_VERSION` | Target version for the upgrade |
-| `KUBECONFIG` | Path to kubeconfig file |
-| `OPERATOR_VERSION` | Version of the Weka operator |
+{upgrade_test_hooks_env_vars}
 </hooks_environmnent_variables>
 
 <hooks_guidance>
-1. Make scripts executable (`chmod +x your_script.sh`)
-2. Use the shebang line (`#!/bin/bash`)
-3. Set `set -e` to fail on errors
-4. Use the provided environment variables
-5. Return non-zero exit code to fail the test if validation fails
-6. Log clearly what the script is doing
-## Example Hook Script
-
-```bash
-#!/bin/bash
-set -e
-echo "==== Running verification hook ===="
-echo "Cluster name: $CLUSTER_NAME"
-echo "Namespace: $CLUSTER_NAMESPACE"
-# Execute verifications using kubectl
-kubectl get wekacluster $CLUSTER_NAME -n $CLUSTER_NAMESPACE -o json | \
-  jq '.status.phase' | \
-  grep -q "Ready" || exit 1
-# Check for specific conditions
-kubectl get pods -n $CLUSTER_NAMESPACE | grep -q "container-name" || {
-  echo "Error: Expected pod not found"
-  exit 1
-}
-echo "==== Verification completed successfully ===="
-exit 0
-```
+{hooks_guidance}
 
 ## Wekai usage (wekai is a tool that can execute hook plan that you will produce)
 - request-file is the exisintg text plan file (prompt)
@@ -454,21 +346,21 @@ exit 0
 - --param=param_name=param_value, you can rely on this when building a plan, specifying within plan that such global parameter is expected, and adding something like `param=cluster_name=$CLUSTER_NAME --param=namespace=$NAMESPACE` to wekai executino within a hook
 - --docs-dir MUST be preserved in actual use with same value as in following example, preserve it as absolute path(as provided)
 ```
-./wekai --mode bot --docs-dir=%s --request-file plan.txt --plan-file plan.txt.json --param=cluster_name=$CLUSTER_NAME, --param=namespace=$NAMESPACE...
+./wekai --mode bot --docs-dir={dir_path} --request-file plan.txt --plan-file plan.txt.json --param=cluster_name=$CLUSTER_NAME, --param=namespace=$NAMESPACE...
 ```
 </hooks_guidance>
-    """ % DIR_PATH
-
-    instructions += f"""
+</environment_description>
+    
 Following is the full project documentation for the context:
 <documentation>
-{get_directory_contents(DIR_PATH)}
+{get_directory_contents(dir_path)}
 </documentation>
 
 You will be prompted with change description and should follow instructions based on it
 Pay special attention to section marked with "How to test"
 Pay special attention to AITEST markers, as they are explicitly purposed as YOUR instructions
     """
+
     agent = Agent(
         name="hook_generator",
         model="o4-mini",
@@ -483,80 +375,58 @@ Pay special attention to AITEST markers, as they are explicitly purposed as YOUR
         tools = [function_tool(write_multiple_files)],
     )
 
-    input = """
-    A change description to build plan/hooks for: 
-    <change_to_validate>
-    ### TL;DR
-    Added a new GitHub workflow for running tests with AI hooks and fixed the existing build workflow.
-    ### What changed?
-    - Added a new workflow file `.github/workflows/pr_ai_test.yaml` that:
-      - Runs on pull requests
-      - Uses AI to analyze PR changes and determine if they can be tested with hooks
-      - Integrates with a private `wekai` tool to generate test plans
-      - Includes steps to fetch PR information, analyze diffs, and generate appropriate test artifacts
-    - Updated the `.github/workflows/build.yaml` workflow:
-      - Removed unnecessary `permissions` block at the top level
-      - Removed `fetch-depth: 0` from checkout step
-      - Replaced Go module caching with the built-in caching in actions/setup-go@v5
-      - Updated Go setup to use version from go.mod instead of hardcoded version
-    - Added a newline at the end of `aitests/upgrade_test_extended.txt`
-    ### How to test?
-    - Validate each hook to be executed
-    - Validate cluster/clients state as expected to be within that hook state, if relevant
-    - AITEST: MUST generate each hook (hook.sh+plan.txt), DISREGARD the fact that this is github workflow/CI changes. It still can be tested by producing hooks for validating that hooks functionality is working as expected.
-    ### Why make this change?
-    This change improves the CI/CD pipeline by adding AI-powered test generation capabilities. The new workflow can automatically analyze PR changes and determine the appropriate testing strategy, making the testing process more efficient. The updates to the build workflow leverage newer GitHub Actions features and simplify the configuration.
-    ================ END OF PR DESCRIPTION ================
-    ### PR Diff (Summary)
-    This diff was too large to include in full. Here is a summary:
-    **Files changed:** 3 total files
-    **Lines changed:** +370, -18
-    **Changed files (showing first 20):**
-    - .github/workflows/build.yaml
-    - .github/workflows/pr_ai_test.yaml
-    - aitests/upgrade_test_extended.txt
-    **Preview of the beginning of the diff:**
-    ```diff
-    diff --git a/.github/workflows/build.yaml b/.github/workflows/build.yaml
-    index 25e0bcdcd..5007ea04c 100644
-    --- a/.github/workflows/build.yaml
-    +++ b/.github/workflows/build.yaml
-    @@ -2,8 +2,7 @@
-     name: Build
-     on:
-       push:
-    -permissions:
-    -  contents: write
-    +
-     jobs:
-       optimize_ci:
-         runs-on: ubuntu-latest
-    @@ -25,8 +24,6 @@ jobs:
-         steps:
-           - name: Checkout
-             uses: actions/checkout@v3
-    -        with:
-    -          fetch-depth: 0
-           - name: Set up SSH # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
-             uses: webfactory/ssh-agent@v0.9.0
-             with:
-    @@ -39,27 +36,17 @@ jobs:
-               git config --global url."ssh://git@github.com/".insteadOf https://github.com/
-           - name: Install submodules
-             run: git submodule update --init --recursive
-    -      - name: Cache Go modules
-    -        uses: actions/cache@v3
-    -        with:
-    -          path: |
-    -            ~/.cache/go-build
-    -            ~/.local/share/go/pkg/mod
-    -     ...
-    ```
-    </change_to_validate>
-    """
+    change_description = f"""
+A change description to build plan/hooks for: 
+<change_to_validate>
+<change_summary>
+{pr_description}
+</change_summary>
+<change_diff>
+{pr_diff}
+</change_diff>
+</change_to_validate>
+"""
 
-    result = Runner.run_sync(agent, input, hooks=LogHooks())
+    # Save instructions and change description to files for debugging
+    test_artifacts_dir = CURRENT_FILE_ABSOLUTE_PATH.parent.parent / 'test_artifacts'
+    test_artifacts_dir.mkdir(exist_ok=True)
+    
+    debug_instructions_path = test_artifacts_dir / 'debug_instructions.txt'
+    debug_change_description_path = test_artifacts_dir / 'debug_change_description.txt'
+    
+    with open(debug_instructions_path, 'w') as f:
+        f.write(instructions)
+    logger.info(f"Saved debug instructions to {debug_instructions_path}")
+    
+    with open(debug_change_description_path, 'w') as f:
+        f.write(change_description)
+    logger.info(f"Saved debug change description to {debug_change_description_path}")
+
+    # Run the agent with the change description
+    result = Runner.run_sync(agent, change_description, hooks=LogHooks())
     print(result)
 
 if __name__ == '__main__':
-    print(generate_hooks())
+    parser = argparse.ArgumentParser(description="Generate hooks based on input file paths.")
+    parser.add_argument("--docs-dir", required=True, help="Path to the docs directory.")
+    parser.add_argument("--base-instructions-path", required=True, help="Path to the base instructions file.")
+    parser.add_argument("--upgrade-test-description-path", required=True, help="Path to the upgrade test description file.")
+    parser.add_argument("--upgrade-test-hooks-description-path", required=True, help="Path to the upgrade test hooks description file.")
+    parser.add_argument("--upgrade-test-hooks-env-vars-path", required=True, help="Path to the upgrade test hooks environment variables file.")
+    parser.add_argument("--hooks-guidance-path", required=True, help="Path to the hooks guidance file.")
+    parser.add_argument("--pr-description-path", required=True, help="Path to the PR description file.")
+    parser.add_argument("--pr-diff-path", required=True, help="Path to the PR diff file.")
+    args = parser.parse_args()
+
+    input_file_paths = InputFilePaths(
+        docs_dir=args.docs_dir,
+        base_instructions=args.base_instructions_path,
+        upgrade_test_description_path=args.upgrade_test_description_path,
+        upgrade_test_hooks_description_path=args.upgrade_test_hooks_description_path,
+        upgrade_test_hooks_env_vars_path=args.upgrade_test_hooks_env_vars_path,
+        hooks_guidance_path=args.hooks_guidance_path,
+        pr_description=args.pr_description_path,
+        pr_diff=args.pr_diff_path
+    )
+
+    print(generate_hooks(input_file_paths))
