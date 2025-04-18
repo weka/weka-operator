@@ -13,8 +13,8 @@ permissions:
 
 on:
   pull_request:
-    # types:
-    #   - ready_for_review
+    types:
+      - ready_for_review
     # branches:
     #   - main
 
@@ -24,15 +24,11 @@ jobs:
     outputs:
       skip: ${{ steps.check_skip.outputs.skip }}
     steps:
-    # - name: Optimize CI
-    #   id: check_skip
-    #   uses: withgraphite/graphite-ci-action@main
-    #   with:
-    #     graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
-    - name: Skip CI (temporary allow all PRs)
+    - name: Optimize CI
       id: check_skip
-      run: |
-        echo "skip=false" >> $GITHUB_OUTPUT
+      uses: withgraphite/graphite-ci-action@main
+      with:
+        graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
         
   get_pr_info:
     runs-on: ubuntu-latest
@@ -120,7 +116,6 @@ jobs:
       - name: Display PR info
         run: |
           echo "PR Description: ${{ steps.get_pr_description.outputs.description }}"
-          echo "PR Diff: ${{ steps.get_pr_diff.outputs.diff }}"
 
   get_wekai_app:
     runs-on: ubuntu-latest
@@ -165,6 +160,7 @@ jobs:
     outputs:
       test_description: ${{ steps.save_upgrade_test_description.outputs.test_description }}
       test_hooks_description: ${{ steps.save_hooks_description.outputs.hooks_description }}
+      hooks_env_vars: ${{ steps.save_hook_env_vars_description.outputs.hooks_env_vars }}
     steps:
       - name: Check out wekai private repo
         uses: actions/checkout@v4
@@ -175,20 +171,23 @@ jobs:
         id: save_upgrade_test_description
         run: |
           echo "Saving upgrade test description"
-          {
-            printf "test_description<<EOF\n"
-            cat doc/upgrade_extended/test_description.md
-            printf "\nEOF\n"
-          } >> "$GITHUB_OUTPUT"
+          echo "test_description<<EOF" >> $GITHUB_OUTPUT
+          cat doc/upgrade_extended/test_description.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       - name: Save upgrade test hooks description to output
         id: save_hooks_description
         run: |
           echo "Saving upgrade test hooks description"
-          {
-            echo "hooks_description<<EOF"
-            cat doc/upgrade_extended/hooks.md
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "hooks_description<<EOF" >> $GITHUB_OUTPUT
+          cat doc/upgrade_extended/hooks.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Save hook env vars description
+        id: save_hook_env_vars_description
+        run: |
+          echo "Saving hook env vars description"
+          echo "hooks_env_vars<<EOF" >> $GITHUB_OUTPUT
+          cat doc/upgrade_extended/hooks_environmnent_variables.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
   can_test_using_hooks:
     runs-on: ubuntu-latest
@@ -264,97 +263,47 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Generate prompt file for wekai
-        id: generate_if_can_test_with_hooks_prompt
+      - name: Save files for AI prompt
+        id: save_files_for_ai
         run: |
-          echo "Generating prompt for wekai to determine if current changes can be tested using hooks in existing upgrade test."
-          
-          # Generate the full prompt with the appropriate diff section
-          cat << 'EOF' > if_can_test_with_hooks_prompt.txt
-          # Context
-          We have upgrade test that runs on each PR as part of our CI process. 
-          This upgrade test checks both Weka cluster functionality and Kubernetes operator logic. 
-          The test can be time-consuming and resource-intensive.
-          It is the separate go application that works with k8s api to create, manage and get status of our CRs.
-          
-          The upgrade test includes specific hook points that allow for custom tests to be injected during different phases of the test.
-          These hooks provide an opportunity to test PR changes in a realistic environment without having to create a completely new test,
-          but put limitations:
-            - you do not have access to any repository files, you're working only with weka CRs and k8s resources
-            - wekacluster configuration is determined by the upgrade test itself
-          
-          When determining whether to use hooks:
-          - If the PR contains changes to operator logic, core functionality, or components that interact with Weka clusters or Kubernetes, you should try to test these changes using an appropriate hook.
-          - If the PR is only changing documentation, CI/CD configurations, comments, or making cosmetic changes, it doesn't make sense to run the upgrade test at all.
-          - Some changes might require a completely new test plan if they can't be properly tested using the existing hook points.
-          
-          Your goal is to determine the most efficient way to test the changes in this PR, if testing is needed at all.
-
-          # Your Task
-          Given the provided context and the details below, make the decision if you are able to test the changes introduced in the PR using the existing upgrade test hooks
-          (while upgrade test is running) and generate the necessary files for that.
-          IMPORTANT: you SHOULD NOT execute the test plan from generated files, just generate them (if any)!
-          Generated files will be passed to the different workflow.
-          
-          If YES:
-          1. Output "CAN_USE_HOOKS: true" on a separate line
-          2. Explain which hook point you're using and why it's appropriate for testing these changes
-          3. Generate the test-in-the-hook plan text file assuming that you dessribe the steps running in the middle of existing test.
-             - Provide clear instructions of what env variables should be set and what checks should be done.
-             - Use the plain text format, treat it as the prompt for the AI bot that will analyze this file, generate steps for itself and execute them.
-             - test-in-the-hook plan text should not mention anything about the hooks or the fact that it is running in the middle of the existing test.
-             - it should not do checks that are already done (that are mentioned in the upgrade test description).
-          4. Create a hook script that contains ./wekai call with the generated text plan as the request file.
-          4. Both the test plan and the hook script should be placed in the ./test_artifacts directory with the names hook_test_plan.txt and <hook_name>.sh respectively.
-          
-          If NO:
-          1. Output "CAN_USE_HOOKS: false" on a separate line
-          2. Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs)
-          3. Generate a standalone test plan that will be used instead of running upgrade test (you can use upgrade test description as the reference) 
-            or explain why this PR cannot/shouldn't be tested.
-          4. Place the test plan in the ./test_artifacts directory with the name test_plan.txt
-          
-          ## PR Information
-          
-          ### PR Description
-          ================ START OF PR DESCRIPTION ================
-          ${{ needs.get_pr_info.outputs.pr_description }}
-          ================ END OF PR DESCRIPTION ================
-          
-          ${{ steps.generate_diff_section.outputs.diff_section }}
-          
-          ## Upgrade Test Description
-          ```
+          cat aitests/github_actions/pr_ai_test/base_instructions.txt > base_instructions.txt
+          cat aitests/github_actions/pr_ai_test/hooks_guidance.txt > hooks_guidance.txt
+          cat <<'EOF' > upgrade_test_description.txt
           ${{ needs.get_test_hooks_description.outputs.test_description }}
-          ```
-          
-          ## Available Upgrade Test Hooks
-          ```
+          EOF
+          cat <<'EOF' > hooks_description.txt
           ${{ needs.get_test_hooks_description.outputs.test_hooks_description }}
-          ```
-          
-          ## Wekai usage (self-usage)
-          Example of how to generate json plan file from text plan and run the plan using Wekai:
-          - request-file is the exisintg text plan file (prompt)
-          - plan-file is the name of the non-existing json plan file that will be created by Wekai
-          ```
-          ./wekai --mode bot --docs-dir $(pwd)/doc/ --request-file s3_container_delete_validation_cloud.txt --plan-file aitests/s3_container_delete_validation_cloud.txt.json
-          ```
+          EOF
+          cat <<'EOF' > hooks_env_vars.txt
+          ${{ needs.get_test_hooks_description.outputs.hooks_env_vars }}
+          EOF
+          cat <<'EOF' > pr_description.txt
+          ${{ needs.get_pr_info.outputs.pr_description }}
+          EOF
+          cat <<'EOF' > pr_diff.txt
+          ${{ steps.generate_diff_section.outputs.diff_section }}
           EOF
 
-      - name: Display prompt
+      - name: Set up Python and install uv
         run: |
-          echo "Prompt for wekai:"
-          cat if_can_test_with_hooks_prompt.txt
-
-      - name: Run wekai (determine if can test using hooks)
-        id: run_wekai
+          python -m pip install --upgrade pip
+          pip install uv
+          
+      - name: Run generate_hooks scripts (determine if can test using hooks)
+        id: run_generate_hooks
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          echo "Running wekai to determine if current changes can be tested using hooks in existing upgrade test."
-          mkdir -p output
-          ./wekai --mode bot --docs-dir $(pwd)/doc/ --request-file if_can_test_with_hooks_prompt.txt
+          ./script/generate_hooks.py \
+            --docs-dir="$(pwd)/doc/" \
+            --base-instructions-path="base_instructions.txt" \
+            --upgrade-test-description-path="upgrade_test_description.txt" \
+            --upgrade-test-hooks-description-path="hooks_description.txt" \
+            --upgrade-test-hooks-env-vars-path="hooks_env_vars.txt" \
+            --hooks-guidance-path="hooks_guidance.txt" \
+            --pr-description-path="pr_description.txt" \
+            --pr-diff-path="pr_diff.txt"
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
