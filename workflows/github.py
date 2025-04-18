@@ -180,13 +180,8 @@ class GitHubClient:
         endpoint = f"/repos/{self.repo_full_name}/pulls/{pr_number}"
         diff_headers = {"Accept": "application/vnd.github.v3.diff"}
         logger.debug(f"[{pr_number}] Fetching PR diff via GET {endpoint}")
-        try:
-            # Use the raw request helper
-            return self._request_raw("GET", endpoint, headers=diff_headers)
-        except GitHubError as e:
-            # Log the error but return None to indicate failure
-            logger.error(f"Error fetching PR diff for #{pr_number}: {e}")
-            return None
+        # Use the raw request helper
+        return self._request_raw("GET", endpoint, headers=diff_headers)
 
     def get_pr_details(self, pr_number: int) -> Optional[Dict[str, Any]]:
         """
