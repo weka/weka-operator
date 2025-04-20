@@ -463,7 +463,8 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			},
 		})
 
-		if config.Config.LocalDataPvc != "" {
+		if f.container.Spec.PVC != nil {
+			// TODO: Support Path from PVC, this might/will be needed EBS support at cloud, which is optional but preferable over increase of boot volume
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-container-global-persistence-dir",
 				MountPath: globalPersistenceMountPath,
@@ -473,7 +474,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 				Name: "weka-container-global-persistence-dir",
 				VolumeSource: corev1.VolumeSource{
 					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-						ClaimName: config.Config.LocalDataPvc,
+						ClaimName: f.container.Spec.PVC.Name,
 					},
 				},
 			})

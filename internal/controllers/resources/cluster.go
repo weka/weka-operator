@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"strconv"
 	"strings"
 )
@@ -95,4 +96,15 @@ func SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alph
 
 	err := fmt.Errorf("no container with role %s found", role)
 	return nil, err
+}
+
+func GetPvcConfig(spec *wekav1alpha1.WekaClusterSpec) *wekav1alpha1.PVCConfig {
+	pvcConfig := spec.GlobalPVC
+	if pvcConfig == nil && config.Config.LocalDataPvc != "" {
+		pvcConfig = &wekav1alpha1.PVCConfig{
+			Name: config.Config.LocalDataPvc,
+			Path: "",
+		}
+	}
+	return pvcConfig
 }

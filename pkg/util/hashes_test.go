@@ -139,3 +139,95 @@ func TestHashableMapEquals(t *testing.T) {
 		})
 	}
 }
+
+func TestHashStructWithPointers(t *testing.T) {
+	// Define a nested struct type
+	type InnerStruct struct {
+		Value string
+		Count int
+	}
+
+	// Define a struct with a pointer to another struct
+	type OuterStruct struct {
+		Name  string
+		Inner *InnerStruct
+	}
+
+	// Create test instances
+	inner1 := &InnerStruct{Value: "test", Count: 42}
+	inner2 := &InnerStruct{Value: "test", Count: 42}
+
+	tests := []struct {
+		name          string
+		input1        any
+		input2        any
+		shouldBeEqual bool
+	}{
+		{
+			name: "Same struct with same pointer values",
+			input1: OuterStruct{
+				Name:  "TestObject",
+				Inner: inner1,
+			},
+			input2: OuterStruct{
+				Name:  "TestObject",
+				Inner: &InnerStruct{Value: "test", Count: 42},
+			},
+			shouldBeEqual: true,
+		},
+		{
+			name: "Same struct with different pointer but equal data",
+			input1: OuterStruct{
+				Name:  "TestObject",
+				Inner: inner1,
+			},
+			input2: OuterStruct{
+				Name:  "TestObject",
+				Inner: inner2,
+			},
+			shouldBeEqual: true,
+		},
+		{
+			name: "One struct with nil pointer",
+			input1: OuterStruct{
+				Name:  "TestObject",
+				Inner: nil,
+			},
+			input2: OuterStruct{
+				Name:  "TestObject",
+				Inner: inner1,
+			},
+			shouldBeEqual: false,
+		},
+		{
+			name: "Different pointer values",
+			input1: OuterStruct{
+				Name:  "TestObject",
+				Inner: &InnerStruct{Value: "test", Count: 42},
+			},
+			input2: OuterStruct{
+				Name:  "TestObject",
+				Inner: &InnerStruct{Value: "different", Count: 100},
+			},
+			shouldBeEqual: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hash1, err1 := HashStruct(tt.input1)
+			hash2, err2 := HashStruct(tt.input2)
+
+			assertNoError(t, err1, "Unexpected error for input1 in "+tt.name)
+			assertNoError(t, err2, "Unexpected error for input2 in "+tt.name)
+
+			areEqual := hash1 == hash2
+			assertEqual(t, areEqual, tt.shouldBeEqual, "Hash equality mismatch for "+tt.name)
+
+			if tt.shouldBeEqual {
+				assertNotEmpty(t, hash1, "Hash should not be empty for "+tt.name)
+				assertNotEmpty(t, hash2, "Hash should not be empty for "+tt.name)
+			}
+		})
+	}
+}

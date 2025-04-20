@@ -1814,7 +1814,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 	}
 
 	var persistencePath string
-	if config.Config.LocalDataPvc == "" {
+	if r.container.Spec.PVC == nil {
 
 		if r.node != nil && NodeIsUnschedulable(r.node) {
 			err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")

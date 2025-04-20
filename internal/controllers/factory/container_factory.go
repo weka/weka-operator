@@ -136,6 +136,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			NodeSelector:          nodeSelector,
 			FailureDomain:         cluster.Spec.FailureDomain,
 			DriversLoaderImage:    cluster.Spec.GetOverrides().DriversLoaderImage,
+			PVC:                   resources.GetPvcConfig(&cluster.Spec),
 		},
 	}
 

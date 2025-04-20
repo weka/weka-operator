@@ -36,13 +36,13 @@ type CleanupPersistentDirOperation struct {
 	image                string
 	pullSecret           string
 	job                  *v1.Job // internal field
-	ownerRef             client.Object
+	container            *v1alpha1.WekaContainer
 	mgr                  ctrl.Manager
 	tolerations          []corev1.Toleration
 	originalNodeSelector map[string]string
 }
 
-func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, originalNodeSelector map[string]string) *CleanupPersistentDirOperation {
+func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersistentDirPayload, container *v1alpha1.WekaContainer, ownerDetails v1alpha1.WekaContainerDetails, originalNodeSelector map[string]string) *CleanupPersistentDirOperation {
 	return &CleanupPersistentDirOperation{
 		mgr:                  mgr,
 		client:               mgr.GetClient(),
@@ -52,7 +52,7 @@ func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersiste
 		image:                ownerDetails.Image,
 		pullSecret:           ownerDetails.ImagePullSecret,
 		tolerations:          ownerDetails.Tolerations,
-		ownerRef:             ownerRef,
+		container:            container,
 		originalNodeSelector: originalNodeSelector,
 	}
 }
@@ -99,11 +99,14 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	containerId := o.payload.ContainerId
 
 	nodeSelector := o.originalNodeSelector
-	if config.Config.LocalDataPvc != "" {
+	if o.container.Spec.PVC != nil {
 		if len(nodeSelector) == 0 {
 			nodeSelector = map[string]string{}
 		}
 	} else {
+		if config.Config.LocalDataPvc != "" {
+			return errors.New("race, container was not updated for on-container-spec pvc") // TODO: Remove after migrations
+		}
 		nodeSelector = map[string]string{
 			"kubernetes.io/hostname": string(o.payload.NodeName),
 		}
@@ -115,11 +118,14 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 
 	containerDataPath := fmt.Sprintf("%s/%s", persistencePath, containerId)
 	var mountPath, subPath string
-	if config.Config.LocalDataPvc != "" {
+	if o.container.Spec.PVC != nil {
 		// If PVC is specified, mount at /opt/k8s-weka/containers and clean specific container dir under it
 		mountPath = persistencePath
 		subPath = "containers"
 	} else {
+		if config.Config.LocalDataPvc != "" {
+			return errors.New("race, container was not updated for on-container-spec pvc") // TODO: Remove after migrations
+		}
 		// Otherwise use the container-specific path for both mounting and cleanup
 		mountPath = containerDataPath
 	}
@@ -133,13 +139,13 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	}
 	volumes := []corev1.Volume{}
 
-	if config.Config.LocalDataPvc != "" {
+	if o.container.Spec.PVC != nil {
 		// If PVC is specified, mount it at /opt/k8s-weka
 		volumes = append(volumes, corev1.Volume{
 			Name: "weka-container-data",
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: config.Config.LocalDataPvc,
+					ClaimName: o.container.Spec.PVC.Name,
 				},
 			},
 		})
@@ -160,7 +166,7 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: namespace,
-			Labels:    o.ownerRef.GetLabels(),
+			Labels:    o.container.GetLabels(),
 		},
 		Spec: v1.JobSpec{
 			TTLSecondsAfterFinished: &ttl,
@@ -262,7 +268,7 @@ func (o *CleanupPersistentDirOperation) HasNoJob() bool {
 
 func (o *CleanupPersistentDirOperation) getRmCommand(containerDataPath string) string {
 	var rmSuffix string
-	if config.Config.LocalDataPvc == "" {
+	if o.container.Spec.PVC == nil {
 		rmSuffix = "/*" // remove only the content of the directory
 	} else {
 		rmSuffix = "" // remove the entire directory

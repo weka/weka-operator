@@ -544,6 +544,14 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		if container.Status.LastAppliedSpec == specHash {
 			return nil
 		}
+		err := r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+
 		logger.Info("Cluster<>Container spec has changed, updating containers")
 		patch := client.MergeFrom(container.DeepCopy())
 
@@ -570,6 +578,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			currentOverrides := container.Spec.GetOverrides()
 			currentOverrides.UpgradeForceReplace = updatableSpec.UpgradeForceReplace
 			container.Spec.Overrides = currentOverrides
+		}
+
+		if container.Spec.PVC == nil && updatableSpec.PvcConfig != nil {
+			container.Spec.PVC = updatableSpec.PvcConfig
 		}
 
 		if container.IsDriveContainer() {
@@ -642,6 +654,13 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		err = r.getClient().Patch(ctx, container, patch)
 		if err != nil {
+			return err
+		}
+		err = r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
 			return err
 		}
 		container.Status.LastAppliedSpec = specHash
@@ -2295,22 +2314,24 @@ type UpdatableClusterSpec struct {
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
 	NetworkSelector           wekav1alpha1.NetworkSelector
+	PvcConfig                 *wekav1alpha1.PVCConfig
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
-	labels := util2.NewHashableMap(meta.Labels)
-	nodeSelector := util2.NewHashableMap(spec.NodeSelector)
-
+	//todo: this potentially should be in a different place. but do we care in any other place other then containers? not clear yet.
+	//and this will ensure containers
+	//but will it really? as we will create without pvc and then update pvc, which will suck
 	return &UpdatableClusterSpec{
 		AdditionalMemory:          spec.AdditionalMemory,
 		Tolerations:               spec.Tolerations,
 		RawTolerations:            spec.RawTolerations,
 		DriversDistService:        spec.DriversDistService,
 		ImagePullSecret:           spec.ImagePullSecret,
-		Labels:                    labels,
-		NodeSelector:              nodeSelector,
+		Labels:                    util2.NewHashableMap(meta.Labels),
+		NodeSelector:              util2.NewHashableMap(spec.NodeSelector),
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
+		PvcConfig:                 resources.GetPvcConfig(spec),
 	}
 }
