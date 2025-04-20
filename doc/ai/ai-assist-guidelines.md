@@ -35,3 +35,6 @@ This document provides guidance for AI assistants when helping users with the We
 - Be eager to retry and rebuild step requests if they fail before fully failing test execution
 - When testing with `gracefulDestroyDuration` not set to 0s, do not use blocking kubectl delete as it will take hours to finish
 - Avoid long polling periods (e.g., 10 minutes); instead, use shorter polling intervals (e.g., 1 minute) for more dynamic error handling
+
+# Common 
+- imagePullSecret when needed - use `quay-io-robot-secret` as default, this is rarely changed

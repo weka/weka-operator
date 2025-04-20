@@ -1,0 +1,7 @@
+- Install operator using version v1.5.0, create pvc `weka-global-pvc2` use already existing `weka-nfs-sc2` storage class for it, size 3 TiB, install in weka-operator-system namespace
+- pvc should use ReadWriteMany, in weka-operator-system namespace
+- ensure policy for drive signing of all not mounted, create policy if does not exist
+- ensure driver distribution service, create it if does not exist
+- deploy weka cluster, 7 drive containers, 1 drive, 7 compute, hotSpare 1 in weka-operator-system namespace, name it weka-over-weka
+- use 4.4.5.118-k8s.4 weka version
+- wait for ready
