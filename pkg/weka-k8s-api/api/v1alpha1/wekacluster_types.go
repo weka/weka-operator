@@ -285,6 +285,7 @@ type WekaClusterSpec struct {
 	GracefulDestroyDuration metav1.Duration           `json:"gracefulDestroyDuration,omitempty"`
 	Overrides               *WekaClusterSpecOverrides `json:"overrides,omitempty"`
 	CsiConfig               CsiConfig                 `json:"csiConfig,omitempty"`
+	GlobalPVC               *PVCConfig                `json:"globalPVC,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
@@ -301,6 +302,11 @@ func (c *WekaClusterSpec) GetStartIoConditions() *StartIoConditions {
 	} else {
 		return c.StartIoConditions
 	}
+}
+
+type PVCConfig struct {
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
 }
 
 type WekaClusterSpecOverrides struct {
