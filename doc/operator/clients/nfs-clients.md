@@ -12,5 +12,5 @@ csiDriverName: nfs-csi.weka.io
 logLevel: 6
 ```
 
-Such CSI should be instlaled with release-name "weka-nfs" and namespace "weka-nfs", appropriate storage class usually named `weka-nfs-sc`
+Such CSI should be installed with release-name "weka-nfs" and namespace "weka-nfs", appropriate storage class usually named `weka-nfs-sc`
 storage class SHOULD NOT have `mountOptions: forcedirect`

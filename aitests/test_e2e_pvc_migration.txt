@@ -1,0 +1,31 @@
+- this test operates two weka clusters within same k8s cluster
+- one cluster will be providing NFS connectivity, the other will be using it
+- nfs backend should be in "nfs-backend" namespace, and nfs client should be in "nfs-client" namespace
+- this is normal for this test to reuse same nodes for two clusters, no nodeSelectors are needed as k8s cluster is dedicated for this purpose
+- however, weka client wise we cannot use same nodes for nfs container and weka client, therefore:
+    - find if there are already nodes with weka.io/dedicated=nfs-test-backend label, if not select one node without weka.io/dedicated label and mark as such
+        - ssh with user root@ into the selected node and install nfs-common and rpcbind, this is ubuntu22 machines, make sure to put all the flags for silent installation
+    - find if there are already nodes with weka.io/dedicated=nfs-test-client label, if not select one node and mark as such
+    - for wekaclient use weka.io/dedicated=nfs-test-client label
+    - for nfs backend, send roleNodeSelector.nfs=weka.io/dedicated=nfs-test-backend on the cluster spec
+- ensure policy for drive signing of all not mounted, create policy if does not exist
+- ensure driver distribution service, create it if does not exist
+- provision nfs backend wekacluster, 5 nodes, just 1 nfsContainer, 1 drive, 5 compute/5 drive containers, 0 hot spares
+  - wait for cluster to be ready
+  - ensure CSI secret for this cluster has NFS IPS in it
+- install CSI for NFS, using secret of the cluster above. use `nfs-csi-internal.weka.io` as driver name, and `weka-nfs-sc-internal` as storage class name
+- find nodes that run controllers label (app: weka-nfs-controller) where weka-nfs is a release name, and install nfs-common and rpcbind on them
+- provision nfs storage class
+- create 3TiB pvc using this storage class, in nfs-client namespace, wait for PVC to be bound
+- provision second cluster, 7 compute, 7 drive containers, 1 drive, 1 hotspare
+    - on this cluster, use previously created PVC as globalPVC
+- wait for cluster to become ready
+- provision wekaclient, using previously created PVC as globalPVC
+- remove globalPVC from the second cluster (patch)
+- remove globalPVC from the client (patch)
+- patch all wekacontainers that belong to second cluster with override migrateOutFromPvc, also patch all containers that belong to client
+- delete all pods that belong to second cluster and client, deletion will take time as it will be rolling by default, despite marking all
+    - use --wait=false flag and continue without confirming deletion
+- wait for all containers that belong to second cluster to have their pvc field set to nil. once pod is deleted migration procedure will start before re-creating the pod and will mark pvc as nil once completed
+- both clusters and client should use 10.200.0.0/16 subnet
+- both clusters should use 4.4.5.118-k8s.4 weka version

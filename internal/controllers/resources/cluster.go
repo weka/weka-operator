@@ -110,5 +110,5 @@ func GetPvcConfig(specPvcConfig *wekav1alpha1.PVCConfig) *wekav1alpha1.PVCConfig
 			Path: "",
 		}
 	}
-	return pvcConfig
+	return nil
 }

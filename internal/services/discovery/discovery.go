@@ -182,6 +182,9 @@ func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, 
 }
 
 func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContainer) []string {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterNfsTargetIps")
+	defer end()
+
 	var nfsTargetIps []string
 	for _, container := range containers {
 		if container.IsNfsContainer() {
@@ -191,6 +194,7 @@ func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContaine
 			}
 		}
 	}
+	logger.SetValues("numNfsTargets", len(nfsTargetIps), "numContainers", len(containers))
 	return nfsTargetIps
 }
 
