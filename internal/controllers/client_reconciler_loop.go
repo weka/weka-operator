@@ -329,6 +329,13 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 
 	labels := factory.BuildClientContainerLabels(wekaClient)
 
+	secretName := wekaClient.Spec.WekaSecretRef
+	if wekaClient.Spec.WekaSecretRef == "" && wekaClient.Spec.TargetCluster.Name != "" {
+		// if the user didn't set a secret ref, we need to set it to the target cluster's secret ref
+		// this is needed for the client to be able to connect to the target cluster
+		secretName = weka.GetClientSecretName(wekaClient.Spec.TargetCluster.Name)
+	}
+
 	container := &weka.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -355,7 +362,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Hugepages:           c.getClientHugePages(),
 			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",
-			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: wekaClient.Spec.WekaSecretRef}},
+			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretName}},
 			DriversDistService:  wekaClient.Spec.DriversDistService,
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
