@@ -38,4 +38,5 @@ const (
 	CondContainerAffinitySet         = "ContainerAffinitySet"
 	CondContainerImageUpdated        = "ContainerImageUpdated"
 	CondClusterReady                 = "ClusterIsReady"
+	CondContainerMigratedOutFromPVC  = "MigratedOutFromPVC"
 )
