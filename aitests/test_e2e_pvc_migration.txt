@@ -1,6 +1,6 @@
 - this test operates two weka clusters within same k8s cluster
 - one cluster will be providing NFS connectivity, the other will be using it
-- nfs backend should be in "nfs-backend" namespace, and nfs client should be in "nfs-client" namespace
+- nfs backend should be in "nfs-backend" namespace, and nfs client should be in "weka-operator-system" namespace
 - this is normal for this test to reuse same nodes for two clusters, no nodeSelectors are needed as k8s cluster is dedicated for this purpose
 - however, weka client wise we cannot use same nodes for nfs container and weka client, therefore:
     - find if there are already nodes with weka.io/dedicated=nfs-test-backend label, if not select one node without weka.io/dedicated label and mark as such
@@ -16,7 +16,7 @@
 - install CSI for NFS, using secret of the cluster above. use `nfs-csi-internal.weka.io` as driver name, and `weka-nfs-sc-internal` as storage class name
 - find nodes that run controllers label (app: weka-nfs-controller) where weka-nfs is a release name, and install nfs-common and rpcbind on them
 - provision nfs storage class
-- create 3TiB pvc using this storage class, in nfs-client namespace, wait for PVC to be bound
+- create 3TiB pvc using this storage class, in weka-operator-system namespace, wait for PVC to be bound
 - provision second cluster, 7 compute, 7 drive containers, 1 drive, 1 hotspare
     - on this cluster, use previously created PVC as globalPVC
 - wait for cluster to become ready

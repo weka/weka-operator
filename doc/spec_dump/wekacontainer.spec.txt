@@ -190,6 +190,7 @@ FIELDS:
       debugSleepOnTerminate	<integer>
       forceDrain	<boolean>
       machineIdentifierNodeRef	<string>
+      migrateOutFromPvc	<boolean>
       podDeleteForceReplace	<boolean>
       preRunScript	<string>
       skipActiveMountsCheck	<boolean>

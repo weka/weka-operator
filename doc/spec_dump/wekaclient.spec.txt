@@ -49,6 +49,9 @@ FIELDS:
     cpuRequest	<string>
     driversDistService	<string>
     driversLoaderImage	<string>
+    globalPVC	<Object>
+      name	<string> -required-
+      path	<string>
     hugepages	<integer>
     hugepagesOffset	<integer>
     image	<string> -required-

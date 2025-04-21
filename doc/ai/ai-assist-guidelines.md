@@ -21,6 +21,7 @@ This document provides guidance for AI assistants when helping users with the We
 - Make sure to preserve all field on WekaCluster and WekaClient as in example, adding optional as needed AIMUST
 - Pay attention that WekaCluster uses apiVersion: `weka.weka.io/v1alpha1`
 - When the image parameter doesn't specify a repository, use `quay.io/weka.io/weka-in-container:`
+- Names should be generated in step separate from provisioning this names, to allow for retries without regenerating names and creating duplicate resourecs
 
 ## Command Execution
 - Weka CLI commands to get cluster status should be executed within compute or drive containers
