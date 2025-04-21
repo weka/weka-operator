@@ -168,6 +168,8 @@ type WekaContainerSpecOverrides struct {
 	UmountOnHost bool `json:"umountOnHost,omitempty"`
 	// DebugSleepOnTerminate specifies the number of seconds to sleep on container abnormal exit for debugging purposes
 	DebugSleepOnTerminate int `json:"debugSleepOnTerminate,omitempty"`
+	// MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod
+	MigrateOutFromPvc bool `json:"migrateOutFromPvc,omitempty"`
 }
 
 type Instructions struct {
