@@ -580,6 +580,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.Overrides = currentOverrides
 		}
 
+		// Propagate PVC config only if the container doesn't have one set yet
 		if container.Spec.PVC == nil && updatableSpec.PvcConfig != nil {
 			container.Spec.PVC = updatableSpec.PvcConfig
 		}
@@ -2329,6 +2330,6 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
-		PvcConfig:                 resources.GetPvcConfig(spec),
+		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 	}
 }

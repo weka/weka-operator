@@ -98,10 +98,14 @@ func SelectActiveContainerWithRole(ctx context.Context, containers []*wekav1alph
 	return nil, err
 }
 
-func GetPvcConfig(spec *wekav1alpha1.WekaClusterSpec) *wekav1alpha1.PVCConfig {
-	pvcConfig := spec.GlobalPVC
-	if pvcConfig == nil && config.Config.LocalDataPvc != "" {
-		pvcConfig = &wekav1alpha1.PVCConfig{
+// GetPvcConfig determines the PVC configuration to use based on the provided spec-level config and the global default.
+// It returns nil if neither is specified.
+func GetPvcConfig(specPvcConfig *wekav1alpha1.PVCConfig) *wekav1alpha1.PVCConfig {
+	if specPvcConfig != nil {
+		return specPvcConfig
+	}
+	if config.Config.LocalDataPvc != "" {
+		return &wekav1alpha1.PVCConfig{
 			Name: config.Config.LocalDataPvc,
 			Path: "",
 		}

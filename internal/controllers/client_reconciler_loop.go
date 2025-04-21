@@ -373,6 +373,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			},
 			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
 			Resources:         wekaClient.Spec.Resources,
+			PVC:               resources.GetPvcConfig(wekaClient.Spec.GlobalPVC),
 		},
 	}
 	return container, nil
@@ -566,6 +567,12 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
 	if !reflect.DeepEqual(oldTolerations, newTolerations) {
 		container.Spec.Tolerations = newTolerations
+		changed = true
+	}
+
+	// Propagate PVC config only if the container doesn't have one set yet
+	if container.Spec.PVC == nil && newClientSpec.PvcConfig != nil {
+		container.Spec.PVC = newClientSpec.PvcConfig
 		changed = true
 	}
 
@@ -798,6 +805,7 @@ type UpdatableClientSpec struct {
 	ForceDrain            bool
 	SkipActiveMountsCheck bool
 	UmountOnHost          bool
+	PvcConfig             *weka.PVCConfig
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -823,5 +831,6 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		ForceDrain:            spec.GetOverrides().ForceDrain,
 		SkipActiveMountsCheck: spec.GetOverrides().SkipActiveMountsCheck,
 		UmountOnHost:          spec.GetOverrides().UmountOnHost,
+		PvcConfig:             resources.GetPvcConfig(spec.GlobalPVC),
 	}
 }
