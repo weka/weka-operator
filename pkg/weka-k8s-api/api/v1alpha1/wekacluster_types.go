@@ -424,8 +424,16 @@ func (c *WekaCluster) GetClientSecretName() string {
 	return "weka-client-" + name
 }
 
+func GetClientSecretName(clusterName string) string {
+	return "weka-client-" + clusterName
+}
+
+func GetCsiSecretName(clusterName string) string {
+	return "weka-csi-" + clusterName
+}
+
 func (c *WekaCluster) GetCSISecretName() string {
-	return "weka-csi-" + c.Name
+	return GetCsiSecretName(c.Name)
 }
 
 func (status *WekaClusterStatus) InitStatus() {
