@@ -75,6 +75,9 @@ FIELDS:
       compositeLabels	<[]string>
       label	<string>
       skew	<integer>
+    globalPVC	<Object>
+      name	<string> -required-
+      path	<string>
     gracefulDestroyDuration	<string>
     hotSpare	<integer>
     image	<string> -required-
@@ -714,6 +717,7 @@ FIELDS:
       computeContainers	<string>
       driveContainers	<string>
       drives	<string>
+      filesystemCapacity	<string>
       iops	<string>
       throughput	<string>
     spanId	<string>
@@ -774,6 +778,17 @@ FIELDS:
         failures	<[]Object>
           serialId	<string>
           wekaDriveId	<string>
+      filesystem	<Object>
+        activeObsBucketCount	<integer>
+        hasTieredFilesystems	<boolean>
+        obsBucketCount	<integer>
+        totalAvailableCapacity	<integer>
+        totalAvailableSSDCapacity	<integer>
+        totalObsCapacity	<integer>
+        totalProvisionedCapacity	<integer>
+        totalProvisionedSSDCapacity	<integer>
+        totalUsedCapacity	<integer>
+        totalUsedSSDCapacity	<integer>
       ioStats	<Object>
         iops	<Object>
           metadata	<integer> -required-

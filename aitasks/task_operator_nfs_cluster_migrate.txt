@@ -1,0 +1,5 @@
+- create pvc `weka-global-pvc` use already existing `weka-nfs-sc storage class for it, size 3 TiB, install in weka-operator-system namespace
+- deploy weka cluster, 7 drive containers, 1 drive, 7 compute, hotSpare 1 in weka-operator-system namespace, name it weka-over-weka
+    - cluster spec should have use this pvc as globalPVC
+- use 4.4.5.118-k8s.4 weka version
+- wait for ready

@@ -203,6 +203,9 @@ FIELDS:
     portRange	<Object>
       basePort	<integer> -required-
       portRange	<integer>
+    pvc	<Object>
+      name	<string> -required-
+      path	<string>
     resources	<Object>
       limits	<Object>
         cpu	<Object>
@@ -275,15 +278,18 @@ FIELDS:
       enum: True, False, Unknown
       type	<string> -required-
     containerID	<integer>
+    internalStatus	<string>
     lastAppliedImage	<string>
     lastAppliedSpec	<string>
     managementIP	<string>
     managementIPs	<[]string>
     nodeAffinity	<string>
+    notToleratedOnReschedule	<boolean>
     printer	<Object>
       activeMounts	<string>
       drives	<string>
       managementIPs	<string>
+      nodeAffinity	<string>
       processes	<string>
     result	<string>
     stats	<Object>

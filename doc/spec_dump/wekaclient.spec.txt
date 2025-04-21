@@ -119,4 +119,5 @@ FIELDS:
         created	<integer>
         desired	<integer>
     status	<string>
+    enum: Init, Running, Upgrading, Destroying
 
