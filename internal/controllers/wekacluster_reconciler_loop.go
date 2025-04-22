@@ -2318,9 +2318,6 @@ type UpdatableClusterSpec struct {
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
-	//todo: this potentially should be in a different place. but do we care in any other place other then containers? not clear yet.
-	//and this will ensure containers
-	//but will it really? as we will create without pvc and then update pvc, which will suck
 	return &UpdatableClusterSpec{
 		AdditionalMemory:          spec.AdditionalMemory,
 		Tolerations:               spec.Tolerations,
