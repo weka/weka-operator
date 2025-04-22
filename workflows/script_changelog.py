@@ -142,22 +142,22 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     # If type is valid, proceed with creating CommitInfo and finding PR
     commit_info = CommitInfo(sha=commit, subject=subject, ctype=ctype)
 
-    # Find PR by matching title with commit subject
+    # Find PR by matching title with commit subject (using PullRequestData)
     matched_pr = None
     for pr in recent_prs:
-        if pr.get("title") == subject:
+        if pr.title == subject:
             matched_pr = pr
             break
 
     if matched_pr:
-        # pr_url = matched_pr["url"] # URL is less commonly needed now
-        pr_number = matched_pr["number"]
-        # Fetch body using client if needed, but it's often in the fetched PR list already
-        pr_body = matched_pr.get("body", "") or ""  # Use .get with fallback
+        pr_number = matched_pr.number
+        # Body is directly accessible from the dataclass
+        pr_body = matched_pr.body or "" # Use attribute access, fallback for None
 
-        # commit_info.pr_url = pr_url # Store number instead of API URL
         commit_info.pr_body = pr_body
         commit_info.pr_number = pr_number
+        # Optionally store html_url if needed for links later
+        # commit_info.pr_html_url = matched_pr.html_url
         rn_tag = extract_release_notes_tag(pr_body)
 
         if rn_tag is not None:
@@ -405,10 +405,10 @@ def validate_commits_against_prs(commits, recent_prs, continue_on_missing=False)
             continue  # Skip commits of unrecognized types
 
         subject = message.splitlines()[0]
-        # Find matching PR
+        # Find matching PR (using PullRequestData)
         matched = False
         for pr in recent_prs:
-            if pr.get("title") == subject:
+            if pr.title == subject:
                 matched = True
                 break
 
