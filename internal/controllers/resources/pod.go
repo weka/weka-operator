@@ -246,6 +246,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: f.getHugePagesDetails().WekaMemoryString,
 						},
 						{
+							Name:  "IS_IPV6",
+							Value: strconv.FormatBool(f.container.Spec.Ipv6),
+						},
+						{
 							Name:  "NETWORK_DEVICE",
 							Value: netDevice,
 						},
