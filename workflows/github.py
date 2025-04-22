@@ -5,6 +5,7 @@ import json
 import math
 import sys
 from typing import Optional, List, Dict, Any
+from dataclasses import dataclass
 
 # Set up logging for this module
 logger = logging.getLogger(__name__)
@@ -19,6 +20,18 @@ if not logger.hasHandlers():
 
 
 GITHUB_API_URL = "https://api.github.com"
+
+
+@dataclass
+class PullRequestData:
+    """Represents essential data for a GitHub Pull Request."""
+    number: int
+    title: str
+    body: Optional[str]
+    state: str
+    html_url: str
+    # url: str # API URL, less commonly needed directly by callers
+
 
 class GitHubError(Exception):
     """Custom exception for GitHub API errors."""
@@ -124,7 +137,7 @@ class GitHubClient:
             raise GitHubError(f"GitHub API raw request failed for {method} {url}: {e}") from e
 
 
-    def fetch_recent_closed_prs(self, count: int) -> List[Dict[str, Any]]:
+    def fetch_recent_closed_prs(self, count: int) -> List[PullRequestData]:
         """
         Fetch the specified number of most recently updated closed PRs.
 
@@ -132,13 +145,13 @@ class GitHubClient:
             count: The maximum number of PRs to fetch.
 
         Returns:
-            A list of PR data dictionaries.
+            A list of PullRequestData objects.
 
         Raises:
             GitHubError: If the API request fails during pagination.
         """
         logger.info(f"Fetching up to {count} recent closed PRs for {self.repo_full_name}...")
-        prs = []
+        prs: List[PullRequestData] = []
         per_page = 100 # Max allowed by GitHub
         pages = math.ceil(count / per_page)
         remaining = count
@@ -152,9 +165,21 @@ class GitHubClient:
                 if page_prs is None or not page_prs: # Stop if GitHub returns an empty list or None
                     logger.debug(f"No more PRs found on page {page}.")
                     break
-                prs.extend(page_prs)
-                remaining -= len(page_prs)
-                logger.debug(f"Fetched {len(page_prs)} PRs from page {page}. {remaining} remaining to fetch.")
+                # Convert dicts to PullRequestData objects
+                prs.extend([
+                    PullRequestData(
+                        number=pr_dict.get("number"),
+                        title=pr_dict.get("title", ""),
+                        body=pr_dict.get("body"), # Can be None
+                        state=pr_dict.get("state", ""),
+                        html_url=pr_dict.get("html_url", "")
+                        # url=pr_dict.get("url", "")
+                    )
+                    for pr_dict in page_prs if pr_dict.get("number") is not None # Ensure number exists
+                ])
+                fetched_count = len(page_prs) # Count how many were actually returned by API
+                remaining -= fetched_count
+                logger.debug(f"Fetched {fetched_count} PRs from page {page}. {remaining} remaining to fetch.")
                 if remaining <= 0:
                     break
             except GitHubError as e:
@@ -164,7 +189,7 @@ class GitHubClient:
         logger.info(f"Fetched a total of {len(prs)} PRs.")
         # Optional: Debug log fetched PR titles
         # for pr in prs:
-        #     logger.debug(f"  - PR #{pr.get('number')}: {pr.get('title', 'N/A')}")
+        #     logger.debug(f"  - PR #{pr.number}: {pr.title}")
         return prs
 
     def get_pr_diff(self, pr_number: int) -> Optional[str]:
@@ -183,7 +208,7 @@ class GitHubClient:
         # Use the raw request helper
         return self._request_raw("GET", endpoint, headers=diff_headers)
 
-    def get_pr_details(self, pr_number: int) -> Optional[Dict[str, Any]]:
+    def get_pr_details(self, pr_number: int) -> Optional[PullRequestData]:
         """
         Fetches full details for a specific PR.
 
@@ -191,14 +216,24 @@ class GitHubClient:
             pr_number: The number of the pull request.
 
         Returns:
-            A dictionary containing the PR details, or None if fetching fails.
+            A PullRequestData object containing the PR details, or None if fetching fails.
         """
         endpoint = f"/repos/{self.repo_full_name}/pulls/{pr_number}"
         logger.debug(f"[{pr_number}] Fetching PR details via GET {endpoint}")
         try:
-            return self._request("GET", endpoint)
+            pr_dict = self._request("GET", endpoint)
+            if pr_dict and pr_dict.get("number") is not None:
+                 return PullRequestData(
+                        number=pr_dict.get("number"),
+                        title=pr_dict.get("title", ""),
+                        body=pr_dict.get("body"), # Can be None
+                        state=pr_dict.get("state", ""),
+                        html_url=pr_dict.get("html_url", "")
+                        # url=pr_dict.get("url", "")
+                    )
+            return None # Return None if request failed or essential data missing
         except GitHubError as e:
-            # Log the error but return None to match autokitteh's expected error handling
+            # Log the error but return None as per previous behavior
             logger.error(f"Error fetching PR details for #{pr_number}: {e}")
             return None
 
@@ -215,10 +250,10 @@ class GitHubClient:
         logger.debug(f"[{pr_number}] Fetching PR body.")
         details = self.get_pr_details(pr_number)
         if details:
-            return details.get("body", "") # Return empty string if body key is missing but details exist
+            return details.body # Return body (can be None) or empty string if needed by caller
         return None # Return None if get_pr_details failed
 
-    def update_pr_body(self, pr_number: int, new_body: str) -> Optional[Dict[str, Any]]:
+    def update_pr_body(self, pr_number: int, new_body: str) -> Optional[PullRequestData]:
         """
         Updates the PR body using the GitHub API.
 
@@ -227,7 +262,7 @@ class GitHubClient:
             new_body: The new content for the PR body.
 
         Returns:
-            The JSON response from the API upon success, or None.
+            A PullRequestData object representing the updated PR, or None if update fails.
 
         Raises:
             GitHubError: If the API request fails.
@@ -237,9 +272,18 @@ class GitHubClient:
         logger.info(f"[{pr_number}] Updating PR body via PATCH {endpoint}")
         try:
             # Use a slightly shorter timeout for PATCH as it might hang otherwise?
-            result = self._request("PATCH", endpoint, data=payload, timeout=15)
+            pr_dict = self._request("PATCH", endpoint, data=payload, timeout=15)
             logger.info(f"Successfully updated PR #{pr_number}")
-            return result
+            if pr_dict and pr_dict.get("number") is not None:
+                 return PullRequestData(
+                        number=pr_dict.get("number"),
+                        title=pr_dict.get("title", ""),
+                        body=pr_dict.get("body"), # Can be None
+                        state=pr_dict.get("state", ""),
+                        html_url=pr_dict.get("html_url", "")
+                        # url=pr_dict.get("url", "")
+                    )
+            return None # Return None if update failed or essential data missing
         except GitHubError as e:
             # Log the error but re-raise to ensure the caller knows the update failed
             logger.error(f"Failed to update PR #{pr_number}: {e}")

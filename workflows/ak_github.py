@@ -3,7 +3,7 @@ import os
 import json
 import re # Import re for body manipulation
 # Removed requests import
-from github import GitHubClient, GitHubError # Import the new client
+from github import GitHubClient, GitHubError, PullRequestData # Import the new client and dataclass
 from release_notes_utils import infer_type, generate_release_notes # Import shared utils
 
 # --- Constants ---
@@ -47,7 +47,7 @@ def process_pr_event(raw_event) -> None:
         return
 
     print(f"Processing Action '{action}' for PR #{pr_number} in repo '{repo_full_name}'.")
-    print(f"PR URL: {pr_data.get('html_url', 'N/A')}")
+    # PR URL will be available after fetching details if needed
 
     # We only care about 'opened' and 'edited' as initial triggers for our logic.
     # 'closed' events will be handled during polling loops.
@@ -72,13 +72,15 @@ def process_pr_event(raw_event) -> None:
              print(f"[{pr_number}] Failed to fetch initial PR details. Aborting.")
              return
 
-        if current_pr.get("state") == "closed":
+        print(f"[{pr_number}] Initial PR URL: {current_pr.html_url}") # Log URL now
+
+        if current_pr.state == "closed":
             print(f"[{pr_number}] PR is already closed. No action needed.")
             return
 
         # Check initial body state
-        initial_body = current_pr.get("body", "")
-        if initial_body and initial_body.strip():
+        initial_body = current_pr.body or "" # Use attribute access
+        if initial_body.strip(): # Check if non-empty after stripping whitespace
             print(f"[{pr_number}] PR already has a body. Proceeding to stabilization wait.")
             # Pass the client instance to the waiting functions
             _wait_for_stabilization(github_client, pr_number)
@@ -115,15 +117,15 @@ def _wait_for_body(github_client: GitHubClient, pr_number: int) -> None:
                 print(f"[{pr_number}] Failed to fetch PR details while waiting for body. Retrying...")
                 continue
 
-            state = current_pr.get("state")
-            body = current_pr.get("body", "")
+            state = current_pr.state
+            body = current_pr.body or "" # Use attribute access
 
             if state == "closed":
                 print(f"[{pr_number}] PR closed while waiting for body.")
-                # Pass the client instance and the last known state
+                # Pass the client instance and the last known state (PullRequestData object)
                 _handle_premature_close(github_client, pr_number, current_pr)
                 break
-            elif body and body.strip():
+            elif body.strip(): # Check if non-empty after stripping
                 print(f"[{pr_number}] Body populated. Proceeding to stabilization.")
                 # Pass the client instance
                 _wait_for_stabilization(github_client, pr_number)
@@ -154,7 +156,7 @@ def _wait_for_stabilization(github_client: GitHubClient, pr_number: int) -> None
              # Error logged within get_pr_details
              print(f"[{pr_number}] Failed to get initial PR details for stabilization. Aborting.")
              return
-        last_known_body = initial_pr.get("body", "")
+        last_known_body = initial_pr.body or "" # Use attribute access
     except GitHubError as e:
         print(f"[{pr_number}] GitHub error getting initial PR details for stabilization: {e}. Aborting.")
         return
@@ -172,26 +174,26 @@ def _wait_for_stabilization(github_client: GitHubClient, pr_number: int) -> None
                 print(f"[{pr_number}] Failed to fetch PR details during stabilization. Retrying...")
                 continue # Skip this cycle
 
-            current_state = current_pr.get("state")
-            current_body = current_pr.get("body", "")
+            current_state = current_pr.state
+            current_body = current_pr.body or "" # Use attribute access
 
             if current_state == "closed":
                 print(f"[{pr_number}] PR closed during stabilization wait.")
-                # Pass client instance
+                # Pass client instance and PullRequestData object
                 _handle_premature_close(github_client, pr_number, current_pr)
                 break # Exit loop
 
-            if current_body != last_known_body:
+            if current_body != last_known_body: # Compare potentially None/empty string correctly
                 print(f"[{pr_number}] Body edited during stabilization. Resetting wait timer.")
                 stabilization_start_time = time.time()
-                last_known_body = current_body
+                last_known_body = current_body # Update last known body
                 # Continue loop to wait full duration again
             else:
                 # Body has not changed, check if timer expired
                 elapsed_time = time.time() - stabilization_start_time
                 if elapsed_time >= STABILIZATION_WAIT_SECONDS:
                     print(f"[{pr_number}] Stabilization period ended without body changes.")
-                    # Pass client instance
+                    # Pass client instance and PullRequestData object
                     _generate_and_update(github_client, pr_number, current_pr)
                     break # Exit loop
                 else:
@@ -206,14 +208,14 @@ def _wait_for_stabilization(github_client: GitHubClient, pr_number: int) -> None
              # Add resilience
 
 
-# Update function signature
-def _generate_and_update(github_client: GitHubClient, pr_number: int, current_pr_data: dict) -> None:
+# Update function signature to accept PullRequestData
+def _generate_and_update(github_client: GitHubClient, pr_number: int, current_pr_data: PullRequestData) -> None:
     """
     Fetches PR diff, generates release notes using shared utility, formats the body,
-    and updates the pull request via API.
+    and updates the pull request via API using PullRequestData.
     """
-    pr_title = current_pr_data.get("title", "")
-    original_body = current_pr_data.get("body", "") or "" # Ensure it's a string
+    pr_title = current_pr_data.title
+    original_body = current_pr_data.body or "" # Use attribute access
 
     # 1. Check if release notes tag already exists and is not empty/ignored
     existing_rn_match = re.search(r"<release_notes>(.*?)</release_notes>", original_body, re.DOTALL)
@@ -282,15 +284,15 @@ def _generate_and_update(github_client: GitHubClient, pr_number: int, current_pr
     print(f"[{pr_number}] Workflow finished for PR after generation/update attempt.")
 
 
-# Update function signature
-def _handle_premature_close(github_client: GitHubClient, pr_number: int, closed_pr_data: dict) -> None:
+# Update function signature to accept PullRequestData
+def _handle_premature_close(github_client: GitHubClient, pr_number: int, closed_pr_data: PullRequestData) -> None:
     """
     Handles the case where the PR is closed before the main logic completes.
-    Attempts to generate and update the body based on the last known state.
+    Attempts to generate and update the body based on the last known state using PullRequestData.
     Fetching diff for a closed PR might fail.
     """
-    pr_title = closed_pr_data.get("title", "")
-    original_body = closed_pr_data.get("body", "") or ""
+    pr_title = closed_pr_data.title
+    original_body = closed_pr_data.body or "" # Use attribute access
 
     print(f"[{pr_number}] PR was closed prematurely. Attempting final generation based on last known state for: '{pr_title}'.")
 
