@@ -1,4 +1,5 @@
 #!/usr/bin/env -S uv run --no-project --with openai-agents
+import asyncio
 import dataclasses
 import logging
 import os
@@ -301,23 +302,33 @@ class InputFilePaths:
     pr_diff: str
 
 
-def generate_hooks(input: InputFilePaths):
-    instructions = read_file_or_fail(input.base_instructions)
+async def generate_hooks(input_paths: InputFilePaths, output_dir: Path) -> str:
+    """
+    Generate hooks based on the provided input files.
     
-    dir_path = Path(input.docs_dir)
+    Args:
+        input_paths: InputFilePaths object containing all required file paths
+        output: Optional output path
+        
+    Returns:
+        The result of hook generation
+    """
+    instructions = read_file_or_fail(input_paths.base_instructions)
+    instructions = instructions.format(output_dir=output_dir / "hooks")
+    
+    dir_path = Path(input_paths.docs_dir)
     if not dir_path.is_dir():
         logger.error(f"Provided docs directory is not valid: {dir_path}, using default")
         dir_path = DEFAULT_DOCS_DIR_PATH
 
     logger.info(f"Using docs directory: {dir_path}")
 
-    upgrade_test_description = read_file_or_fail(input.upgrade_test_description_path)
-    upgrade_test_hooks_description = read_file_or_fail(input.upgrade_test_hooks_description_path)
-    upgrade_test_hooks_env_vars = read_file_or_fail(input.upgrade_test_hooks_env_vars_path)
-    hooks_guidance = read_file_or_fail(input.hooks_guidance_path)
-    pr_description = read_file_or_fail(input.pr_description)
-    pr_diff = read_file_or_fail(input.pr_diff)
-
+    upgrade_test_description = read_file_or_fail(input_paths.upgrade_test_description_path)
+    upgrade_test_hooks_description = read_file_or_fail(input_paths.upgrade_test_hooks_description_path)
+    upgrade_test_hooks_env_vars = read_file_or_fail(input_paths.upgrade_test_hooks_env_vars_path)
+    hooks_guidance = read_file_or_fail(input_paths.hooks_guidance_path)
+    pr_description = read_file_or_fail(input_paths.pr_description)
+    pr_diff = read_file_or_fail(input_paths.pr_diff)
 
     instructions += f"""
 <environment_description>
@@ -386,13 +397,9 @@ A change description to build plan/hooks for:
 </change_diff>
 </change_to_validate>
 """
-
     # Save instructions and change description to files for debugging
-    test_artifacts_dir = CURRENT_FILE_ABSOLUTE_PATH.parent.parent / 'test_artifacts'
-    test_artifacts_dir.mkdir(exist_ok=True)
-    
-    debug_instructions_path = test_artifacts_dir / 'debug_instructions.txt'
-    debug_change_description_path = test_artifacts_dir / 'debug_change_description.txt'
+    debug_instructions_path = output_dir / 'debug_instructions.txt'
+    debug_change_description_path = output_dir / 'debug_change_description.txt'
     
     with open(debug_instructions_path, 'w') as f:
         f.write(instructions)
@@ -402,9 +409,11 @@ A change description to build plan/hooks for:
         f.write(change_description)
     logger.info(f"Saved debug change description to {debug_change_description_path}")
 
-    # Run the agent with the change description
-    result = Runner.run_sync(agent, change_description, hooks=LogHooks())
+    # Use the async version instead of run_sync
+    result = await Runner.run(agent, change_description, hooks=LogHooks())
     print(result)
+    return result
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Generate hooks based on input file paths.")
@@ -417,8 +426,9 @@ if __name__ == '__main__':
     parser.add_argument("--pr-description-path", required=True, help="Path to the PR description file.")
     parser.add_argument("--pr-diff-path", required=True, help="Path to the PR diff file.")
     args = parser.parse_args()
-
-    input_file_paths = InputFilePaths(
+    
+    # Create an InputFilePaths object from the command line arguments
+    input_paths = InputFilePaths(
         docs_dir=args.docs_dir,
         base_instructions=args.base_instructions_path,
         upgrade_test_description_path=args.upgrade_test_description_path,
@@ -428,5 +438,9 @@ if __name__ == '__main__':
         pr_description=args.pr_description_path,
         pr_diff=args.pr_diff_path
     )
-
-    print(generate_hooks(input_file_paths))
+    
+    # Call generate_hooks with the InputFilePaths object
+    print(asyncio.run(generate_hooks(
+        input_paths=input_paths,
+        output_dir=Path(os.path.abspath('.')) / 'hooks'
+    )))

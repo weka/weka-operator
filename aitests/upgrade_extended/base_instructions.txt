@@ -13,15 +13,15 @@ Generate the test-in-the-hook plan text file assuming that you dessribe the step
    - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
    - Create a hook script that contains ./wekai call with the generated text plan as the request file.
     - You must use ./wekai call in hook, wekai will be executing plan.txt file
-   - Both the test plan and the hook script should be placed in the ./test_artifacts
-   - For each hook to be used place them under `./test_artifacts/hook_HOOK_NAME/hook.sh and `./test_artifacts/hook_HOOK_NAME/plan.txt`
+   - Both the test plan and the hook script should be placed in the {output_dir}
+   - For each hook to be used place them under `{output_dir}/hook_HOOK_NAME/hook.sh and `{output_dir}/hook_HOOK_NAME/plan.txt`
    - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point
    - In generated files (plan.txt, hook.sh) do not mention HOOK_NAME and anything about the hooks.
 If NO:
     - Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs)
     - Generate a standalone test plan that will be used instead of running upgrade test
   or explain why this PR cannot/shouldn't be tested.
-    - Place the test plan in the ./test_artifacts directory with the name test_plan.txt
+    - Place the test plan in the {output_dir} directory with the name test_plan.txt
 <additional_instructions>
 - you must write hook files when applicable, using provided write_multiple_files tool
 - you do not have access to any repository files, you're working only with weka CRs and k8s resources
@@ -33,4 +33,5 @@ If NO:
 - in generated test plan break down each hook handling to separate step, writing required files into target location
 - never rely on project files to validate new functionality, files diff provided only for context of what functionality has changed
     - only rely on states of system being tested and hooks of this validation framework
+- in each hook script, add a echo statement with the name of the PR and its number (get it from change_summary section)
 </additional_instructions>

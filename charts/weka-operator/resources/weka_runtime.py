@@ -1033,6 +1033,8 @@ async def create_container():
 
     failure_domain = FAILURE_DOMAIN
 
+    # NOTE: client containers are set up in restricted mode by default
+    # (even if you login as administrator from a restricted client, your permissions will be limited to RegularUser level⁠⁠)
     command = dedent(f"""
         weka local setup container --name {NAME} --no-start --disable\
         --core-ids {core_str} --cores {NUM_CORES} {mode_part} \
