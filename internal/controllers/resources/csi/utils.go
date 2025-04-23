@@ -3,16 +3,10 @@ package csi
 import (
 	"fmt"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"regexp"
 	"strings"
 )
-
-func GenerateCsiDriverName(baseName string) string {
-	re := regexp.MustCompile("[^a-zA-Z0-9-]")
-	cleanName := re.ReplaceAllString(baseName, "-")
-	cleanName = strings.ToLower(cleanName)
-	return fmt.Sprintf("csi.%s.weka.io", cleanName)
-}
 
 func GenerateStorageClassName(csiDriverName string, fileSystemName string, mountOptions ...string) string {
 	base := "storageclass-" + strings.ReplaceAll(csiDriverName, ".", "-") + "-" + fileSystemName
@@ -22,13 +16,48 @@ func GenerateStorageClassName(csiDriverName string, fileSystemName string, mount
 	return base
 }
 
-func GetCsiBaseName(wekaClient *weka.WekaClient) string {
-	baseName := wekaClient.Name
-	emptyRef := weka.ObjectReference{}
-	if wekaClient.Spec.TargetCluster != emptyRef {
-		baseName = wekaClient.Spec.TargetCluster.Name + "-" + wekaClient.Spec.TargetCluster.Namespace
-	} else if wekaClient.Spec.CSIGroup != "" {
-		baseName = wekaClient.Spec.CSIGroup
+func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
+	if wekaCluster.Spec.CsiConfig.CsiDriverName != "" {
+		return wekaCluster.Spec.CsiConfig.CsiDriverName
 	}
-	return baseName
+
+	return generateCsiDriverName(wekaCluster.Name + "-" + wekaCluster.Namespace)
+}
+
+func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
+	if wekaClient.Spec.CSIGroup == "" {
+		return config.Consts.CSILegacyDriverName
+	}
+	return generateCsiDriverName(wekaClient.Spec.CSIGroup)
+}
+
+func generateCsiDriverName(baseName string) string {
+	re := regexp.MustCompile("[^a-zA-Z0-9-]")
+	cleanName := re.ReplaceAllString(baseName, "-")
+	cleanName = strings.ToLower(cleanName)
+
+	parts := strings.SplitN(config.Consts.CSILegacyDriverName, ".", 2)
+	if len(parts) < 2 {
+		return fmt.Sprintf("csi.%s.weka.io", cleanName)
+	}
+	return fmt.Sprintf("%s.%s.%s", parts[0], cleanName, parts[1])
+}
+
+func GetBaseNameFromDriverName(csiDriverName string) string {
+	parts := strings.Split(csiDriverName, ".")
+	if len(parts) < 3 {
+		return "csi"
+	}
+	return parts[1]
+}
+
+func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
+	prefix := "weka-csi-"
+	if config.Config.CSIInstallationEnabled {
+		if wekaCluster.Spec.CsiConfig.CsiDriverName != "" {
+			return prefix + GetBaseNameFromDriverName(wekaCluster.Spec.CsiConfig.CsiDriverName)
+		}
+		return prefix + wekaCluster.Name + "-" + wekaCluster.Namespace
+	}
+	return prefix + wekaCluster.Name
 }

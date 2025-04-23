@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/controllers/resources/csi"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -67,7 +68,7 @@ func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoi
 	}
 	ret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.GetCSISecretName(),
+			Name:      csi.GetCsiSecretName(cluster),
 			Namespace: cluster.Namespace,
 		},
 		StringData: map[string]string{

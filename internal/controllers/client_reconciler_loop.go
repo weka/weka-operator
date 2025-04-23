@@ -855,11 +855,29 @@ func (c *clientReconcilerLoop) EnsureCSIPlugin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	csiBaseName := csi.GetCsiBaseName(c.wekaClient)
+
+	var csiDriverName string
+	emptyRef := weka.ObjectReference{}
+	if c.wekaClient.Spec.TargetCluster != emptyRef {
+		targetCluster, err := c.getTargetClusterFromClient(ctx)
+		if err != nil {
+			return err
+		}
+		csiDriverName = csi.GetCsiDriverNameFromTargetCluster(targetCluster)
+	} else {
+		csiDriverName = csi.GetCsiDriverNameFromClient(c.wekaClient)
+	}
+
+	c.wekaClient.Status.CsiDriverName = csiDriverName
+	err = c.Status().Update(ctx, c.wekaClient)
+	if err != nil {
+		return err
+	}
+
+	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
 
 	tolerations := tolerationsToObj(c.wekaClient.Spec.Tolerations)
 	fileSystemName := config.Consts.CSIFileSystemName
-	csiDriverName := csi.GenerateCsiDriverName(csiBaseName)
 
 	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: csiDriverName},
 		func() client.Object { return csi.NewCSIDriver(csiDriverName) }); err != nil {
@@ -919,4 +937,21 @@ func tolerationsToObj(tolerations []string) []v1.Toleration {
 		}
 	}
 	return tolerationObjects
+}
+
+func (c *clientReconcilerLoop) getTargetClusterFromClient(ctx context.Context) (*weka.WekaCluster, error) {
+	if c.wekaClient.Spec.TargetCluster.Name == "" {
+		return nil, fmt.Errorf("target cluster name is empty")
+	}
+
+	wekaCluster := &weka.WekaCluster{}
+	err := c.Get(ctx, client.ObjectKey{
+		Name:      c.wekaClient.Spec.TargetCluster.Name,
+		Namespace: c.wekaClient.Spec.TargetCluster.Namespace,
+	}, wekaCluster)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get WekaCluster %s: %w", c.wekaClient.Spec.TargetCluster.Name, err)
+	}
+
+	return wekaCluster, nil
 }

@@ -170,6 +170,8 @@ var Consts struct {
 	CSILoginCredentialsUpdateInterval time.Duration
 	// Filesystem name for CSI storage class
 	CSIFileSystemName string
+	// Legacy driver name for CSI, used when can't determine the driver name from config
+	CSILegacyDriverName string
 	// Max containers to delete at once on node selector mismatch
 	MaxContainersDeletedOnSelectorMismatch int
 	// Interval for cleanup of containers on node selector mismatch
@@ -190,6 +192,7 @@ func init() {
 	Consts.FormS3ClusterMaxContainerCount = 3
 	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
 	Consts.CSIFileSystemName = "default"
+	Consts.CSILegacyDriverName = "csi.weka.io"
 	Consts.MaxContainersDeletedOnSelectorMismatch = 4
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 }
