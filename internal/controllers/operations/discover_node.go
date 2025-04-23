@@ -135,19 +135,6 @@ func (o *DiscoverNodeOperation) GetDrivesNum() int {
 	return 0
 }
 
-func (o *DiscoverNodeOperation) GetNICs() string {
-	// get from nodes annotations
-	// TODO: This should go away, as we wont need this eventually
-	if o.node.Annotations == nil {
-		return ""
-	}
-
-	if _, ok := o.node.Annotations[nicsEnsuredInfoAnnotation]; ok {
-		return o.node.Annotations[nicsEnsuredInfoAnnotation]
-	}
-	return ""
-}
-
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
 	o.result.NumDrives = o.GetDrivesNum()

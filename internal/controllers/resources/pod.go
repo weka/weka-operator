@@ -288,6 +288,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							},
 						},
 						{
+							Name: "MANAGEMENT_IP",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "status.podIP",
+								},
+							},
+						},
+						{
 							Name: "POD_ID",
 							ValueFrom: &corev1.EnvVarSource{
 								FieldRef: &corev1.ObjectFieldSelector{

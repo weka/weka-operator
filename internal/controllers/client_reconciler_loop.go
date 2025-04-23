@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"reflect"
 	"time"
 
@@ -117,8 +118,69 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{
+				Run:                   loop.AllocateNICs,
+				SkipOwnConditionCheck: true,
+			},
 		},
 	}
+}
+
+func (c *clientReconcilerLoop) getClient() client.Client {
+	return c.Manager.GetClient()
+}
+
+func (c *clientReconcilerLoop) AllocateNICs(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateNICs")
+	defer end()
+
+	logger.Info("Allocating NICs for client containers", "client", c.wekaClient.Name, "namespace", c.wekaClient.Namespace)
+
+	// Fetch all own containers
+	// Filter by .Allocated == nil
+	// TODO: Figure out if this filtering can be done by indexing, if not - rely on labels filtering, updating spec
+	// Allocate resources for all containers at once, log-report for failed
+	toAllocate := []*weka.WekaContainer{}
+	for _, container := range c.containers {
+		if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+			continue
+		}
+		if container.Spec.NodeAffinity == "" {
+			continue
+		}
+		toAllocate = append(toAllocate, container)
+	}
+
+	if len(toAllocate) == 0 {
+		// No containers to allocate resources for
+		return nil
+	}
+
+	resourceAllocator, err := allocator.NewResourcesAllocator(ctx, c.getClient())
+	if err != nil {
+		return err
+	}
+
+	err = resourceAllocator.AllocateNICs(ctx, toAllocate)
+	warnEventType := v1.EventTypeWarning
+	if err != nil {
+		if failedAllocs, ok := err.(*allocator.FailedAllocations); ok {
+			err = fmt.Errorf("failed to allocate resources for %d containers", len(*failedAllocs))
+			logger.Error(err, "", "failedAllocs", failedAllocs)
+			_ = c.RecordEvent(&warnEventType, "FailedAllocations", err.Error())
+			for _, alloc := range *failedAllocs {
+				// we landed in some conflicting place, evicting for rescheduling
+				_ = c.RecordEvent(&warnEventType, "RemoveUnschedulable", fmt.Sprintf("Evicting container %s for rescheduling", alloc.Container.Name))
+				if err := services.SetContainerStateDeleting(ctx, alloc.Container, c.getClient()); err != nil {
+					logger.Error(err, "Failed to patch container state to deleting", "container", alloc.Container.Name)
+				}
+			}
+		} else {
+			_ = c.RecordEvent(&warnEventType, "ResourcesAllocationError", err.Error())
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {

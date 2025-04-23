@@ -1017,15 +1017,7 @@ async def create_container():
         NETWORK_DEVICE = ",".join(devices)
 
     if "aws_" in NETWORK_DEVICE:
-        if MODE == "compute":
-            devices = NETWORK_DEVICE.split(",")[1::2]
-        elif MODE == "drive":
-            devices = NETWORK_DEVICE.split(",")[2::2]
-        elif MODE == "client":
-            devices = NETWORK_DEVICE.split(",")[1:]
-        else:
-            raise Exception("Invalid container name")
-        devices = [dev.replace("aws_", "") for dev in devices]
+        devices = [dev.replace("aws_", "") for dev in NETWORK_DEVICE.split(",")]
         net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
@@ -1094,13 +1086,13 @@ async def ensure_aws_nics(num: int):
     command = dedent(f"""
         set -e
         mkdir -p /opt/weka/k8s-scripts
-        weka local run --container {NAME} /weka/go-helpers/cloud-helper ensure-nics -n {num + 1}
+        weka local run --container {NAME} /weka/go-helpers/cloud-helper ensure-nics -n {num}
         """)
     stdout, stderr, ec = await run_command(command)
     if ec != 0:
         raise Exception(f"Failed to ensure NICs: {stderr}")
     logging.info("Ensured NICs successfully")
-    write_results(dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics']))
+    write_results(dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics'][1:]))
 
 
 async def get_containers():
@@ -1904,6 +1896,7 @@ async def wait_for_resources():
     with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
         data = json.load(f)
 
+    logging.info("found resources.json: %s", data)
     NETWORK_DEVICE = ",".join(data["netDevices"])
 
     if data.get("machineIdentifier"):
@@ -1974,7 +1967,9 @@ async def write_management_ips():
 
     ipAddresses = []
 
-    if not NETWORK_DEVICE and SUBNETS:
+    if os.environ.get("MANAGEMENT_IP"):
+        ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
+    elif not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)
         for device in devices:
             ip = await get_single_device_ip(device)
@@ -1993,12 +1988,9 @@ async def write_management_ips():
     # if multiple nics are used
     else:
         devices = NETWORK_DEVICE.split(",")
-        if devices[0].startswith("aws_"):
-            ipAddresses = [devices[0].split("/")[1]]
-        else:
-            for device in devices:
-                ip = await get_single_device_ip(device)
-                ipAddresses.append(ip)
+        for device in devices:
+            ip = await get_single_device_ip(device)
+            ipAddresses.append(ip)
 
     if not ipAddresses:
         raise Exception("Failed to discover management IPs")

@@ -23,9 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const nicsEnsuredAnnotation = "weka.io/nics-ensured"
-const nicsEnsuredInfoAnnotation = "weka.io/nics-ensured-info"
-
 type EnsureNICsOperation struct {
 	client          client.Client
 	kubeService     kubernetes.KubeService
@@ -211,12 +208,11 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 		if annotations == nil {
 			annotations = make(map[string]string)
 		}
-		annotations[nicsEnsuredAnnotation] = fmt.Sprintf("%d", len(opResult.NICs))
-		nicsString, err := json.Marshal(opResult.NICs)
+		nicsBytes, err := json.Marshal(opResult.NICs)
 		if err != nil {
 			return errors.Wrap(err, "Failed to marshal NICs to string")
 		}
-		annotations[nicsEnsuredInfoAnnotation] = string(nicsString)
+		annotations[domain.WEKANICs] = string(nicsBytes)
 		node.Annotations = annotations
 		err = o.client.Update(ctx, node)
 		if err != nil {

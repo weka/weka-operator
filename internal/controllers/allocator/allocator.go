@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"go/types"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +35,7 @@ type Allocator interface {
 	// AllocateClusterPorts allocates ranges only, not specific ports, that is responsibility of WekaCluster controller
 	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error
 	AllocateContainers(ctx context.Context, cluster *weka.WekaCluster, containers []*weka.WekaContainer) error
+	AllocateNICs(ctx context.Context, containers []*weka.WekaContainer) error
 	//ClaimResources(ctx context.Context, cluster v1alpha1.WekaCluster, containers []*v1alpha1.WekaContainer) error
 	DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error
 	GetAllocations(ctx context.Context) (*Allocations, error)
@@ -228,6 +231,91 @@ func (f *FailedAllocations) Error() string {
 	return strBuilder.String()
 }
 
+func (t *ResourcesAllocator) AllocateNICs(ctx context.Context, containers []*weka.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateNICs")
+	defer end()
+
+	for _, container := range containers {
+		logger.Debug("Allocating container NICS", "name", container.ObjectMeta.Name)
+
+		node := &v1.Node{}
+		err := t.client.Get(ctx, client.ObjectKey{Name: string(container.GetNodeAffinity())}, node)
+		if err != nil {
+			return err
+		}
+
+		nicsStr, ok := node.Annotations[domain.WEKANICs]
+		if !ok {
+			if strings.HasPrefix(node.Spec.ProviderID, "aws://") && !container.Spec.Network.UdpMode {
+				err := fmt.Errorf("node %s does not have weka-nics annotation, but dpdk is enabled", node.Name)
+				logger.Error(err, "")
+				return err
+			}
+			logger.Debug("Node does not have weka-nics annotation, skipping allocation", "node", node.Name)
+		} else {
+			annotationAllocations := make(domain.Allocations)
+			allocationsStr, ok := node.Annotations[domain.WEKAAllocations]
+			if ok {
+				err = json.Unmarshal([]byte(allocationsStr), &annotationAllocations)
+				if err != nil {
+					return fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
+				}
+			}
+
+			var allNICs []domain.NIC
+			err = json.Unmarshal([]byte(nicsStr), &allNICs)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal weka-nics: %v", err)
+			}
+
+			allocatedNICs := make(map[string]types.Nil)
+			for _, alloc := range annotationAllocations {
+				for _, allocatedNIC := range alloc.NICs {
+					allocatedNICs[allocatedNIC.MacAddress] = types.Nil{}
+				}
+			}
+
+			allocationIdentifier := domain.GetAllocationIdentifier(container.Namespace, container.Name)
+			nicsAllocationsNumber := 0
+			if _, ok := annotationAllocations[allocationIdentifier]; ok {
+				nicsAllocationsNumber = len(annotationAllocations[allocationIdentifier].NICs)
+			} else {
+				annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: []domain.NIC{}}
+			}
+
+			requiredNicsNumber := container.Spec.NumCores
+			logger.Debug("Allocated NICs", "allocatedNICs", allocatedNICs, "container", container.Name)
+			if nicsAllocationsNumber >= requiredNicsNumber {
+				logger.Debug("Container already allocated NICs", "name", container.ObjectMeta.Name)
+				continue
+			}
+			logger.Info("Allocating NICs", "requiredNicsNumber", requiredNicsNumber, "nicsAllocationsNumber", nicsAllocationsNumber, "container", container.Name)
+			for range make([]struct{}, requiredNicsNumber-nicsAllocationsNumber) {
+				for _, nic := range allNICs {
+					if _, ok := allocatedNICs[nic.MacAddress]; !ok {
+						allocatedNICs[nic.MacAddress] = types.Nil{}
+						logger.Debug("Allocating NIC", "nic", nic.MacAddress, "container", container.Name)
+						nics := append(annotationAllocations[allocationIdentifier].NICs, nic)
+						annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: nics}
+						break
+					}
+				}
+			}
+			allocationsBytes, err := json.Marshal(annotationAllocations)
+			if err != nil {
+				return fmt.Errorf("failed to marshal weka-allocations: %v", err)
+			}
+			node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
+			err = t.client.Update(ctx, node)
+			if err != nil {
+				return fmt.Errorf("failed to update node: %v", err)
+			}
+		}
+
+	}
+	return nil
+}
+
 func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *weka.WekaCluster, containers []*weka.WekaContainer) error {
 	// At this point containers are landed on specific node, so we dont check what which node to use, we only allocate some resources out of the node to let container know what it should be using
 	// Alternative thoughts:
@@ -252,17 +340,27 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 	//// TODO:If not pre-populated can cause fetches for each node making it serial and impossibly slow on huge clusters
 	failedAllocations := FailedAllocations{}
 
+	err = t.AllocateNICs(ctx, containers)
+	if err != nil {
+		return err
+	}
+
 	for _, container := range containers {
 		logger.Debug("Allocating container", "name", container.ObjectMeta.Name)
 		// check if node already has same role-container, if yes - return as unschedulable
 		// if not, allocate resources and update nodeMap
+
+		node := &v1.Node{}
+		err = t.client.Get(ctx, client.ObjectKey{Name: string(container.GetNodeAffinity())}, node)
+		if err != nil {
+			return err
+		}
 
 		if container.Status.Allocations != nil {
 			logger.Info("Container already allocated", "name", container.ObjectMeta.Name)
 			continue
 		}
 
-		//var requiredNics int
 		role := container.Spec.Mode
 		logger := logger.WithValues("role", role, "name", container.ObjectMeta.Name)
 
