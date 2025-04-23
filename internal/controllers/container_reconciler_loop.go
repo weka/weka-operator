@@ -4500,9 +4500,10 @@ func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) er
 	if err != nil {
 		return errors.Wrap(err, "failed to get parent WekaClient")
 	}
-
-	csiBaseName := csi.GetCsiBaseName(wekaClient)
-	csiDriverName := csi.GenerateCsiDriverName(csiBaseName)
+	csiDriverName := wekaClient.Status.CsiDriverName
+	if csiDriverName == "" {
+		return errors.Wrap(err, "failed to get csi driver name from WekaClient")
+	}
 
 	logger.Info("Creating CSI node pod")
 	podSpec := csi.NewCSINodePod(name, namespace, csiDriverName, string(nodeName), tolerations)
