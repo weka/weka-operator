@@ -212,6 +212,9 @@ type FailureDomain struct {
 
 type CsiConfig struct {
 	EndpointsSubnets []string `json:"endpointsSubnets,omitempty"`
+
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production
+	CsiDriverName string `json:"csiDriverName,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster

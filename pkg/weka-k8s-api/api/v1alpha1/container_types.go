@@ -243,6 +243,10 @@ type WekaContainerSpec struct {
 	// resources to be proxied as-is to the pod spec
 	Resources *PodResourcesSpec `json:"resources,omitempty"`
 	PVC       *PVCConfig        `json:"pvc,omitempty"`
+
+	// +kubebuilder:validation:Type=string
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: computed csi driver name for client container to ensure csi-node
+	CsiDriverName string `json:"csiDriverName,omitempty"`
 }
 
 type AWSNetwork struct {

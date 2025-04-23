@@ -146,7 +146,7 @@ type WekaClientSpec struct {
 	GlobalPVC         *PVCConfig      `json:"globalPVC,omitempty"`
 
 	// +kubebuilder:validation:Type=string
-	// if set, allows to reuse the same csi resources for multiple clients
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients
 	CSIGroup string `json:"csiGroup,omitempty"`
 }
 
