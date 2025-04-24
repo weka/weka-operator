@@ -11,8 +11,8 @@ Generate the test-in-the-hook plan text file assuming that you dessribe the step
    - Rely on available environment variable specified in test description
    - Use the plain text format, describing steps to test new functionality
    - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
-   - Create a hook script that contains ./wekai call with the generated text plan as the request file.
-    - You must use ./wekai call in hook, wekai will be executing plan.txt file
+   - Create a hook script that contains wekai call (via $PATH_TO_WEKAI) with the generated text plan as the request file.
+    - You must use $PATH_TO_WEKAI call in hook, wekai will be executing plan.txt file
    - Both the test plan and the hook script should be placed in the {output_dir}
    - For each hook to be used place them under `{output_dir}/hook_HOOK_NAME/hook.sh and `{output_dir}/hook_HOOK_NAME/plan.txt`
    - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point

@@ -30,6 +30,14 @@ on:
         description: 'New Weka version'
         required: true
         default: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3
+      do_cleanup:
+        description: 'Whether to clean up the cluster after the test'
+        required: false
+        default: 'true'
+      prs_ids:
+        description: 'Space separated list of PR IDs to generate hooks for and ingest into the test'
+        required: false
+        default: ''
 
 jobs:
   optimize_ci:
@@ -42,6 +50,15 @@ jobs:
       uses: withgraphite/graphite-ci-action@main
       with:
         graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
+
+  # Run PR AI Test workflow when PR IDs are provided
+  run_pr_ai_test:
+    needs: optimize_ci
+    if: ${{ needs.optimize_ci.outputs.skip == 'false' && github.event.inputs.prs_ids != '' }}
+    uses: ./.github/workflows/pr_ai_test.yaml
+    with:
+      pr_ids: ${{ github.event.inputs.prs_ids }}
+    secrets: inherit
 
   get_operator_version:
     runs-on: ubuntu-latest
@@ -114,15 +131,115 @@ jobs:
           overwrite: true
           retention-days: 1
 
+  get_wekai_app:
+    runs-on: ubuntu-latest
+    needs: [run_pr_ai_test]
+    if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - name: Check out wekai private repo
+        uses: actions/checkout@v4
+        with:
+          repository: weka/wekai
+          ssh-key: ${{ secrets.WEKAI_DEPLOY_SSH_KEY }}
+      - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.GO_WEKA_OBSERVABILITY_DEPLOY_SSH_KEY }}
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."ssh://git@github.com/".insteadOf https://github.com/
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - name: Build Go Binary
+        run: |
+          go build -o wekai main.go
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wekai
+          path: ./wekai
+          overwrite: true
+          retention-days: 1
+
   upgrade_test:
-    needs: [get_operator_version, build]
+    needs: [get_operator_version, build, run_pr_ai_test, get_wekai_app]
     runs-on: scalar-runners
     env:
       OPERATOR_VERSION: ${{ needs.get_operator_version.outputs.operator_version }}
     steps:
-    - uses: azure/k8s-set-context@v3
+    - name: Check out current repo
+      uses: actions/checkout@v4
+
+    - name: Download test artifacts (if any)
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      uses: actions/download-artifact@v4
       with:
+        name: test-artifacts
+        path: ./test_artifacts
+    
+    - name: List test artifacts (for debug)
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      run: |
+        sudo apt-get update && sudo apt-get install -y tree
+        tree ./test_artifacts
+        echo "Test artifacts downloaded successfully."
+  
+    - name: Organize test artifacts
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      run: |
+        script/organize_pr_hooks.sh ./test_artifacts ./test_artifacts_organized
+    
+    - name: List organized test artifacts (for debug)
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      run: |
+        tree ./test_artifacts_organized
+        echo "Organized test artifacts successfully."
+
+    - name: Set hooks env vars
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      run: |
+        # Dynamically set up hooks based on directories starting with "hook_"
+        for hook_dir in ./test_artifacts_organized/hook_*; do
+          if [ -d "$hook_dir" ]; then
+            # Extract hook name from directory name (remove "hook_" prefix)
+            hook_name=$(basename "$hook_dir" | sed 's/^hook_//')
+            
+            # Check if all_prs_hook.sh exists
+            if [ -f "$hook_dir/all_prs_hook.sh" ]; then
+              echo "$hook_name=$hook_dir/all_prs_hook.sh" >> $GITHUB_ENV
+              chmod +x "$hook_dir/all_prs_hook.sh"
+              echo "Found hook: $hook_name -> $hook_dir/all_prs_hook.sh"
+            fi
+          fi
+        done
+        
+        # Make all hook scripts executable
+        find ./test_artifacts_organized -name "*.sh" -exec chmod +x {} \;
+
+    - name: Download wekai binary
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: wekai
+    
+    - name: Make wekai binary executable
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      run: chmod +x ./wekai
+    
+    - name: Setup kubectl
+      if: needs.run_pr_ai_test.outputs.artifacts_generated == 'true'
+      uses: azure/setup-kubectl@v4
+
+    - uses: azure/k8s-set-context@v4
+      name: Set K8s context
+      with:
+        method: kubeconfig
         kubeconfig: ${{ secrets.UPGRADE_TEST_KUBECONFIG }}
+
     - name: Download Weka K8s Testing Binary
       uses: actions/download-artifact@v4
       with:
@@ -130,7 +247,17 @@ jobs:
     - name: Make binary executable
       run: chmod +x ./weka-k8s-testing
     - name: Run upgrade test
+      env:
+        PATH_TO_WEKAI: ${{ github.workspace }}/wekai
+        DOCS_DIR: ${{ github.workspace }}/doc
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
+        cleanup="--cleanup"
+        if [[ "${{ github.event.inputs.do_cleanup }}" == "false" ]]; then
+          cleanup=""
+        fi
+
         ./weka-k8s-testing upgrade-extended \
           --initial-version ${{ github.event.inputs.weka-initial-version || 'quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha' }} \
           --new-version ${{ github.event.inputs.weka-new-version || 'quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3' }} \
@@ -138,4 +265,4 @@ jobs:
           --node-selector weka.io/dedicated:upgrade-extended \
           --namespace test-upgrade-extended \
           --cluster-name upgrade-extended \
-          --cleanup
+          $cleanup

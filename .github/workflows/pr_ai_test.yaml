@@ -28,6 +28,10 @@ on:
         description: 'Space-separated list of PR IDs to process'
         required: true
         type: string
+    outputs:
+      artifacts_generated:
+        description: 'Whether artifacts were generated'
+        value: ${{ jobs.process_prs.outputs.artifacts_generated }}
 
 jobs:
   optimize_ci:
@@ -45,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [optimize_ci]
     if: ${{ (github.event_name == 'pull_request' && needs.optimize_ci.outputs.skip == 'false') || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' }}
+    outputs:
+      artifacts_generated: ${{ steps.check_artifacts.outputs.artifacts_generated }}
     steps:
       - name: Checkout operator
         uses: actions/checkout@v4
@@ -73,6 +79,15 @@ jobs:
         run: |
           # Pass all PR IDs as separate arguments to the script
           ./workflows/script_process_pr_hooks.py $PR_IDS
+          
+      - name: Check for generated artifacts
+        id: check_artifacts
+        run: |
+          if [ -d "test_artifacts" ] && [ "$(ls -A test_artifacts)" ]; then
+            echo "artifacts_generated=true" >> $GITHUB_OUTPUT
+          else
+            echo "artifacts_generated=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4

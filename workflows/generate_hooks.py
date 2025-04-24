@@ -354,10 +354,10 @@ When plan that you will generate will run it will have following environment var
 ## Wekai usage (wekai is a tool that can execute hook plan that you will produce)
 - request-file is the exisintg text plan file (prompt)
 - plan-file is the name of the non-existing json plan file that will be created by Wekai
-- --param=param_name=param_value, you can rely on this when building a plan, specifying within plan that such global parameter is expected, and adding something like `param=cluster_name=$CLUSTER_NAME --param=namespace=$NAMESPACE` to wekai executino within a hook
-- --docs-dir MUST be preserved in actual use with same value as in following example, preserve it as absolute path(as provided)
+- --params=param_name=param_value, you can rely on this when building a plan, specifying within plan that such global parameter is expected, and adding something like `params=cluster_name=$CLUSTER_NAME --params=namespace=$NAMESPACE` to wekai executino within a hook
+- --docs-dir MUST be $DOCS_DIR environment variable
 ```
-./wekai --mode bot --docs-dir={dir_path} --request-file plan.txt --plan-file plan.txt.json --param=cluster_name=$CLUSTER_NAME, --param=namespace=$NAMESPACE...
+$PATH_TO_WEKAI --mode bot --stderr-logs --docs-dir=$DOCS_DIR --request-file plan.txt --plan-file plan.txt.json --params=cluster_name=$CLUSTER_NAME, --params=namespace=$NAMESPACE...
 ```
 </hooks_guidance>
 </environment_description>
@@ -368,7 +368,7 @@ Following is the full project documentation for the context:
 </documentation>
 
 You will be prompted with change description and should follow instructions based on it
-Pay special attention to section marked with "How to test"
+Pay special attention to section marked with "How to test" in change_summary section.
 Pay special attention to AITEST markers, as they are explicitly purposed as YOUR instructions
     """
 
