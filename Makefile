@@ -102,7 +102,7 @@ $(CRD): $(CRD_TYPES)
 crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	mkdir -p charts/weka-operator/crds/
 	rm -f charts/weka-operator/crds/*
-	$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=charts/weka-operator/crds
+	$(CONTROLLER_GEN) crd paths="./pkg/..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
 $(RBAC): internal/controllers/client_controller.go
@@ -110,14 +110,14 @@ $(RBAC): internal/controllers/client_controller.go
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
 	mkdir -p charts/weka-operator/templates
-	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./..." output:rbac:artifacts:config=charts/weka-operator/templates
+	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./pkg/..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
 manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="" paths="./pkg/weka-k8s-api/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -311,7 +311,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 ##@ Helm Chart
 HELM=helm
-CHART=charts/weka-operator
+CHART=	charts/weka-operator
 CHART_ARCHIVE=charts/weka-operator-$(VERSION).tgz
 
 .PHONY: chart

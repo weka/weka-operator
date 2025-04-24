@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENGINE_NAME="dagger-engine-v0.18.4"
+ENGINE_IMAGE="registry.dagger.io/engine:v0.18.4"
+
+CACERT_DIR="$(pwd)/.dagger/cacerts"   # ⇦ PEM/CRT files live here
+#CACHE_VOL="dagger-engine"             # named volume for BuildKit cache
+#    -v "${CACHE_VOL}":/var/lib/dagger \
+
+# 1⃣  start the engine only if it isn't running
+if ! docker ps --format '{{.Names}}' | grep -q "^${ENGINE_NAME}$"; then
+  echo "⏩  starting ${ENGINE_NAME} with custom CA certificates…"
+  docker rm -f "${ENGINE_NAME}" 2>/dev/null || true
+
+  docker run -d --name "${ENGINE_NAME}" \
+    -v "${CACERT_DIR}":/usr/local/share/ca-certificates:ro \
+    --privileged \
+    "${ENGINE_IMAGE}" --debug
+fi
+
+# 2⃣  tell CLI / SDKs to talk to that engine
+export _EXPERIMENTAL_DAGGER_RUNNER_HOST="docker-container://${ENGINE_NAME}"
+
+# 3⃣  scrub env-vars & call dagger
+unset OTEL_EXPORTER_OTLP_ENDPOINT OPENAI_API_KEY ANTHROPIC_API_KEY
+export DAGGER_NO_NAG=1
+
+unset GH_TOKEN
+unset GITHUB_PAT_TOKEN
+
+exec dagger "$@"
+
