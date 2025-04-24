@@ -61,3 +61,10 @@ func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
 	}
 	return prefix + wekaCluster.Name
 }
+
+func GetTracingFlag() string {
+	if config.Config.Otel.ExporterOtlpEndpoint != "" {
+		return "--tracingurl=" + config.Config.Otel.ExporterOtlpEndpoint
+	}
+	return ""
+}

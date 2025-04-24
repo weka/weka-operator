@@ -56,6 +56,7 @@ func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName
 						"--concurrency.nodeUnpublishVolume=5",
 						"--nfsprotocolversion=4.1",
 						"--allowinsecurehttps",
+						GetTracingFlag(),
 					},
 					Ports: []corev1.ContainerPort{
 						{

@@ -80,6 +80,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 								"--concurrency.createSnapshot=5",
 								"--concurrency.deleteSnapshot=5",
 								"--nfsprotocolversion=4.1",
+								GetTracingFlag(),
 							},
 							Ports: []corev1.ContainerPort{
 								{
