@@ -7,8 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/resources/csi"
-	"go/types"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"io"
 	"net/http"
 	"path"
@@ -4496,11 +4495,7 @@ func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) er
 	tolerations := r.container.Spec.Tolerations
 	name := fmt.Sprintf("%s-csi-node", r.container.Name)
 
-	wekaClient, err := r.getParentWekaClient(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get parent WekaClient")
-	}
-	csiDriverName := wekaClient.Status.CsiDriverName
+	csiDriverName := r.container.Spec.CsiDriverName
 	if csiDriverName == "" {
 		return errors.Wrap(err, "failed to get csi driver name from WekaClient")
 	}
@@ -4514,18 +4509,4 @@ func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) er
 	}
 
 	return nil
-}
-
-func (r *containerReconcilerLoop) getParentWekaClient(ctx context.Context) (*weka.WekaClient, error) {
-	ownerReferences := r.container.GetOwnerReferences()
-	if len(ownerReferences) == 0 {
-		return nil, fmt.Errorf("no owner references found")
-	}
-	wekaClientName := ownerReferences[0].Name
-	wekaClient := &weka.WekaClient{}
-	err := r.Get(ctx, client.ObjectKey{Name: wekaClientName, Namespace: r.container.Namespace}, wekaClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get WekaClient: %w", err)
-	}
-	return wekaClient, nil
 }

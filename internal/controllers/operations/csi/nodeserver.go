@@ -10,6 +10,7 @@ import (
 
 func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName string, tolerations []corev1.Toleration) *corev1.Pod {
 	privileged := true
+
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

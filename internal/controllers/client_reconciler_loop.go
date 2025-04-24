@@ -3,7 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/resources/csi"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"reflect"
 	"time"
 
@@ -62,6 +63,7 @@ type clientReconcilerLoop struct {
 	upgradeInProgress bool
 	ExecService       exec.ExecService
 	targetCluster     *weka.WekaCluster
+	csiDeployed       bool
 }
 
 func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
@@ -124,6 +126,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.EnsureCSIPlugin,
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CSIInstallationEnabled),
+					lifecycle.BoolValue(!loop.csiDeployed),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -935,10 +938,8 @@ func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka
 }
 
 func (c *clientReconcilerLoop) EnsureCSIPlugin(ctx context.Context) error {
-	namespace, err := util2.GetPodNamespace()
-	if err != nil {
-		return err
-	}
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
 
 	var csiDriverName string
 	emptyRef := weka.ObjectReference{}
@@ -952,82 +953,36 @@ func (c *clientReconcilerLoop) EnsureCSIPlugin(ctx context.Context) error {
 		csiDriverName = csi.GetCsiDriverNameFromClient(c.wekaClient)
 	}
 
-	c.wekaClient.Status.CsiDriverName = csiDriverName
-	err = c.Status().Update(ctx, c.wekaClient)
+	err := workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
+		patch := client.MergeFrom(container.DeepCopy())
+		container.Spec.CsiDriverName = csiDriverName
+		if err := c.Patch(ctx, container, patch); err != nil {
+			return errors.Wrap(err, "failed to update container CSI driver name")
+		}
+		return nil
+	}).AsError()
 	if err != nil {
 		return err
 	}
 
-	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
+	op := operations.NewDeployCsiOperation(
+		c.Manager,
+		c.wekaClient,
+		csiDriverName,
+	)
 
-	tolerations := tolerationsToObj(c.wekaClient.Spec.Tolerations)
-	fileSystemName := config.Consts.CSIFileSystemName
-
-	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: csiDriverName},
-		func() client.Object { return csi.NewCSIDriver(csiDriverName) }); err != nil {
-		return err
+	err = operations.ExecuteOperation(ctx, op)
+	if err != nil {
+		return errors.Wrap(err, "failed to deploy CSI driver")
 	}
-
-	storageClassName := csi.GenerateStorageClassName(csiDriverName, fileSystemName)
-	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
-		func() client.Object {
-			return csi.NewCSIStorageClass(csiBaseName, csiDriverName, storageClassName, fileSystemName)
-		}); err != nil {
-		return err
-	}
-
-	mountOptions := []string{"forcedirect"}
-	storageClassForceDirectName := csi.GenerateStorageClassName(csiDriverName, fileSystemName, mountOptions...)
-	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
-		func() client.Object {
-			return csi.NewCSIStorageClass(csiBaseName, csiDriverName,
-				storageClassForceDirectName, fileSystemName, mountOptions...)
-		}); err != nil {
-		return err
-	}
-
-	controllerDeploymentName := csiBaseName + "-csi-controller"
-	if err := c.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: namespace},
-		func() client.Object {
-			return csi.NewCSIControllerDeployment(controllerDeploymentName, namespace,
-				csiDriverName, tolerations)
-		}); err != nil {
-		return err
-	}
-
+	c.csiDeployed = true
 	return nil
-}
-
-func (c *clientReconcilerLoop) createIfNotExists(ctx context.Context, key client.ObjectKey,
-	objectFactory func() client.Object) error {
-
-	newObj := objectFactory()
-	typeName := fmt.Sprintf("%T", newObj)
-	err := c.Create(ctx, newObj)
-	if client.IgnoreAlreadyExists(err) != nil {
-		return fmt.Errorf("failed to create %s %s: %w", typeName, key.Name, err)
-	}
-
-	return nil
-}
-
-func tolerationsToObj(tolerations []string) []v1.Toleration {
-	tolerationObjects := make([]v1.Toleration, len(tolerations))
-	for i, toleration := range tolerations {
-		tolerationObjects[i] = v1.Toleration{
-			Effect:   v1.TaintEffectNoSchedule,
-			Key:      toleration,
-			Operator: v1.TolerationOpExists,
-		}
-	}
-	return tolerationObjects
 }
 
 func (c *clientReconcilerLoop) getTargetClusterFromClient(ctx context.Context) (*weka.WekaCluster, error) {
 	if c.wekaClient.Spec.TargetCluster.Name == "" {
 		return nil, fmt.Errorf("target cluster name is empty")
 	}
-
 	wekaCluster := &weka.WekaCluster{}
 	err := c.Get(ctx, client.ObjectKey{
 		Name:      c.wekaClient.Spec.TargetCluster.Name,
@@ -1036,6 +991,5 @@ func (c *clientReconcilerLoop) getTargetClusterFromClient(ctx context.Context) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to get WekaCluster %s: %w", c.wekaClient.Spec.TargetCluster.Name, err)
 	}
-
 	return wekaCluster, nil
 }
