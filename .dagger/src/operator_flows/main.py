@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List
 
 import dagger
@@ -46,7 +47,7 @@ class OperatorFlows:
         )
 
     @function
-    async def get_pr_content(
+    async def _get_pr_content(
             self,
             pr_number: int,
             repository: str,
@@ -69,7 +70,7 @@ class OperatorFlows:
                                   repository: str,
                                   gh_token: dagger.Secret
                                   ) -> str:
-        body = await self.get_pr_content(
+        body = await self._get_pr_content(
             pr_number=pr_number,
             repository=repository,
             gh_token=gh_token
@@ -98,7 +99,7 @@ class OperatorFlows:
                                  ) -> str:
         bodies = []
         for pr_number in pr_numbers:
-            body = await self.get_pr_content(
+            body = await self._get_pr_content(
                 pr_number=pr_number,
                 repository=repository,
                 gh_token=gh_token
@@ -134,7 +135,7 @@ class OperatorFlows:
         )
 
     @function
-    async def ci_on_merge_queue(self,
+    async def ci_on_merge_queue_env(self,
                         operator: dagger.Directory,
                         testing: dagger.Directory,
                         wekai: dagger.Directory,
@@ -167,4 +168,35 @@ class OperatorFlows:
         from containers.builders import build_go
         return await (
             await build_go(src, sock, cache_deps=False, program_path="cmd/manager/main.go")
+        )
+
+    def _extract_pr_numbers(self, title: str) -> List[int]:
+        """Extracts PR numbers from a title string containing format like '(PRs 1132, 1133,...)'"""
+        match = re.search(r'\(PRs\s+([\d,\s]+)\)', title)
+        if match:
+            numbers_str = match.group(1)
+            return [int(num.strip()) for num in numbers_str.split(',')]
+        return []
+
+    @function
+    async def ci_on_merge_queue_plan(self,
+                                     operator: dagger.Directory,
+                                     testing: dagger.Directory,
+                                     wekai: dagger.Directory,
+                                     sock: dagger.Socket,
+                                     mq_pr_number: int,
+                                     gh_token: dagger.Secret,
+                                     ) -> str:
+        # TODO: go run main.go upgrade-extended --initial-version quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha --new-version quay.io/weka.io/weka-in-container:4.4.5.111-k8s --operator-version v1.5.0-dev.48 --namespace test-upgrade-extended --cluster-name upgrade-extended --cleanup
+        from containers.builders import build_go
+        env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock)
+        #TODO: we will execute(?) upgade test in this env, but should it be part of dagger flow? or only prepare images and so?
+
+        gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
+        pr = gh_client.get_pr_details(mq_pr_number)
+        pr_numbers = self._extract_pr_numbers(pr.title)
+        return await self.ai_build_test_plan(
+            pr_numbers=pr_numbers,
+            repository="weka/weka-operator",
+            gh_token=gh_token
         )
