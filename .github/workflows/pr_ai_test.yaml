@@ -1,9 +1,8 @@
 name: Run Test with AI hooks
 run-name: ${{ github.actor }} is running the AI test
 
-# make sure only one workflow is running at a time
 concurrency:
-  group: upgrade-test
+  group: ${{ github.workflow }}-${{ inputs.pr_ids || github.event.pull_request.number }}
   cancel-in-progress: false
 
 permissions:
@@ -17,6 +16,18 @@ on:
       - ready_for_review
     # branches:
     #   - main
+  workflow_dispatch:
+    inputs:
+      pr_ids:
+        description: 'Space-separated list of PR IDs to process'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      pr_ids:
+        description: 'Space-separated list of PR IDs to process'
+        required: true
+        type: string
 
 jobs:
   optimize_ci:
@@ -30,26 +41,38 @@ jobs:
       with:
         graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
 
-  can_test_using_hooks:
+  process_prs:
     runs-on: ubuntu-latest
-    needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
+    needs: [optimize_ci]
+    if: ${{ (github.event_name == 'pull_request' && needs.optimize_ci.outputs.skip == 'false') || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' }}
     steps:
       - name: Checkout operator
         uses: actions/checkout@v4
+        
       - name: Set up Python and install uv
         run: |
           python -m pip install --upgrade pip
           pip install uv
           
-      - name: Run process_pr_hooks script
+      - name: Prepare PR IDs
+        id: prepare_pr_ids
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "PR_IDS=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+          else
+            # Use the PR IDs as provided (already space-separated)
+            echo "PR_IDS=${{ inputs.pr_ids }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Run process_pr_hooks script for all PRs
         id: run_process_hooks
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_PAT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./workflows/script_process_pr_hooks.py ${{ github.event.pull_request.number }}
+          # Pass all PR IDs as separate arguments to the script
+          ./workflows/script_process_pr_hooks.py $PR_IDS
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
