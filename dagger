@@ -23,7 +23,7 @@ fi
 export _EXPERIMENTAL_DAGGER_RUNNER_HOST="docker-container://${ENGINE_NAME}"
 
 # 3⃣  scrub env-vars & call dagger
-unset OTEL_EXPORTER_OTLP_ENDPOINT OPENAI_API_KEY ANTHROPIC_API_KEY
+unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
 export DAGGER_NO_NAG=1
 
 exec dagger "$@"

@@ -52,4 +52,4 @@ async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: 
 """])
         .stdout()
     )
-    return f"{repository}:{version}"
+    return f"{repository}/weka-operator:{version}"
