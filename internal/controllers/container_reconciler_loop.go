@@ -2738,12 +2738,6 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 		return err
 	}
 
-	logger.Info("Running prepare-upgrade")
-	err = r.runDriverPrepareUpgrade(ctx, executor)
-	if err != nil {
-		return err
-	}
-
 	if !container.Spec.AllowHotUpgrade {
 		logger.Debug("Hot upgrade is not enabled, issuing weka local stop")
 		err := r.runWekaLocalStop(ctx, pod, false)
@@ -2765,6 +2759,13 @@ fi
 			err = fmt.Errorf("error removing wekafsio and wekafsgw drivers: %w, stderr: %s", err, stderr.String())
 			return err
 		}
+	} else {
+		logger.Info("Running prepare-upgrade")
+		err = r.runDriverPrepareUpgrade(ctx, executor)
+		if err != nil {
+			return err
+		}
+		logger.Debug("Hot upgrade is enabled, skipping driver removal")
 	}
 	return nil
 }

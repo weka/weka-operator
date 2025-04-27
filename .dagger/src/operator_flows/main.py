@@ -208,6 +208,13 @@ class OperatorFlows:
             return [int(num.strip()) for num in numbers_str.split(',')]
         return []
 
+    # @function
+    # async def ci_on_merge_queue_upgrade_env(self,
+    #
+    #
+    #                                         ): -> dagger.Container:
+    # pass
+
     @function
     async def ci_on_merge_queue_plan(self,
                                      operator: Annotated[dagger.Directory, Ignore([
