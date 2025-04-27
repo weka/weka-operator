@@ -61,5 +61,9 @@ async def _uv_base() -> Container:
     return await (
         dag.container()
         .from_("ghcr.io/astral-sh/uv:alpine")
-        .with_exec(["apk", "add", "--no-cache", "python3", "py3-pip"])
+        .with_exec(["apk", "add", "--no-cache",
+                    "python3",
+                    "py3-pip",
+                    "bash"]
+                   )
     )

@@ -5,7 +5,7 @@ from pathlib import Path
 import dagger
 from dagger import dag, function, object_type
 
-from containers.builders import build_go
+from containers.builders import build_go, _uv_base
 from utils.github import GitHubClient
 
 
@@ -226,12 +226,11 @@ class OperatorFlows:
         )
 
         organized_artifacts = (
-            dag.container()
-            .from_("alpine:latest")
+            (await _uv_base())
             .with_directory("/operator", operator)
             .with_workdir("/operator")
             .with_directory("/test_artifacts", test_artifacts)
-            .with_exec(["script/organize_pr_hooks.sh", "/test_artifacts", "/test_artifacts_organized"])
+            .with_exec(["/operator/script/organize_pr_hooks.sh", "/test_artifacts", "/test_artifacts_organized"])
             .directory("/test_artifacts_organized")
         )
         # organized_artifacts = (
