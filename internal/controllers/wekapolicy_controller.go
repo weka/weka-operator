@@ -146,6 +146,21 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			false,
 		)
 		loop.Op = discoverDrivesOp
+	case "ensure-nics":
+		ensureNICsOp := operations.NewEnsureNICsOperation(
+			r.Mgr,
+			wekaPolicy.Spec.Payload.EnsureNICs,
+			wekaPolicy,
+			weka.WekaContainerDetails{
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
+				Tolerations:     wekaPolicy.Spec.Tolerations,
+				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+			},
+			wekaPolicy.Status.Status,
+			onSuccess,
+		)
+		loop.Op = ensureNICsOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
 	}

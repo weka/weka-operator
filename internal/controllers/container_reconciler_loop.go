@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go/types"
 	"io"
 	"net/http"
 	"path"
@@ -27,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
+	k8sTypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -497,6 +498,13 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.AllocateNICs,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldAllocateNICs,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				// let drivers being re-built if node with drivers container is not found
 				Run: loop.clearStatusOnNodeNotFound,
 				Predicates: lifecycle.Predicates{
@@ -731,11 +739,131 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 	}
 }
 
+func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
+	if !r.container.IsWekaContainer() {
+		return false
+	}
+
+	if r.node == nil {
+		return false
+	}
+
+	if r.container.IsMarkedForDeletion() {
+		return false
+	}
+
+	if r.container.Spec.Network.UdpMode {
+		return false
+	}
+
+	if !strings.HasPrefix(r.node.Spec.ProviderID, "aws://") {
+		return false
+
+	}
+
+	annotationAllocations := make(domain.Allocations)
+	allocationsStr, ok := r.node.Annotations[domain.WEKAAllocations]
+	if ok {
+		err := json.Unmarshal([]byte(allocationsStr), &annotationAllocations)
+		if err != nil {
+			return true
+		}
+		allocationIdentifier := domain.GetAllocationIdentifier(r.container.Namespace, r.container.Name)
+		nicsAllocationsNumber := 0
+		if _, ok = annotationAllocations[allocationIdentifier]; ok {
+			nicsAllocationsNumber = len(annotationAllocations[allocationIdentifier].NICs)
+		}
+		if nicsAllocationsNumber >= r.container.Spec.NumCores {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (r *containerReconcilerLoop) AllocateNICs(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateNICs")
+	defer end()
+
+	logger.Debug("Allocating container NICS", "name", r.container.ObjectMeta.Name)
+
+	nicsStr, ok := r.node.Annotations[domain.WEKANICs]
+	if !ok {
+		err := fmt.Errorf("node %s does not have weka-nics annotation, but dpdk is enabled", r.node.Name)
+		logger.Error(err, "")
+		return err
+	}
+
+	annotationAllocations := make(domain.Allocations)
+	allocationsStr, ok := r.node.Annotations[domain.WEKAAllocations]
+	if ok {
+		err := json.Unmarshal([]byte(allocationsStr), &annotationAllocations)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
+		}
+	}
+
+	var allNICs []domain.NIC
+	err := json.Unmarshal([]byte(nicsStr), &allNICs)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal weka-nics: %v", err)
+	}
+
+	allocatedNICs := make(map[string]types.Nil)
+	for _, alloc := range annotationAllocations {
+		for _, nicIdentifier := range alloc.NICs {
+			allocatedNICs[nicIdentifier] = types.Nil{}
+		}
+	}
+
+	allocationIdentifier := domain.GetAllocationIdentifier(r.container.Namespace, r.container.Name)
+	nicsAllocationsNumber := 0
+	if _, ok := annotationAllocations[allocationIdentifier]; ok {
+		nicsAllocationsNumber = len(annotationAllocations[allocationIdentifier].NICs)
+	} else {
+		annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: []string{}}
+	}
+
+	requiredNicsNumber := r.container.Spec.NumCores
+	logger.Debug("Allocated NICs", "allocatedNICs", allocatedNICs, "container", r.container.Name)
+	if nicsAllocationsNumber >= requiredNicsNumber {
+		logger.Debug("Container already allocated NICs", "name", r.container.ObjectMeta.Name)
+		return nil
+	}
+	logger.Info("Allocating NICs", "requiredNicsNumber", requiredNicsNumber, "nicsAllocationsNumber", nicsAllocationsNumber, "container", r.container.Name)
+	for range make([]struct{}, requiredNicsNumber-nicsAllocationsNumber) {
+		for _, nic := range allNICs {
+			if _, ok = allocatedNICs[nic.MacAddress]; !ok {
+				allocatedNICs[nic.MacAddress] = types.Nil{}
+				logger.Debug("Allocating NIC", "nic", nic.MacAddress, "container", r.container.Name)
+				nics := append(annotationAllocations[allocationIdentifier].NICs, nic.MacAddress)
+				annotationAllocations[allocationIdentifier] = domain.Allocation{NICs: nics}
+				break
+			}
+		}
+	}
+	allocationsBytes, err := json.Marshal(annotationAllocations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal weka-allocations: %v", err)
+	}
+
+	r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
+	return r.Client.Update(ctx, r.node)
+}
+
 func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	err := r.finalizeContainer(ctx)
+	logger.Info("Handling container deletion", "container", r.container.Name)
+
+	err := r.removeAllocations(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to remove container allocations annotations from node")
+		return err
+	}
+
+	err = r.finalizeContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -1022,6 +1150,48 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 	return nil
 }
 
+func (r *containerReconcilerLoop) removeAllocations(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeAllocations")
+	defer end()
+
+	logger.Info("Removing allocations", "container_id", r.container.Status.ClusterContainerID, "container_name", r.container.Name)
+	annotationAllocations := make(domain.Allocations)
+	patch := client.MergeFrom(r.node.DeepCopy())
+	allocationsStr, ok := r.node.Annotations[domain.WEKAAllocations]
+	if ok {
+		err := json.Unmarshal([]byte(allocationsStr), &annotationAllocations)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
+		}
+	} else {
+		logger.Info("No allocations found in node annotations")
+		return nil
+	}
+	updated := false
+	updatedAnnotationAllocations := make(domain.Allocations)
+	for key, alloc := range annotationAllocations {
+		if domain.GetAllocationIdentifier(r.container.ObjectMeta.Namespace, r.container.ObjectMeta.Name) == key {
+			logger.Info("Removing allocation", "allocation_id", key)
+			updated = true
+		} else {
+			updatedAnnotationAllocations[key] = alloc
+		}
+	}
+	if updated {
+		allocationsBytes, err := json.Marshal(updatedAnnotationAllocations)
+		if err != nil {
+			return fmt.Errorf("failed to marshal weka-allocations: %v", err)
+		}
+		r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
+		err = r.Patch(ctx, r.node, patch)
+		if err != nil {
+			return fmt.Errorf("failed to patch node annotations: %v", err)
+		}
+	}
+
+	return nil
+}
+
 func (r *containerReconcilerLoop) removeDeactivatedContainers(ctx context.Context, containerId int) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -1059,7 +1229,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 	// so we should not check if node is alive
 	if nodeName != "" && (!NodeIsReady(r.node) || NodeIsUnschedulable(r.node)) {
 		if config.Config.CleanupRemovedNodes {
-			_, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+			_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					logger.Info("node is deleted, no need for cleanup")
@@ -1384,6 +1554,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 			return err
 		}
 	}
+	logger.Info("Force stop instruction written")
 	return nil
 }
 
@@ -1941,7 +2112,7 @@ func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 		return nil
 	}
 
-	node, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+	node, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Node not found", "node", nodeName)
@@ -2973,7 +3144,10 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 			allocations.MachineIdentifier = uid
 		}
 	}
-
+	allocations.NetDevices, err = getNetDevices(ctx, r.node, r.container)
+	if err != nil {
+		return err
+	}
 	var resourcesJson []byte
 	resourcesJson, err = json.Marshal(allocations)
 	if err != nil {
@@ -3245,7 +3419,7 @@ func (r *containerReconcilerLoop) clearStatusOnNodeNotFound(ctx context.Context)
 
 	nodeName := r.container.GetNodeAffinity()
 
-	_, err := r.KubeService.GetNode(ctx, types.NodeName(nodeName))
+	_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Node not found, clearing status")
@@ -3324,7 +3498,7 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 
 	affinity := r.container.GetNodeAffinity()
 	if affinity != "" {
-		_, err := r.KubeService.GetNode(ctx, types.NodeName(affinity))
+		_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(affinity))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				deleteError := r.Client.Delete(ctx, r.container)
@@ -3380,6 +3554,14 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		err = fmt.Errorf("error unmarshalling execution result: %w", err)
 		return err
 	}
+
+	//Update weka.io/weka-nics annotation
+	var nics []domain.NIC
+	if nicsStr, ok := node.Annotations["weka.io/weka-nics"]; ok {
+		_ = json.Unmarshal([]byte(nicsStr), &nics)
+	}
+	node.Status.Capacity["weka.io/nics"] = *resource.NewQuantity(int64(len(nics)), resource.DecimalSI)
+	node.Status.Allocatable["weka.io/nics"] = *resource.NewQuantity(int64(len(nics)), resource.DecimalSI)
 
 	// Update weka.io/weka-drives annotation
 	previousDrives := []string{}
