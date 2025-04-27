@@ -140,7 +140,7 @@ class OperatorFlows:
                         testing: dagger.Directory,
                         wekai: dagger.Directory,
                         sock: dagger.Socket,
-                        kubeconfig_path: dagger.File,
+                        kubeconfig_path: dagger.Secret,
                         operator_version: str = "",
                         ) -> dagger.Container:
         from containers.builders import _uv_base
@@ -164,7 +164,7 @@ class OperatorFlows:
             base_container = (
                 base_container
                 .with_exec(["mkdir", "-p", "/.kube"])
-                .with_mounted_file("/.kube/config", kubeconfig_path)
+                .with_mounted_secret("/.kube/config", kubeconfig_path)
             )
         
         return base_container
@@ -201,7 +201,7 @@ class OperatorFlows:
                                      gh_token: dagger.Secret,
                                      openai_api_key: dagger.Secret,
                                      gemini_api_key: dagger.Secret,
-                                     kubeconfig_path: dagger.File,
+                                     kubeconfig_path: dagger.Secret,
                                      operator_version: str = "",
                                      initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
                                      new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
