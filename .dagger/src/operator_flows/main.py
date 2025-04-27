@@ -1,9 +1,8 @@
 import re
-from typing import List
-from pathlib import Path
+from typing import List, Annotated
 
 import dagger
-from dagger import dag, function, object_type
+from dagger import dag, function, object_type, Ignore
 
 from containers.builders import build_go, _uv_base
 from utils.github import GitHubClient
@@ -131,25 +130,43 @@ class OperatorFlows:
             dag.container()
             .from_("alpine:latest")
             .with_exec(["echo", "dummy"])
-            .publish("images.services.scalar:5002/alpine:latest")
+            .publish("images.scalar.dev.weka.io:5002/alpine:latest")
         )
 
     @function
     async def ci_on_merge_queue_env(self,
-                        operator: dagger.Directory,
-                        testing: dagger.Directory,
-                        wekai: dagger.Directory,
-                        sock: dagger.Socket,
-                        kubeconfig_path: dagger.Secret,
-                        operator_version: str = "",
-                        ) -> dagger.Container:
+                                    operator: Annotated[dagger.Directory, Ignore([
+                                        "node_modules",
+                                        ".aider*",
+                                        ".git",
+                                        ".dagger",
+                                        "bin",
+                                        "build",
+                                        "terraform",
+                                    ])],
+                                    testing: Annotated[dagger.Directory, Ignore([
+                                        ".aider*",
+                                        ".git",
+                                    ])],
+                                    wekai: Annotated[dagger.Directory, Ignore([
+                                        ".aider*",
+                                        ".git",
+                                    ])],
+                                    sock: dagger.Socket,
+                                    kubeconfig_path: dagger.Secret,
+                                    operator_version: str = "",
+                                    ) -> dagger.Container:
         from containers.builders import _uv_base
         from apps.operator import publish_operator, publish_operator_helm_chart
 
         wekai = await build_go(wekai, sock)
         testing = await build_go(testing, sock, cache_deps=False)
-        operator_image = await publish_operator(operator, sock, repository="images.services.scalar:5002/weka-operator", version=operator_version)
-        operator_helm = await publish_operator_helm_chart(operator, sock, repository="images.services.scalar:5002/helm", version=operator_version)
+        operator_image = await publish_operator(operator, sock,
+                                                repository="images.scalar.dev.weka.io:5002/weka-operator",
+                                                version=operator_version)
+        operator_helm = await publish_operator_helm_chart(operator, sock,
+                                                          repository="images.scalar.dev.weka.io:5002/helm",
+                                                          version=operator_version)
 
         base_container = await _uv_base()
         base_container = (
@@ -166,7 +183,7 @@ class OperatorFlows:
                 .with_exec(["mkdir", "-p", "/.kube"])
                 .with_mounted_secret("/.kube/config", kubeconfig_path)
             )
-        
+
         return base_container
 
     @function
@@ -193,9 +210,23 @@ class OperatorFlows:
 
     @function
     async def ci_on_merge_queue_plan(self,
-                                     operator: dagger.Directory,
-                                     testing: dagger.Directory,
-                                     wekai: dagger.Directory,
+                                     operator: Annotated[dagger.Directory, Ignore([
+                                         "node_modules",
+                                         ".aider*",
+                                         ".git",
+                                         ".dagger",
+                                         "bin",
+                                         "build",
+                                         "terraform",
+                                     ])],
+                                     testing: Annotated[dagger.Directory, Ignore([
+                                         ".aider*",
+                                         ".git",
+                                     ])],
+                                     wekai: Annotated[dagger.Directory, Ignore([
+                                         ".aider*",
+                                         ".git",
+                                     ])],
                                      sock: dagger.Socket,
                                      mq_pr_number: int,
                                      gh_token: dagger.Secret,
@@ -207,8 +238,8 @@ class OperatorFlows:
                                      new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
                                      ) -> str:
         env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, kubeconfig_path, operator_version)
-        
-        #TODO: we will execute(?) upgade test in this env, but should it be part of dagger flow? or only prepare images and so?
+
+        # TODO: we will execute(?) upgade test in this env, but should it be part of dagger flow? or only prepare images and so?
 
         gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
         pr = gh_client.get_pr_details(mq_pr_number)
@@ -216,7 +247,7 @@ class OperatorFlows:
 
         if not pr_numbers:
             raise ValueError(f"PR {mq_pr_number} does not contain any PR numbers in the title")
-        
+
         # call generate_ai_plan_for_prs
         test_artifacts = await self.generate_ai_plan_for_prs(
             operator=operator,
@@ -233,14 +264,6 @@ class OperatorFlows:
             .with_exec(["/operator/script/organize_pr_hooks.sh", "/test_artifacts", "/test_artifacts_organized"])
             .directory("/test_artifacts_organized")
         )
-        # organized_artifacts = (
-        #     dag.container()
-        #     .from_("alpine:latest")
-        #     .with_directory("/operator", operator)
-        #     .with_workdir("/operator")
-        #     .directory("test_artifacts_organized")
-        # )
-        
         # Extract hooks environment variables
         hooks_env_vars = await self._get_hook_env_vars(organized_artifacts)
 
@@ -257,11 +280,11 @@ class OperatorFlows:
             env
             .with_directory("/test_artifacts_organized", organized_artifacts)
         )
-        
+
         # Add hook environment variables to the container
         for hook_name, hook_path in hook_env_dict.items():
             upgrade_test_container = upgrade_test_container.with_env_variable(hook_name, hook_path)
-        
+
         # Add wekai to the PATH and set environment variables similar to GitHub workflow
         upgrade_test_container = (
             upgrade_test_container
@@ -273,15 +296,15 @@ class OperatorFlows:
         )
 
         versions = await env.file("/versions").contents()
-        # images.services.scalar:5002/helm/weka-operator:v1.5.1-kristina-test
+        # images.scalar.dev.weka.io:5002/helm/weka-operator:v1.5.1-kristina-test
         operator_helm_image_with_version = versions.split("\n")[1]
         operator_version = operator_helm_image_with_version.split(":")[-1]
         operator_helm_image = operator_helm_image_with_version.removesuffix(f":{operator_version}")
-        # images.services.scalar:5002/weka-operator:v1.5.1-kristina-test@sha256:ed47ec60b6d635f3a03022a1f7c82f2db7203c4ba2a7b13ef22545c3dec6b799
+        # images.scalar.dev.weka.io:5002/weka-operator:v1.5.1-kristina-test@sha256:ed47ec60b6d635f3a03022a1f7c82f2db7203c4ba2a7b13ef22545c3dec6b799
         operator_full_image = versions.split("\n")[0]
         operator_image_with_version = operator_full_image.split("@")[0]
         operator_image = operator_image_with_version.removesuffix(f":{operator_version}")
-        
+
         # Execute the upgrade test command
         result = await (
             upgrade_test_container
@@ -300,16 +323,16 @@ class OperatorFlows:
             ])
             .stdout()
         )
-        
+
         return result
 
     @function
     async def generate_ai_plan_for_prs(
-        self,
-        operator: dagger.Directory,
-        pr_numbers: List[int],
-        gh_token: dagger.Secret,
-        openai_api_key: dagger.Secret,
+            self,
+            operator: dagger.Directory,
+            pr_numbers: List[int],
+            gh_token: dagger.Secret,
+            openai_api_key: dagger.Secret,
     ) -> dagger.Directory:
         """
         Generate test plans for the specified PR numbers using AI by calling the script_process_pr_hooks script.
@@ -324,7 +347,7 @@ class OperatorFlows:
             Directory containing the generated test artifacts
         """
         from containers.builders import _uv_base
-        
+
         # Create the base container with UV
         base_container = await _uv_base()
         container = (
@@ -337,13 +360,13 @@ class OperatorFlows:
 
         # Convert PR numbers to space-separated string
         pr_ids_str = " ".join(str(pr_num) for pr_num in pr_numbers)
-        
+
         # Explicitly run the script with python instead of relying on the shebang
-        container = container.with_exec(["uv", "run", "--no-project", "--with", "openai-agents", "python", "workflows/script_process_pr_hooks.py"] + pr_ids_str.split())
-        
+        container = container.with_exec(["uv", "run", "--no-project", "--with", "openai-agents", "python",
+                                         "workflows/script_process_pr_hooks.py"] + pr_ids_str.split())
+
         # Return the directory with generated artifacts
         return container.directory("/operator/test_artifacts")
-
 
     @function
     async def _get_hook_env_vars(self, organized_artifacts: dagger.Directory) -> dagger.File:
@@ -383,8 +406,26 @@ class OperatorFlows:
                 
                 # Save hook environment variables to a file
                 echo -e "$hook_env_vars" > /hooks_env_vars.txt
-            """]) 
+            """])
         )
-        
+
         # Get the hooks environment variables
         return await hooks_container.file("/hooks_env_vars.txt").contents()
+
+    @function
+    async def operator_explore(self,
+                                     operator: Annotated[dagger.Directory, Ignore([
+                                         "node_modules",
+                                         ".aider*",
+                                         ".git",
+                                         ".dagger",
+                                         "bin",
+                                         "build",
+                                         "terraform",
+                                     ])],
+                               ) -> dagger.Container:
+        return await (
+            dag.container()
+            .from_("ubuntu:24.04")
+            .with_directory("/operator", operator)
+        )

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENGINE_NAME="dagger-engine-v0.18.4" # is it in use by default? not sure, but keeping for reference
-ENGINE_IMAGE="registry.dagger.io/engine:v0.18.4"
-
 # supressing ugly logs/unsetting OTEL
 unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
 export DAGGER_NO_NAG=1
+
+export _EXPERIMENTAL_DAGGER_RUNNER_HOST='kube-pod://dagger-dagger-helm-engine-vlhdt?namespace=infra'
 
 exec dagger "$@"
 
