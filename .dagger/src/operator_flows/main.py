@@ -1,4 +1,5 @@
 import re
+import logging
 from typing import Dict, List, Annotated
 
 import dagger
@@ -7,6 +8,8 @@ from dagger import dag, function, object_type, Ignore
 from containers.builders import build_go, _uv_base
 from utils.github import GitHubClient
 
+
+logger = logging.getLogger(__name__)
 
 @object_type
 class OperatorFlows:
@@ -123,7 +126,7 @@ class OperatorFlows:
                                          ".dagger",
                                      ])],
                                      sock: dagger.Socket,
-                                     mq_pr_number: int,
+                                     pr_number: int,
                                      gh_token: dagger.Secret,
                                      openai_api_key: dagger.Secret,
                                      gemini_api_key: dagger.Secret,
@@ -144,11 +147,13 @@ class OperatorFlows:
         )
 
         gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
-        pr = gh_client.get_pr_details(mq_pr_number)
-        pr_numbers = self._extract_pr_numbers(pr.title)
+        pr = gh_client.get_pr_details(pr_number)
+        if "[Graphite MQ]" in pr.title:
+            pr_numbers = self._extract_pr_numbers(pr.title)
+        else:
+            pr_numbers = [pr_number]
 
-        if not pr_numbers:
-            raise ValueError(f"PR {mq_pr_number} does not contain any PR numbers in the title")
+        logger.info(f"Processing PR {pr_number} with title: {pr.title}")
 
         # call generate_ai_plan_for_prs
         test_artifacts = await self.generate_ai_plan_for_prs(
@@ -209,7 +214,7 @@ class OperatorFlows:
                     "--node-selector", "weka.io/dedicated:upgrade-extended",
                     "--namespace", "test-upgrade-extended",
                     "--cluster-name", "upgrade-extended",
-                    "--cleanup", "no-cleanup"
+                    # "--cleanup", "no-cleanup"
                 ])
             )
             return result
@@ -287,6 +292,7 @@ class OperatorFlows:
             dag.container()
             .from_("alpine:latest")
             .with_directory("/test_artifacts", test_artifacts)
+            .with_exec(["tree", "/test_artifacts"])
             .with_exec(["sh", "-c", """
                 # Find all hook directories starting with 'hook_'
                 hook_env_vars=""
