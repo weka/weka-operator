@@ -1,5 +1,5 @@
 import re
-from typing import List, Annotated
+from typing import Dict, List, Annotated
 
 import dagger
 from dagger import dag, function, object_type, Ignore
@@ -34,7 +34,7 @@ class OperatorFlows:
                                     operator: Annotated[dagger.Directory, Ignore([
                                         "node_modules",
                                         ".aider*",
-                                        ".git",
+                                        "*/.git",
                                         ".dagger",
                                         "bin",
                                         "build",
@@ -42,11 +42,11 @@ class OperatorFlows:
                                     ])],
                                     testing: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
-                                        ".git",
+                                        "*/.git",
                                     ])],
                                     wekai: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
-                                        ".git",
+                                        "*/.git",
                                     ])],
                                     sock: dagger.Socket,
                                     ) -> dagger.Container:
@@ -106,7 +106,7 @@ class OperatorFlows:
                                      operator: Annotated[dagger.Directory, Ignore([
                                          "node_modules",
                                          ".aider*",
-                                         ".git",
+                                         "*/.git",
                                          ".dagger",
                                          "bin",
                                          "build",
@@ -114,11 +114,11 @@ class OperatorFlows:
                                      ])],
                                      testing: Annotated[dagger.Directory, Ignore([
                                          ".aider*",
-                                         ".git",
+                                         "*/.git",
                                      ])],
                                      wekai: Annotated[dagger.Directory, Ignore([
                                          ".aider*",
-                                         ".git",
+                                         "*/.git",
                                      ])],
                                      sock: dagger.Socket,
                                      mq_pr_number: int,
@@ -128,6 +128,7 @@ class OperatorFlows:
                                      kubeconfig_path: dagger.Secret,
                                      initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
                                      new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
+                                     export_artifacts_path: str = "./test_artifacts_exported",
                                      dry_run: bool = False,
                                      ) -> dagger.Container:
 
@@ -154,30 +155,17 @@ class OperatorFlows:
             gh_token=gh_token,
             openai_api_key=openai_api_key,
         )
+        # Export artifacts if path is provided
+        if export_artifacts_path:
+            await test_artifacts.export(export_artifacts_path)
 
-        organized_artifacts = (
-            (await _uv_base())
-            .with_directory("/operator", operator)
-            .with_workdir("/operator")
-            .with_directory("/test_artifacts", test_artifacts)
-            .with_exec(["/operator/script/organize_pr_hooks.sh", "/test_artifacts", "/test_artifacts_organized"])
-            .directory("/test_artifacts_organized")
-        )
         # Extract hooks environment variables
-        hooks_env_vars = await self._get_hook_env_vars(organized_artifacts)
-
-        # Parse hook environment variables into a dictionary
-        hook_env_dict = {}
-        if hooks_env_vars.strip():
-            for line in hooks_env_vars.strip().split("\n"):
-                if line.strip():
-                    key, value = line.strip().split("=", 1)
-                    hook_env_dict[key] = value
+        hook_env_dict = await self._get_hook_env_vars(test_artifacts)
 
         # Prepare container for running upgrade test
         upgrade_test_container = (
             env
-            .with_directory("/test_artifacts_organized", organized_artifacts)
+            .with_directory("/test_artifacts", test_artifacts)
         )
 
         # Add hook environment variables to the container
@@ -219,12 +207,26 @@ class OperatorFlows:
                     "--node-selector", "weka.io/dedicated:upgrade-extended",
                     "--namespace", "test-upgrade-extended",
                     "--cluster-name", "upgrade-extended",
-                    # "--cleanup-on-start"
+                    "--cleanup", "no-cleanup"
                 ])
             )
             return result
         else:
             return await upgrade_test_container
+        
+    @function
+    async def export_test_artifacts(self, test_artifacts: dagger.Directory, local_path: str) -> str:
+        """Export test artifacts to a local directory
+        
+        Args:
+            test_artifacts: Directory containing the test artifacts
+            local_path: Local path to export to
+            
+        Returns:
+            Path to the exported directory
+        """
+        await test_artifacts.export(local_path)
+        return local_path
 
     @function
     async def generate_ai_plan_for_prs(
@@ -268,13 +270,12 @@ class OperatorFlows:
         # Return the directory with generated artifacts
         return container.directory("/operator/test_artifacts")
 
-    @function
-    async def _get_hook_env_vars(self, organized_artifacts: dagger.Directory) -> dagger.File:
+    async def _get_hook_env_vars(self, test_artifacts: dagger.Directory) -> Dict[str, str]:
         """
-        Extract hook environment variables from the organized artifacts.
+        Extract hook environment variables from the test artifacts.
         
         Args:
-            organized_artifacts: Directory containing the organized test artifacts
+            test_artifacts: Directory containing the test artifacts
             
         Returns:
             Dictionary of hook environment variables (hook_name: hook_path)
@@ -283,26 +284,26 @@ class OperatorFlows:
         hooks_container = (
             dag.container()
             .from_("alpine:latest")
-            .with_directory("/test_artifacts_organized", organized_artifacts)
+            .with_directory("/test_artifacts", test_artifacts)
             .with_exec(["sh", "-c", """
                 # Find all hook directories starting with 'hook_'
                 hook_env_vars=""
-                for hook_dir in /test_artifacts_organized/hook_*; do
+                for hook_dir in /test_artifacts/hook_*; do
                     if [ -d "$hook_dir" ]; then
                         # Extract hook name from directory name (remove "hook_" prefix)
                         hook_name=$(basename "$hook_dir" | sed 's/^hook_//')
                         
-                        # Check if all_prs_hook.sh exists
-                        if [ -f "$hook_dir/all_prs_hook.sh" ]; then
-                            echo "Found hook: $hook_name -> $hook_dir/all_prs_hook.sh"
-                            hook_env_vars="$hook_env_vars\\n$hook_name=$hook_dir/all_prs_hook.sh"
-                            chmod +x "$hook_dir/all_prs_hook.sh"
+                        # Check if hook.sh exists
+                        if [ -f "$hook_dir/hook.sh" ]; then
+                            echo "Found hook: $hook_name -> $hook_dir/hook.sh"
+                            hook_env_vars="$hook_env_vars\\n$hook_name=$hook_dir/hook.sh"
+                            chmod +x "$hook_dir/hook.sh"
                         fi
                     fi
                 done
                 
                 # Make all hook scripts executable
-                find /test_artifacts_organized -name "*.sh" -exec chmod +x {} \\;
+                find /test_artifacts -name "*.sh" -exec chmod +x {} \\;
                 
                 # Save hook environment variables to a file
                 echo -e "$hook_env_vars" > /hooks_env_vars.txt
@@ -310,14 +311,23 @@ class OperatorFlows:
         )
 
         # Get the hooks environment variables
-        return await hooks_container.file("/hooks_env_vars.txt").contents()
+        hooks_env_vars = await hooks_container.file("/hooks_env_vars.txt").contents()
+
+        # Parse hook environment variables into a dictionary
+        hook_env_dict = {}
+        if hooks_env_vars.strip():
+            for line in hooks_env_vars.strip().split("\n"):
+                if line.strip():
+                    key, value = line.strip().split("=", 1)
+                    hook_env_dict[key] = value
+        return hook_env_dict
 
     @function
     async def operator_explore(self,
                                      operator: Annotated[dagger.Directory, Ignore([
                                          "node_modules",
                                          ".aider*",
-                                         ".git",
+                                         "*/.git",
                                          ".dagger",
                                          "bin",
                                          "build",

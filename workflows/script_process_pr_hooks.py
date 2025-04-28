@@ -7,7 +7,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from github import GitHubClient, GitHubError
 from generate_hooks import generate_hooks, InputFilePaths
@@ -129,47 +129,43 @@ This diff was too large to include in full. Here is a summary:
 ```"""
 
 
-def setup_output_directory(pr_number: int) -> Path:
-    """
-    Create an output directory for a specific PR.
-    
-    Args:
-        pr_number: PR number
-        
-    Returns:
-        Path to the created directory
-    """
-    output_dir = ARTIFACTS_BASE_DIR / f"pr_{pr_number}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
-
-
-def get_input_files(pr_info: PRInfo) -> InputFilePaths:
+def get_input_files(pr_infos: List[PRInfo], output_dir: Path) -> InputFilePaths:
     """
     Create necessary input files and return paths for hook generation.
     Directly references the original source locations.
     
     Args:
-        pr_info: PRInfo object with PR details
+        pr_infos: List of PRInfo objects with PR details
+        output_dir: Directory to save combined PR data
         
     Returns:
         InputFilePaths object containing all required file paths
     """
-    output_dir = pr_info.output_dir
-    
-    # Create diff section
-    diff_section = generate_diff_section(pr_info.diff, pr_info.diff_summary)
-    
-    # Save PR description
+    # Create a combined PR description and diff
     pr_desc_path = output_dir / "pr_description.txt"
-    with open(pr_desc_path, 'w') as f:
-        f.write(f"#{pr_info.number} {pr_info.title}\n")
-        f.write(pr_info.description or "")
-    
-    # Save PR diff
     pr_diff_path = output_dir / "pr_diff.txt"
+    
+    # Combine all PR descriptions
+    description, diff = "", ""
+    if len(pr_infos) > 1:
+        description = "# Combined PR Information\n\n"
+        diff = "# Combined Diffs from Multiple PRs\n\n"
+    
+    for pr_info in pr_infos:
+        description += f"## PR #{pr_info.number}: {pr_info.title}\n\n"
+        description += (pr_info.description or "") + "\n\n---\n\n"
+        
+        # Add diff section for this PR
+        diff += f"## Diff for PR #{pr_info.number}: {pr_info.title}\n\n"
+        diff_section = generate_diff_section(pr_info.diff, pr_info.diff_summary)
+        diff += diff_section + "\n\n---\n\n"
+    
+    # Save combined PR description and diff
+    with open(pr_desc_path, 'w') as f:
+        f.write(description)
+    
     with open(pr_diff_path, 'w') as f:
-        f.write(diff_section)
+        f.write(diff)
     
     # Define source files with their original paths
     source_files = {
@@ -187,7 +183,7 @@ def get_input_files(pr_info: PRInfo) -> InputFilePaths:
             logger.error(f"Required file {src_path} not found")
             raise FileNotFoundError(f"Required file {src_path} not found")
     
-    # Create InputFilePaths object with original file paths
+    # Create InputFilePaths object with original file paths and combined PR info
     return InputFilePaths(
         docs_dir=str(DOCS_DIR),
         base_instructions=str(source_files['base_instructions']),
@@ -200,88 +196,104 @@ def get_input_files(pr_info: PRInfo) -> InputFilePaths:
     )
 
 
-async def run_generate_hooks(pr_info: PRInfo, input_paths: InputFilePaths, dry_run: bool = False) -> None:
+async def run_generate_hooks(pr_infos: List[PRInfo], input_paths: InputFilePaths, output_dir: Path, dry_run: bool = False) -> None:
     """
-    Run the generate_hooks function to process the PR information.
+    Run the generate_hooks function to process all PR information at once.
     
     Args:
-        pr_info: PRInfo object with PR details
+        pr_infos: List of PRInfo objects with PR details
         input_paths: InputFilePaths object with paths to use as input
+        output_dir: Directory to save combined hooks
         dry_run: If True, just print what would happen without executing
     """
+    if not pr_infos:
+        logger.error("No PRs to process")
+        return
+    
     if dry_run:
         logger.info("[DRY RUN] Would generate hooks with the following paths:")
         for key, path in input_paths.__dict__.items():
             logger.info(f"  {key}: {path}")
-        logger.info(f"  Output directory: {pr_info.output_dir}")
+        logger.info(f"  Output directory: {output_dir}")
         return
     
     try:
-        # Call generate_hooks function directly with InputFilePaths object
-        logger.info(f"Generating hooks using InputFilePaths object")
-        await generate_hooks(input_paths=input_paths, output_dir=pr_info.output_dir)
-        logger.info(f"Successfully generated hooks in {pr_info.output_dir}")
+        # Call generate_hooks function directly with InputFilePaths object and output directory
+        logger.info(f"Generating hooks for {len(pr_infos)} PRs using combined InputFilePaths")
+        await generate_hooks(input_paths=input_paths, output_dir=output_dir)
+        logger.info(f"Successfully generated hooks in {output_dir}")
     except Exception as e:
-        logger.error(f"Failed to generate hooks: {e}")
+        logger.error(f"Failed to generate hooks: {e}", exc_info=True)
         raise
 
 
-async def process_pr(pr_number: int, github_client: GitHubClient, dry_run: bool = False) -> Optional[PRInfo]:
+async def process_prs(pr_numbers: List[int], github_client: GitHubClient, dry_run: bool = False) -> List[PRInfo]:
     """
-    Process a single PR - fetch details, generate hooks, save artifacts.
+    Process multiple PRs - fetch details for all, then generate hooks once with combined information.
     
     Args:
-        pr_number: PR number to process
+        pr_numbers: List of PR numbers to process
         github_client: Initialized GitHubClient
         dry_run: If True, don't execute actual commands
         
     Returns:
-        PRInfo object or None if processing failed
+        List of PRInfo objects or empty list if processing failed
     """
-    logger.info(f"Processing PR #{pr_number}")
+    logger.info(f"Processing {len(pr_numbers)} PRs: {pr_numbers}")
     
-    # Step 1: Get PR details
-    try:
-        pr_details = github_client.get_pr_details(pr_number)
-        if not pr_details:
-            logger.error(f"Could not fetch details for PR #{pr_number}")
-            return None
-        
-        # Get PR diff
-        pr_diff = github_client.get_pr_diff(pr_number)
-        if not pr_diff:
-            logger.error(f"Could not fetch diff for PR #{pr_number}")
-            return None
-        
-        # Create PRInfo object
-        pr_info = PRInfo(
-            number=pr_number,
-            title=pr_details.title,
-            description=pr_details.body,
-            diff=pr_diff
-        )
-        
-        # Create summary for large diffs
-        if len(pr_diff) > 10 * 1024:  # 10 KB
-            pr_info.diff_summary = create_diff_summary(pr_diff)
-        
-        # Set up output directory
-        pr_info.output_dir = setup_output_directory(pr_number)
-        logger.info(f"Created output directory: {pr_info.output_dir}")
- 
-        input_paths = get_input_files(pr_info)
-        # Run hook generation
-        await run_generate_hooks(pr_info, input_paths, dry_run)
-        logger.info(f"Completed processing PR #{pr_number}")
-        
-        return pr_info
+    # Create base output directory
+    ARTIFACTS_BASE_DIR.mkdir(exist_ok=True, parents=True)
     
-    except GitHubError as e:
-        logger.error(f"GitHub error processing PR #{pr_number}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error processing PR #{pr_number}: {e}", exc_info=True)
-        return None
+    # First, collect information for all PRs
+    pr_infos = []
+    
+    for pr_number in pr_numbers:
+        logger.info(f"Collecting information for PR #{pr_number}")
+        try:
+            # Get PR details
+            pr_details = github_client.get_pr_details(pr_number)
+            if not pr_details:
+                logger.error(f"Could not fetch details for PR #{pr_number}")
+                continue
+            
+            # Get PR diff
+            pr_diff = github_client.get_pr_diff(pr_number)
+            if not pr_diff:
+                logger.error(f"Could not fetch diff for PR #{pr_number}")
+                continue
+            
+            # Create PRInfo object
+            pr_info = PRInfo(
+                number=pr_number,
+                title=pr_details.title,
+                description=pr_details.body,
+                diff=pr_diff
+            )
+            
+            # Create summary for large diffs
+            if len(pr_diff) > 10 * 1024:  # 10 KB
+                pr_info.diff_summary = create_diff_summary(pr_diff)
+            
+            pr_infos.append(pr_info)
+        
+        except GitHubError as e:
+            logger.error(f"GitHub error processing PR #{pr_number}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error processing PR #{pr_number}: {e}", exc_info=True)
+    
+    if not pr_infos:
+        logger.error("No valid PRs to process")
+        return []
+    
+    # Now create a combined output directory and combined input files
+    output_dir = ARTIFACTS_BASE_DIR
+    input_paths = get_input_files(pr_infos, output_dir)
+    
+    # Run hook generation once with combined PR information
+    await run_generate_hooks(pr_infos, input_paths, output_dir, dry_run)
+    logger.info(f"Completed processing {len(pr_infos)} PRs with combined information")
+    
+    return pr_infos
 
 
 def main():
@@ -308,21 +320,21 @@ def main():
         logger.error(f"Failed to initialize GitHub client: {e}")
         sys.exit(1)
     
-    # Process each PR
-    processed_prs = []
-    for pr_number in args.pr_numbers:
-        try:
-            # Use asyncio.run to handle async function
-            pr_info = asyncio.run(process_pr(pr_number, github_client, args.dry_run))
-            if pr_info:
-                processed_prs.append(pr_info)
-        except Exception as e:
-            logger.error(f"Failed to process PR #{pr_number}: {e}")
-    
-    # Summary
-    logger.info(f"Processed {len(processed_prs)}/{len(args.pr_numbers)} PRs successfully")
-    for pr_info in processed_prs:
-        logger.info(f"PR #{pr_info.number}: {pr_info.title} - Output in {pr_info.output_dir}")
+    # Process all PRs at once
+    try:
+        processed_prs = asyncio.run(process_prs(args.pr_numbers, github_client, args.dry_run))
+        
+        # Summary
+        if processed_prs:
+            logger.info(f"Successfully processed {len(processed_prs)}/{len(args.pr_numbers)} PRs")
+            for pr_info in processed_prs:
+                logger.info(f"PR #{pr_info.number}: {pr_info.title} - Output in {pr_info.output_dir}")
+        else:
+            logger.error("Failed to process any PRs")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed to process PRs: {e}", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == '__main__':

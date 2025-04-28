@@ -11,9 +11,9 @@ permissions:
   actions: read
 
 on:
-  pull_request:
-    types:
-      - ready_for_review
+  # pull_request:
+  #   types:
+  #     - ready_for_review
     # branches:
     #   - main
   workflow_dispatch:
