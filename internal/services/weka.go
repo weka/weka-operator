@@ -1097,8 +1097,7 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	// Set OBS metrics
 	capacity.ObsBucketCount = obsCount
 	capacity.ActiveObsBucketCount = activeObsCount
-
-	// TODO: figure out how to get the total used capacity for the object store - TotalObsCapacity
+	capacity.TotalObsCapacity = capacity.TotalProvisionedCapacity - capacity.TotalProvisionedSSDCapacity
 
 	// Calculate available capacity
 	capacity.TotalAvailableCapacity = capacity.TotalProvisionedCapacity - capacity.TotalUsedCapacity

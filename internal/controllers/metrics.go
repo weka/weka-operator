@@ -141,58 +141,30 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 			{Tags: metrics2.TagMap{"type": "unprovisioned"}, Value: float64(cluster.Status.Stats.Capacity.UnprovisionedBytes)},
 			{Tags: metrics2.TagMap{"type": "unavailable"}, Value: float64(cluster.Status.Stats.Capacity.UnavailableBytes)},
 			{Tags: metrics2.TagMap{"type": "hotSpare"}, Value: float64(cluster.Status.Stats.Capacity.HotSpareBytes)},
+			// filesystem capacity metrics
+			{Tags: metrics2.TagMap{"type": "fs_total"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_ssd_total"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedSSDCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_ssd_used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedSSDCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_ssd_available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableSSDCapacity)},
+			{Tags: metrics2.TagMap{"type": "fs_obs_total"}, Value: float64(cluster.Status.Stats.Filesystem.TotalObsCapacity)},
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
 		Help:      "Weka cluster capacity in bytes",
 	})
 
-	// Add filesystem capacity metrics if they are populated
-	if cluster.Status.Stats.Filesystem.TotalProvisionedCapacity > 0 {
+	if cluster.Status.Stats.Filesystem.HasTieredFilesystems {
+		// Add OBS bucket count metrics
 		metrics = append(metrics, metrics2.PromMetric{
-			Metric: "weka_filesystem_capacity_bytes",
+			Metric: "weka_cluster_obs_buckets_count",
 			ValuesByTags: []metrics2.TaggedValue{
-				{Tags: metrics2.TagMap{"type": "provisioned"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedCapacity)},
-				{Tags: metrics2.TagMap{"type": "used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedCapacity)},
-				{Tags: metrics2.TagMap{"type": "available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableCapacity)},
+				{Tags: metrics2.TagMap{"status": "total"}, Value: float64(cluster.Status.Stats.Filesystem.ObsBucketCount)},
+				{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Filesystem.ActiveObsBucketCount)},
 			},
 			Timestamp: cluster.Status.Stats.LastUpdate.Time,
-			Help:      "Weka filesystem capacity in bytes",
+			Help:      "Number of Object Store buckets",
 		})
-
-		// Add SSD-specific metrics
-		metrics = append(metrics, metrics2.PromMetric{
-			Metric: "weka_filesystem_ssd_capacity_bytes",
-			ValuesByTags: []metrics2.TaggedValue{
-				{Tags: metrics2.TagMap{"type": "provisioned"}, Value: float64(cluster.Status.Stats.Filesystem.TotalProvisionedSSDCapacity)},
-				{Tags: metrics2.TagMap{"type": "used"}, Value: float64(cluster.Status.Stats.Filesystem.TotalUsedSSDCapacity)},
-				{Tags: metrics2.TagMap{"type": "available"}, Value: float64(cluster.Status.Stats.Filesystem.TotalAvailableSSDCapacity)},
-			},
-			Timestamp: cluster.Status.Stats.LastUpdate.Time,
-			Help:      "Weka filesystem SSD capacity in bytes",
-		})
-
-		// Add Object Store metrics if available
-		if cluster.Status.Stats.Filesystem.HasTieredFilesystems {
-			// Add OBS bucket count metrics
-			metrics = append(metrics, metrics2.PromMetric{
-				Metric: "weka_filesystem_obs_buckets_count",
-				ValuesByTags: []metrics2.TaggedValue{
-					{Tags: metrics2.TagMap{"status": "total"}, Value: float64(cluster.Status.Stats.Filesystem.ObsBucketCount)},
-					{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Filesystem.ActiveObsBucketCount)},
-				},
-				Timestamp: cluster.Status.Stats.LastUpdate.Time,
-				Help:      "Number of Object Store buckets",
-			})
-
-			if cluster.Status.Stats.Filesystem.TotalObsCapacity > 0 {
-				obsCapacityVal := float64(cluster.Status.Stats.Filesystem.TotalObsCapacity)
-				metrics = append(metrics, metrics2.PromMetric{
-					Metric: "weka_filesystem_obs_capacity_bytes",
-					Value:  &obsCapacityVal,
-					Help:   "Total Object Store capacity in bytes",
-				})
-			}
-		}
 	}
 
 	for i, _ := range metrics {
