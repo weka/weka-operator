@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENGINE_NAME="dagger-engine-v0.18.4" # is it in use by default? not sure, but keeping for reference
-ENGINE_IMAGE="registry.dagger.io/engine:v0.18.4"
+ENGINE_NAME="dagger-engine-v0.18.5" # is it in use by default? not sure, but keeping for reference
+ENGINE_IMAGE="registry.dagger.io/engine:v0.18.5"
 
 # supressing ugly logs/unsetting OTEL
 unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
