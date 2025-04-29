@@ -2,6 +2,9 @@ import time
 import os
 import json
 import re # Import re for body manipulation
+
+from autokitteh import activity
+
 # Removed requests import
 from github import GitHubClient, GitHubError, PullRequestData # Import the new client and dataclass
 from release_notes_utils import infer_type, generate_release_notes # Import shared utils
@@ -83,11 +86,11 @@ def process_pr_event(raw_event) -> None:
         if initial_body.strip(): # Check if non-empty after stripping whitespace
             print(f"[{pr_number}] PR already has a body. Proceeding to stabilization wait.")
             # Pass the client instance to the waiting functions
-            _wait_for_stabilization(github_client, pr_number)
+            _wait_for_stabilization(repo_full_name, pr_number)
         else:
             print(f"[{pr_number}] PR body is initially empty. Waiting for body content.")
             # Pass the client instance to the waiting functions
-            _wait_for_body(github_client, pr_number)
+            _wait_for_body(repo_full_name, pr_number)
 
     except GitHubError as e:
         # Catch specific GitHub errors from the client
@@ -102,7 +105,9 @@ def process_pr_event(raw_event) -> None:
 # --- Helper Functions ---
 
 # Functions now accept GitHubClient instance
-def _wait_for_body(github_client: GitHubClient, pr_number: int) -> None:
+@activity
+def _wait_for_body(repo_full_name:str, pr_number: int) -> None:
+    github_client = GitHubClient(repo_full_name=repo_full_name)
     """
     Polls the PR until its body is populated or it is closed.
     """
@@ -128,7 +133,7 @@ def _wait_for_body(github_client: GitHubClient, pr_number: int) -> None:
             elif body.strip(): # Check if non-empty after stripping
                 print(f"[{pr_number}] Body populated. Proceeding to stabilization.")
                 # Pass the client instance
-                _wait_for_stabilization(github_client, pr_number)
+                _wait_for_stabilization(repo_full_name, pr_number)
                 break
             else:
                 print(f"[{pr_number}] Body still empty. Continuing to wait.")
@@ -141,11 +146,13 @@ def _wait_for_body(github_client: GitHubClient, pr_number: int) -> None:
 
 
 # Update function signature
-def _wait_for_stabilization(github_client: GitHubClient, pr_number: int) -> None:
+@activity
+def _wait_for_stabilization(repo_full_name:str, pr_number: int) -> None:
     """
     Waits for a period of inactivity (no body changes) before processing.
     Polls the PR state. Restarts the wait if the body is edited. Handles PR closure.
     """
+    github_client = GitHubClient(repo_full_name=repo_full_name)
     print(f"[{pr_number}] Entering stabilization wait ({STABILIZATION_WAIT_SECONDS}s)...")
     stabilization_start_time = time.time()
 
