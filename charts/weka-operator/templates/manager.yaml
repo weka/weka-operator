@@ -222,6 +222,8 @@ spec:
               value: "{{ .Values.csi.registrarImage }}"
             - name: CSI_DRIVER_VERSION
               value: "{{ .Values.csi.driverVersion }}"
+            - name: CSI_OVERRIDES
+              value: "{{ .Values.csi.overrides }}"
 
 
           image: "{{ .Values.image.repository }}:{{if not (empty .Values.image.tag)}}{{ .Values.image.tag }}{{else}}{{ .Chart.Version }}{{end}}"

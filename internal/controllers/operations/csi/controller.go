@@ -6,11 +6,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/klog/v2"
+	"strings"
 )
 
 func NewCSIControllerDeployment(name string, namespace string, csiDriverName string, tolerations []corev1.Toleration) *appsv1.Deployment {
 	privileged := true
 	replicas := int32(2)
+
+	controllerEnv := getControllerEnv(csiDriverName)
+	controllerFlags := getControllerFlags(namespace)
 
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -55,33 +60,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 							},
 							Image:           config.Config.CSIImage,
 							ImagePullPolicy: corev1.PullAlways,
-							Args: []string{
-								"--drivername=$(CSI_DRIVER_NAME)",
-								"--v=5",
-								"--endpoint=$(CSI_ENDPOINT)",
-								"--nodeid=$(KUBE_NODE_NAME)",
-								"--dynamic-path=$(CSI_DYNAMIC_PATH)",
-								"--csimode=$(X_CSI_MODE)",
-								"--newvolumeprefix=csivol-",
-								"--newsnapshotprefix=csisnp-",
-								"--seedsnapshotprefix=csisnp-seed-",
-								"--allowautofscreation",
-								"--allowautofsexpansion",
-								"--allowinsecurehttps",
-								"--enablemetrics",
-								"--metricsport=9090",
-								"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
-								"--mutuallyexclusivemountoptions=sync,async",
-								"--mutuallyexclusivemountoptions=ro,rw",
-								"--grpcrequesttimeoutseconds=30",
-								"--concurrency.createVolume=5",
-								"--concurrency.deleteVolume=5",
-								"--concurrency.expandVolume=5",
-								"--concurrency.createSnapshot=5",
-								"--concurrency.deleteSnapshot=5",
-								"--nfsprotocolversion=4.1",
-								GetTracingFlag(),
-							},
+							Args:            controllerFlags["wekafs"],
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 9898,
@@ -106,48 +85,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "CSI_ENDPOINT",
-									Value: "unix:///csi/csi.sock",
-								},
-								{
-									Name:  "CSI_DRIVER_NAME",
-									Value: csiDriverName,
-								},
-								{
-									Name:  "CSI_DRIVER_VERSION",
-									Value: config.Config.CSIDriverVersion,
-								},
-								{
-									Name:  "X_CSI_MODE",
-									Value: "controller",
-								},
-								{
-									Name:  "CSI_DYNAMIC_PATH",
-									Value: "csi-volumes",
-								},
-								{
-									Name:  "X_CSI_DEBUG",
-									Value: "false",
-								},
-								{
-									Name: "KUBE_NODE_NAME",
-									ValueFrom: &corev1.EnvVarSource{
-										FieldRef: &corev1.ObjectFieldSelector{
-											FieldPath: "spec.nodeName",
-										},
-									},
-								},
-								{
-									Name: "KUBE_NODE_IP_ADDRESS",
-									ValueFrom: &corev1.EnvVarSource{
-										FieldRef: &corev1.ObjectFieldSelector{
-											FieldPath: "status.hostIP",
-										},
-									},
-								},
-							},
+							Env: controllerEnv["wekafs"],
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									MountPath: "/csi",
@@ -179,21 +117,8 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
-							Args: []string{
-								"--csi-address=$(ADDRESS)",
-								"--v=5",
-								"--timeout=60s",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
-								"--worker-threads=5",
-								"--http-endpoint=:9095",
-							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
-								},
-							},
+							Args: controllerFlags["csi-attacher"],
+							Env:  controllerEnv["csi-attacher"],
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "socket-dir",
@@ -219,18 +144,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						{
 							Name:  "csi-provisioner",
 							Image: config.Config.CSIProvisionerImage,
-							Args: []string{
-								"--v=5",
-								"--csi-address=$(ADDRESS)",
-								"--feature-gates=Topology=true",
-								"--timeout=60s",
-								"--prevent-volume-mode-conversion",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
-								"--worker-threads=5",
-								"--retry-interval-start=10s",
-								"--http-endpoint=:9091",
-							},
+							Args:  controllerFlags["csi-provisioner"],
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -239,12 +153,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
-								},
-							},
+							Env: controllerEnv["csi-provisioner"],
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "socket-dir",
@@ -262,16 +171,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						{
 							Name:  "csi-resizer",
 							Image: config.Config.CSIResizerImage,
-							Args: []string{
-								"--v=5",
-								"--csi-address=$(ADDRESS)",
-								"--timeout=60s",
-								"--http-endpoint=:9092",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
-								"--workers=5",
-								"--retry-interval-start=10s",
-							},
+							Args:  controllerFlags["csi-resizer"],
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -280,12 +180,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 									},
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
-								},
-							},
+							Env: controllerEnv["csi-resizer"],
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "socket-dir",
@@ -303,16 +198,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						{
 							Name:  "csi-snapshotter",
 							Image: config.Config.CSISnapshotterImage,
-							Args: []string{
-								"--v=5",
-								"--csi-address=$(ADDRESS)",
-								"--timeout=60s",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
-								"--worker-threads=5",
-								"--retry-interval-start=10s",
-								"--http-endpoint=:9093",
-							},
+							Args:  controllerFlags["csi-snapshotter"],
 							LivenessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -328,12 +214,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
-								},
-							},
+							Env:             controllerEnv["csi-snapshotter"],
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -351,21 +232,8 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 								},
 							},
 							Image: config.Config.CSILivenessProbeImage,
-							Args: []string{
-								"--v=5",
-								"--csi-address=$(ADDRESS)",
-								"--health-port=$(HEALTH_PORT)",
-							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
-								},
-								{
-									Name:  "HEALTH_PORT",
-									Value: "9898",
-								},
-							},
+							Args:  controllerFlags["liveness-probe"],
+							Env:   controllerEnv["liveness-probe"],
 						},
 					},
 					Tolerations: tolerations,
@@ -429,6 +297,188 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 			},
 		},
 	}
+}
+
+func getControllerEnv(csiDriverName string) map[string][]corev1.EnvVar {
+
+	SOCK_ADDRESS := corev1.EnvVar{
+		Name:  "ADDRESS",
+		Value: "unix:///csi/csi.sock",
+	}
+
+	envDefaults := map[string][]corev1.EnvVar{
+		"wekafs": {
+			{
+				Name:  "CSI_ENDPOINT",
+				Value: "unix:///csi/csi.sock",
+			},
+			{
+				Name:  "CSI_DRIVER_NAME",
+				Value: csiDriverName,
+			},
+			{
+				Name:  "CSI_DRIVER_VERSION",
+				Value: config.Config.CSIDriverVersion,
+			},
+			{
+				Name:  "X_CSI_MODE",
+				Value: "controller",
+			},
+			{
+				Name:  "CSI_DYNAMIC_PATH",
+				Value: "csi-volumes",
+			},
+			{
+				Name:  "X_CSI_DEBUG",
+				Value: "false",
+			},
+			{
+				Name: "KUBE_NODE_NAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "spec.nodeName",
+					},
+				},
+			},
+			{
+				Name: "KUBE_NODE_IP_ADDRESS",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "status.hostIP",
+					},
+				},
+			},
+		},
+		"csi-attacher":    {SOCK_ADDRESS},
+		"csi-provisioner": {SOCK_ADDRESS},
+		"csi-resizer":     {SOCK_ADDRESS},
+		"csi-snapshotter": {SOCK_ADDRESS},
+		"liveness-probe": {
+			SOCK_ADDRESS,
+			{
+				Name:  "HEALTH_PORT",
+				Value: "9898",
+			},
+		},
+	}
+
+	if config.Config.CSIOverrides != "" {
+		overridePairs := strings.Split(config.Config.CSIOverrides, ",")
+		for _, pair := range overridePairs {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) != 2 {
+				klog.Warningf("Invalid override format: %s", pair)
+				continue
+			}
+			//component := parts[0]
+			//flag := parts[1]
+			//if _, exists := envDefaults[component]; exists {
+			//	envDefaults[component] = append(envDefaults[component], flag)
+			//} else {
+			//	klog.Warningf("Unknown component in overrides: %s", component)
+			//}
+		}
+	}
+	return envDefaults
+}
+
+func getControllerFlags(namespace string) map[string][]string {
+
+	flagDefaults := map[string][]string{
+		"wekafs": {
+			"--drivername=$(CSI_DRIVER_NAME)",
+			"--v=5",
+			"--endpoint=$(CSI_ENDPOINT)",
+			"--nodeid=$(KUBE_NODE_NAME)",
+			"--dynamic-path=$(CSI_DYNAMIC_PATH)",
+			"--csimode=$(X_CSI_MODE)",
+			"--newvolumeprefix=csivol-",
+			"--newsnapshotprefix=csisnp-",
+			"--seedsnapshotprefix=csisnp-seed-",
+			"--allowautofscreation",
+			"--allowautofsexpansion",
+			"--allowinsecurehttps",
+			"--enablemetrics",
+			"--metricsport=9090",
+			"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
+			"--mutuallyexclusivemountoptions=sync,async",
+			"--mutuallyexclusivemountoptions=ro,rw",
+			"--grpcrequesttimeoutseconds=30",
+			"--concurrency.createVolume=5",
+			"--concurrency.deleteVolume=5",
+			"--concurrency.expandVolume=5",
+			"--concurrency.createSnapshot=5",
+			"--concurrency.deleteSnapshot=5",
+			"--nfsprotocolversion=4.1",
+			GetTracingFlag(),
+		},
+		"csi-attacher": {
+			"--csi-address=$(ADDRESS)",
+			"--v=5",
+			"--timeout=60s",
+			"--leader-election",
+			"--leader-election-namespace=" + namespace,
+			"--worker-threads=5",
+			"--http-endpoint=:9095",
+		},
+		"csi-provisioner": {
+			"--v=5",
+			"--csi-address=$(ADDRESS)",
+			"--feature-gates=Topology=true",
+			"--timeout=60s",
+			"--prevent-volume-mode-conversion",
+			"--leader-election",
+			"--leader-election-namespace=" + namespace,
+			"--worker-threads=5",
+			"--retry-interval-start=10s",
+			"--http-endpoint=:9091",
+		},
+		"csi-resizer": {
+			"--v=5",
+			"--csi-address=$(ADDRESS)",
+			"--timeout=60s",
+			"--http-endpoint=:9092",
+			"--leader-election",
+			"--leader-election-namespace=" + namespace,
+			"--workers=5",
+			"--retry-interval-start=10s",
+		},
+		"csi-snapshotter": {
+			"--v=5",
+			"--csi-address=$(ADDRESS)",
+			"--timeout=60s",
+			"--leader-election",
+			"--leader-election-namespace=" + namespace,
+			"--worker-threads=5",
+			"--retry-interval-start=10s",
+			"--http-endpoint=:9093",
+		},
+		"liveness-probe": {
+			"--v=5",
+			"--csi-address=$(ADDRESS)",
+			"--health-port=$(HEALTH_PORT)",
+		},
+	}
+
+	if config.Config.CSIOverrides != "" {
+		overridePairs := strings.Split(config.Config.CSIOverrides, ",")
+		for _, pair := range overridePairs {
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) != 2 {
+				klog.Warningf("Invalid override format: %s", pair)
+				continue
+			}
+			component := parts[0]
+			flag := parts[1]
+			if _, exists := flagDefaults[component]; exists {
+				flagDefaults[component] = append(flagDefaults[component], flag)
+			} else {
+				klog.Warningf("Unknown component in overrides: %s", component)
+			}
+		}
+	}
+
+	return flagDefaults
 }
 
 // Helper function to create pointers to primitive types
