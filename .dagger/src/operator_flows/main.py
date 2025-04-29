@@ -47,6 +47,7 @@ class OperatorFlows:
                                     wekai: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
                                         "*/.git",
+                                        ".dagger",
                                     ])],
                                     sock: dagger.Socket,
                                     ) -> dagger.Container:
@@ -119,6 +120,7 @@ class OperatorFlows:
                                      wekai: Annotated[dagger.Directory, Ignore([
                                          ".aider*",
                                          "*/.git",
+                                         ".dagger",
                                      ])],
                                      sock: dagger.Socket,
                                      mq_pr_number: int,
@@ -213,15 +215,15 @@ class OperatorFlows:
             return result
         else:
             return await upgrade_test_container
-        
+
     @function
     async def export_test_artifacts(self, test_artifacts: dagger.Directory, local_path: str) -> str:
         """Export test artifacts to a local directory
-        
+
         Args:
             test_artifacts: Directory containing the test artifacts
             local_path: Local path to export to
-            
+
         Returns:
             Path to the exported directory
         """
