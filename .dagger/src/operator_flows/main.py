@@ -5,11 +5,13 @@ from typing import Dict, List, Annotated
 import dagger
 from dagger import dag, function, object_type, Ignore
 
-from containers.builders import build_go, _uv_base
+from containers.builders import build_go
 from utils.github import GitHubClient
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
 
 @object_type
 class OperatorFlows:
@@ -133,12 +135,11 @@ class OperatorFlows:
                                      kubeconfig_path: dagger.Secret,
                                      initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
                                      new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
-                                     export_artifacts_path: str = "./test_artifacts_exported",
+                                     artifacts_path: str = "./test_artifacts",
                                      dry_run: bool = False,
-                                     ) -> dagger.Container:
+                                     ) -> dagger.Directory:
 
         env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock)
-
 
         env = (
             env
@@ -153,7 +154,7 @@ class OperatorFlows:
         else:
             pr_numbers = [pr_number]
 
-        logger.info(f"Processing PR {pr_number} with title: {pr.title}")
+        logger.info(f"Processing PRs {pr_numbers}")
 
         # call generate_ai_plan_for_prs
         test_artifacts = await self.generate_ai_plan_for_prs(
@@ -162,17 +163,27 @@ class OperatorFlows:
             gh_token=gh_token,
             openai_api_key=openai_api_key,
         )
-        # Export artifacts if path is provided
-        if export_artifacts_path:
-            await test_artifacts.export(export_artifacts_path)
+
+        # Create a container with the test artifacts directory
+        artifacts_container = (
+            dag.container()
+            .from_("alpine:latest")
+            .with_exec(["mkdir", "-p", artifacts_path])
+            .with_directory(artifacts_path, test_artifacts)
+        )
 
         # Extract hooks environment variables
         hook_env_dict = await self._get_hook_env_vars(test_artifacts)
 
+        logger.info(f"Hook env vars: {hook_env_dict}")
+
         # Prepare container for running upgrade test
         upgrade_test_container = (
             env
+            .with_directory("/doc", operator.directory("doc"))
             .with_directory("/test_artifacts", test_artifacts)
+            # Make hook scripts executable
+            .with_exec(["sh", "-c", f"find /test_artifacts/ -name '*.sh' -exec chmod +x {{}} \\;"])
         )
 
         # Add hook environment variables to the container
@@ -217,23 +228,16 @@ class OperatorFlows:
                     # "--cleanup", "no-cleanup"
                 ])
             )
-            return result
+            # Return a directory that has both the test artifacts and result
+            return (
+                dag.directory()
+                .with_directory(artifacts_path, artifacts_container.directory(artifacts_path))
+                .with_directory("test_result", result.directory("/"))
+            )
         else:
-            return await upgrade_test_container
+            # In dry run mode, just return the artifacts directory
+            return artifacts_container.directory(artifacts_path)
 
-    @function
-    async def export_test_artifacts(self, test_artifacts: dagger.Directory, local_path: str) -> str:
-        """Export test artifacts to a local directory
-
-        Args:
-            test_artifacts: Directory containing the test artifacts
-            local_path: Local path to export to
-
-        Returns:
-            Path to the exported directory
-        """
-        await test_artifacts.export(local_path)
-        return local_path
 
     @function
     async def generate_ai_plan_for_prs(
@@ -296,7 +300,7 @@ class OperatorFlows:
             .with_exec(["sh", "-c", """
                 # Find all hook directories starting with 'hook_'
                 hook_env_vars=""
-                for hook_dir in /test_artifacts/hook_*; do
+                for hook_dir in /test_artifacts/hooks/hook_*; do
                     if [ -d "$hook_dir" ]; then
                         # Extract hook name from directory name (remove "hook_" prefix)
                         hook_name=$(basename "$hook_dir" | sed 's/^hook_//')
@@ -305,14 +309,10 @@ class OperatorFlows:
                         if [ -f "$hook_dir/hook.sh" ]; then
                             echo "Found hook: $hook_name -> $hook_dir/hook.sh"
                             hook_env_vars="$hook_env_vars\\n$hook_name=$hook_dir/hook.sh"
-                            chmod +x "$hook_dir/hook.sh"
                         fi
                     fi
                 done
-                
-                # Make all hook scripts executable
-                find /test_artifacts -name "*.sh" -exec chmod +x {} \\;
-                
+                        
                 # Save hook environment variables to a file
                 echo -e "$hook_env_vars" > /hooks_env_vars.txt
             """])

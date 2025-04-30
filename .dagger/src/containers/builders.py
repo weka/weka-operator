@@ -11,6 +11,8 @@ apk add --no-cache git bash
 apk --no-cache add ca-certificates git openssh-client
 git config --global url."git@github.com:".insteadOf "https://github.com/"
 mkdir -p -m 0700 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+chmod 600 ~/.ssh/known_hosts
+export GIT_SSH_COMMAND="ssh -v"
         """])
         .with_unix_socket("/tmp/ssh-agent.sock", sock)
         .with_env_variable("SSH_AUTH_SOCK", "/tmp/ssh-agent.sock")
