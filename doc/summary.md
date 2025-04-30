@@ -13,6 +13,14 @@ This document serves as the primary reference for all Weka Operator documentatio
 **Keywords**: cluster provision, wekacluster yaml, templates, gracefulDestroyDuration, dynamicTemplate, redundancyLevel, stripeWidth, raft, hotSpare
 **Summary**: Comprehensive guide for provisioning Weka clusters in Kubernetes, covering basic configuration, graceful termination settings, redundancy options, raft configuration, hot spare capacity, and IO conditions for optimal cluster performance.
 
+### `operator/deployment/helm-install.md`
+**Keywords**: helm install, operator installation, localDataPvc, globalPVC
+**Summary**: Instructions for installing the Weka Operator using Helm, mentioning notable helm values like `localDataPvc` and `globalPVC` and clarifying their usage.
+
+### `operator/deployment/driver-distribution.md`
+**Keywords**: driver distribution, drivers-dist, drivers-builder, wekacontainer mode, service, preRunScript
+**Summary**: Details on deploying the Weka driver distribution service and builder containers, including example YAML and notes on version matching and node affinity.
+
 ## Networking
 
 ### `operator/networking/network-configuration.md`
@@ -24,6 +32,10 @@ This document serves as the primary reference for all Weka Operator documentatio
 ### `operator/clients/wekaclient-and-workload.md`
 **Keywords**: wekaclient, csi, storage class, pvc, workload, goader, mountOptions, persistentvolumeclaim
 **Summary**: End-to-end guide for deploying WekaClient resources, CSI drivers, storage classes, PVCs, and workloads on Weka storage, including configuration details, resource relationships, and proper cleanup procedures.
+
+### `operator/clients/nfs-clients.md`
+**Keywords**: NFS, CSI, nfs-csi, helm values, storage class, mountOptions
+**Summary**: Guide on using Weka CSI in NFS-only mode, configuration details for helm installation and storage class creation.
 
 ## Operations
 
