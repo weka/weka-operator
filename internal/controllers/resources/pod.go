@@ -23,7 +23,21 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
-const inPodHostBinds = "/host-binds"
+const (
+	inPodHostBinds = "/host-binds"
+)
+
+// if the container mode is not in the map, the default is 1 year
+var terminationGracePeriodSecondsMap = map[string]int64{
+	wekav1alpha1.WekaContainerModeDiscovery:      30,
+	wekav1alpha1.WekaContainerModeDist:           60 * 5,
+	wekav1alpha1.WekaContainerModeDriversDist:    60 * 5,
+	wekav1alpha1.WekaContainerModeDriversLoader:  60,
+	wekav1alpha1.WekaContainerModeDriversBuilder: 60 * 2,
+	wekav1alpha1.WekaContainerModeAdhocOpWC:      60,
+	wekav1alpha1.WekaContainerModeAdhocOp:        60,
+	wekav1alpha1.WekaContainerModeEnvoy:          60 * 5,
+}
 
 type WekaLocalStatusSlot struct {
 	ClusterID string `json:"cluster_guid"`
@@ -112,9 +126,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	var terminationGracePeriodSeconds int64 = 60 * 60 * 24 * 365 // 1 year
-	//if f.container.Spec.Mode == "drive" {
-	//	terminationGracePeriodSeconds = 60
-	//}
+	if val, ok := terminationGracePeriodSecondsMap[f.container.Spec.Mode]; ok {
+		terminationGracePeriodSeconds = val
+	}
 
 	hostNetwork := false
 	if f.container.IsHostNetwork() {
