@@ -48,6 +48,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: operator
+          submodules: true
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout wekai repository
         uses: actions/checkout@v4
@@ -62,36 +64,7 @@ jobs:
           repository: weka/weka-k8s-testing
           token: ${{ steps.app-token.outputs.token }}
           path: testing
-    
-      - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.GO_WEKA_OBSERVABILITY_DEPLOY_SSH_KEY }}
-            ${{ secrets.GO_STEPS_ENGINE_DEPLOY_SSH_KEY }}
-            ${{ secrets.WEKA_K8S_API_DEPLOY_SSH_KEY }}
-
-      - name: Setup access for private go modules
-        run: |
-          git config --global url."ssh://git@github.com/".insteadOf https://github.com/
-
-      - name: Test SSH connection
-        run: |
-          ssh -T -o StrictHostKeyChecking=no git@github.com || true
-          # List available SSH keys
-          ssh-add -l
-
-      - name: Install weka-k8s-testing submodules
-        run: |
-          cd testing
-          git submodule update --init --recursive
-          cd ..
-      
-      - name: Install operator submodules
-        run: |
-          cd operator
-          git submodule update --init --recursive
-          cd ..
+          submodules: true
 
       - name: Save Kubeconfig
         run: |
@@ -117,7 +90,7 @@ jobs:
             --operator=${{ github.workspace }}/operator
             --testing=${{ github.workspace }}/testing
             --wekai=${{ github.workspace }}/wekai
-            --sock=${{ env.SSH_AUTH_SOCK }}
+            --sock=/var/run/docker.sock
             --pr-number=${{ github.event.pull_request.number }}
             --gh-token="env://GH_TOKEN"
             --openai-api-key="env://OPENAI_API_KEY"
