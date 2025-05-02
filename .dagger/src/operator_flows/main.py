@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, List, Annotated
+from typing import Dict, List, Annotated, Optional
 
 import dagger
 from dagger import dag, function, object_type, Ignore
@@ -55,17 +55,20 @@ class OperatorFlows:
                                         ".dagger",
                                     ])],
                                     sock: dagger.Socket,
+                                    gh_token: Optional[dagger.Secret] = None,
                                     ) -> dagger.Container:
         from containers.builders import _uv_base
         from apps.operator import publish_operator, publish_operator_helm_chart
 
-        wekai = await build_go(wekai, sock)
-        testing = await build_go(testing, sock, cache_deps=False)
+        wekai = await build_go(wekai, sock, gh_token)
+        testing = await build_go(testing, sock, cache_deps=False, gh_token=gh_token)
         operator_image = await publish_operator(operator, sock,
                                                 repository="images.scalar.dev.weka.io:5002/weka-operator",
+                                                gh_token=gh_token,
                                                 )
         operator_helm = await publish_operator_helm_chart(operator, sock,
                                                           repository="images.scalar.dev.weka.io:5002/helm",
+                                                          gh_token=gh_token,
                                                           )
 
         base_container = await _uv_base()
@@ -79,17 +82,17 @@ class OperatorFlows:
         return base_container
 
     @function
-    async def test_wekai(self, wekai: dagger.Directory, sock: dagger.Socket) -> dagger.Container:
+    async def test_wekai(self, wekai: dagger.Directory, sock: dagger.Socket, gh_token: Optional[dagger.Secret] = None) -> dagger.Container:
         from containers.builders import build_go
         return await (
-            await build_go(wekai, sock)
+            await build_go(wekai, sock, gh_token)
         )
 
     @function
-    async def build_operator(self, src: dagger.Directory, sock: dagger.Socket) -> dagger.Container:
+    async def build_operator(self, src: dagger.Directory, sock: dagger.Socket, gh_token: Optional[dagger.Secret] = None) -> dagger.Container:
         from containers.builders import build_go
         return await (
-            await build_go(src, sock, cache_deps=False, program_path="cmd/manager/main.go")
+            await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go")
         )
 
     def _extract_pr_numbers(self, title: str) -> List[int]:
@@ -137,15 +140,21 @@ class OperatorFlows:
                                      new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
                                      artifacts_path: str = "./test_artifacts",
                                      dry_run: bool = False,
+                                     use_gh_token_for_go_deps: bool = False,
                                      ) -> dagger.Directory:
 
-        env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock)
+        if use_gh_token_for_go_deps:
+            env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, gh_token)
+        else:
+            env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock)
 
         env = (
             env
             .with_exec(["mkdir", "-p", "/.kube"])
             .with_mounted_secret("/.kube/config", kubeconfig_path)
         )
+
+        logger.info("Creating GitHub client")
 
         gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
         pr = gh_client.get_pr_details(pr_number)
@@ -176,6 +185,10 @@ class OperatorFlows:
         hook_env_dict = await self._get_hook_env_vars(test_artifacts)
 
         logger.info(f"Hook env vars: {hook_env_dict}")
+
+        if not hook_env_dict:
+            logger.info("No generated hooks found, skipping upgrade test")
+            return artifacts_container.directory(artifacts_path)
 
         # Prepare container for running upgrade test
         upgrade_test_container = (

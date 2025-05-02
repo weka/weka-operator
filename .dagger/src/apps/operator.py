@@ -1,11 +1,13 @@
-from dagger import dag, Container, Directory, Socket
+from typing import Optional
+
+from dagger import dag, Container, Directory, Socket, Secret
 
 from containers.builders import build_go
 
 
-async def operator_ubi(src: Directory, sock: Socket) -> Container:
+async def operator_ubi(src: Directory, sock: Socket, gh_token: Optional[Secret] = None) -> Container:
     """Returns container suitable for building go applications"""
-    operator = await build_go(src, sock, cache_deps=False, program_path="cmd/manager/main.go", go_generate=True)
+    operator = await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go", go_generate=True)
 
     return await (
         dag.container()
@@ -23,22 +25,22 @@ async def _calc_operator_version(src: Directory, version: str = "") -> str:
     return version
 
 
-async def publish_operator(src: Directory, sock: Socket, repository: str, version: str = "") -> str:
+async def publish_operator(src: Directory, sock: Socket, repository: str, version: str = "", gh_token: Optional[Secret] = None) -> str:
     """Returns container suitable for building go applications"""
-    operator = await operator_ubi(src, sock)
+    operator = await operator_ubi(src, sock, gh_token)
     # Compute a compact version by hashing combined digests
     version = await _calc_operator_version(src, version)
 
     return await operator.publish(f"{repository}:{version}")
 
 
-async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: str, version: str = "") -> str:
+async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: str, version: str = "", gh_token: Optional[Secret] = None) -> str:
     from containers.builders import helm_builder_container
 
     version = await _calc_operator_version(src, version)
 
     await (
-        (await helm_builder_container(sock))
+        (await helm_builder_container(sock, gh_token))
         .with_directory("/src", src)
         .with_workdir("/src")
         .with_exec(["sh", "-ec", f"""
