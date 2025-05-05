@@ -1,7 +1,7 @@
 name: dagger_ci_on_merge_queue_plan
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, labeled, reopened]
 
 # make sure only one workflow is running at a time
 concurrency:
@@ -24,9 +24,23 @@ jobs:
       with:
         graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
 
-  ci_on_merge_queue_plan:
+  run_condition_check:
     needs: optimize_ci
-    if: needs.optimize_ci.outputs.skip == 'false'
+    if: |
+      needs.optimize_ci.outputs.skip == 'false' &&
+      (startsWith(github.head_ref, 'gtmq_') || 
+      contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show PR Info
+        run: |
+          echo "PR branch: ${{ github.head_ref }}"
+          echo "Target branch: ${{ github.base_ref }}"
+          echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
+
+  ci_on_merge_queue_plan:
+    needs: [optimize_ci, run_condition_check]
+    if: needs.optimize_ci.outputs.skip == 'false' && needs.run_condition_check.result == 'success'
     env:
       GOPRIVATE: github.com/weka
     name: ci_on_merge_queue_plan
