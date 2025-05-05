@@ -1,0 +1,5 @@
+- for running weka k8s machines should be pre-configured with a 2Mi huge pages, usually this is done as part of kubernetes setup(and if setup is not done, hugepages should be assumed as correct), requirements for a hugepages(in megabytes):
+    - 3GiB hugepages for compute core
+    - 1.5GiB hugepages for drive core
+    - 1.5GiB hugepages for client core
+- do not reflect above calculation to WekaCluster/WekaClient params. They will be automatically calculated, unless asked explicitly. Machine hugepages always referenced directly as node/machine hugepages and not directly related to wekacluster level
