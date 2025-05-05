@@ -4,7 +4,7 @@
 This document details the process of provisioning a Weka cluster in Kubernetes using the Weka Operator. It covers basic configuration, networking options, and advanced settings for optimizing cluster performance and resilience.
 
 ## Basic Cluster Provisioning
-Below is a minimalistic example for a Weka cluster provision. Use this as a starting point for testing and development:
+Below is an example for a Weka cluster provision. Use this as a starting point for testing and development:
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
@@ -29,6 +29,8 @@ spec:
   driversDistService: "https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002"
   imagePullSecret: "quay-io-robot-secret"
 ```
+
+Each type of container is singleton within a node, and minimal cluster size is 5 compute and 5 drive containers.
 
 ## Graceful Termination
 - `spec.gracefulDestroyDuration` controls the graceful termination period

@@ -17,8 +17,6 @@ spec:
   image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2
   imagePullSecret: "quay-io-robot-secret"
   driversDistService: "https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002"
-  portRange:
-    basePort: 45000
   nodeSelector:
     weka.io/dedicated: "SAME_VALUE_AS_ON_CLUSTER_PROVISION"
   wekaSecretRef: weka-client-CLUSTER_NAME
@@ -37,6 +35,14 @@ spec:
 - `nodeSelector`: Should match the selector used for the cluster unless otherwise instructed
 - `image`: Should match the image used for the WekaCluster unless otherwise instructed
 - `network`: Optional for cloud environments, required for physical environments
+
+### Port configuration
+No need to specify unless have to use custom ports, default is equivalent to:
+```
+portRange:
+  basePort: 45000
+```
+Which will search for available port starting from 45000
 
 ## CSI Driver Installation
 To enable persistent volume claims with Weka storage, install the CSI driver:

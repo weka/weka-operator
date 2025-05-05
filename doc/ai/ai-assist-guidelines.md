@@ -40,3 +40,11 @@ This document provides guidance for AI assistants when helping users with the We
 # Common 
 - imagePullSecret when needed - use `quay-io-robot-secret` as default, this is rarely changed
 - prefer wrapping wait commands in python script, for example cluster provisioning - expected to take time, and best to pull it in a script, with timeouts
+
+# Bliss
+- reference bliss/aws provision only if AWS was explicitly mentioned, otherwise assume physical
+- Owner and TTL must be specified by user
+- set `LOG_FORMAT=plain` and `LOG_LEVEL=3` env vars when executing bliss (inline)
+
+# Paths
+- Use provided during execution temp directory for any ambigious/not defined paths. Avoid using relative paths
