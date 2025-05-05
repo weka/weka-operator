@@ -3,6 +3,7 @@ package tempops
 import (
 	"context"
 	"fmt"
+	types2 "github.com/weka/weka-operator/internal/controllers/operations/types"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -17,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -61,7 +61,7 @@ func NewPvcMigrateOperation(mgr ctrl.Manager, container *weka.WekaContainer) *Pv
 func (o *PvcMigrateOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "PvcMigrate",
-		Run:  operations.AsRunFunc(o),
+		Run:  types2.AsRunFunc(o),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"strings"
 	"time"
 
@@ -49,7 +50,7 @@ type SignDrivesOperation struct {
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "SignDrives",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	types2 "github.com/weka/weka-operator/internal/controllers/operations/types"
 	"strconv"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -55,7 +56,7 @@ func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPa
 func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "BlockDrives",
-		Run:  AsRunFunc(o),
+		Run:  types2.AsRunFunc(o),
 	}
 }
 

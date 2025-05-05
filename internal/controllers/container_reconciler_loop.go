@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	types2 "github.com/weka/weka-operator/internal/controllers/operations/types"
 	"io"
 	"net/http"
 	"path"
@@ -1277,7 +1278,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		nil,
 	)
 
-	err := operations.ExecuteOperation(ctx, op)
+	err := types2.ExecuteOperation(ctx, op)
 	return err
 }
 
@@ -2055,7 +2056,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		*container.ToContainerDetails(),
 		container.Spec.NodeSelector,
 	)
-	return operations.ExecuteOperation(ctx, op)
+	return types2.ExecuteOperation(ctx, op)
 }
 
 func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Node, error) {
@@ -2107,7 +2108,7 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 		container,
 		container.ToContainerDetails(),
 	)
-	err := operations.ExecuteOperation(ctx, discoverNodeOp)
+	err := types2.ExecuteOperation(ctx, discoverNodeOp)
 	if err != nil {
 		return nil, err
 	}
@@ -2431,7 +2432,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	logger.Info("Loading drivers", "image", details.Image)
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
-	err := operations.ExecuteOperation(ctx, driversLoader)
+	err := types2.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
 	}
@@ -3311,7 +3312,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 			details := r.container.ToContainerDetails()
 			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
-			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
+			loaderErr := types2.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {
 				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
 				return lifecycle.NewWaitError(err)
@@ -4342,7 +4343,7 @@ func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) e
 		r.container,
 	)
 
-	err := operations.ExecuteOperation(ctx, op)
+	err := types2.ExecuteOperation(ctx, op)
 	if err != nil {
 		return err
 	}
@@ -4367,7 +4368,7 @@ func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
 	logger.Info("Starting PVC migration operation")
 
 	op := tempops.NewPvcMigrateOperation(r.Manager, r.container)
-	err := operations.ExecuteOperation(ctx, op)
+	err := types2.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "PVC migration operation failed")
 		return err // Keep retrying until job succeeds or fails definitively

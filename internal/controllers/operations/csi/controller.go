@@ -10,12 +10,14 @@ import (
 	"strings"
 )
 
-func NewCSIControllerDeployment(name string, namespace string, csiDriverName string, tolerations []corev1.Toleration) *appsv1.Deployment {
+func (o *DeployCsiOperation) NewCSIControllerDeployment(name string) *appsv1.Deployment {
 	privileged := true
 	replicas := int32(2)
 
-	controllerEnv := getControllerEnv(csiDriverName)
-	controllerFlags := getControllerFlags(namespace)
+	tolerations := tolerationsToObj(o.wekaClient.Spec.Tolerations)
+
+	controllerEnv := getControllerEnv(o.csiDriverName, o.csiConfigMap)
+	controllerFlags := getControllerFlags(o.namespace, o.csiConfigMap)
 
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -24,7 +26,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: o.namespace,
 			Labels: map[string]string{
 				"app":       name,
 				"component": name,
@@ -299,18 +301,18 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 	}
 }
 
-func getControllerEnv(csiDriverName string) map[string][]corev1.EnvVar {
+func getControllerEnv(csiDriverName string, csiConfigMap *corev1.ConfigMap) map[string][]corev1.EnvVar {
 
 	SOCK_ADDRESS := corev1.EnvVar{
 		Name:  "ADDRESS",
-		Value: "unix:///csi/csi.sock",
+		Value: "unix:///csi/sock",
 	}
 
 	envDefaults := map[string][]corev1.EnvVar{
 		"wekafs": {
 			{
 				Name:  "CSI_ENDPOINT",
-				Value: "unix:///csi/csi.sock",
+				Value: "unix:///csi/sock",
 			},
 			{
 				Name:  "CSI_DRIVER_NAME",
@@ -362,27 +364,31 @@ func getControllerEnv(csiDriverName string) map[string][]corev1.EnvVar {
 		},
 	}
 
-	if config.Config.CSIOverrides != "" {
-		overridePairs := strings.Split(config.Config.CSIOverrides, ",")
-		for _, pair := range overridePairs {
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) != 2 {
-				klog.Warningf("Invalid override format: %s", pair)
-				continue
+	if csiConfigMap != nil {
+		for containerName, envVars := range csiConfigMap.Data {
+			var envVarList []corev1.EnvVar
+			for _, envVar := range strings.Split(envVars, "\n") {
+				parts := strings.SplitN(envVar, "=", 2)
+				if len(parts) != 2 {
+					klog.Warningf("Invalid environment variable format: %s", envVar)
+					continue
+				}
+				envVarList = append(envVarList, corev1.EnvVar{
+					Name:  parts[0],
+					Value: parts[1],
+				})
 			}
-			//component := parts[0]
-			//flag := parts[1]
-			//if _, exists := envDefaults[component]; exists {
-			//	envDefaults[component] = append(envDefaults[component], flag)
-			//} else {
-			//	klog.Warningf("Unknown component in overrides: %s", component)
-			//}
+			if _, exists := envDefaults[containerName]; exists {
+				envDefaults[containerName] = append(envDefaults[containerName], envVarList...)
+			} else {
+				envDefaults[containerName] = envVarList
+			}
 		}
 	}
 	return envDefaults
 }
 
-func getControllerFlags(namespace string) map[string][]string {
+func getControllerFlags(namespace string, csiConfigMap *corev1.ConfigMap) map[string][]string {
 
 	flagDefaults := map[string][]string{
 		"wekafs": {
@@ -460,20 +466,20 @@ func getControllerFlags(namespace string) map[string][]string {
 		},
 	}
 
-	if config.Config.CSIOverrides != "" {
-		overridePairs := strings.Split(config.Config.CSIOverrides, ",")
-		for _, pair := range overridePairs {
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) != 2 {
-				klog.Warningf("Invalid override format: %s", pair)
-				continue
+	if csiConfigMap != nil {
+		for containerName, flags := range csiConfigMap.Data {
+			var flagList []string
+			for _, flag := range strings.Split(flags, "\n") {
+				flag = strings.TrimSpace(flag)
+				if flag == "" {
+					continue
+				}
+				flagList = append(flagList, flag)
 			}
-			component := parts[0]
-			flag := parts[1]
-			if _, exists := flagDefaults[component]; exists {
-				flagDefaults[component] = append(flagDefaults[component], flag)
+			if _, exists := flagDefaults[containerName]; exists {
+				flagDefaults[containerName] = append(flagDefaults[containerName], flagList...)
 			} else {
-				klog.Warningf("Unknown component in overrides: %s", component)
+				flagDefaults[containerName] = flagList
 			}
 		}
 	}

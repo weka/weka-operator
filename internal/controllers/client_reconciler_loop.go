@@ -3,8 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"reflect"
 	"time"
 
@@ -881,13 +881,13 @@ func (c *clientReconcilerLoop) EnsureCSIPlugin(ctx context.Context) error {
 		return err
 	}
 
-	op := operations.NewDeployCsiOperation(
+	op := csi.NewDeployCsiOperation(
 		c.Manager,
 		c.wekaClient,
 		csiDriverName,
 	)
 
-	err = operations.ExecuteOperation(ctx, op)
+	err = types.ExecuteOperation(ctx, op)
 	if err != nil {
 		return errors.Wrap(err, "failed to deploy CSI driver")
 	}

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"slices"
 	"time"
 
@@ -38,7 +39,7 @@ func NewWekaPolicyController(mgr ctrl.Manager) *WekaPolicyReconciler {
 type policyLoop struct {
 	Policy *weka.WekaPolicy
 	Client client.Client
-	Op     operations.Operation
+	Op     types.Operation
 }
 
 func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}

@@ -7,6 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	types2 "github.com/weka/weka-operator/internal/controllers/operations/types"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -59,7 +60,7 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "DiscoverNode",
-		Run:  AsRunFunc(o),
+		Run:  types2.AsRunFunc(o),
 	}
 }
 

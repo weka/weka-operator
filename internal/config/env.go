@@ -123,7 +123,6 @@ var Config struct {
 	CSIResizerImage        string
 	CSISnapshotterImage    string
 	CSIRegistrarImage      string
-	CSIOverrides           string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -278,7 +277,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CSISnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
 	Config.CSIRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.CSIDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
-	Config.CSIOverrides = env.GetString("CSI_OVERRIDES", "")
 }
 
 func getEnvOrFail(envKey string) string {

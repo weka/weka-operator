@@ -159,7 +159,7 @@ podMonitor:
 
 csi:
   namespace: weka-operator-system
-  installationEnabled: false
+  installationEnabled: true
   driverVersion: "2.7.2"
   image: "quay.io/weka.io/csi-wekafs:v2.7.2"
   provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.1.0"
@@ -168,34 +168,3 @@ csi:
   resizerImage: "registry.k8s.io/sig-storage/csi-resizer:v1.13.1"
   snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0"
   registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0"
-  overrides:
-#    controller:
-#      env:
-#        wekaFs:
-#        csiAttacher:
-#        csiProvisioner:
-#        csiResizer:
-#        csiSnapshotter:
-#        livenessProbe:
-#      flags:
-#        wekaFs:
-#        csiAttacher:
-#        csiProvisioner:
-#        csiResizer:
-#        csiSnapshotter:
-#        livenessProbe:
-#    node:
-#      env:
-#        wekaFs:
-#        csiAttacher:
-#        csiProvisioner:
-#        csiResizer:
-#        csiSnapshotter:
-#        livenessProbe:
-#      flags:
-#        wekaFs:
-#        csiAttacher:
-#        csiProvisioner:
-#        csiResizer:
-#        csiSnapshotter:
-#        livenessProbe:

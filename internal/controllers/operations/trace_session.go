@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"strconv"
 	"time"
 
@@ -48,7 +49,7 @@ func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payloa
 func (o *MaintainTraceSession) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "MaintainTraceSession",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 

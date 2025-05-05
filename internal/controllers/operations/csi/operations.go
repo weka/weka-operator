@@ -1,4 +1,4 @@
-package operations
+package csi
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
@@ -21,6 +21,7 @@ type DeployCsiOperation struct {
 	namespace     string
 	csiBaseName   string
 	csiDriverName string
+	csiConfigMap  *v1.ConfigMap
 }
 
 type DeployCsiResult struct {
@@ -30,7 +31,7 @@ type DeployCsiResult struct {
 
 func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string) *DeployCsiOperation {
 
-	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
+	csiBaseName := GetBaseNameFromDriverName(csiDriverName)
 
 	namespace, _ := util2.GetPodNamespace()
 
@@ -46,7 +47,7 @@ func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "DeployCsi",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 
@@ -82,7 +83,7 @@ func (o *DeployCsiOperation) GetJsonResult() string {
 
 func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: o.csiDriverName},
-		func() client.Object { return csi.NewCSIDriver(o.csiDriverName) }); err != nil {
+		func() client.Object { return NewCSIDriver(o.csiDriverName) }); err != nil {
 		return err
 	}
 	return nil
@@ -90,19 +91,19 @@ func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
 
 func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	fileSystemName := config.Consts.CSIFileSystemName
-	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
+	storageClassName := GenerateStorageClassName(o.csiDriverName, fileSystemName)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
 		func() client.Object {
-			return csi.NewCSIStorageClass(o.csiBaseName, o.csiDriverName, storageClassName, fileSystemName)
+			return NewCSIStorageClass(o.csiBaseName, o.csiDriverName, storageClassName, fileSystemName)
 		}); err != nil {
 		return err
 	}
 
 	mountOptions := []string{"forcedirect"}
-	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
+	storageClassForceDirectName := GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
 		func() client.Object {
-			return csi.NewCSIStorageClass(o.csiBaseName, o.csiDriverName,
+			return NewCSIStorageClass(o.csiBaseName, o.csiDriverName,
 				storageClassForceDirectName, fileSystemName, mountOptions...)
 		}); err != nil {
 		return err
@@ -112,12 +113,10 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	tolerations := tolerationsToObj(o.wekaClient.Spec.Tolerations)
 	controllerDeploymentName := o.csiBaseName + "-csi-controller"
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
 		func() client.Object {
-			return csi.NewCSIControllerDeployment(controllerDeploymentName, o.namespace,
-				o.csiDriverName, tolerations)
+			return o.NewCSIControllerDeployment(controllerDeploymentName)
 		}); err != nil {
 		return err
 	}

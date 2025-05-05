@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -40,7 +41,7 @@ func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interfac
 type manualOpLoop struct {
 	Operation *weka.WekaManualOperation
 	Client    client.Client
-	Op        operations.Operation
+	Op        types.Operation
 }
 
 func (r *WekaManualOperationReconciler) RunGC(ctx context.Context) {}

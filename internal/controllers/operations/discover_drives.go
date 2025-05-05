@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -78,7 +79,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "DiscoverDrives",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "ResignDrives",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 

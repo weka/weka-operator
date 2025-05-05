@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"time"
 
 	"github.com/pkg/errors"
@@ -86,7 +87,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.W
 func (o *LoadDrivers) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "LoadDrivers",
-		Run:  AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 

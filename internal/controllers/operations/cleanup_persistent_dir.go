@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	types2 "github.com/weka/weka-operator/internal/controllers/operations/types"
 
 	"github.com/pkg/errors"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -60,7 +61,7 @@ func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersiste
 func (o *CleanupPersistentDirOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "CleanupPersistentDir",
-		Run:  AsRunFunc(o),
+		Run:  types2.AsRunFunc(o),
 	}
 }
 

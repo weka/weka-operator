@@ -7,7 +7,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/types"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -45,7 +45,7 @@ func NewUmountOperation(mgr ctrl.Manager, targetContainer *weka.WekaContainer) *
 func (o *UmountOperation) AsStep() lifecycle.Step {
 	return lifecycle.Step{
 		Name: "Umount",
-		Run:  operations.AsRunFunc(o),
+		Run:  types.AsRunFunc(o),
 	}
 }
 
