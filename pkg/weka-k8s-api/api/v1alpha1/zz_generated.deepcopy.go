@@ -850,6 +850,11 @@ func (in *PolicyPayload) DeepCopyInto(out *PolicyPayload) {
 		*out = new(DiscoverDrivesPayload)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.EnsureNICs != nil {
+		in, out := &in.EnsureNICs, &out.EnsureNICs
+		*out = new(EnsureNICsPayload)
+		(*in).DeepCopyInto(*out)
+	}
 	out.Interval = in.Interval
 	if in.WaitForPolicies != nil {
 		in, out := &in.WaitForPolicies, &out.WaitForPolicies
