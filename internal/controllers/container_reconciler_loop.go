@@ -453,6 +453,19 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				// let drivers being re-built if node with drivers container is not found
+				Run: loop.clearStatusOnNodeNotFound,
+				Predicates: lifecycle.Predicates{
+					container.IsDriversContainer,
+					// only clear status if we have node affinity set in status, but not in spec
+					func() bool {
+						return container.Spec.NodeAffinity == "" && container.Status.NodeAffinity != ""
+					},
+					loop.NodeNotSet,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.uploadedDriversPeriodicCheck,
 				Predicates: lifecycle.Predicates{
 					loop.container.IsOneOff,
@@ -501,18 +514,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.AllocateNICs,
 				Predicates: lifecycle.Predicates{
 					loop.ShouldAllocateNICs,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				// let drivers being re-built if node with drivers container is not found
-				Run: loop.clearStatusOnNodeNotFound,
-				Predicates: lifecycle.Predicates{
-					container.IsDriversContainer,
-					loop.HasNodeAffinity,
-					func() bool {
-						return loop.node == nil
-					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -3172,10 +3173,7 @@ echo '%s' > /opt/weka/k8s-runtime/resources.json
 }
 
 func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
 	node := r.pod.Spec.NodeName
-
 	if node == "" {
 		return lifecycle.NewWaitError(errors.New("pod is not assigned to node"))
 	}
@@ -3224,17 +3222,28 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		}
 		// no one else is using this node, we can safely set it
 	}
-	r.container.Status.NodeAffinity = weka.NodeName(node)
-	r.container.Status.PrinterColumns.NodeAffinity = node
-	logger.Info("binding to node", "node", node, "container_name", r.container.Name)
-	return r.Status().Update(ctx, r.container)
+	return r.setNodeAffinityStatus(ctx)
 }
 
 func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	nodeName := r.pod.Spec.NodeName
+	if nodeName == "" {
+		return lifecycle.NewWaitError(errors.New("pod is not assigned to node"))
+	}
+
+	// get node before setting status - if node is not found, we will return error and retry
+	// NOTE: let kuberenetes terminate pod if node is not found and get it rescheduled
+	_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
+	if apierrors.IsNotFound(err) {
+		return fmt.Errorf("node not found: %s", nodeName)
+	}
 
 	r.container.Status.NodeAffinity = weka.NodeName(nodeName)
 	r.container.Status.PrinterColumns.NodeAffinity = nodeName
+	logger.Info("binding to node", "node", nodeName, "container_name", r.container.Name)
 	return r.Status().Update(ctx, r.container)
 }
 
@@ -3491,8 +3500,9 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 	// - for client containers - always
 	// - for backend containers - only if cleanupBackendsOnNodeNotFound is set
 
-	if len(ownerRefs) == 0 {
+	if len(ownerRefs) == 0 && !container.IsDriversLoaderMode() {
 		// do not clean up containers without owner references
+		// NOTE: allow deleting drivers loader containers
 		return nil
 	}
 
