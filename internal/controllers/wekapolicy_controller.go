@@ -161,6 +161,34 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			onSuccess,
 		)
 		loop.Op = ensureNICsOp
+	case "enable-local-drivers-distribution":
+		if wekaPolicy.Spec.Payload.DriverDistPayload == nil {
+			return ctrl.Result{}, fmt.Errorf("enableLocalDriversDistributionPayload is not defined for policy type: %s", wekaPolicy.Spec.Type)
+		}
+		opImage := ""
+		if wekaPolicy.Spec.Image != nil {
+			opImage = *wekaPolicy.Spec.Image
+		}
+		opImagePullSecret := ""
+		if wekaPolicy.Spec.ImagePullSecret != nil {
+			opImagePullSecret = *wekaPolicy.Spec.ImagePullSecret
+		}
+
+		enableLocalDriversDistOp := operations.NewEnsureDistServiceOperation(
+			r.Mgr,
+			wekaPolicy.Spec.Payload.DriverDistPayload,
+			wekaPolicy,
+			weka.WekaContainerDetails{
+				Image:           opImage,
+				ImagePullSecret: opImagePullSecret,
+				Tolerations:     wekaPolicy.Spec.Tolerations,
+				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+			},
+			wekaPolicy.Status.Status,
+			onSuccess,
+			onFailure,
+		)
+		loop.Op = enableLocalDriversDistOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
 	}

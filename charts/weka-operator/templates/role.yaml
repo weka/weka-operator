@@ -39,7 +39,6 @@ rules:
   - list
   - update
   - watch
-  - patch
 - apiGroups:
   - ""
   resources:
@@ -52,6 +51,7 @@ rules:
   - ""
   resources:
   - pods
+  - services
   verbs:
   - create
   - delete

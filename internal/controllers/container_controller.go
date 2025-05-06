@@ -54,33 +54,34 @@ type ContainerController struct {
 
 func (c *ContainerController) RunGC(ctx context.Context) {}
 
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/finalizers,verbs=update
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/finalizers,verbs=update
-//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
-//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
-//+kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create;delete;watch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/finalizers,verbs=update
-//+kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekaclients/finalizers,verbs=update
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekacontainers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=driveclaims/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
+// +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create;delete;watch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations/finalizers,verbs=update
+// +kubebuilder:rbac:groups=metrics.k8s.io,resources=pods,verbs=get
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

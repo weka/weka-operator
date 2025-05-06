@@ -110,7 +110,7 @@ $(RBAC): internal/controllers/client_controller.go
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
 	mkdir -p charts/weka-operator/templates
-	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./pkg/..." output:rbac:artifacts:config=charts/weka-operator/templates
+	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./internal/controllers/..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
 manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
