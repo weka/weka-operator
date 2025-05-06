@@ -117,6 +117,7 @@ jobs:
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: test-artifacts
           path: ${{ github.workspace }}/test-artifacts
