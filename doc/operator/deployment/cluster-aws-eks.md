@@ -103,7 +103,7 @@ For above example of converged configuration, you will need to set dataNICsNumbe
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaPolicy
 metadata:
-  name: ensure-nics-manual-op
+  name: ensure-nics-policy
   namespace: default
 spec:
   type: "ensure-nics"
