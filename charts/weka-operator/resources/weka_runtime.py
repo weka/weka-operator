@@ -1880,7 +1880,9 @@ async def wait_for_resources():
         data = json.load(f)
 
     logging.info("found resources.json: %s", data)
-    NETWORK_DEVICE = ",".join(data.get("netDevices",[]))
+    net_devices = ",".join(data.get("netDevices",[]))
+    if net_devices and "aws_" in net_devices:
+        NETWORK_DEVICE = net_devices
 
     if data.get("machineIdentifier"):
         logging.info("found machineIdentifier override, applying")
@@ -1950,7 +1952,7 @@ async def write_management_ips():
 
     ipAddresses = []
 
-    if os.environ.get("MANAGEMENT_IP"):
+    if os.environ.get("MANAGEMENT_IP") and "aws_" in NETWORK_DEVICE:
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
     elif not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)

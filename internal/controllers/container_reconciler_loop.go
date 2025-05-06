@@ -1154,6 +1154,10 @@ func (r *containerReconcilerLoop) removeAllocations(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeAllocations")
 	defer end()
 
+	if r.node == nil {
+		return nil
+	}
+
 	logger.Info("Removing allocations", "container_id", r.container.Status.ClusterContainerID, "container_name", r.container.Name)
 	annotationAllocations := make(domain.Allocations)
 	patch := client.MergeFrom(r.node.DeepCopy())
