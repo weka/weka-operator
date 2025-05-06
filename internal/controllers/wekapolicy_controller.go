@@ -48,7 +48,7 @@ func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/finalizers,verbs=update
 
 func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "name", req.Name)
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "object_name", req.Name)
 	defer end()
 
 	ctx, cancel := context.WithTimeout(ctx, config.Config.Timeouts.ReconcileTimeout)

@@ -8,6 +8,16 @@ from dagger import dag, function, object_type, Ignore
 from containers.builders import build_go
 from utils.github import GitHubClient
 
+OPERATOR_EXCLUDE_LIST = [
+    "node_modules",
+    ".aider*",
+    "*/.git",
+    ".dagger",
+    "bin",
+    "build",
+    "terraform",
+]
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -33,18 +43,35 @@ class OperatorFlows:
         Diff: <diff>{pr_diff}</diff>
         """
 
+    @function
+    async def build_scalar(self,
+                           operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
+                           sock: dagger.Socket,
+                           ) -> str:
+        from apps.operator import publish_operator, publish_operator_helm_chart
+        _ = await publish_operator(operator, sock,
+                                   repository="images.scalar.dev.weka.io:5002/weka-operator",
+                                   )
+        operator_helm = await publish_operator_helm_chart(operator, sock,
+                                                          repository="images.scalar.dev.weka.io:5002/helm",
+                                                          )
+        return operator_helm
+
+    @function
+    async def deploy_scalar(self,
+                            operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
+                            sock: dagger.Socket,
+                            kubeconfig: dagger.Secret,
+                            operator_values: Optional[dagger.File]=None,
+                            ) -> str:
+        from apps.operator import install_helm_chart
+        operator_helm = await self.build_scalar(operator, sock)
+        install = await install_helm_chart(operator_helm, kubeconfig, operator_values)
+        return install
 
     @function
     async def ci_on_merge_queue_env(self,
-                                    operator: Annotated[dagger.Directory, Ignore([
-                                        "node_modules",
-                                        ".aider*",
-                                        "*/.git",
-                                        ".dagger",
-                                        "bin",
-                                        "build",
-                                        "terraform",
-                                    ])],
+                                    operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                                     testing: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
                                         "*/.git",
@@ -81,20 +108,6 @@ class OperatorFlows:
 
         return base_container
 
-    @function
-    async def test_wekai(self, wekai: dagger.Directory, sock: dagger.Socket, gh_token: Optional[dagger.Secret] = None) -> dagger.Container:
-        from containers.builders import build_go
-        return await (
-            await build_go(wekai, sock, gh_token)
-        )
-
-    @function
-    async def build_operator(self, src: dagger.Directory, sock: dagger.Socket, gh_token: Optional[dagger.Secret] = None) -> dagger.Container:
-        from containers.builders import build_go
-        return await (
-            await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go")
-        )
-
     def _extract_pr_numbers(self, title: str) -> List[int]:
         """Extracts PR numbers from a title string containing format like '(PRs 1132, 1133,...)'"""
         match = re.search(r'\(PRs\s+([\d,\s]+)\)', title)
@@ -112,15 +125,7 @@ class OperatorFlows:
 
     @function
     async def ci_on_merge_queue_plan(self,
-                                     operator: Annotated[dagger.Directory, Ignore([
-                                         "node_modules",
-                                         ".aider*",
-                                         "*/.git",
-                                         ".dagger",
-                                         "bin",
-                                         "build",
-                                         "terraform",
-                                     ])],
+                                     operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                                      testing: Annotated[dagger.Directory, Ignore([
                                          ".aider*",
                                          "*/.git",
@@ -345,15 +350,7 @@ class OperatorFlows:
 
     @function
     async def operator_explore(self,
-                                     operator: Annotated[dagger.Directory, Ignore([
-                                         "node_modules",
-                                         ".aider*",
-                                         "*/.git",
-                                         ".dagger",
-                                         "bin",
-                                         "build",
-                                         "terraform",
-                                     ])],
+                               operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                                ) -> dagger.Container:
         return await (
             dag.container()

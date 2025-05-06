@@ -54,6 +54,13 @@ async def helm_builder_container(sock: Socket, gh_token: Optional[Secret] = None
         .with_exec(["apk", "--no-cache", "add", "helm", "make"])
     )
 
+async def helm_runner_container() -> Container:
+    return (
+        dag.container()
+        .from_("alpine:latest")
+        .with_exec(["apk", "--no-cache", "add", "helm", "kubectl"])
+    )
+
 
 async def build_go(
         src: Directory,

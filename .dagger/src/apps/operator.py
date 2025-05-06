@@ -1,5 +1,6 @@
 from typing import Optional
 
+import dagger
 from dagger import dag, Container, Directory, Socket, Secret
 
 from containers.builders import build_go
@@ -7,7 +8,8 @@ from containers.builders import build_go
 
 async def operator_ubi(src: Directory, sock: Socket, gh_token: Optional[Secret] = None) -> Container:
     """Returns container suitable for building go applications"""
-    operator = await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go", go_generate=True)
+    operator = await build_go(src, sock, gh_token, cache_deps=False, program_path="cmd/manager/main.go",
+                              go_generate=True)
 
     return await (
         dag.container()
@@ -25,7 +27,8 @@ async def _calc_operator_version(src: Directory, version: str = "") -> str:
     return version
 
 
-async def publish_operator(src: Directory, sock: Socket, repository: str, version: str = "", gh_token: Optional[Secret] = None) -> str:
+async def publish_operator(src: Directory, sock: Socket, repository: str, version: str = "",
+                           gh_token: Optional[Secret] = None) -> str:
     """Returns container suitable for building go applications"""
     operator = await operator_ubi(src, sock, gh_token)
     # Compute a compact version by hashing combined digests
@@ -34,7 +37,8 @@ async def publish_operator(src: Directory, sock: Socket, repository: str, versio
     return await operator.publish(f"{repository}:{version}")
 
 
-async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: str, version: str = "", gh_token: Optional[Secret] = None) -> str:
+async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: str, version: str = "",
+                                      gh_token: Optional[Secret] = None) -> str:
     from containers.builders import helm_builder_container
 
     version = await _calc_operator_version(src, version)
@@ -55,3 +59,32 @@ async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: 
         .stdout()
     )
     return f"{repository}/weka-operator:{version}"
+
+
+async def install_helm_chart(image: str, kubeconfig: dagger.Secret, values_file: Optional[dagger.File] = None) -> str:
+    from containers.builders import helm_runner_container
+    repo, _, version = image.rpartition(":")
+
+    # TODO: Add pre-load?
+    cont = await (
+        (await helm_runner_container())
+    )
+    if values_file is not None:
+        cont = cont.with_file("/values.yaml", values_file)
+
+    return await (cont
+                  .with_mounted_secret("/kubeconfig", kubeconfig)
+                  # helm pull to install crds from crd directory
+                  .with_env_variable("KUBECONFIG", "/kubeconfig")
+                  .with_exec(["sh", "-ec", f"""
+        helm pull oci://{repo} --version {version} --untar
+        kubectl apply -f weka-operator/crds
+        """
+                              ])
+                  .with_exec(["sh", "-ec", f"""
+        helm upgrade --install weka-operator oci://{repo} --namespace weka-operator-system \
+        {"--values /values.yaml" if values_file is not None else ""} \
+            --version {version}
+         """])
+                  .stdout()
+                  )
