@@ -1,0 +1,66 @@
+<documentation>
+    <file relpath="operator/concepts/project-overview.md">
+        <tags>operator architecture, wekacluster, wekacontainer, container types, lifecycle, overrides, custom resources</tags>
+        <summary>Core project overview defining Weka Operator architecture, including WekaCluster and WekaContainer custom resources, container types and modes, lifecycle management, and resource override mechanisms.</summary>
+    </file>
+    <file relpath="operator/deployment/cluster-provisioning.md">
+        <tags>cluster provision, wekacluster yaml, templates, gracefulDestroyDuration, dynamicTemplate, redundancyLevel, stripeWidth, raft, hotSpare</tags>
+        <summary>Comprehensive guide for provisioning Weka clusters in Kubernetes, covering basic configuration, graceful termination settings, redundancy options, raft configuration, hot spare capacity, and IO conditions for optimal cluster performance.</summary>
+    </file>
+    <file relpath="operator/deployment/cluster-aws-eks.md">
+        <tags>AWS, EKS, bliss, provisioning, IAM role, subnet, security groups, region, key pair, kubeconfig, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, cleanup, pre-requisites, ensure nics, sign drives, instance types</tags>
+        <summary>Guide on provisioning Weka clusters in AWS EKS using the bliss tool. Covers EKS setup requirements, bliss commands, template files for node groups, required IAM roles, secrets management, port configuration, cleanup, and pre-requisite policies like ensure-nics and sign-drives.</summary>
+    </file>
+    <file relpath="operator/deployment/helm-install.md">
+        <tags>helm, install, upgrade, oci, quay.io, weka-operator, namespace, version, values, operator_values.yaml, localDataPvc, globalPVC</tags>
+        <summary>Describes how to install and upgrade the Weka operator using Helm, including the command syntax and notable Helm-level values like `localDataPvc` and `globalPVC`.</summary>
+    </file>
+    <file relpath="operator/deployment/pre-requisites.md">
+        <tags>pre-requisites, huge pages, hugepages, compute core, drive core, client core, machine configuration, kubernetes setup</tags>
+        <summary>Lists and explains the machine pre-requisites for running Weka in Kubernetes, specifically focusing on huge pages configuration for different container types.</summary>
+    </file>
+    <file relpath="operator/deployment/driver-distribution.md">
+        <tags>driver distribution, drivers-dist, drivers-builder, wekacontainer, service, helm install, quay.io, imagePullSecret, mode, numCores, port, uploadResultsTo, preRunScript, nodeAffinity, nodeSelector</tags>
+        <summary>Explains the driver distribution service and driver builder components, including example YAML for setting them up as WekaContainers and associated Service. Notes on matching versions and scheduling considerations are included.</summary>
+    </file>
+    <file relpath="operator/networking/network-configuration.md">
+        <tags>network, deviceSubnets, ethDevice, ethDevices, udpMode, physical environment, cloud</tags>
+        <summary>Networking configuration options for Weka clusters, detailing physical environment requirements, device selection methods, subnet configuration, UDP mode settings, and best practices for different deployment environments.</summary>
+    </file>
+    <file relpath="operator/clients/wekaclient-and-workload.md">
+        <tags>wekaclient, csi, storage class, pvc, workload, goader, mountOptions, persistentvolumeclaim</tags>
+        <summary>End-to-end guide for deploying WekaClient resources, CSI drivers, storage classes, PVCs, and workloads on Weka storage, including configuration details, resource relationships, and proper cleanup procedures.</summary>
+    </file>
+    <file relpath="operator/clients/nfs-clients.md">
+        <tags>NFS, CSI, NFS-only, wekaclient local data, PVC, mountProtocol, nfs-csi.weka.io, storage class, weka-nfs-sc, forcedirect</tags>
+        <summary>Explains how to use Weka CSI in NFS-only mode, useful for cases without standard WekaClients or when wekacontainer local data needs to be on PVC. Provides configuration details for CSI installation and storage class.</summary>
+    </file>
+    <file relpath="operator/operations/upgrade.md">
+        <tags>upgrade, image, lastAppliedImage, cluster upgrade, client upgrade, toleration, workload eviction</tags>
+        <summary>Process and best practices for upgrading Weka clusters and clients, monitoring upgrade progress, detecting failures, and handling workloads during upgrades.</summary>
+    </file>
+    <file relpath="operator/operations/weka-cluster-ops.md">
+        <tags>weka status, cluster processes, leadership, container correlation, container name mapping, kubectl</tags>
+        <summary>Operations guide covering cluster status monitoring, health status interpretation, common command execution, and methods for correlating Weka containers with Kubernetes resources.</summary>
+    </file>
+    <file relpath="operator/operations/weka-s3.md">
+        <tags>s3, weka s3, s3 status, s3 containers, object storage</tags>
+        <summary>S3 functionality guide detailing container types, status monitoring, provisioning S3 capabilities, and accessing S3 storage in Weka clusters.</summary>
+    </file>
+    <file relpath="operator/operations/secrets-management.md">
+        <tags>secrets, credentials, operator secret, admin secret, client secret, CSI secret, authentication</tags>
+        <summary>Detailed guide on the Kubernetes secrets created and managed by the Weka operator, including their purpose, content, naming conventions, and usage in different components.</summary>
+    </file>
+    <file relpath="weka/cli/weka.md">
+        <tags>weka status, json output, cluster status, API reference, monitoring, diagnostics</tags>
+        <summary>Complete reference for the Weka CLI command structure, focusing on the \'weka status --json\' command with a full example of all fields returned by a demo cluster, serving as a comprehensive reference of available status information.</summary>
+    </file>
+    <file relpath="ai/ai-assist-guidelines.md">
+        <tags>ai assistance, aimust, autogenerated name, test automation, cluster provisioning rules</tags>
+        <summary>Guidelines for AI assistants when supporting Weka Operator users, including critical steps, environment determination, cluster provisioning rules, command execution best practices, and error handling recommendations.</summary>
+    </file>
+    <file relpath="structure.md">
+        <tags>documentation structure, guidelines, file naming, content organization, maintenance</tags>
+        <summary>Guidelines for maintaining and extending the Weka Operator documentation, including directory structure, file naming conventions, content structure, and procedures for adding or updating documentation.</summary>
+    </file>
+</documentation>

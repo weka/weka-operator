@@ -48,7 +48,7 @@ Which will search for available port starting from 45000
 To enable persistent volume claims with Weka storage, install the CSI driver:
 
 ```bash
-helm upgrade csi-CLUSTER_NAME -n NAMESPACE --create-namespace -i https://github.com/weka/csi-wekafs/releases/download/v2.7.1/csi-wekafsplugin-2.7.1.tgz -set logLevel=6 --values csi_values.yaml
+helm upgrade csi-CLUSTER_NAME -n NAMESPACE --create-namespace -i https://github.com/weka/csi-wekafs/releases/download/v2.7.2/csi-wekafsplugin-2.7.2.tgz -set logLevel=6 --values csi_values.yaml
 ```
 
 ### CSI Values Example
