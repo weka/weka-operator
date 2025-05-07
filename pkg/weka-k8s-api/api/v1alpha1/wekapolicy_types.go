@@ -39,7 +39,7 @@ type DistServiceStatus struct {
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="Type",priority=0
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status",description="Status",priority=0
 // +kubebuilder:printcolumn:name="Progress",type="string",JSONPath=".status.progress",description="Policy-specific progress",priority=0
-// +kubebuilder:printcolumn:name="Result",type="string",JSONPath=".status.lastResult",description="Last result",priority=1
+// +kubebuilder:printcolumn:name="Result",type="string",JSONPath=".status.result",description="Last result",priority=1
 // +kubebuilder:printcolumn:name="Interval",type="string",JSONPath=".spec.payload.interval",description="Interval",priority=1
 // +kubebuilder:printcolumn:name="Last Run Time",type="date",JSONPath=".status.lastRunTime",description="Last run time",priority=1
 // WekaPolicy is the Schema for the wekapolicies API
