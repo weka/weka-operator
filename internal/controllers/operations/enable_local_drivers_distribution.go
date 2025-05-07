@@ -7,6 +7,7 @@ import (
 	"github.com/weka/weka-operator/pkg/workers"
 	"hash/fnv"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,27 @@ type nodeAttributes struct {
 	nodeSelector  map[string]string // Stores the first nodeSelector from payload that matched this node's attributes
 }
 
+// StringKey generates a canonical string representation for nodeAttributes, suitable for use as a map key.
+func (na nodeAttributes) StringKey() string {
+	// Create a slice of keys from the map
+	selectorKeys := make([]string, 0, len(na.nodeSelector))
+	for k := range na.nodeSelector {
+		selectorKeys = append(selectorKeys, k)
+	}
+	// Sort the keys to ensure consistent order
+	sort.Strings(selectorKeys)
+
+	// Build the selector string part
+	var selectorParts []string
+	for _, k := range selectorKeys {
+		selectorParts = append(selectorParts, fmt.Sprintf("%s:%s", k, na.nodeSelector[k]))
+	}
+	selectorStr := strings.Join(selectorParts, ",")
+
+	// Use a distinct separator for the main parts of the key
+	return fmt.Sprintf("kernel=%s|arch=%s|selector=%s", na.kernelVersion, na.architecture, selectorStr)
+}
+
 type EnsureDistServiceOperation struct {
 	client           client.Client
 	scheme           *runtime.Scheme
@@ -53,9 +75,9 @@ type EnsureDistServiceOperation struct {
 	kubeService      kubernetes.KubeService
 
 	// Internal state
-	discoveredNodesAttr map[string]nodeAttributes // nodeName -> attributes
-	discoveredImages    map[string]bool           // imageName -> true
-	targetKernelArchs   map[nodeAttributes]bool   // unique kernel/arch pairs
+	discoveredNodesAttr map[string]nodeAttributes   // nodeName -> attributes
+	discoveredImages    map[string]bool             // imageName -> true
+	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
 	mutex               sync.Mutex
 }
 
@@ -81,7 +103,7 @@ func NewEnsureDistServiceOperation(
 		kubeService:         kubernetes.NewKubeService(mgr.GetClient()),
 		discoveredNodesAttr: make(map[string]nodeAttributes),
 		discoveredImages:    make(map[string]bool),
-		targetKernelArchs:   make(map[nodeAttributes]bool),
+		targetKernelArchs:   make(map[string]nodeAttributes),
 	}
 }
 
@@ -187,7 +209,8 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 		if _, exists := o.discoveredNodesAttr[node.Name]; !exists {
 			o.discoveredNodesAttr[node.Name] = attrs
 		}
-		o.targetKernelArchs[attrs] = true // attrs now includes the nodeSelector, making it part of the unique key
+		key := attrs.StringKey()
+		o.targetKernelArchs[key] = attrs // attrs now includes the nodeSelector, making it part of the unique key
 		o.mutex.Unlock()
 
 		// Ensure labels on the node
@@ -339,9 +362,9 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 			Port:              60002,
 			NumCores:          1,
 			Tolerations:       o.containerDetails.Tolerations,
-			// NodeSelector, Affinity, Resources etc. as needed for a dist service
+			NodeSelector:      o.payload.DistNodeSelector, // Use the new DistNodeSelector
+			// Affinity, Resources etc. as needed for a dist service
 			// This container needs to run on a node that can host the service.
-			// It might not need specific node affinity if it's just serving files.
 		}
 		// Add other necessary spec fields for drivers-dist container
 		// For example, port configuration, resource requests/limits.
@@ -373,7 +396,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 	archLabelKey := o.getArchLabelKey()
 
 	for image := range o.discoveredImages {
-		for ka := range o.targetKernelArchs {
+		for _, ka := range o.targetKernelArchs {
 			builderName := o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)
 			namespace := o.policy.GetNamespace()
 
@@ -502,7 +525,7 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 
 	activeBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
-		for ka := range o.targetKernelArchs {
+		for _, ka := range o.targetKernelArchs {
 			activeBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
 		}
 	}
@@ -556,7 +579,7 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 
 	currentBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
-		for ka := range o.targetKernelArchs {
+		for _, ka := range o.targetKernelArchs {
 			currentBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
 		}
 	}
