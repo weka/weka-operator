@@ -212,7 +212,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 
 	// Discover images from WekaCluster CRs
 	var wekaClusterList weka.WekaClusterList
-	if err := o.client.List(ctx, &wekaClusterList, &client.ListOptions{Namespace: o.policy.GetNamespace()}); err != nil {
+	if err := o.client.List(ctx, &wekaClusterList); err != nil {
 		logger.Error(err, "Failed to list WekaClusters")
 		// Not returning error, proceed with EnsureImages if any
 	} else {
@@ -227,7 +227,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 	}
 
 	var wekaClientList weka.WekaClientList
-	if err := o.client.List(ctx, &wekaClientList, &client.ListOptions{Namespace: o.policy.GetNamespace()}); err != nil {
+	if err := o.client.List(ctx, &wekaClientList); err != nil {
 		logger.Error(err, "Failed to list WekaClients")
 	} else {
 		for _, wc := range wekaClientList.Items {
