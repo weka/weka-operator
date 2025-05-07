@@ -25,7 +25,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 ├── spec_dump/                       # Custom resource specifications (DO NOT MODIFY)
 ├── missing_data.md                  # Identified gaps in documentation
 ├── structure.md                     # This file - documentation guidelines
-└── summary.md                       # Reference guide for all documentation
+└── summary.xml                       # Reference guide for all documentation
 ```
 
 ## Documentation File Guidelines
@@ -95,7 +95,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 
 ## Special Files
 
-### summary.md
+### summary.xml
 - Serves as the primary reference for all documentation
 - Should be updated whenever new documentation is added
 - Includes keywords for each document to aid in discovery
@@ -120,18 +120,18 @@ This document provides guidelines for maintaining and extending the Weka Operato
 1. Identify the appropriate directory based on the topic
 2. Create the file following naming conventions
 3. Update cross-references in related files
-4. Add an entry to summary.md
+4. Add an entry to summary.xml
 5. Remove from missing_data.md if the topic was listed there
 
 ### Updating Existing Documentation
 1. Maintain the same format and structure
 2. Update cross-references if content references change
-3. Update the entry in summary.md if the content scope changes
+3. Update the entry in summary.xml if the content scope changes
 
 ### Reorganizing Documentation
 1. Update all cross-references
 2. Update the directory structure description in this file
-3. Update summary.md to reflect new locations
+3. Update summary.xml to reflect new locations
 
 ## Future Expansion
 As the Weka Operator evolves, this documentation structure should expand to include:

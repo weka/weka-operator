@@ -1,0 +1,112 @@
+{
+  "name": "driver_distribution_functionality_test",
+  "documentation": "This test plan verifies the Weka Operator's driver distribution functionality.\nKey aspects tested:\n- Creation and correct configuration of `drivers-dist` WekaContainer based on WekaPolicy.\n- Creation of `drivers-builder` WekaContainers for images auto-discovered from existing WekaCluster/WekaClient CRs and for images explicitly listed in `ensureImages`.\n- Correct propagation of labels and tolerations from WekaPolicy to created WekaContainers.\n- Functionality of custom kernel and architecture label keys for node discovery and builder scheduling.\n- Application of `distNodeSelector` for scheduling the `drivers-dist` container.\n- Execution of `builderPreRunScript` (verified by successful build).\n- Builders reaching 'Completed' status and their pods being terminated.\n\nEnvironment Assumptions:\n- Kubernetes cluster is available.\n- Weka Operator is installed in the `weka-operator-system` namespace.\n- `kubectl` is configured to interact with the cluster.\n- At least two worker nodes are available for labeling and scheduling test containers.\n- Default namespace for test resources is `default`.\n- Image pull secret `quay-io-robot-secret` is available or not strictly required if the environment allows pulling images without it.\n\nReference Images:\n- Dist service image: `quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4`\n- Explicitly ensured builder image: `quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2`\n- Other allowed images for existing clusters/clients: `quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3` and any image found on `WekaCluster.spec.image`, `WekaCluster.status.lastAppliedImage`, `WekaClient.spec.image`.\n\nBuilder PreRunScript to be included in policy:\n```\n      builderPreRunScript: |\n        #!/bin/sh\n        apt-get update && apt-get install -y gcc-12\n```\n\nNotes on WekaContainers:\n- `drivers-builder` WekaContainers, once their build task is 'Completed', will have their corresponding pods terminated. The WekaContainer CR itself will remain with status 'Completed'.\n- WekaPolicy API version: `weka.weka.io/v1alpha1`.\n\nCommands often used:\n- `kubectl get wekapolicy <policy_name> -n <namespace> -o yaml`\n- `kubectl get wekacontainer -n <namespace> -l weka.io/policy-name=<policy_name>`\n- `kubectl get wekacontainer <container_name> -n <namespace> -o yaml`\n- `kubectl get nodes -l <label_key>=<label_value> --show-labels`\n- `kubectl get pods -n <namespace> -l weka.io/wekacontainer-name=<container_name>`\n- `kubectl taint nodes --all <taint_key>-` (to remove taints)\n- `kubectl label node <node_name> <label_key>=<label_value>`\n- `kubectl label node <node_name> <label_key>-` (to remove labels)",
+  "steps": [
+    {
+      "name": "pre_test_cleanup",
+      "requirements": "1. Remove all taints from all Kubernetes nodes using `kubectl taint nodes --all <taint_key1>- <taint_key2>- ...` for all existing taints. \n2. Delete all existing `WekaPolicy` resources of type `enable-local-drivers-distribution` in the `default` namespace. List them using `kubectl get wekapolicy -n default` and filter by `spec.type`. Delete using `kubectl delete wekapolicy <name> -n default`.",
+      "step_description": "Cleans up the environment before starting the test by removing node taints and pre-existing driver distribution policies.",
+      "outputs": ["cleanup_done"]
+    },
+    {
+      "name": "discover_existing_workload_images",
+      "requirements": "1. List all `WekaCluster` resources across all namespaces (`kubectl get wekacluster --all-namespaces -o jsonpath='{range .items[*]}{.spec.image}{\"\\n\"}{.status.lastAppliedImage}{\"\\n\"}{end}'`).\n2. List all `WekaClient` resources across all namespaces (`kubectl get wekaclient --all-namespaces -o jsonpath='{range .items[*]}{.spec.image}{\"\\n\"}{end}'`).\n3. Collect all unique, non-empty image names from these lists. Ensure only valid Weka images (e.g., starting with `quay.io/weka.io/weka-in-container:`) are included.",
+      "step_description": "Discovers images currently used by WekaClusters and WekaClients in the environment. These images are expected to have drivers built automatically by the policy.",
+      "outputs": ["existing_workload_images"]
+    },
+    {
+      "name": "generate_test_identifiers",
+      "requirements": "Generate unique identifiers for the test:\n- `policy_name`: e.g., `test-driverdist-pol-<timestamp_or_random_chars>`\n- `custom_kernel_label_key`: e.g., `custom.kernel.label/test-kernel-<random_chars>`\n- `custom_arch_label_key`: e.g., `custom.arch.label/test-arch-<random_chars>`\n- `builder_pool_label_key`: e.g., `node.builder.pool/test-<random_chars>`\n- `builder_pool_label_value`: `dedicated-builders`\n- `dist_pool_label_key`: e.g., `node.dist.pool/test-<random_chars>`\n- `dist_pool_label_value`: `dedicated-dist`\n- `toleration_key`: e.g., `test.toleration/driver-dist-<random_chars>`\n- `toleration_value`: `can-run-here`\n- `toleration_effect`: `NoSchedule`\n- `policy_label_key`: e.g., `app.test.group/driver-dist-<random_chars>`\n- `policy_label_value`: `active-test`",
+      "step_description": "Generates unique names, label keys/values, and toleration details to ensure test isolation and targeted resource identification.",
+      "outputs": ["policy_name", "custom_kernel_label_key", "custom_arch_label_key", "builder_pool_label_key", "builder_pool_label_value", "dist_pool_label_key", "dist_pool_label_value", "toleration_key", "toleration_value", "toleration_effect", "policy_label_key", "policy_label_value"]
+    },
+    {
+      "name": "prepare_nodes",
+      "inputs": [
+        "generate_test_identifiers.custom_kernel_label_key",
+        "generate_test_identifiers.custom_arch_label_key",
+        "generate_test_identifiers.builder_pool_label_key",
+        "generate_test_identifiers.builder_pool_label_value",
+        "generate_test_identifiers.dist_pool_label_key",
+        "generate_test_identifiers.dist_pool_label_value"
+      ],
+      "requirements": "1. Select two distinct, schedulable worker nodes. If not available, report failure.\n2. Get the first selected node name (NODE_FOR_BUILDERS) and its actual kernel version (ACTUAL_KERNEL) and architecture (ACTUAL_ARCH) using `uname -r` and `uname -m` or by inspecting existing node labels if available.\n3. Label NODE_FOR_BUILDERS with `$generate_test_identifiers__builder_pool_label_key=$generate_test_identifiers__builder_pool_label_value`.\n4. Label NODE_FOR_BUILDERS with `$generate_test_identifiers__custom_kernel_label_key=ACTUAL_KERNEL`.\n5. Label NODE_FOR_BUILDERS with `$generate_test_identifiers__custom_arch_label_key=ACTUAL_ARCH`.\n6. Get the second selected node name (NODE_FOR_DIST).\n7. Label NODE_FOR_DIST with `$generate_test_identifiers__dist_pool_label_key=$generate_test_identifiers__dist_pool_label_value`.",
+      "step_description": "Labels specific nodes to dedicate them for builder and distribution service roles, and tags the builder node with custom kernel/architecture labels.",
+      "outputs": ["builder_node_name", "builder_node_kernel_value", "builder_node_arch_value", "dist_node_name", "nodes_prepared_successfully"]
+    },
+    {
+      "name": "create_driver_distribution_policy",
+      "inputs": [
+        "generate_test_identifiers.policy_name",
+        "generate_test_identifiers.custom_kernel_label_key",
+        "generate_test_identifiers.custom_arch_label_key",
+        "generate_test_identifiers.builder_pool_label_key",
+        "generate_test_identifiers.builder_pool_label_value",
+        "generate_test_identifiers.dist_pool_label_key",
+        "generate_test_identifiers.dist_pool_label_value",
+        "generate_test_identifiers.toleration_key",
+        "generate_test_identifiers.toleration_value",
+        "generate_test_identifiers.toleration_effect",
+        "generate_test_identifiers.policy_label_key",
+        "generate_test_identifiers.policy_label_value"
+      ],
+      "requirements": "Create and apply a WekaPolicy YAML in the `default` namespace with the following specifications:\n```yaml\napiVersion: weka.weka.io/v1alpha1\nkind: WekaPolicy\nmetadata:\n  name: $generate_test_identifiers__policy_name\n  namespace: default\n  labels:\n    $generate_test_identifiers__policy_label_key: $generate_test_identifiers__policy_label_value\nspec:\n  type: \"enable-local-drivers-distribution\"\n  image: \"quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4\"\n  imagePullSecret: \"quay-io-robot-secret\"\n  tolerations:\n  - key: \"$generate_test_identifiers__toleration_key\"\n    operator: \"Equal\"\n    value: \"$generate_test_identifiers__toleration_value\"\n    effect: \"$generate_test_identifiers__toleration_effect\"\n  payload:\n    interval: \"1m\"\n    driverDistPayload:\n      ensureImages:\n        - \"quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\"\n      nodeSelectors:\n        - $generate_test_identifiers__builder_pool_label_key: \"$generate_test_identifiers__builder_pool_label_value\"\n      kernelLabelKey: \"$generate_test_identifiers__custom_kernel_label_key\"\n      architectureLabelKey: \"$generate_test_identifiers__custom_arch_label_key\"\n      distNodeSelector:\n        $generate_test_identifiers__dist_pool_label_key: \"$generate_test_identifiers__dist_pool_label_value\"\n      builderPreRunScript: |\n        #!/bin/sh\n        apt-get update && apt-get install -y gcc-12\n```\nVerify the policy is successfully applied using `kubectl apply -f <generated_yaml_file>`. Ensure the YAML is syntactically correct and all $variable placeholders are substituted.",
+      "step_description": "Deploys the WekaPolicy CR configured with custom labels, selectors, tolerations, and the builder pre-run script.",
+      "outputs": ["policy_applied_successfully"]
+    },
+    {
+      "name": "verify_policy_status_and_dist_container",
+      "inputs": [
+        "generate_test_identifiers.policy_name",
+        "generate_test_identifiers.dist_pool_label_key",
+        "generate_test_identifiers.dist_pool_label_value",
+        "generate_test_identifiers.toleration_key",
+        "generate_test_identifiers.toleration_value",
+        "generate_test_identifiers.toleration_effect",
+        "generate_test_identifiers.policy_label_key",
+        "generate_test_identifiers.policy_label_value",
+        "prepare_nodes.dist_node_name"
+      ],
+      "requirements": "1. Poll the `WekaPolicy` `$generate_test_identifiers__policy_name` in namespace `default` until `status.typedStatus.distService.serviceUrl` is populated or a timeout (e.g., 5 minutes) is reached.\n2. Fetch the `drivers-dist` `WekaContainer` (selector: `weka.io/policy-name=$generate_test_identifiers__policy_name,weka.io/mode=drivers-dist`) in namespace `default`.\n3. Verify `WekaContainer.spec.image` is `quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4`.\n4. Verify `WekaContainer.metadata.labels` contains `$generate_test_identifiers__policy_label_key: $generate_test_identifiers__policy_label_value`.\n5. Verify `WekaContainer.spec.tolerations` contains the toleration: `{\"key\": \"$generate_test_identifiers__toleration_key\", \"operator\": \"Equal\", \"value\": \"$generate_test_identifiers__toleration_value\", \"effect\": \"$generate_test_identifiers__toleration_effect\"}`.\n6. Verify `WekaContainer.spec.nodeSelector` contains `$generate_test_identifiers__dist_pool_label_key: $generate_test_identifiers__dist_pool_label_value`.\n7. Get the pod for this `WekaContainer`. Verify the pod is scheduled on node `$prepare_nodes__dist_node_name` (which has the dist pool label).",
+      "step_description": "Checks if the WekaPolicy has initialized the distribution service and verifies that the `drivers-dist` WekaContainer is correctly configured with image, labels, tolerations, node selector, and scheduled on the designated dist node.",
+      "outputs": ["dist_service_url", "dist_container_verified"]
+    },
+    {
+      "name": "verify_builder_containers",
+      "inputs": [
+        "generate_test_identifiers.policy_name",
+        "discover_existing_workload_images.existing_workload_images",
+        "prepare_nodes.builder_node_name",
+        "prepare_nodes.builder_node_kernel_value",
+        "prepare_nodes.builder_node_arch_value",
+        "generate_test_identifiers.custom_kernel_label_key",
+        "generate_test_identifiers.custom_arch_label_key",
+        "generate_test_identifiers.builder_pool_label_key",
+        "generate_test_identifiers.builder_pool_label_value",
+        "generate_test_identifiers.toleration_key",
+        "generate_test_identifiers.toleration_value",
+        "generate_test_identifiers.toleration_effect",
+        "generate_test_identifiers.policy_label_key",
+        "generate_test_identifiers.policy_label_value"
+      ],
+      "requirements": "1. Construct the list of all unique expected Weka images for which builders should be created: combine `$discover_existing_workload_images__existing_workload_images` with `[\"quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2\"]`.\n2. For each unique expected image in the list:\n    a. Poll for a `drivers-builder` `WekaContainer` in namespace `default` with labels `weka.io/policy-name=$generate_test_identifiers__policy_name`, `weka.io/mode=drivers-builder` and `spec.image` matching the current expected image. Timeout: 10 minutes.\n    b. Verify the found `WekaContainer.metadata.labels` contains `$generate_test_identifiers__policy_label_key: $generate_test_identifiers__policy_label_value`.\n    c. Verify `WekaContainer.metadata.labels` contains `$generate_test_identifiers__custom_kernel_label_key: $prepare_nodes__builder_node_kernel_value`.\n    d. Verify `WekaContainer.metadata.labels` contains `$generate_test_identifiers__custom_arch_label_key: $prepare_nodes__builder_node_arch_value`.\n    e. Verify `WekaContainer.spec.tolerations` contains `{\"key\": \"$generate_test_identifiers__toleration_key\", \"operator\": \"Equal\", \"value\": \"$generate_test_identifiers__toleration_value\", \"effect\": \"$generate_test_identifiers__toleration_effect\"}`.\n    f. Verify `WekaContainer.spec.nodeSelector` contains `$generate_test_identifiers__builder_pool_label_key: $generate_test_identifiers__builder_pool_label_value`, `$generate_test_identifiers__custom_kernel_label_key: $prepare_nodes__builder_node_kernel_value`, and `$generate_test_identifiers__custom_arch_label_key: $prepare_nodes__builder_node_arch_value`.\n    g. If a pod for this WekaContainer exists, verify it is scheduled on node `$prepare_nodes__builder_node_name`.\n    h. Poll the `WekaContainer.status.status` until it is `Completed`. Timeout: 20 minutes from detection.\n    i. After status is `Completed`, verify that the corresponding pod (if any was created) is terminated/deleted (does not exist or is in a terminal state like Evicted and eventually disappears).\n3. Verify that the total count of `drivers-builder` `WekaContainers` for this policy matches the count of unique expected images.",
+      "step_description": "Verifies that `drivers-builder` WekaContainers are created for all expected images (discovered and explicitly ensured), are configured with correct labels (including custom kernel/arch), tolerations, node selectors, scheduled correctly, and successfully complete their build tasks. The builder pods are expected to be deleted upon completion.",
+      "outputs": ["all_builders_verified"]
+    },
+    {
+      "name": "post_test_cleanup",
+      "inputs": [
+        "generate_test_identifiers.policy_name",
+        "prepare_nodes.builder_node_name",
+        "prepare_nodes.dist_node_name",
+        "generate_test_identifiers.builder_pool_label_key",
+        "generate_test_identifiers.dist_pool_label_key",
+        "generate_test_identifiers.custom_kernel_label_key",
+        "generate_test_identifiers.custom_arch_label_key"
+      ],
+      "requirements": "1. Delete the `WekaPolicy` named `$generate_test_identifiers__policy_name` in the `default` namespace (`kubectl delete wekapolicy $generate_test_identifiers__policy_name -n default`).\n2. Remove the label `$generate_test_identifiers__builder_pool_label_key` from node `$prepare_nodes__builder_node_name` (`kubectl label node $prepare_nodes__builder_node_name $generate_test_identifiers__builder_pool_label_key-`).\n3. Remove the label `$generate_test_identifiers__custom_kernel_label_key` from node `$prepare_nodes__builder_node_name`.\n4. Remove the label `$generate_test_identifiers__custom_arch_label_key` from node `$prepare_nodes__builder_node_name`.\n5. Remove the label `$generate_test_identifiers__dist_pool_label_key` from node `$prepare_nodes__dist_node_name`.",
+      "step_description": "Cleans up resources created during the test, including the WekaPolicy and node labels.",
+      "outputs": ["post_test_cleanup_done"]
+    }
+  ]
+}

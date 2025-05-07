@@ -142,6 +142,7 @@ FIELDS:
     coreIds	<[]integer>
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
+    csiDriverName	<string>
     driversDistService	<string>
     driversLoaderImage	<string>
     dropAffinityConstraints	<boolean>

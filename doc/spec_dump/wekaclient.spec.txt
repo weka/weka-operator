@@ -47,6 +47,7 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     cpuRequest	<string>
+    csiGroup	<string>
     driversDistService	<string>
     driversLoaderImage	<string>
     globalPVC	<Object>

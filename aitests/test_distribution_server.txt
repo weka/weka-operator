@@ -1,0 +1,42 @@
+test of driver distribution server
+
+- ensure that correct builders are created and reach status Completed if no explicit ensureImages given, based on existing wekacluster and wekaclient images
+- ensure that explicit given image is built, use quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2 for explicit builds , we should not have such cluster/clients on current test setup
+- ensure that custom labels functionality is working, i.e when overridden - such label will appear on nodes and will be used for scheduling
+- ensure that labels defined on driver policy propagated to containers
+- ensure that tolerations defined on driver policy propagated to containers, no need to validate actual scheduling against taints
+- ensure that dist wekacontainer got distNodeSelector propagated into wekacontainer
+- mark nodes with custom labels and ensure that they are used for discovery/scheduling for driver policy
+- operator already installed in the cluster in weka-operator-system namespace
+- use default namespace for the test
+- use quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 for dist service image
+- use any nodes from this cluster
+- remove all taints from all nodes before starting the test
+- use image pull secret like in examples
+- generate arbitrary custom labels
+- delete all existing driver distribution policies before starting the test, note that there might be standalone containers of previous installations, we should not remove them
+
+environment notes:
+- we do not have multiple kernels in cluster, so we can only test permutation of images, but not  permutation of multiple kernels
+- pullsecret is not required in this environment, can be left, but no need to validate it
+- do not create new wekacluster/wekaclients as part of this test
+
+You are allowed to use only following images:
+- quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4
+- quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3
+- quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2
+Any other image found on existing wekacluster/wekaclient as image/lastApplied image is also fine to be used and expected to be built
+
+Notes:
+ - when wekacontainer of type builder in status Completed it is expected not to have pod. Pod gets deleted after completion
+ - ensureImages are images to ensure drivers for IN ADDITION to these found by existing WekaCluster/WekaClients
+    - Environment has cluster with different image and lastApplied image, so we should expect both of them to always be built in addition to specified by ensureImages
+ - generate all the names/labels/tolerations that are  not provided, but can be generated for test purposes
+ - no user parameters expected! Provided information should be sufficient to build and execute a plan
+
+- must include gcc12 installation via policy as
+```
+      builderPreRunScript: |
+        #!/bin/sh
+        apt-get update && apt-get install -y gcc-12
+```

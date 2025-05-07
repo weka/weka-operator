@@ -47,6 +47,7 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     csiConfig	<Object>
+      csiDriverName	<string>
       endpointsSubnets	<[]string>
     driversDistService	<string>
     dynamicTemplate	<Object>

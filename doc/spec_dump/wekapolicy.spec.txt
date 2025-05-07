@@ -43,6 +43,17 @@ FIELDS:
     payload	<Object> -required-
       discoverDrivesPayload	<Object>
         nodeSelector	<map[string]string>
+      driverDistPayload	<Object>
+        architectureLabelKey	<string>
+        builderPreRunScript	<string>
+        distNodeSelector	<map[string]string>
+        ensureImages	<[]string>
+        kernelLabelKey	<string>
+        nodeSelectors	<[]map[string]string>
+      ensureNICsPayload	<Object>
+        dataNICsNumber	<integer>
+        nodeSelector	<map[string]string>
+        type	<string> -required-
       interval	<string>
       schedulingConfigPayload	<Object>
       signDrivesPayload	<Object>
@@ -68,6 +79,10 @@ FIELDS:
     type	<string> -required-
   status	<Object>
     lastRunTime	<string> -required-
+    progress	<string>
     result	<string> -required-
     status	<string> -required-
+    typedStatus	<Object>
+      distService	<Object>
+        serviceUrl	<string>
 
