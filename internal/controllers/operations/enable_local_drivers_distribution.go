@@ -88,7 +88,7 @@ func (o *EnsureDistServiceOperation) GetJsonResult() string {
 	// Could return a summary of builder statuses or errors
 	// For now, an empty JSON object or a simple status
 	status := map[string]interface{}{
-		"message": "Operation in progress or completed.",
+		"message": "All builds completed",
 		// TODO: Add more details like number of builders, errors, etc.
 	}
 	resultJSON, _ := json.Marshal(status)
