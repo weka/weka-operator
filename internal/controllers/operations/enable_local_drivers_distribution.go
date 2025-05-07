@@ -75,8 +75,8 @@ type EnsureDistServiceOperation struct {
 	kubeService      kubernetes.KubeService
 
 	// Internal state
-	discoveredNodesAttr map[string]nodeAttributes   // nodeName -> attributes
-	discoveredImages    map[string]bool             // imageName -> true
+	discoveredNodesAttr map[string]nodeAttributes // nodeName -> attributes
+	discoveredImages    map[string]bool           // imageName -> true
 	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
 	mutex               sync.Mutex
 }
@@ -295,7 +295,7 @@ func (o *EnsureDistServiceOperation) getDistContainerName() string {
 }
 
 func (o *EnsureDistServiceOperation) getServiceUrl() string {
-	return fmt.Sprintf("http://%s.%s.svc.cluster.local:60002", o.getDistServiceName(), o.policy.GetNamespace())
+	return fmt.Sprintf("https://%s.%s.svc.cluster.local:60002", o.getDistServiceName(), o.policy.GetNamespace())
 }
 
 func (o *EnsureDistServiceOperation) EnsureDistService(ctx context.Context) error {
