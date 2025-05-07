@@ -640,10 +640,29 @@ func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch
 	imgHash := hashFNV(image)
 	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
 	kernelNorm = strings.ReplaceAll(kernelNorm, "_", "-") // Further sanitize kernel
+
+	// Remove any leading or trailing hyphens from kernelNorm itself.
+	// This prevents kernelNorm from causing the full name to end with a hyphen.
+	kernelNorm = strings.Trim(kernelNorm, "-")
+
+	// If kernelNorm became empty (e.g., kernel was originally "-" or ".-."),
+	// use a placeholder to ensure the final segment of the name is valid.
+	if kernelNorm == "" {
+		kernelNorm = "unknownkernel"
+	}
+
 	name := fmt.Sprintf("%s%s-%s-%s-%s", DriverBuilderPrefix, o.policy.GetName(), imgHash, arch, kernelNorm)
+
+	// Truncate if the name is too long.
 	if len(name) > 63 {
 		name = name[:63]
 	}
+
+	// After potential truncation or if the original construction ended with a hyphen,
+	// ensure the name does not end with a hyphen.
+	// DriverBuilderPrefix ensures the name won't be empty or start with a hyphen.
+	name = strings.TrimRight(name, "-")
+
 	return name
 }
 
