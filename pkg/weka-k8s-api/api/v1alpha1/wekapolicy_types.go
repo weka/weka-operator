@@ -91,6 +91,9 @@ type DriverDistPayload struct {
 	ArchitectureLabelKey *string `json:"architectureLabelKey,omitempty"`
 	// BuilderPreRunScript is an optional script to run on builder containers after kernel validation.
 	BuilderPreRunScript *string `json:"builderPreRunScript,omitempty"`
+	// DistNodeSelector is the node selector for the drivers distribution (dist) container.
+	// If not specified, the dist container will be scheduled on any available node.
+	DistNodeSelector map[string]string `json:"distNodeSelector,omitempty"`
 }
 
 func init() {
