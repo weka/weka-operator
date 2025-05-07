@@ -549,16 +549,26 @@ func (o *EnsureDistServiceOperation) UpdatePolicyStatusAndCallback(ctx context.C
 }
 
 func (o *EnsureDistServiceOperation) getCommonLabels() map[string]string {
-	return map[string]string{
-		PolicyNameLabelKey: o.policy.GetName(),
-		// Add other common labels if needed
+	baseLabels := make(map[string]string)
+
+	// Add labels from WekaPolicy.ObjectMeta.Labels first
+	if o.policy.ObjectMeta.Labels != nil {
+		for k, v := range o.policy.ObjectMeta.Labels {
+			baseLabels[k] = v
+		}
 	}
+
+	// Then add/override with specific labels like PolicyNameLabelKey
+	baseLabels[PolicyNameLabelKey] = o.policy.GetName()
+	// Add other common operator-defined labels if needed in the future
+
+	return baseLabels
 }
 
 func (o *EnsureDistServiceOperation) getDistContainerLabels() map[string]string {
 	labels := o.getCommonLabels()
 	labels["app"] = o.getDistContainerName() // For service selector
-	labels["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
+	labels["weka.io/mode"] = weka.WekaContainerModeDriversDist
 	return labels
 }
 
