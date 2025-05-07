@@ -37,6 +37,7 @@ const (
 type nodeAttributes struct {
 	kernelVersion string
 	architecture  string
+	nodeSelector  map[string]string // Stores the first nodeSelector from payload that matched this node's attributes
 }
 
 type EnsureDistServiceOperation struct {
@@ -126,36 +127,49 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 	_, logger, _ := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
 	logger.Info("Discovering nodes and ensuring labels")
 
-	var nodeList corev1.NodeList
+	kernelLabelKey := o.getKernelLabelKey()
+	archLabelKey := o.getArchLabelKey()
+
+	type nodeProcessingInfo struct {
+		node         corev1.Node
+		nodeSelector map[string]string // Stores the first selector from payload that matched this node
+	}
+	nodesToProcessMap := make(map[string]nodeProcessingInfo)
+
 	if len(o.payload.NodeSelectors) > 0 {
-		// Fetch nodes matching any of the selectors
-		combinedNodes := make(map[string]corev1.Node)
 		for _, selectorMap := range o.payload.NodeSelectors {
 			sel := labels.SelectorFromSet(selectorMap)
 			var currentNodes corev1.NodeList
 			if err := o.client.List(ctx, &currentNodes, &client.ListOptions{LabelSelector: sel}); err != nil {
 				logger.Error(err, "Failed to list nodes with selector", "selector", sel.String())
-				return err
+				return err // Failing the step if any selector list fails
 			}
 			for _, node := range currentNodes.Items {
-				combinedNodes[node.Name] = node
+				if _, exists := nodesToProcessMap[node.Name]; !exists {
+					// This node hasn't been matched by a previous selector in the payload list, so record it with current selector.
+					nodesToProcessMap[node.Name] = nodeProcessingInfo{node: node, nodeSelector: selectorMap}
+				}
 			}
 		}
-		for _, node := range combinedNodes {
-			nodeList.Items = append(nodeList.Items, node)
-		}
 	} else {
-		// Fetch all nodes
-		if err := o.client.List(ctx, &nodeList); err != nil {
+		// No selectors in payload, fetch all nodes
+		var allNodesList corev1.NodeList
+		if err := o.client.List(ctx, &allNodesList); err != nil {
 			logger.Error(err, "Failed to list all nodes")
 			return err
 		}
+		for _, node := range allNodesList.Items {
+			nodesToProcessMap[node.Name] = nodeProcessingInfo{node: node, nodeSelector: nil} // No specific payload selector
+		}
 	}
 
-	kernelLabelKey := o.getKernelLabelKey()
-	archLabelKey := o.getArchLabelKey()
+	var processingItems []nodeProcessingInfo
+	for _, item := range nodesToProcessMap {
+		processingItems = append(processingItems, item)
+	}
 
-	return workers.ProcessConcurrently(ctx, nodeList.Items, 32, func(ctx context.Context, node corev1.Node) error {
+	return workers.ProcessConcurrently(ctx, processingItems, 32, func(ctx context.Context, item nodeProcessingInfo) error {
+		node := item.node
 		// We are only interested in AMD64 for now as per requirement
 		if node.Status.NodeInfo.Architecture != "amd64" {
 			logger.V(1).Info("Skipping node due to non-amd64 architecture", "node", node.Name, "architecture", node.Status.NodeInfo.Architecture)
@@ -165,10 +179,15 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 		attrs := nodeAttributes{
 			kernelVersion: node.Status.NodeInfo.KernelVersion,
 			architecture:  node.Status.NodeInfo.Architecture,
+			nodeSelector:  item.nodeSelector, // Store the captured nodeSelector (could be nil)
 		}
 		o.mutex.Lock()
-		o.discoveredNodesAttr[node.Name] = attrs
-		o.targetKernelArchs[attrs] = true
+		// Store attributes for the node if not already seen (primarily for o.targetKernelArchs)
+		// o.discoveredNodesAttr might be redundant if not used elsewhere, but harmless to keep for now.
+		if _, exists := o.discoveredNodesAttr[node.Name]; !exists {
+			o.discoveredNodesAttr[node.Name] = attrs
+		}
+		o.targetKernelArchs[attrs] = true // attrs now includes the nodeSelector, making it part of the unique key
 		o.mutex.Unlock()
 
 		// Ensure labels on the node
@@ -377,12 +396,24 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					NumCores:          1,
 					UploadResultsTo:   o.getDistContainerName(),
 					Tolerations:       o.containerDetails.Tolerations,
-					NodeSelector: map[string]string{
-						archLabelKey:   ka.architecture,
-						kernelLabelKey: ka.kernelVersion,
-						// Ensure it runs on amd64 if that's a hardcoded assumption
-						"kubernetes.io/arch": "amd64",
-					},
+					// NodeSelector logic:
+					// Merge payload selector (ka.nodeSelector), specific kernel/arch, and amd64.
+					// Specifics (kernel, arch, amd64) take precedence if keys overlap.
+					NodeSelector: func() map[string]string {
+						builderNodeSelector := make(map[string]string)
+						// 1. Add the nodeSelector from the payload (if any) that led to this kernel/arch combination
+						if ka.nodeSelector != nil {
+							for k, v := range ka.nodeSelector {
+								builderNodeSelector[k] = v
+							}
+						}
+						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
+						builderNodeSelector[archLabelKey] = ka.architecture
+						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
+						// 3. Ensure it runs on amd64 (overrides if kubernetes.io/arch was in ka.nodeSelector)
+						builderNodeSelector["kubernetes.io/arch"] = "amd64"
+						return builderNodeSelector
+					}(),
 					// Instructions to tell the builder what kernel/arch to build for
 					Instructions: &weka.Instructions{
 						Type:    "build-drivers",
