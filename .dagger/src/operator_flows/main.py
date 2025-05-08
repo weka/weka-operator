@@ -183,6 +183,7 @@ class OperatorFlows:
         new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
         test_artifacts_dir: Optional[dagger.Directory] = None,
         dry_run: bool = False,
+        no_cleanup: bool = False,
         use_gh_token_for_go_deps: bool = False,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
@@ -255,17 +256,23 @@ class OperatorFlows:
             result = await (
                 upgrade_test_container
                 .with_exec([
-                    "/weka-k8s-testing",
-                    "upgrade-extended",
-                    "--initial-version", initial_weka_version,
-                    "--new-version", new_weka_version,
-                    "--operator-version", operator_version,
-                    "--operator-image", operator_image,
-                    "--operator-helm-image", operator_helm_image,
-                    "--node-selector", "weka.io/dedicated:upgrade-extended",
-                    "--namespace", "test-upgrade-extended",
-                    "--cluster-name", "upgrade-extended",
-                    # "--cleanup", "no-cleanup"
+                    "sh", "-c",
+# unset OTEL_EXPORTER_OTLP_ENDPOINT (as it is used in wekai-k8s-testing)
+# NOTE: does not work with .without_env_variable("OTEL_EXPORTER_OTLP_ENDPOINT")
+# looks like dagger sets it on every exec with a new value
+f"""
+unset OTEL_EXPORTER_OTLP_ENDPOINT
+/weka-k8s-testing upgrade-extended \
+    --initial-version {initial_weka_version} \
+    --new-version {new_weka_version} \
+    --operator-version {operator_version} \
+    --operator-image {operator_image} \
+    --operator-helm-image {operator_helm_image} \
+    --node-selector "weka.io/dedicated:upgrade-extended" \
+    --namespace "test-upgrade-extended" \
+    --cluster-name "upgrade-extended" \
+    --cleanup {"no-cleanup" if no_cleanup else "on-start"}
+"""
                 ])
             )
             # Return a directory that has both the test artifacts and result
