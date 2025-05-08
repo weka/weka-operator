@@ -61,7 +61,7 @@ async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: 
     return f"{repository}/weka-operator:{version}"
 
 
-async def install_helm_chart(image: str, kubeconfig: dagger.Secret, values_file: Optional[dagger.File] = None) -> str:
+async def install_helm_chart(image: str, kubeconfig: dagger.Secret, operator_repo: str, values_file: Optional[dagger.File] = None) -> str:
     from containers.builders import helm_runner_container
     repo, _, version = image.rpartition(":")
 
@@ -83,8 +83,9 @@ async def install_helm_chart(image: str, kubeconfig: dagger.Secret, values_file:
                               ])
                   .with_exec(["sh", "-ec", f"""
         helm upgrade --install weka-operator oci://{repo} --namespace weka-operator-system \
-        {"--values /values.yaml" if values_file is not None else ""} \
-            --version {version}
+            --version {version} \
+            --set image.repository={operator_repo} \
+        {"--values /values.yaml" if values_file is not None else ""}
          """])
                   .stdout()
                   )

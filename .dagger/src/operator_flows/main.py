@@ -66,7 +66,12 @@ class OperatorFlows:
                             ) -> str:
         from apps.operator import install_helm_chart
         operator_helm = await self.build_scalar(operator, sock)
-        install = await install_helm_chart(operator_helm, kubeconfig, operator_values)
+        install = await install_helm_chart(
+            image=operator_helm,
+            kubeconfig=kubeconfig,
+            operator_repo="images.scalar.dev.weka.io:5002/weka-operator",
+            values_file=operator_values,
+        )
         return install
 
     @function
