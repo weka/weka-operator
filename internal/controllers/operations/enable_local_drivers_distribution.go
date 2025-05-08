@@ -30,9 +30,9 @@ const (
 	DefaultKernelLabelKey       = "weka.io/kernel"
 	DefaultArchitectureLabelKey = "weka.io/architecture"
 	PolicyNameLabelKey          = "weka.io/policy-name"
-	DriverDistServiceSuffix     = "-drivers-dist-svc"
-	DriverDistContainerSuffix   = "-drivers-dist"
-	DriverBuilderPrefix         = "drivers-builder-"
+	DriverDistServiceSuffix     = "-dist"
+	DriverDistContainerSuffix   = "-dist"
+	DriversBuilderSuffix        = "builder"
 )
 
 type nodeAttributes struct {
@@ -651,7 +651,7 @@ func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch
 		kernelNorm = "unknownkernel"
 	}
 
-	name := fmt.Sprintf("%s%s-%s-%s-%s", DriverBuilderPrefix, o.policy.GetName(), imgHash, arch, kernelNorm)
+	name := fmt.Sprintf("%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgHash, arch, kernelNorm)
 
 	// Truncate if the name is too long.
 	if len(name) > 63 {
