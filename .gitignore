@@ -58,3 +58,4 @@ go.work*
 changelog_generator.log
 
 test_artifacts/
+.env*

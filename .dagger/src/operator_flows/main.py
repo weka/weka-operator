@@ -121,42 +121,91 @@ class OperatorFlows:
             return [int(num.strip()) for num in numbers_str.split(',')]
         return []
 
-    # @function
-    # async def ci_on_merge_queue_upgrade_env(self,
-    #
-    #
-    #                                         ): -> dagger.Container:
-    # pass
+    @function
+    async def generate_pr_test_artifacts(
+        self,
+        operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
+        pr_number: int,
+        gh_token: dagger.Secret,
+        openai_api_key: dagger.Secret,
+        export_path: Optional[str] = None,
+    ) -> dagger.Directory:
+        """Generates test artifacts for a given Pull Request for the merge queue CI."""
+        logger.info(f"Starting test artifact generation for PR #{pr_number}")
+
+        logger.info("Creating GitHub client for artifact generation")
+        gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
+        pr = gh_client.get_pr_details(pr_number)
+        if pr is None:
+            raise ValueError(f"Could not retrieve details for PR #{pr_number}")
+
+        if "[Graphite MQ]" in pr.title:
+            pr_numbers = self._extract_pr_numbers(pr.title)
+        else:
+            pr_numbers = [pr_number]
+
+        logger.info(f"Processing PRs {pr_numbers} for artifact generation")
+
+        test_artifacts = await self.generate_ai_plan_for_prs(
+            operator=operator,
+            pr_numbers=pr_numbers,
+            gh_token=gh_token,
+            openai_api_key=openai_api_key,
+        )
+        logger.info(f"Successfully generated test artifacts for PRs {pr_numbers}")
+
+        if export_path:
+            await test_artifacts.export(export_path)
+            logger.info(f"Exported test artifacts to {export_path}")
+
+        return test_artifacts
 
     @function
-    async def ci_on_merge_queue_plan(self,
-                                     operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
-                                     testing: Annotated[dagger.Directory, Ignore([
-                                         ".aider*",
-                                         "*/.git",
-                                     ])],
-                                     wekai: Annotated[dagger.Directory, Ignore([
-                                         ".aider*",
-                                         "*/.git",
-                                         ".dagger",
-                                     ])],
-                                     sock: dagger.Socket,
-                                     pr_number: int,
-                                     gh_token: dagger.Secret,
-                                     openai_api_key: dagger.Secret,
-                                     gemini_api_key: dagger.Secret,
-                                     kubeconfig_path: dagger.Secret,
-                                     initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
-                                     new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
-                                     artifacts_path: str = "./test_artifacts",
-                                     dry_run: bool = False,
-                                     use_gh_token_for_go_deps: bool = False,
-                                     ) -> dagger.Directory:
+    async def ci_on_merge_queue_plan(
+        self,
+        operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
+        testing: Annotated[dagger.Directory, Ignore([
+            ".aider*",
+            "*/.git",
+        ])],
+        wekai: Annotated[dagger.Directory, Ignore([
+            ".aider*",
+            "*/.git",
+            ".dagger",
+        ])],
+        sock: dagger.Socket,
+        pr_number: int,
+        gh_token: dagger.Secret,
+        openai_api_key: dagger.Secret,
+        gemini_api_key: dagger.Secret,
+        kubeconfig_path: dagger.Secret,
+        initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
+        new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
+        test_artifacts_dir: Optional[dagger.Directory] = None,
+        dry_run: bool = False,
+        use_gh_token_for_go_deps: bool = False,
+    ) -> dagger.Directory:
+        """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
+        current_gh_token = None
         if use_gh_token_for_go_deps:
-            env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, gh_token)
-        else:
-            env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock)
+            if gh_token is None:
+                logger.error("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
+                raise ValueError("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
+            current_gh_token = gh_token
+
+        if not test_artifacts_dir:
+            test_artifacts_dir = await self.generate_pr_test_artifacts(operator, pr_number, gh_token, openai_api_key)
+    
+        logger.info("Extracting hook environment variables from provided artifacts.")
+        hook_env_dict = await self._get_hook_env_vars(test_artifacts_dir)
+        logger.info(f"Hook env vars: {hook_env_dict}")
+
+        if not hook_env_dict:
+            logger.info("No generated hooks found, skipping upgrade test")
+            return test_artifacts_dir
+        
+        env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, current_gh_token)
 
         env = (
             env
@@ -164,49 +213,13 @@ class OperatorFlows:
             .with_mounted_secret("/.kube/config", kubeconfig_path)
         )
 
-        logger.info("Creating GitHub client")
-
-        gh_client = GitHubClient("weka/weka-operator", await gh_token.plaintext())
-        pr = gh_client.get_pr_details(pr_number)
-        if "[Graphite MQ]" in pr.title:
-            pr_numbers = self._extract_pr_numbers(pr.title)
-        else:
-            pr_numbers = [pr_number]
-
-        logger.info(f"Processing PRs {pr_numbers}")
-
-        # call generate_ai_plan_for_prs
-        test_artifacts = await self.generate_ai_plan_for_prs(
-            operator=operator,
-            pr_numbers=pr_numbers,
-            gh_token=gh_token,
-            openai_api_key=openai_api_key,
-        )
-
-        # Create a container with the test artifacts directory
-        artifacts_container = (
-            dag.container()
-            .from_("alpine:latest")
-            .with_exec(["mkdir", "-p", artifacts_path])
-            .with_directory(artifacts_path, test_artifacts)
-        )
-
-        # Extract hooks environment variables
-        hook_env_dict = await self._get_hook_env_vars(test_artifacts)
-
-        logger.info(f"Hook env vars: {hook_env_dict}")
-
-        if not hook_env_dict:
-            logger.info("No generated hooks found, skipping upgrade test")
-            return artifacts_container.directory(artifacts_path)
-
         # Prepare container for running upgrade test
         upgrade_test_container = (
             env
             .with_directory("/doc", operator.directory("doc"))
-            .with_directory("/test_artifacts", test_artifacts)
+            .with_directory("/test_artifacts", test_artifacts_dir)
             # Make hook scripts executable
-            .with_exec(["sh", "-c", f"find /test_artifacts/ -name '*.sh' -exec chmod +x {{}} \\;"])
+            .with_exec(["sh", "-c", "find /test_artifacts/ -name '*.sh' -exec chmod +x {} \\;"])
         )
 
         # Add hook environment variables to the container
@@ -233,8 +246,8 @@ class OperatorFlows:
         operator_image_with_version = operator_full_image.split("@")[0]
         operator_image = operator_image_with_version.removesuffix(f":{operator_version}")
 
-        # Execute the upgrade test command
         if not dry_run:
+            logger.info("Executing upgrade test.")
             result = await (
                 upgrade_test_container
                 .with_exec([
@@ -254,12 +267,12 @@ class OperatorFlows:
             # Return a directory that has both the test artifacts and result
             return (
                 dag.directory()
-                .with_directory(artifacts_path, artifacts_container.directory(artifacts_path))
+                .with_directory("test_artifacts", test_artifacts_dir)
                 .with_directory("test_result", result.directory("/"))
             )
         else:
             # In dry run mode, just return the artifacts directory
-            return artifacts_container.directory(artifacts_path)
+            return test_artifacts_dir
 
 
     @function
