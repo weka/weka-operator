@@ -85,9 +85,6 @@ jobs:
           mkdir -p ${{ github.workspace }}/.kube
           echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
           chmod 600 ${{ github.workspace }}/.kube/config
-      
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
 
       - name: Call Generate Test Artifacts
         uses: dagger/dagger-for-github@8.0.0

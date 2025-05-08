@@ -211,6 +211,10 @@ class OperatorFlows:
             env
             .with_exec(["mkdir", "-p", "/.kube"])
             .with_mounted_secret("/.kube/config", kubeconfig_path)
+            # install curl
+            .with_exec(["sh", "-c", "apk add curl"])
+            # install kubectl
+            .with_exec(["sh", "-c", "curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
         )
 
         # Prepare container for running upgrade test
