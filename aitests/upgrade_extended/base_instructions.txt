@@ -12,13 +12,14 @@ Generate the test-in-the-hook plan text file assuming that you dessribe the step
    - Use the plain text format, describing steps to test new functionality
    - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
    - Create a hook script that contains wekai call (via $PATH_TO_WEKAI) with the generated text plan as the request file.
-    - You must use $PATH_TO_WEKAI call in hook, wekai will be executing plan.txt file
+     - You must use $PATH_TO_WEKAI call in hook, wekai will be executing plan.txt file
+     - hook.sh can be called from any dir, so reference its own directory for plan files in wekai call
    - Both the test plan and the hook script should be placed in the {output_dir}
    - For each hook to be used place them under `{output_dir}/hook_HOOK_NAME/hook.sh and `{output_dir}/hook_HOOK_NAME/plan.txt`
    - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point
    - In generated files (plan.txt, hook.sh) do not mention HOOK_NAME and anything about the hooks.
 If NO:
-    - Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs)
+    - Explain why hooks cannot be used (e.g., no appropriate hook points, missing docs), put explanation to message.txt file
     - Generate a standalone test plan that will be used instead of running upgrade test
   or explain why this PR cannot/shouldn't be tested.
     - Place the test plan in the {output_dir} directory with the name test_plan.txt

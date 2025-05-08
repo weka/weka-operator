@@ -217,7 +217,7 @@ class OperatorFlows:
         upgrade_test_container = (
             upgrade_test_container
             .with_env_variable("PATH_TO_WEKAI", "/wekai")
-            .with_env_variable("DOCS_DIR", "/operator/doc")
+            .with_env_variable("DOCS_DIR", "/doc")
             .with_secret_variable("OPENAI_API_KEY", openai_api_key)
             .with_secret_variable("GEMINI_API_KEY", gemini_api_key)
             .with_env_variable("KUBECONFIG", "/.kube/config")
@@ -290,8 +290,8 @@ class OperatorFlows:
             base_container
             .with_directory("/operator", operator)
             .with_workdir("/operator")
-            .with_env_variable("GITHUB_PAT_TOKEN", await gh_token.plaintext())
-            .with_env_variable("OPENAI_API_KEY", await openai_api_key.plaintext())
+            .with_secret_variable("GITHUB_PAT_TOKEN", gh_token)
+            .with_secret_variable("OPENAI_API_KEY", openai_api_key)
         )
 
         # Convert PR numbers to space-separated string
