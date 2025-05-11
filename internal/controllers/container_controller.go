@@ -72,7 +72,7 @@ func (c *ContainerController) RunGC(ctx context.Context) {}
 // +kubebuilder:rbac:groups=core,resources=pods/exec,verbs=create
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;update;create;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;update;create;watch
-// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;update;watch;patch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;update;create;delete;watch
 // +kubebuilder:rbac:groups=weka.weka.io,resources=wekamanualoperations,verbs=get;list;watch;create;update;patch;delete
