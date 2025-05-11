@@ -199,7 +199,7 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 	}
 
 	ctrls := []WekaReconciler{
-		controllers.NewClientController(mgr),
+		controllers.NewClientController(mgr, restClient),
 		controllers.NewContainerController(mgr, restClient),
 		controllers.NewWekaClusterController(mgr, restClient),
 		controllers.NewWekaPolicyController(mgr),

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-operator/internal/services/exec"
 	"reflect"
 	"time"
 
@@ -42,6 +43,7 @@ func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 		KubeService:   kubernetes.NewKubeService(kClient),
 		Manager:       mgr,
 		ThrottlingMap: r.ThrottlingMap,
+		ExecService:   r.ExecService,
 	}
 }
 
@@ -57,6 +59,7 @@ type clientReconcilerLoop struct {
 	nodes         []v1.Node
 	// keep in state for future steps referencing
 	upgradeInProgress bool
+	ExecService       exec.ExecService
 	targetCluster     *weka.WekaCluster
 }
 
@@ -645,10 +648,52 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 	return filteredNodes, nil
 }
 
+func (c *clientReconcilerLoop) GetUpgradedCount() int {
+	count := 0
+	for _, container := range c.containers {
+		if container.Status.LastAppliedImage == c.wekaClient.Spec.Image && container.Status.LastAppliedImage == container.Spec.Image {
+			count++
+		}
+	}
+	return count
+}
+
+func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClientUpgradeCustomEvent")
+	defer end()
+
+	logger.Info("Emitting client custom event")
+
+	activeContainer := discovery.SelectActiveContainer(c.getClusterContainers(ctx))
+	if activeContainer == nil {
+		logger.Debug("Active cluster container not found, skipping Weka client event emit")
+		return
+	}
+
+	count := c.GetUpgradedCount()
+	key := fmt.Sprintf("upgrade-%s-%d", c.wekaClient.Spec.Image, count)
+	if !c.ThrottlingMap.ShouldRun(key, 10*time.Minute, util2.ThrolltingSettings{EnsureStepSuccess: true}) {
+		return
+	}
+	c.ThrottlingMap.SetNow(key)
+	logger.SetValues("image", c.wekaClient.Spec.Image, "client", count)
+
+	msg := fmt.Sprintf("Upgrading clients progress: %d:%d", count, len(c.containers))
+	wekaService := services.NewWekaService(c.ExecService, activeContainer)
+	err := wekaService.EmitCustomEvent(ctx, msg)
+	if err != nil {
+		logger.Warn("Failed to emit custom event", "event", msg)
+	}
+}
+
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	uController := NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
 	if uController.AreUpgraded() {
 		return nil
+	}
+
+	if c.targetCluster != nil {
+		c.emitClientUpgradeCustomEvent(ctx)
 	}
 
 	c.upgradeInProgress = true
@@ -864,4 +909,8 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 	}
 	c.targetCluster = wekaCluster
 	return nil
+}
+
+func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka.WekaContainer {
+	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
 }

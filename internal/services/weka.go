@@ -302,6 +302,7 @@ type WekaService interface {
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
+	EmitCustomEvent(ctx context.Context, msg string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
@@ -447,6 +448,27 @@ fi
 
 	return nil
 
+}
+
+func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EmitCustomEvent")
+	defer end()
+
+	logger.Info("Emitting custom event", "msg", msg)
+
+	executor, err := c.GetExecutor(ctx)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := fmt.Sprintf("wekaauthcli events trigger-event \"K8s_Operator: %s\"", msg)
+	_, stderr, err := executor.ExecNamed(ctx, "EmitCustomEvent", []string{"bash", "-ce", cmd})
+	if err != nil {
+		logger.SetError(err, "Failed to emit event", "stderr", stderr.String())
+		return err
+	}
+	return nil
 }
 
 func (c *CliWekaService) EnsureNoUser(ctx context.Context, username string) error {

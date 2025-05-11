@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/config"
-
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"

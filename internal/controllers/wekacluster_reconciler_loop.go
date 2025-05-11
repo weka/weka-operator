@@ -372,6 +372,16 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
+	activeContainer := discovery.SelectActiveContainer(r.containers)
+	if activeContainer != nil {
+		wekaService := services.NewWekaService(r.ExecService, activeContainer)
+		msg := "Destroying Weka cluster"
+		err := wekaService.EmitCustomEvent(ctx, msg)
+		if err != nil {
+			logger.Warn("Failed to emit custom event", "event", msg)
+		}
+	}
+
 	cluster := r.cluster
 
 	err := r.updateClusterStatusIfNotEquals(ctx, wekav1alpha1.WekaClusterStatusGracePeriod)
@@ -1332,7 +1342,76 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 	if err != nil {
 		return err
 	}
-	return err
+
+	return wekaService.EmitCustomEvent(ctx, "Weka cluster provisioned successfully")
+}
+
+type UpgradedCount struct {
+	TotalCompute    int
+	TotalDrive      int
+	TotalS3         int
+	UpgradedCompute int
+	UpgradedDrive   int
+	UpgradedS3      int
+}
+
+func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*wekav1alpha1.WekaContainer) (upgradedCount UpgradedCount) {
+	for _, container := range containers {
+		switch container.Spec.Mode {
+		case wekav1alpha1.WekaContainerModeCompute:
+			upgradedCount.TotalCompute++
+		case wekav1alpha1.WekaContainerModeDrive:
+			upgradedCount.TotalDrive++
+		case wekav1alpha1.WekaContainerModeS3:
+			upgradedCount.TotalS3++
+		}
+
+		if container.Status.LastAppliedImage == r.cluster.Spec.Image && container.Status.LastAppliedImage == container.Spec.Image {
+			switch container.Spec.Mode {
+			case wekav1alpha1.WekaContainerModeCompute:
+				upgradedCount.UpgradedCompute++
+			case wekav1alpha1.WekaContainerModeDrive:
+				upgradedCount.UpgradedDrive++
+			case wekav1alpha1.WekaContainerModeS3:
+				upgradedCount.UpgradedS3++
+			}
+		}
+	}
+	return
+}
+
+func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Context) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClusterUpgradeCustomEvent")
+	defer end()
+
+	activeContainer := discovery.SelectActiveContainer(r.containers)
+	if activeContainer == nil {
+		logger.Debug("Active container not found, skipping Weka cluster event emit")
+		return
+	}
+
+	count := r.GetUpgradedCount(r.containers)
+	key := fmt.Sprintf("upgrade-%s-%d/%d/%d", r.cluster.Spec.Image, count.UpgradedCompute, count.UpgradedDrive, count.UpgradedS3)
+	if !r.Throttler.ShouldRun(key, 10*time.Minute, util2.ThrolltingSettings{EnsureStepSuccess: true}) {
+		return
+	}
+	r.Throttler.SetNow(key)
+
+	msg := "Upgrading cluster progress: drive:%d:%d compute:%d:%d"
+	msg = fmt.Sprintf(msg, count.UpgradedDrive, count.TotalDrive, count.UpgradedCompute, count.TotalCompute)
+	logger.SetValues("image", r.cluster.Spec.Image, "compute", count.UpgradedCompute, "drive", count.UpgradedDrive)
+
+	if count.TotalS3 > 0 {
+		msg += fmt.Sprintf(" s3: %d:%d", count.UpgradedS3, count.TotalS3)
+		logger.SetValues("s3", count.UpgradedS3)
+	}
+
+	execService := r.ExecService
+	wekaService := services.NewWekaService(execService, activeContainer)
+	err := wekaService.EmitCustomEvent(ctx, msg)
+	if err != nil {
+		logger.Warn("Failed to emit custom event", "event", msg)
+	}
 }
 
 func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
@@ -1430,6 +1509,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
+
+		r.emitClusterUpgradeCustomEvent(ctx)
 
 		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)
@@ -1951,6 +2032,7 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
 	// TODO: Re-wrap as operation
+
 	labels := map[string]string{
 		"app":                "weka-cluster-monitoring",
 		"weka.io/cluster-id": string(r.cluster.GetUID()),

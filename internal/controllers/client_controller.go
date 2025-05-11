@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"github.com/weka/weka-operator/internal/services/exec"
 	util2 "github.com/weka/weka-operator/pkg/util"
+	"k8s.io/client-go/rest"
 
 	"go.opentelemetry.io/otel/codes"
 
@@ -34,12 +36,14 @@ import (
 type ClientController struct {
 	Manager       ctrl.Manager
 	ThrottlingMap *util2.ThrottlingSyncMap
+	ExecService   exec.ExecService
 }
 
-func NewClientController(mgr ctrl.Manager) *ClientController {
+func NewClientController(mgr ctrl.Manager, restClient rest.Interface) *ClientController {
 	return &ClientController{
 		ThrottlingMap: util2.NewSyncMapThrottler(),
 		Manager:       mgr,
+		ExecService:   exec.NewExecService(restClient, mgr.GetConfig()),
 	}
 }
 
