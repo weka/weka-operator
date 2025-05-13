@@ -5,4 +5,4 @@
 - wait for cluster to be ready
 - use 10.200.0.0/16 subnet for wekacluster, use weka version 4.4.5.118-k8s.4
 - collect all management ips of nfs wekacontainer's
-- present with bash command to re-create csi secret(it is created in this cluster) in different k8s cluster
+- present with bash command to re-create csi secret(it is auto-created in this cluster) in different k8s cluster
