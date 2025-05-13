@@ -148,19 +148,22 @@ type WekaClientSpec struct {
 
 	// +kubebuilder:validation:Type=string
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients
-	CSIGroup string `json:"csiGroup,omitempty"`
+	CsiGroup         string `json:"csiGroup,omitempty"`
+	CsiControllerRef string `json:"csiControllerRef,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions      []metav1.Condition `json:"conditions,omitempty"`
-	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	LastAppliedSpec    string             `json:"lastAppliedSpec,omitempty"`
+	LastAppliedCsiSpec string             `json:"lastAppliedCsiSpec,omitempty"`
 	// +kubebuilder:validation:Enum=Init;Running;Upgrading;Destroying
 	// +kubebuilder:default=Init
 	Status         WekaClientStatusEnum `json:"status,omitempty"`
 	Stats          *ClientMetrics       `json:"stats,omitempty"`
 	PrinterColumns ClientPrinterColumns `json:"printer,omitempty"`
+	CsiDeployed    bool                 `json:"csiDeployed,omitempty"`
 }
 
 type ClientPrinterColumns struct {

@@ -436,7 +436,7 @@ func GetCsiSecretName(clusterName string) string {
 	return "weka-csi-" + clusterName
 }
 
-func (c *WekaCluster) GetCSISecretName() string {
+func (c *WekaCluster) GetCsiSecretName() string {
 	return GetCsiSecretName(c.Name)
 }
 
@@ -454,7 +454,7 @@ func (w *WekaCluster) ToOwnerObject() *WekaContainerDetails {
 	}
 }
 
-func (c *WekaCluster) GetClusterCSIUsername() string {
+func (c *WekaCluster) GetClusterCsiUsername() string {
 	return "wekacsi" + c.GetLastGuidPart()
 }
 

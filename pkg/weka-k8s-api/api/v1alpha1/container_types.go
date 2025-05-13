@@ -247,6 +247,8 @@ type WekaContainerSpec struct {
 	// +kubebuilder:validation:Type=string
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: computed csi driver name for client container to ensure csi-node
 	CsiDriverName string `json:"csiDriverName,omitempty"`
+	// +kubebuilder:validation:Type=string
+	CsiNodeRef string `json:"csiNodeRef,omitempty"`
 }
 
 type AWSNetwork struct {
