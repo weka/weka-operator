@@ -2,6 +2,8 @@ using wekai tools, create and execute a plan for following tests
 use sleep while awaiting for progress completion
 use worker name "alpha" for execution
 
+pass following request as-is to wekai planner
+
 ---
 This tests functionality of global PVC, and PVC migration from PVC setup to local setup
 Use weka-operator-system for everything
@@ -20,6 +22,7 @@ filesystemName: default
 volumeType: dir/v1
 ```
 - create 3TiB pvc using this storage class, in weka-operator-system namespace, wait for PVC to be bound, name it `weka-nfs-pvc`
+  - this is weka PVC despite using NFS, make sure to follow instructions for weka PVC, specifically - storage class must contain reference to secrets
 - after cleanup and pvc create, re-deploy operator using version 1.5.0 setting global param localDataPvc=weka-nfs-pvc
 - provision a weka cluster, 7 compute, 7 drive containers, 1 drive, 1 hotspare
     - on this cluster, use previously created PVC as globalPVC
@@ -39,5 +42,5 @@ volumeType: dir/v1
 - clusters and client should use 10.200.0.0/16 subnet
 - cluster and clients should use 4.4.5.118-k8s.4 weka version
 
-use @https://github.com/weka/csi-wekafs/releases/download/v2.7.2/csi-wekafsplugin-2.7.2.tgz for CSI install
-derive parameteres from my request if execution asks for more, ask for what cannot be derrived
+use `https://github.com/weka/csi-wekafs/releases/download/v2.7.2/csi-wekafsplugin-2.7.2.tgz` for CSI install
+derive parameters from my request if execution asks for more, ask for what cannot be derrived
