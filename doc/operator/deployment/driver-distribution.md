@@ -1,5 +1,84 @@
 Driver distribution is usually a part of operator install, i.e no need to install it unless also installing operator
 
+Classic approach to build drivers is to deploy
+- drivers-builder container, one per permutation of used weka versions and kernel/arch
+- drivers-dist container, one
+- service pointing to drivers-dist container
+Example of such, handling multiple kernels, and having custom pre-run script:
+
+```
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-drivers-dist
+  namespace: weka-operator-system
+  labels:
+    app: weka-drivers-dist
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.4.2.144-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "drivers-dist"
+  name: dist
+  numCores: 1
+  port: 60002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weka-drivers-dist
+  namespace: weka-operator-system
+spec:
+  type: ClusterIP
+  ports:
+    - name: weka-drivers-dist
+      port: 60002
+      targetPort: 60002
+  selector:
+    app: weka-drivers-dist
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-drivers-builder-157
+  namespace: weka-operator-system
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "drivers-builder"
+  name: dist # name of the weka container, will be removed in future towards slimmer distribution service
+  numCores: 1
+  uploadResultsTo: "weka-drivers-dist"
+  port: 60002
+  nodeSelector:
+    weka.io/supports-backends: "true"
+---
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaContainer
+metadata:
+  name: weka-drivers-builder-157-ubuntu-1
+  namespace: weka-operator-system
+spec:
+  agentPort: 60001
+  image: quay.io/weka.io/weka-in-container:4.4.2.157-k8s
+  imagePullSecret: "quay-io-robot-secret"
+  mode: "drivers-builder"
+  name: dist # name of the weka container, will be removed in future towards slimmer distribution service
+  numCores: 1
+  uploadResultsTo: "weka-drivers-dist"
+  port: 60002
+  nodeSelector:
+    weka.io/supports-backends: "true"
+    weka.io/kernel: "6.5.0-45-generic"
+  overrides:
+    preRunScript: "apt-get update && apt-get install -y gcc-12"
+
+```
+Ports, modes, cores configurations, container name(spec.name) must be preserved as in above snippets 
+
+
+Current operator versions(starting from 1.6.0) support driver distribution deployment by policy, which will auto-create the above resources.
 Example of driver distribution service policy:
 
 ```
@@ -42,12 +121,8 @@ spec:
 ```
 
 After deploy of policy `status.typesStatus.distService.serviceUrl` will contain the URL of the driver distribution service, which can be used to configure the driver distribution service in the WekaCluster and WekaClient CRs.
-Policy will create:
- - service
- - drivers-dist weka container as backend for the service
- - wekacontainer of type drivers-builder per permutation of versions and kernel/arch
 
-Pods will be alive only during building, after building completed wekacontainer remains with no active pod
+drivers-builder wekacontainer's pods will be alive only during building, after building completed wekacontainer remains with no active pod
 If wekapolicy is deleted - all created resources will be deleted as well
 
 Build containers that belong to policy can be filtered by labels
