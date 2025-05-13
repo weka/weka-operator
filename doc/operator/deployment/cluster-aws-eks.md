@@ -116,15 +116,8 @@ spec:
 ```
 
 ### Sign Drives (backends only)
+Same as standard way, but best to specify  "aws-all", so policy will search for aws-specific NVME devices
 ```yaml
-apiVersion: weka.weka.io/v1alpha1
-kind: WekaPolicy
-metadata:
-  name: sign-drives
-  namespace: weka-operator-system # Replace with your namespace
-spec:
-  type: sign-drives
-  imagePullSecret: "quay-io-robot-secret" # Default image pull secret
   payload:
     signDrivesPayload:
       type: "aws-all"
