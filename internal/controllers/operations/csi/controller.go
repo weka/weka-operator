@@ -1,14 +1,19 @@
 package csi
 
 import (
+	"context"
+	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/config"
+	util2 "github.com/weka/weka-operator/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCSIControllerDeployment(name string, namespace string, csiDriverName string, tolerations []corev1.Toleration) *appsv1.Deployment {
+func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []string) *appsv1.Deployment {
 	privileged := true
 	replicas := int32(2)
 
@@ -46,6 +51,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 					},
 				},
 				Spec: corev1.PodSpec{
+					NodeSelector:       nodeSelector,
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					Containers: []corev1.Container{
 						{
@@ -53,7 +59,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
-							Image:           config.Config.CSIImage,
+							Image:           config.Config.CsiImage,
 							ImagePullPolicy: corev1.PullAlways,
 							Args: []string{
 								"--drivername=$(CSI_DRIVER_NAME)",
@@ -117,7 +123,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 								},
 								{
 									Name:  "CSI_DRIVER_VERSION",
-									Value: config.Config.CSIDriverVersion,
+									Value: config.Config.CsiDriverVersion,
 								},
 								{
 									Name:  "X_CSI_MODE",
@@ -175,7 +181,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						},
 						{
 							Name:  "csi-attacher",
-							Image: config.Config.CSIAttacherImage,
+							Image: config.Config.CsiAttacherImage,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
@@ -218,7 +224,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						},
 						{
 							Name:  "csi-provisioner",
-							Image: config.Config.CSIProvisionerImage,
+							Image: config.Config.CsiProvisionerImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -261,7 +267,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						},
 						{
 							Name:  "csi-resizer",
-							Image: config.Config.CSIResizerImage,
+							Image: config.Config.CsiResizerImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -302,7 +308,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 						},
 						{
 							Name:  "csi-snapshotter",
-							Image: config.Config.CSISnapshotterImage,
+							Image: config.Config.CsiSnapshotterImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -350,7 +356,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 									Name:      "socket-dir",
 								},
 							},
-							Image: config.Config.CSILivenessProbeImage,
+							Image: config.Config.CsiLivenessProbeImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -368,7 +374,7 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 							},
 						},
 					},
-					Tolerations: tolerations,
+					Tolerations: TolerationsToObj(tolerations),
 					Volumes: []corev1.Volume{
 						{
 							Name: "socket-dir",
@@ -429,6 +435,75 @@ func NewCSIControllerDeployment(name string, namespace string, csiDriverName str
 			},
 		},
 	}
+}
+
+func UpdateCsiController(ctx context.Context, c client.Client, csiControllerName string, nodeSelector map[string]string, tolerations []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	deployment := &appsv1.Deployment{}
+	namespace, _ := util2.GetPodNamespace()
+	err := c.Get(ctx, client.ObjectKey{
+		Name:      csiControllerName,
+		Namespace: namespace,
+	}, deployment)
+	if err != nil {
+		return errors.Wrap(err, "failed to fetch CSI controller deployment")
+	}
+
+	updated := false
+	for i, podContainer := range deployment.Spec.Template.Spec.Containers {
+		switch podContainer.Name {
+		case "csi-provisioner":
+			if podContainer.Image != config.Config.CsiProvisionerImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiProvisionerImage
+				updated = true
+			}
+		case "csi-attacher":
+			if podContainer.Image != config.Config.CsiAttacherImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiAttacherImage
+				updated = true
+			}
+		case "csi-resizer":
+			if podContainer.Image != config.Config.CsiResizerImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiResizerImage
+				updated = true
+			}
+		case "csi-snapshotter":
+			if podContainer.Image != config.Config.CsiSnapshotterImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiSnapshotterImage
+				updated = true
+			}
+		case "liveness-probe":
+			if podContainer.Image != config.Config.CsiLivenessProbeImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiLivenessProbeImage
+				updated = true
+			}
+		case "wekafs":
+			if podContainer.Image != config.Config.CsiImage {
+				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiImage
+				updated = true
+			}
+			for j, env := range podContainer.Env {
+				if env.Name == "CSI_DRIVER_VERSION" && env.Value != config.Config.CsiDriverVersion {
+					deployment.Spec.Template.Spec.Containers[i].Env[j].Value = config.Config.CsiDriverVersion
+					updated = true
+				}
+			}
+		}
+	}
+
+	updated = updated && (util2.NewHashableMap(deployment.Spec.Template.Spec.NodeSelector) != util2.NewHashableMap(nodeSelector))
+	updated = updated && (!util2.CompareTolerations(deployment.Spec.Template.Spec.Tolerations, TolerationsToObj(tolerations)))
+
+	if updated {
+		logger.Info("Updated CSI controller deployment images")
+		err = c.Update(ctx, deployment)
+		if err != nil {
+			return errors.Wrap(err, "failed to update CSI controller deployment with new images")
+		}
+	}
+	return nil
 }
 
 // Helper function to create pointers to primitive types

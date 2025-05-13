@@ -1325,8 +1325,8 @@ func (r *wekaClusterReconcilerLoop) applyClientLoginCredentials(ctx context.Cont
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) applyCSILoginCredentials(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCSILoginCredentials")
+func (r *wekaClusterReconcilerLoop) applyCsiLoginCredentials(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "applyCsiLoginCredentials")
 	defer end()
 
 	cluster := r.cluster
@@ -2366,7 +2366,7 @@ func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.C
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) EnsureCSILoginCredentials(ctx context.Context) error {
+func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Context) error {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"go/types"
 	"io"
 	"net/http"
 	"path"
@@ -754,7 +755,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.EnsureCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
-					lifecycle.BoolValue(config.Config.CSIInstallationEnabled),
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2052,6 +2053,13 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		logger.Info("Container deallocated")
 	}
 	// deallocate from allocmap
+
+	// delete csi node pod
+	csiNodePodNamespace, _ := util.GetPodNamespace()
+	csiNodePod := &v1.Pod{}
+	csiNodePod.Name = container.Spec.CsiNodeRef
+	csiNodePod.Namespace = csiNodePodNamespace
+	_ = r.Delete(ctx, csiNodePod)
 
 	return nil
 }
@@ -4492,21 +4500,33 @@ func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) er
 		return err
 	}
 
-	tolerations := r.container.Spec.Tolerations
-	name := fmt.Sprintf("%s-csi-node", r.container.Name)
+	csiNodeRef := r.container.Spec.CsiNodeRef
+	if csiNodeRef == "" {
+		csiNodeRef = fmt.Sprintf("%s-csi-node", r.container.Name)
+		r.container.Spec.CsiNodeRef = csiNodeRef
+	}
 
 	csiDriverName := r.container.Spec.CsiDriverName
 	if csiDriverName == "" {
-		return errors.Wrap(err, "failed to get csi driver name from WekaClient")
+		return errors.New("failed to get csi driver name from WekaContainer spec")
 	}
 
-	logger.Info("Creating CSI node pod")
-	podSpec := csi.NewCSINodePod(name, namespace, csiDriverName, string(nodeName), tolerations)
-	if err = r.Create(ctx, podSpec); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return errors.Wrap(err, "failed to create CSI node pod")
+	pod := &v1.Pod{}
+	err = r.Get(ctx, client.ObjectKey{Name: csiNodeRef, Namespace: namespace}, pod)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Creating CSI node pod")
+			podSpec := csi.NewCsiNodePod(csiNodeRef, namespace, csiDriverName, string(nodeName), r.container.Spec.Tolerations)
+			if err = r.Create(ctx, podSpec); err != nil {
+				if !apierrors.IsAlreadyExists(err) {
+					return errors.Wrap(err, "failed to create CSI node pod")
+				}
+			}
+			return r.Update(ctx, r.container)
+		} else {
+			return errors.Wrap(err, "failed to get CSI node pod")
 		}
+	} else {
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, csiDriverName, r.container.Spec.Tolerations)
 	}
-
-	return nil
 }

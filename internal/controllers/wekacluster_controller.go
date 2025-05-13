@@ -309,19 +309,19 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run:       loop.applyClientLoginCredentials,
 			},
 			{
-				Condition: condition.CondClusterCSISecretsCreated,
-				Run:       loop.EnsureCSILoginCredentials,
+				Condition: condition.CondClusterCsiSecretsCreated,
+				Run:       loop.EnsureCsiLoginCredentials,
 			},
 			{
-				Run:       loop.EnsureCSILoginCredentials,
-				Throttled: config.Consts.CSILoginCredentialsUpdateInterval,
+				Run:       loop.EnsureCsiLoginCredentials,
+				Throttled: config.Consts.CsiLoginCredentialsUpdateInterval,
 				ThrolltingSettings: util.ThrolltingSettings{
 					EnsureStepSuccess: true,
 				},
 			},
 			{
-				Condition: condition.CondClusterCSISecretsApplied,
-				Run:       loop.applyCSILoginCredentials,
+				Condition: condition.CondClusterCsiSecretsApplied,
+				Run:       loop.applyCsiLoginCredentials,
 			},
 			{
 				Condition: condition.WekaHomeConfigured,

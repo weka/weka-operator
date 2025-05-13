@@ -4,6 +4,7 @@ import (
 	"fmt"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
+	v1 "k8s.io/api/core/v1"
 	"regexp"
 	"strings"
 )
@@ -25,10 +26,10 @@ func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
 }
 
 func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
-	if wekaClient.Spec.CSIGroup == "" {
-		return config.Consts.CSILegacyDriverName
+	if wekaClient.Spec.CsiGroup == "" {
+		return config.Consts.CsiLegacyDriverName
 	}
-	return generateCsiDriverName(wekaClient.Spec.CSIGroup)
+	return generateCsiDriverName(wekaClient.Spec.CsiGroup)
 }
 
 func generateCsiDriverName(baseName string) string {
@@ -36,7 +37,7 @@ func generateCsiDriverName(baseName string) string {
 	cleanName := re.ReplaceAllString(baseName, "-")
 	cleanName = strings.ToLower(cleanName)
 
-	parts := strings.SplitN(config.Consts.CSILegacyDriverName, ".", 2)
+	parts := strings.SplitN(config.Consts.CsiLegacyDriverName, ".", 2)
 	if len(parts) < 2 {
 		return fmt.Sprintf("csi.%s.weka.io", cleanName)
 	}
@@ -53,7 +54,7 @@ func GetBaseNameFromDriverName(csiDriverName string) string {
 
 func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
 	prefix := "weka-csi-"
-	if config.Config.CSIInstallationEnabled {
+	if config.Config.CsiInstallationEnabled {
 		if wekaCluster.Spec.CsiConfig.CsiDriverName != "" {
 			return prefix + GetBaseNameFromDriverName(wekaCluster.Spec.CsiConfig.CsiDriverName)
 		}
@@ -63,8 +64,21 @@ func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
 }
 
 func GetTracingFlag() string {
-	if config.Config.Otel.ExporterOtlpEndpoint != "" {
-		return "--tracingurl=" + config.Config.Otel.ExporterOtlpEndpoint
-	}
+	// TODO: csi 2.7.2 appends :443 port making url invalid
+	//if config.Config.Otel.ExporterOtlpEndpoint != "" {
+	//	return "--tracingurl=" + config.Config.Otel.ExporterOtlpEndpoint
+	//}
 	return ""
+}
+
+func TolerationsToObj(tolerations []string) []v1.Toleration {
+	tolerationObjects := make([]v1.Toleration, len(tolerations))
+	for i, toleration := range tolerations {
+		tolerationObjects[i] = v1.Toleration{
+			Effect:   v1.TaintEffectNoSchedule,
+			Key:      toleration,
+			Operator: v1.TolerationOpExists,
+		}
+	}
+	return tolerationObjects
 }

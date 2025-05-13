@@ -120,15 +120,15 @@ var Config struct {
 	EvictContainerOnDeletion               bool
 	SkipClientsTolerationValidation        bool
 
-	CSIInstallationEnabled bool
-	CSIImage               string
-	CSIDriverVersion       string
-	CSIProvisionerImage    string
-	CSIAttacherImage       string
-	CSILivenessProbeImage  string
-	CSIResizerImage        string
-	CSISnapshotterImage    string
-	CSIRegistrarImage      string
+	CsiInstallationEnabled bool
+	CsiImage               string
+	CsiDriverVersion       string
+	CsiProvisionerImage    string
+	CsiAttacherImage       string
+	CsiLivenessProbeImage  string
+	CsiResizerImage        string
+	CsiSnapshotterImage    string
+	CsiRegistrarImage      string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -173,11 +173,11 @@ var Consts struct {
 	// Max containers number that will be part of initial s3 cluster
 	FormS3ClusterMaxContainerCount int
 	// Interval at which CSI secret with container ips will be updated
-	CSILoginCredentialsUpdateInterval time.Duration
+	CsiLoginCredentialsUpdateInterval time.Duration
 	// Filesystem name for CSI storage class
-	CSIFileSystemName string
+	CsiFileSystemName string
 	// Legacy driver name for CSI, used when can't determine the driver name from config
-	CSILegacyDriverName string
+	CsiLegacyDriverName string
 	// Max containers to delete at once on node selector mismatch
 	MaxContainersDeletedOnSelectorMismatch int
 	// Interval for cleanup of containers on node selector mismatch
@@ -196,9 +196,9 @@ func init() {
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
-	Consts.CSILoginCredentialsUpdateInterval = 1 * time.Minute
-	Consts.CSIFileSystemName = "default"
-	Consts.CSILegacyDriverName = "csi.weka.io"
+	Consts.CsiLoginCredentialsUpdateInterval = 1 * time.Minute
+	Consts.CsiFileSystemName = "default"
+	Consts.CsiLegacyDriverName = "csi.weka.io"
 	Consts.MaxContainersDeletedOnSelectorMismatch = 4
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 }
@@ -276,15 +276,15 @@ func ConfigureEnv(ctx context.Context) {
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
 
 	// CSI configuration
-	Config.CSIInstallationEnabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
-	Config.CSIImage = env.GetString("CSI_IMAGE", "")
-	Config.CSIProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
-	Config.CSIAttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
-	Config.CSILivenessProbeImage = env.GetString("CSI_LIVENESSPROBE_IMAGE", "")
-	Config.CSIResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
-	Config.CSISnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
-	Config.CSIRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
-	Config.CSIDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
+	Config.CsiInstallationEnabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
+	Config.CsiImage = env.GetString("CSI_IMAGE", "")
+	Config.CsiProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
+	Config.CsiAttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
+	Config.CsiLivenessProbeImage = env.GetString("CSI_LIVENESSPROBE_IMAGE", "")
+	Config.CsiResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
+	Config.CsiSnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
+	Config.CsiRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
+	Config.CsiDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
 
 }
 

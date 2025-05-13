@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -55,7 +56,7 @@ func NewHashableMap(m map[string]string) *HashableMap {
 }
 
 // HashStruct generates a hash of a struct
-// NOTE: This function is not deterministic for the cases when the struct contains maps.
+// NOTE: This function is not deterministic for the cases when the struct contains maps and unset strings.
 // For deterministic hashing of structs with maps, use HashableMap instead.
 func HashStruct(s any) (string, error) {
 	var buf bytes.Buffer
@@ -65,5 +66,14 @@ func HashStruct(s any) (string, error) {
 		return "", err
 	}
 	hash := sha256.Sum256(buf.Bytes())
+	return fmt.Sprintf("%x", hash), nil
+}
+
+func DeterministicHashStruct(s any) (string, error) {
+	jsonData, err := json.Marshal(s)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(jsonData)
 	return fmt.Sprintf("%x", hash), nil
 }

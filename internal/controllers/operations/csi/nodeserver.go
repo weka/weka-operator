@@ -1,14 +1,19 @@
 package csi
 
 import (
+	"context"
 	"fmt"
+	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName string, tolerations []corev1.Toleration) *corev1.Pod {
+func NewCsiNodePod(name string, namespace string, csiDriverName string, nodeName string, tolerations []corev1.Toleration) *corev1.Pod {
 	privileged := true
 
 	return &corev1.Pod{
@@ -34,7 +39,7 @@ func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &privileged,
 					},
-					Image:           config.Config.CSIImage,
+					Image:           config.Config.CsiImage,
 					ImagePullPolicy: corev1.PullAlways,
 					Args: []string{
 						"--v=5",
@@ -148,7 +153,7 @@ func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName
 				},
 				{
 					Name:  "liveness-probe",
-					Image: config.Config.CSILivenessProbeImage,
+					Image: config.Config.CsiLivenessProbeImage,
 					Args: []string{
 						"--v=5",
 						"--csi-address=$(ADDRESS)",
@@ -173,7 +178,7 @@ func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName
 				},
 				{
 					Name:  "csi-registrar",
-					Image: config.Config.CSIRegistrarImage,
+					Image: config.Config.CsiRegistrarImage,
 					Args: []string{
 						"--v=5",
 						"--csi-address=$(ADDRESS)",
@@ -291,6 +296,38 @@ func NewCSINodePod(name string, namespace string, csiDriverName string, nodeName
 			},
 		},
 	}
+}
+
+func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c client.Client, csiDriverName string, tolerations []corev1.Toleration) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	outdated := false
+	for _, podContainer := range pod.Spec.Containers {
+		switch podContainer.Name {
+		case "csi-registrar":
+			outdated = podContainer.Image != config.Config.CsiRegistrarImage
+		case "liveness-probe":
+			outdated = podContainer.Image != config.Config.CsiLivenessProbeImage
+		case "wekafs":
+			outdated = podContainer.Image != config.Config.CsiImage
+			for _, env := range podContainer.Env {
+				if env.Name == "CSI_DRIVER_NAME" {
+					outdated = outdated && (env.Value != csiDriverName)
+				}
+			}
+		}
+	}
+	outdated = outdated && (!util.CompareTolerations(pod.Spec.Tolerations, tolerations))
+
+	if outdated {
+		logger.Info("CSI node spec changed, re-deploying")
+		err := c.Delete(ctx, pod)
+		if err != nil {
+			return errors.Wrap(err, "failed to delete CSI node")
+		}
+	}
+	return nil
 }
 
 func hostPathTypePtr(hostPathType corev1.HostPathType) *corev1.HostPathType {

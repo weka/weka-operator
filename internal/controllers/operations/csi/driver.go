@@ -6,7 +6,7 @@ import (
 	"k8s.io/utils/pointer"
 )
 
-func NewCSIDriver(name string) *storagev1.CSIDriver {
+func NewCsiDriver(name string) *storagev1.CSIDriver {
 	fsGroupPolicy := storagev1.FileFSGroupPolicy
 	return &storagev1.CSIDriver{
 		ObjectMeta: metav1.ObjectMeta{

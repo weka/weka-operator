@@ -72,7 +72,7 @@ func NewCsiSecret(ctx context.Context, cluster *wekav1alpha1.WekaCluster, endpoi
 			Namespace: cluster.Namespace,
 		},
 		StringData: map[string]string{
-			"username":     cluster.GetClusterCSIUsername(),
+			"username":     cluster.GetClusterCsiUsername(),
 			"password":     util.GeneratePassword(32),
 			"organization": DefaultOrg,
 			"endpoints":    strings.Join(endpoints, ","),
