@@ -1955,6 +1955,9 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		"app":                "weka-cluster-monitoring",
 		"weka.io/cluster-id": string(r.cluster.GetUID()),
 	}
+	for k, v := range r.cluster.Labels {
+		labels[k] = v
+	}
 
 	annototations := map[string]string{
 		// prometheus annotations
