@@ -97,6 +97,7 @@ manager:
       memory: 64Mi
   nodeSelector: {}
   tolerations: []
+  labels: {}
 
 debugSleep: 3
 
