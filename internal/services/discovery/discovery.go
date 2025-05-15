@@ -318,7 +318,13 @@ func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.
 func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {
 	operational := SelectOperationalContainers(containers, 1, nil)
 	if len(operational) == 0 {
-		return nil
+		// return any random container if no operational found
+		util2.Shuffle(containers)
+		if len(containers) == 0 {
+			return nil
+		}
+		// if we have no operational containers, we will return the first one
+		return containers[0]
 	}
 	return operational[0]
 }
