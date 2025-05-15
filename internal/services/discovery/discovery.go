@@ -47,7 +47,7 @@ func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsCos() bool {
-	return nodeInfo.KubernetesDistro == weka.OsNameCos
+	return nodeInfo.Os == weka.OsNameCos
 }
 
 func (d *DiscoveryNodeInfo) GetHostsidePersistenceBaseLocation() string {
