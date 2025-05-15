@@ -74,6 +74,11 @@ type MetricsServerEnv struct {
 	NodeName string
 }
 
+type DNSPolicy struct {
+	K8sNetwork  string
+	HostNetwork string
+}
+
 var Config struct {
 	Version                        string
 	OperatorPodUID                 string
@@ -97,6 +102,7 @@ var Config struct {
 	Metrics                        Metrics
 	Mode                           OperatorMode
 	LocalDataPvc                   string
+	DNSPolicy                      DNSPolicy
 	SignDrivesImage                string
 	SkipUnhealthyToleration        bool
 	SkipClientNoScheduleToleration bool
@@ -237,6 +243,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
+	Config.DNSPolicy.K8sNetwork = env.GetString("DNS_POLICY_K8S_NETWORK", "")
+	Config.DNSPolicy.HostNetwork = env.GetString("DNS_POLICY_HOST_NETWORK", "")
 	Config.SignDrivesImage = env.GetString("SIGN_DRIVES_IMAGE", "")
 	Config.SkipUnhealthyToleration = getBoolEnvOrDefault("SKIP_UNHEALTHY_TOLERATION", false)
 	Config.SkipClientNoScheduleToleration = getBoolEnvOrDefault("SKIP_CLIENT_NO_SCHEDULE_TOLERATION", false)

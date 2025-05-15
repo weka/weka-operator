@@ -157,3 +157,10 @@ upgrade:
   maxDeactivatingContainersPercent: 10
 podMonitor:
   enabled: true
+
+# DNS policy configuration
+dnsPolicy:
+  # dns policy for the pods without hostNetwork: true
+  k8sNetwork: ""
+  # dns policy for the pods with hostNetwork: true
+  hostNetwork: ""

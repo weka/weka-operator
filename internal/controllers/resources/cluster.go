@@ -3,10 +3,12 @@ package resources
 import (
 	"context"
 	"fmt"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"strconv"
 	"strings"
+
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 type ClusterContainer struct {

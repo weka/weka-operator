@@ -57,6 +57,9 @@ spec:
       nodeSelector:
         {{- toYaml .Values.manager.nodeSelector | nindent 8 }}
       {{- end }}
+      {{- with .Values.dnsPolicy }}
+      dnsPolicy: {{ .k8sNetwork | default "" }}
+      {{- end }}
       volumes:
         - name: tmpdir
           emptyDir: { }
@@ -191,6 +194,10 @@ spec:
               value: "{{ .Values.metrics.containers.requestsTimeouts.getContainerInfo }}"
             - name: LOCAL_DATA_PVC
               value: "{{ .Values.localDataPvc }}"
+            - name: DNS_POLICY_K8S_NETWORK
+              value: "{{ .Values.dnsPolicy.k8sNetwork }}"
+            - name: DNS_POLICY_HOST_NETWORK
+              value: "{{ .Values.dnsPolicy.hostNetwork }}"
             - name: SIGN_DRIVES_IMAGE
               value: "{{ .Values.signDrivesImage }}"
             - name: UPGRADE_COMPUTE_THRESHOLD_PERCENT
