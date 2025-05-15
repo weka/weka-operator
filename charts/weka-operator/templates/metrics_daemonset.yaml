@@ -58,6 +58,9 @@ spec:
       {{- if .Values.nodeAgent.tolerations }}
         {{- toYaml .Values.nodeAgent.tolerations | nindent 8 }}
       {{- end }}
+      {{- with .Values.dnsPolicy }}
+      dnsPolicy: {{ .k8sNetwork | default "" }}
+      {{- end }}
       volumes:
         - name: tmpdir
           emptyDir: { }

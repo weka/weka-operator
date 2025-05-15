@@ -131,8 +131,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	hostNetwork := false
+	dnsPolicy := corev1.DNSPolicy(config.Config.DNSPolicy.K8sNetwork)
 	if f.container.IsHostNetwork() {
 		hostNetwork = true
+		dnsPolicy = corev1.DNSPolicy(config.Config.DNSPolicy.HostNetwork)
 	}
 
 	if f.container.Spec.TracesConfiguration == nil {
@@ -170,6 +172,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Affinity:                      f.initAffinities(ctx, f.container.Spec.Affinity),
 			ImagePullSecrets:              imagePullSecrets,
 			TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
+			HostNetwork:                   hostNetwork,
+			HostPID:                       f.container.Spec.HostPID,
+			DNSPolicy:                     dnsPolicy,
 			Containers: []corev1.Container{
 				{
 					Image:           image,
@@ -343,8 +348,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					},
 				},
 			},
-			HostNetwork: hostNetwork,
-			HostPID:     f.container.Spec.HostPID,
 			Volumes: []corev1.Volume{
 				{
 					Name: "hugepages",
