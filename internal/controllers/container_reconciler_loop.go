@@ -2012,28 +2012,25 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 		}
-
-		nodeInfo, err := r.GetNodeInfo(ctx)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("node is deleted, no need for cleanup")
-				return nil
-			}
-			// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
-			// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
-			// but generic ReconcilationError wrapping error is sort of pointless
-			if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
-				logger.Info("node is deleted, no need for cleanup")
-				return nil
-			}
-			logger.Error(err, "Error getting node discovery")
-			return err
-		}
-
-		persistencePath = nodeInfo.GetHostsideContainerPersistence()
-	} else {
-		persistencePath = weka.PersistencePathBase + "/containers"
 	}
+	nodeInfo, err := r.GetNodeInfo(ctx)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("node is deleted, no need for cleanup")
+			return nil
+		}
+		// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
+		// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
+		// but generic ReconcilationError wrapping error is sort of pointless
+		if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
+			logger.Info("node is deleted, no need for cleanup")
+			return nil
+		}
+		logger.Error(err, "Error getting node discovery")
+		return err
+	}
+
+	persistencePath = nodeInfo.GetHostsideContainerPersistence()
 
 	payload := operations.CleanupPersistentDirPayload{
 		NodeName:        container.GetNodeAffinity(),
