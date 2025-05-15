@@ -1620,6 +1620,14 @@ async def cos_configure_hugepages():
         logging.debug("Skipping hugepages configuration")
         return
 
+    with open("/proc/meminfo", 'r') as meminfo:
+        for line in meminfo.readlines():
+            if "HugePages_Total" in line:
+                hugepage_count = int(line.split()[1])
+                if hugepage_count > 0:
+                    logging.info(f"Node already has {hugepage_count} hugepages configured, skipping")
+                    return
+
     logging.info("Checking if hugepages are set")
     esp_partition = "/dev/disk/by-partlabel/EFI-SYSTEM"
     mount_path = "/tmp/esp"
