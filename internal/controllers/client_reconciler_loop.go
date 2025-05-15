@@ -57,6 +57,7 @@ type clientReconcilerLoop struct {
 	nodes         []v1.Node
 	// keep in state for future steps referencing
 	upgradeInProgress bool
+	targetCluster     *weka.WekaCluster
 }
 
 func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
@@ -105,6 +106,16 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.EnsureClientsWekaContainers},
+			{
+				Run: loop.FetchTargetCluster,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						emptyRef := weka.ObjectReference{}
+						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != "" && loop.targetCluster == nil
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
 			{
@@ -840,4 +851,17 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		UmountOnHost:          spec.GetOverrides().UmountOnHost,
 		PvcConfig:             resources.GetPvcConfig(spec.GlobalPVC),
 	}
+}
+
+func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
+	wekaCluster := &weka.WekaCluster{}
+	err := c.Get(ctx, client.ObjectKey{
+		Name:      c.wekaClient.Spec.TargetCluster.Name,
+		Namespace: c.wekaClient.Spec.TargetCluster.Namespace,
+	}, wekaCluster)
+	if err != nil {
+		return errors.Wrap(err, "failed to get target cluster")
+	}
+	c.targetCluster = wekaCluster
+	return nil
 }
