@@ -4,8 +4,10 @@ Classic approach to build drivers is to deploy
 - drivers-builder container, one per permutation of used weka versions and kernel/arch
 - drivers-dist container, one
 - service pointing to drivers-dist container
-Example of such, handling multiple kernels, and having custom pre-run script:
+Example of such, handling multiple kernels, and having custom pre-run script
 
+Important: No need to deploy multiple builders if no need to support multiple kernels or multiple weka versions
+Importnat: Replace versions with your target wekaclient/wekacluster versions. Versions(images) on builders must match
 ```
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
