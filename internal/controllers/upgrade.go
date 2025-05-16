@@ -54,6 +54,10 @@ func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1al
 
 func (u *UpgradeController) AreUpgraded() bool {
 	for _, container := range u.Containers {
+		if container.Status.LastAppliedImage == "" && container.Status.ClusterContainerID == nil && container.Spec.Image == u.TargetImage {
+			continue // if pod is not schedulable, ignore it from "Upgrading" status calc
+		}
+
 		if container.Status.LastAppliedImage != u.TargetImage {
 			return false
 		}
