@@ -153,10 +153,14 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 	// if we selected at least one "Running" - lets go with it, if none - populate with many "not running"
 	if len(selected) == 0 {
 		// if we could not select target amount of  containers, we will select somem random that are not running
-		util2.Shuffle(firstPassSuitable)
+		util2.Shuffle(containers)
 
-		for _, container := range firstPassSuitable {
-			if container.Status.Status != weka.Running {
+		notSuitableStatuses := []weka.ContainerStatus{
+			weka.PodNotRunning,
+			weka.Stopped,
+		}
+		for _, container := range containers {
+			if !slices.Contains(notSuitableStatuses, container.Status.Status) {
 				selected = append(selected, container)
 			}
 			if len(selected) >= numContainers {
