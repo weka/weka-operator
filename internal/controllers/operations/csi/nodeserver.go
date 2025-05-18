@@ -306,19 +306,19 @@ func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c clien
 	for _, podContainer := range pod.Spec.Containers {
 		switch podContainer.Name {
 		case "csi-registrar":
-			outdated = podContainer.Image != config.Config.CsiRegistrarImage
+			outdated = outdated || podContainer.Image != config.Config.CsiRegistrarImage
 		case "liveness-probe":
-			outdated = podContainer.Image != config.Config.CsiLivenessProbeImage
+			outdated = outdated || podContainer.Image != config.Config.CsiLivenessProbeImage
 		case "wekafs":
-			outdated = podContainer.Image != config.Config.CsiImage
+			outdated = outdated || podContainer.Image != config.Config.CsiImage
 			for _, env := range podContainer.Env {
 				if env.Name == "CSI_DRIVER_NAME" {
-					outdated = outdated && (env.Value != csiDriverName)
+					outdated = outdated || (env.Value != csiDriverName)
 				}
 			}
 		}
 	}
-	outdated = outdated && (!util.CompareTolerations(pod.Spec.Tolerations, tolerations))
+	outdated = outdated || (!util.CompareTolerations(pod.Spec.Tolerations, tolerations, true)) // ignore unhealthy default tolerations, since they are added by k8s on the pod level
 
 	if outdated {
 		logger.Info("CSI node spec changed, re-deploying")

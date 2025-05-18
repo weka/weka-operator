@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []string) *appsv1.Deployment {
+func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) *appsv1.Deployment {
 	privileged := true
 	replicas := int32(2)
 
@@ -374,7 +374,7 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 							},
 						},
 					},
-					Tolerations: TolerationsToObj(tolerations),
+					Tolerations: tolerations,
 					Volumes: []corev1.Volume{
 						{
 							Name: "socket-dir",
@@ -437,7 +437,7 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 	}
 }
 
-func UpdateCsiController(ctx context.Context, c client.Client, csiControllerName string, nodeSelector map[string]string, tolerations []string) error {
+func UpdateCsiController(ctx context.Context, c client.Client, csiControllerName string, nodeSelector map[string]string, tolerations []corev1.Toleration) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -493,8 +493,14 @@ func UpdateCsiController(ctx context.Context, c client.Client, csiControllerName
 		}
 	}
 
-	updated = updated && (util2.NewHashableMap(deployment.Spec.Template.Spec.NodeSelector) != util2.NewHashableMap(nodeSelector))
-	updated = updated && (!util2.CompareTolerations(deployment.Spec.Template.Spec.Tolerations, TolerationsToObj(tolerations)))
+	if !util2.NewHashableMap(deployment.Spec.Template.Spec.NodeSelector).Equals(util2.NewHashableMap(nodeSelector)) {
+		deployment.Spec.Template.Spec.NodeSelector = nodeSelector
+		updated = true
+	}
+	if !util2.CompareTolerations(deployment.Spec.Template.Spec.Tolerations, tolerations, false) {
+		deployment.Spec.Template.Spec.Tolerations = tolerations
+		updated = true
+	}
 
 	if updated {
 		logger.Info("Updated CSI controller deployment images")

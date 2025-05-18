@@ -22,10 +22,26 @@ TAINT:
 }
 
 // CompareTolerations check if the given tolerations are equal
-func CompareTolerations(a, b []corev1.Toleration) bool {
+func CompareTolerations(a, b []corev1.Toleration, ignoreUnhealthy bool) bool {
+	if ignoreUnhealthy {
+		a = filterUnhealthyDefaultTolerations(a)
+		b = filterUnhealthyDefaultTolerations(b)
+	}
+
 	aNorm := normalizeTolerations(a)
 	bNorm := normalizeTolerations(b)
 	return reflect.DeepEqual(aNorm, bNorm)
+}
+
+func filterUnhealthyDefaultTolerations(tolerations []corev1.Toleration) []corev1.Toleration {
+	var filtered []corev1.Toleration
+	for _, toleration := range tolerations {
+		if toleration.Key == "node.kubernetes.io/unreachable" || toleration.Key == "node.kubernetes.io/not-ready" {
+			continue
+		}
+		filtered = append(filtered, toleration)
+	}
+	return filtered
 }
 
 func normalizeTolerations(tolerations []corev1.Toleration) []corev1.Toleration {

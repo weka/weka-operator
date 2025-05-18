@@ -752,10 +752,19 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.EnsureCsiNodeServerPod,
+				Run: loop.DeployCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.CleanupCsiNodeServerPod,
+				Predicates: lifecycle.Predicates{
+					container.IsClientContainer,
+					lifecycle.BoolValue(loop.container.Spec.CsiNodeRef != ""),
+					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -4486,7 +4495,7 @@ func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
 	return lifecycle.NewExpectedError(errors.New("requeue after successful PVC migration and spec update"))
 }
 
-func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) error {
+func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureCsiNodeServerPod")
 	defer end()
 
@@ -4529,4 +4538,22 @@ func (r *containerReconcilerLoop) EnsureCsiNodeServerPod(ctx context.Context) er
 	} else {
 		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, csiDriverName, r.container.Spec.Tolerations)
 	}
+}
+
+func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) error {
+	namespace, err := util.GetPodNamespace()
+	if err != nil {
+		return err
+	}
+
+	if err = r.Delete(ctx, &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      r.container.Spec.CsiNodeRef,
+			Namespace: namespace,
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to delete CSI node pod %s: %w", r.container.Spec.CsiNodeRef, err)
+	}
+	r.container.Spec.CsiNodeRef = ""
+	return r.Update(ctx, r.container)
 }

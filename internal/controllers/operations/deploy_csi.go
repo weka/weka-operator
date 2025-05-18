@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -169,16 +171,16 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	controllerDeploymentName := o.csiBaseName + "-csi-controller"
+	tolerations := util.ExpandTolerations([]corev1.Toleration{}, o.wekaClient.Spec.Tolerations, o.wekaClient.Spec.RawTolerations)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
 		func() client.Object {
 			return csi.NewCsiControllerDeployment(controllerDeploymentName, o.namespace,
-				o.csiDriverName, o.wekaClient.Spec.NodeSelector, o.wekaClient.Spec.Tolerations,
+				o.csiDriverName, o.wekaClient.Spec.NodeSelector, tolerations,
 			)
 		}); err != nil {
 		return err
 	}
 
-	o.wekaClient.Status.CsiDeployed = true
 	o.wekaClient.Spec.CsiControllerRef = controllerDeploymentName
 	return o.client.Update(ctx, o.wekaClient)
 }

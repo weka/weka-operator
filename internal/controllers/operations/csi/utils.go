@@ -4,7 +4,6 @@ import (
 	"fmt"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	v1 "k8s.io/api/core/v1"
 	"regexp"
 	"strings"
 )
@@ -69,16 +68,4 @@ func GetTracingFlag() string {
 	//	return "--tracingurl=" + config.Config.Otel.ExporterOtlpEndpoint
 	//}
 	return ""
-}
-
-func TolerationsToObj(tolerations []string) []v1.Toleration {
-	tolerationObjects := make([]v1.Toleration, len(tolerations))
-	for i, toleration := range tolerations {
-		tolerationObjects[i] = v1.Toleration{
-			Effect:   v1.TaintEffectNoSchedule,
-			Key:      toleration,
-			Operator: v1.TolerationOpExists,
-		}
-	}
-	return tolerationObjects
 }
