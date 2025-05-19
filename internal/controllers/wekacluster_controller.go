@@ -4,24 +4,24 @@ import (
 	"context"
 	"time"
 
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/pkg/util"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/services"
 	"go.opentelemetry.io/otel/trace"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (

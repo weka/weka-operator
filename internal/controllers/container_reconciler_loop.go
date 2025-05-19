@@ -184,6 +184,19 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{Run: loop.GetNode},
 			{Run: loop.refreshPod},
+			{
+				Run: loop.setJoinIpsIfStuckInStemMode,
+				Predicates: lifecycle.Predicates{
+					container.ShouldJoinCluster,
+					func() bool {
+						return container.Status.ClusterContainerID == nil && len(container.Spec.JoinIps) == 0
+					},
+					func() bool {
+						return container.Status.InternalStatus == "STEM"
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			// if cluster marked container state as deleting, update status and put deletion timestamp
 			{
 				Run: loop.handleStateDeleting,
@@ -1865,6 +1878,62 @@ func (r *containerReconcilerLoop) getManagementIps(ctx context.Context) ([]strin
 	return ips, nil
 }
 
+func (r *containerReconcilerLoop) setJoinIpsIfStuckInStemMode(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+
+	ownerRef := container.GetOwnerReferences()
+	if len(ownerRef) == 0 {
+		return errors.New("no owner references found")
+	}
+
+	owner := ownerRef[0]
+	clusterGuid := string(owner.UID)
+
+	clusterCreationTime, err := services.ClustersCachedInfo.GetClusterCreationTime(ctx, clusterGuid)
+	if err != nil {
+		return fmt.Errorf("error getting cluster creation time: %w", err)
+	}
+
+	// if cluster creation time is more than 1 minute, set join ips in the container spec
+	if time.Since(clusterCreationTime) > time.Minute {
+		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, clusterGuid, owner.Name, container.Namespace)
+		if len(joinIps) > 0 {
+			container.Spec.JoinIps = joinIps
+			executor, err := r.ExecService.GetExecutor(ctx, r.container)
+			if err != nil {
+				return fmt.Errorf("error getting executor: %w", err)
+			}
+			// 1. Reconfigure container with new join ips
+			cmd := []string{"weka", "local", "resources", "join-ips"}
+			cmd = append(cmd, joinIps...)
+			_, stderr, err := executor.ExecNamed(ctx, "WekaLocalResources", cmd)
+			if err != nil {
+				return fmt.Errorf("error executing weka local resources: %w, %s", err, stderr.String())
+			}
+			// 2. Apply local resources change
+			_, stderr, err = executor.ExecNamed(ctx, "WekaLocalResourcesApply", []string{"weka", "local", "resources", "apply", "-f"})
+			if err != nil {
+				return fmt.Errorf("error executing weka local resources apply: %w, %s", err, stderr.String())
+			}
+			// 3. Restart container
+			_, stderr, err = executor.ExecNamed(ctx, "WekaLocalRestart", []string{"weka", "local", "restart", "--force"})
+			if err != nil {
+				return fmt.Errorf("error executing weka local restart: %w, %s", err, stderr.String())
+			}
+
+			logger.Info("Setting join ips in the container spec", "join_ips", joinIps)
+			if err := r.Update(ctx, container); err != nil {
+				return fmt.Errorf("error updating container: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -2312,7 +2381,7 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 		owner := ownerRef[0]
 
-		joinIps, _ := services.ClustersJoinIps.GetJoinIps(ctx, owner.Name, container.Namespace)
+		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, string(owner.UID), owner.Name, container.Namespace)
 		if len(joinIps) > 0 {
 			container.Spec.JoinIps = joinIps
 		}
