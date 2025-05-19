@@ -1,10 +1,15 @@
-- When deploying driver policy or driver builder container, always use:
+- When deploying driver policy always use:
 ```
       builderPreRunScript: |
         #!/bin/sh
         apt-get update && apt-get install -y gcc-12
 ```
-builderPreRunScript for policy, preRunScript for legacy driver builder
+- When deploying driver builder container, always use:
+```
+      preRunScript: |
+        #!/bin/sh
+        apt-get update && apt-get install -y gcc-12
+```
 
 - when subnet or network devices are not specified, use 10.200.0.0/16 as a subnet on wekacluster/wekaclient
 - environment has secret-less pull of quay.io weka images, imagePullSecret ref might present, but never validate existence of secret as it does not matter
