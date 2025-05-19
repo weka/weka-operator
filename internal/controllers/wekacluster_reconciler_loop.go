@@ -171,11 +171,11 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	if meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated) || cluster.IsExpand() {
 		//TODO: Update-By-Expansion, cluster-side join-ips until there are own containers
 		allowExpansion := false
-		err := services.ClustersJoinIps.RefreshJoinIps(ctx, r.containers, cluster)
+		err := services.ClustersCachedInfo.RefreshJoinIps(ctx, r.containers, cluster)
 		if err != nil {
 			allowExpansion = true
 		}
-		joinIps, err = services.ClustersJoinIps.GetJoinIps(ctx, cluster.Name, cluster.Namespace)
+		joinIps, err = services.ClustersCachedInfo.GetJoinIps(ctx, string(cluster.GetUID()), cluster.Name, cluster.Namespace)
 		// at this point we should have join ips, if not, we should allow expansion
 		if len(joinIps) == 0 {
 			allowExpansion = true
@@ -365,6 +365,24 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 			logger.Info("Finalizer added for wekaCluster", "conditions", len(wekaCluster.Status.Conditions))
 		}
 	}
+
+	clusterGuid := string(wekaCluster.GetUID())
+
+	_, err := services.ClustersCachedInfo.GetClusterCreationTime(ctx, clusterGuid)
+	if err != nil {
+		// if cluster is already formed, set cluster creation time
+		formedClusterCondition := meta.FindStatusCondition(wekaCluster.Status.Conditions, condition.CondClusterCreated)
+		if formedClusterCondition == nil || formedClusterCondition.Status == metav1.ConditionFalse {
+			return nil
+		}
+
+		err = services.ClustersCachedInfo.SetClusterCreationTime(ctx, clusterGuid, formedClusterCondition.LastTransitionTime.Time)
+		if err != nil {
+			logger.Error(err, "Failed to set cluster creation time")
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -475,6 +493,16 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		err := r.finalizeWekaCluster(ctx)
 		if err != nil {
 			return err
+		}
+
+		err = services.ClustersCachedInfo.DeleteJoinIps(ctx, string(r.cluster.GetUID()))
+		if err != nil {
+			logger.Error(err, "Failed to delete join ips for wekaCluster")
+		}
+
+		err = services.ClustersCachedInfo.DeleteClusterCreationTime(ctx, string(r.cluster.GetUID()))
+		if err != nil {
+			logger.Error(err, "Failed to delete cluster creation time for wekaCluster")
 		}
 
 		logger.Info("Removing Finalizer for wekaCluster after successfully perform the operations")
@@ -1784,10 +1812,10 @@ func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context
 	containers := r.containers
 	cluster := r.cluster
 
-	_, err := services.ClustersJoinIps.JoinIpsAreValid(ctx, cluster.Name, cluster.Namespace)
+	_, err := services.ClustersCachedInfo.JoinIpsAreValid(ctx, string(cluster.GetUID()), cluster.Name, cluster.Namespace)
 	if err != nil {
 		logger.Debug("Cannot get join ips", "msg", err.Error())
-		err := services.ClustersJoinIps.RefreshJoinIps(ctx, containers, cluster)
+		err := services.ClustersCachedInfo.RefreshJoinIps(ctx, containers, cluster)
 		if err != nil {
 			logger.Error(err, "Failed to refresh join ips")
 			return err

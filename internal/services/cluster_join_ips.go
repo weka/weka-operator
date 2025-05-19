@@ -9,15 +9,16 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
 // make this service globally available
-var ClustersJoinIps ClustersJoinIpsService
+var ClustersCachedInfo ClustersCachedInfoService
 
 func init() {
-	ClustersJoinIps = NewClustersJoinIpsService()
+	ClustersCachedInfo = NewClustersJoinIpsService()
 }
 
 type GetJoinIpsError struct {
@@ -65,39 +66,53 @@ func (r *JoinIpsResult) GetRandomJoinIps(num int) []string {
 	return joinIps
 }
 
-// ClustersJoinIpsService is a service that keeps cached join ips for clusters
-type ClustersJoinIpsService interface {
+// ClustersCachedInfoService is a service that keeps cached information about clusters,
+// such as join ips, creation time, etc.
+type ClustersCachedInfoService interface {
+	// --- Join Ips ---
 	// Check if the cached join ips exist and are valid
-	JoinIpsAreValid(ctx context.Context, clusterName, namespace string) (bool, error)
+	JoinIpsAreValid(ctx context.Context, clusterGuid, clusterName, namespace string) (bool, error)
 	// GetJoinIps returns the cached join ips for the cluster
 	// If the cache is expired or the cluster is not found, the GetJoinIpsError is returned
-	GetJoinIps(ctx context.Context, clusterName, namespace string) ([]string, error)
+	GetJoinIps(ctx context.Context, clusterGuid, clusterName, namespace string) ([]string, error)
 	// RefreshJoinIps refreshes the join ips for the cluster and caches them
 	// NOTE: refresh is recommended to be done only by WekaClusterReconciler
 	RefreshJoinIps(ctx context.Context, containers []*weka.WekaContainer, cluster *weka.WekaCluster) error
+	// DeleteJoinIps deletes the join ips for the cluster
+	DeleteJoinIps(ctx context.Context, clusterGuid string) error
+
+	// --- Cluster Creation Time ---
+	// GetClusterCreationTime returns the creation time of the cluster
+	GetClusterCreationTime(ctx context.Context, clusterGuid string) (time.Time, error)
+	// SetClusterCreationTime sets the creation time of the cluster
+	SetClusterCreationTime(ctx context.Context, clusterGuid string, creationTime time.Time) error
+	// DeleteClusterCreationTime deletes the creation time of the cluster
+	DeleteClusterCreationTime(ctx context.Context, clusterGuid string) error
 }
 
 type clustersJoinIpsService struct {
-	// map of <cluster_name>-<namespace> to join ips result
+	// map of <cluster-guid> to join ips result
 	clusterJoinIps map[string]JoinIpsResult
-	ipsCacheTTL    time.Duration
-	lock           sync.RWMutex
+	// map of <cluster-guid> to cluster creation time
+	clusterCreationTime map[string]time.Time
+	ipsCacheTTL         time.Duration
+	lock                sync.RWMutex
 }
 
-func NewClustersJoinIpsService() ClustersJoinIpsService {
+func NewClustersJoinIpsService() ClustersCachedInfoService {
 	cacheTtl := config.Consts.JoinIpsCacheTTL
 	return &clustersJoinIpsService{
-		ipsCacheTTL:    cacheTtl,
-		clusterJoinIps: make(map[string]JoinIpsResult),
+		ipsCacheTTL:         cacheTtl,
+		clusterJoinIps:      make(map[string]JoinIpsResult),
+		clusterCreationTime: make(map[string]time.Time),
 	}
 }
 
-func (s *clustersJoinIpsService) JoinIpsAreValid(ctx context.Context, clusterName, namespace string) (bool, error) {
+func (s *clustersJoinIpsService) JoinIpsAreValid(ctx context.Context, clusterGuid, clusterName, namespace string) (bool, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
-	key := s.getKey(clusterName, namespace)
-	joinIpsResult, ok := s.clusterJoinIps[key]
+	joinIpsResult, ok := s.clusterJoinIps[clusterGuid]
 	if !ok {
 		err := &GetJoinIpsError{ClusterName: clusterName, Issue: "cluster not found", Namespace: namespace}
 		return false, err
@@ -110,12 +125,11 @@ func (s *clustersJoinIpsService) JoinIpsAreValid(ctx context.Context, clusterNam
 	return true, nil
 }
 
-func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterName, namespace string) ([]string, error) {
+func (s *clustersJoinIpsService) GetJoinIps(ctx context.Context, clusterGuid, clusterName, namespace string) ([]string, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
-	key := s.getKey(clusterName, namespace)
-	joinIpsResult, ok := s.clusterJoinIps[key]
+	joinIpsResult, ok := s.clusterJoinIps[clusterGuid]
 	if !ok {
 		err := &GetJoinIpsError{ClusterName: clusterName, Issue: "cluster not found", Namespace: namespace}
 		return nil, err
@@ -142,7 +156,7 @@ func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers 
 		return err
 	}
 
-	key := s.getKey(cluster.Name, cluster.Namespace)
+	key := string(cluster.GetUID())
 	s.clusterJoinIps[key] = JoinIpsResult{
 		JoinIpsByFD: joinIpsByFD,
 		UpdatedAt:   time.Now(),
@@ -152,6 +166,37 @@ func (s *clustersJoinIpsService) RefreshJoinIps(ctx context.Context, containers 
 	return nil
 }
 
-func (s *clustersJoinIpsService) getKey(clusterName, namespace string) string {
-	return fmt.Sprintf("%s-%s", clusterName, namespace)
+func (s *clustersJoinIpsService) DeleteJoinIps(ctx context.Context, clusterGuid string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	delete(s.clusterJoinIps, clusterGuid)
+	return nil
+}
+
+func (s *clustersJoinIpsService) GetClusterCreationTime(ctx context.Context, clusterGuid string) (time.Time, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	creationTime, ok := s.clusterCreationTime[clusterGuid]
+	if !ok {
+		return time.Time{}, fmt.Errorf("cluster creation time not found")
+	}
+	return creationTime, nil
+}
+
+func (s *clustersJoinIpsService) SetClusterCreationTime(ctx context.Context, clusterGuid string, creationTime time.Time) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.clusterCreationTime[clusterGuid] = creationTime
+	return nil
+}
+
+func (s *clustersJoinIpsService) DeleteClusterCreationTime(ctx context.Context, clusterGuid string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	delete(s.clusterCreationTime, clusterGuid)
+	return nil
 }

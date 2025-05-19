@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-operator/internal/services/exec"
 	"reflect"
 	"time"
 
@@ -26,6 +25,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 	"github.com/weka/weka-operator/pkg/workers"
@@ -108,7 +108,6 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.EnsureClientsWekaContainers},
 			{
 				Run: loop.FetchTargetCluster,
 				Predicates: lifecycle.Predicates{
@@ -119,6 +118,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{Run: loop.EnsureClientsWekaContainers},
 			{Run: loop.HandleSpecUpdates},
 			{Run: loop.HandleUpgrade},
 			{
@@ -426,14 +426,14 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	emptyTarget := weka.ObjectReference{}
-	if c.wekaClient.Spec.TargetCluster == emptyTarget {
+	targetCluster := c.targetCluster
+	if targetCluster == nil {
 		return nil
 	}
 
-	joinIps, err := services.ClustersJoinIps.GetJoinIps(ctx, c.wekaClient.Spec.TargetCluster.Name, c.wekaClient.Spec.TargetCluster.Namespace)
+	joinIps, err := services.ClustersCachedInfo.GetJoinIps(ctx, string(targetCluster.GetUID()), targetCluster.Name, targetCluster.Namespace)
 	if err != nil {
-		logger.Error(err, "Need to refresh join ips", "cluster", c.wekaClient.Spec.TargetCluster.Name)
+		logger.Error(err, "Need to refresh join ips", "cluster", targetCluster.Name)
 		return err
 	}
 
