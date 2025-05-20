@@ -289,6 +289,7 @@ type WekaClusterSpec struct {
 	Overrides               *WekaClusterSpecOverrides `json:"overrides,omitempty"`
 	CsiConfig               CsiConfig                 `json:"csiConfig,omitempty"`
 	GlobalPVC               *PVCConfig                `json:"globalPVC,omitempty"`
+	ServiceAccountName      string                    `json:"serviceAccountName,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {

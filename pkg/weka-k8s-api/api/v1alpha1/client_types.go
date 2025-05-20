@@ -123,6 +123,7 @@ type WekaClientSpec struct {
 	TracesConfiguration *TracesConfiguration `json:"tracesConfiguration,omitempty"`
 	Tolerations         []string             `json:"tolerations,omitempty"`
 	RawTolerations      []v1.Toleration      `json:"rawTolerations,omitempty"`
+	ServiceAccountName  string               `json:"serviceAccountName,omitempty"`
 	// memory to add/decrease from "auto-calculated" memory
 	AdditionalMemory int `json:"additionalMemory,omitempty"`
 	// experimental: pod resources to be proxied as-is to the pod spec
