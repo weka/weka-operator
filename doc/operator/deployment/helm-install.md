@@ -1,13 +1,18 @@
 Installed with command as
-
 ```bash
+cd /tmp
+helm pull oci://quay.io/weka.io/helm/weka-operator --version v1.5.0 --untar 
+cd weka-operator
+kubectl apply -f ./crds
+
 helm upgrade --create-namespace \
     --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
     --namespace weka-operator-system \
-    --version v1.5.0-dev.44 --values operator_values.yaml
+    --version v1.5.0 --values operator_values.yaml
 ```
+Always make sure to update CRDs before upgrading helm
 
-Operator pod can be found with label app=weka-operator after installation
+Operator pod can be found with label `app=weka-operator` after installation
 
 notable helm-level values:
 

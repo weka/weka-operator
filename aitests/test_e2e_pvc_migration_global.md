@@ -39,6 +39,7 @@ volumeType: dir/v1
 - delete all wekacontainers that belong to  cluster and client, deletion will take time as it will be rolling by default, despite marking all
     - use --wait=false flag and continue without confirming deletion
     - Pay attention, it can take long time. If nothing progressed for 10 minutes - then abort, but there should be slowly rotation of all pods, despite deleting all at once it will be rolling, controlled by operator
+    - use `kubectl get wekacontainer -n weka-operator-system -l weka.io/cluster-name=CLUSTER_NAME` to check the status of the pods, you should see containers moving from deleting to being re-created, with new names. If state is not changing for more then 10 minutes - abort. If there is any progress - keep waiting, up to 2 hours in total
 - wait for all containers that belong to cluster to be re-created and their pvc set to nil
 - clusters and client should use 10.200.0.0/16 subnet
 - cluster, clients, drivers components should use WEKA_IMAGE image
