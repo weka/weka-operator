@@ -100,7 +100,7 @@ spec:
     effect: "NoSchedule"
   payload:
     interval: "1m" # How often to reconcile this policy
-    driverDistPayload:
+    driverDistPayload: # mandatory
       # Images to ensure IN ADDDITION to these found by existing WekaCluster/WekaClients
       ensureImages:
         - "quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2" # Example Weka image version for proactive building

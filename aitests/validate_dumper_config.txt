@@ -14,10 +14,10 @@ Provision weka cluster, and then permutating on traces dumper mode configuration
 
 For no traces config, validate that ENV var on DUMPER_CONFIG_MODE in pod is set to auto and within pod, within weka container there is file `/data/reserved_space/dumper_config.json.override`
   - can be validated by: `weka local exec cat /data/reserved_space/dumper_config.json.override` within weka container of type compute/drive
-  - validate that `dumper_config.json.override` exists
+    - if this command succeeds, if file exists within weka container(not visible from pod itself - all good)
 
- For dumperConfigMode: "cluster" - validate that same override file does not exist
- for just-two-fields config - validate that override file exists
+ For dumperConfigMode: "cluster" - validate that same override file does not exist, same method of check
+ for just-two-fields config - validate that override file exists, just like with no traces config
 
- all checks should be done on wekacontaienrs of type compute, that already joined weka cluster. checking just one container is sufficient
+ all checks should be done on wekacontaiener(single) of type compute, that already joined weka cluster. checking just one container is sufficient
   - Weka image to use: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (WEKA_IMAGE)
