@@ -162,6 +162,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		container.Spec.Affinity = affinity
 	}
 
+	if cluster.Spec.ServiceAccountName != "" {
+		container.Spec.ServiceAccountName = cluster.Spec.ServiceAccountName
+	}
+
 	return container, nil
 }
 
