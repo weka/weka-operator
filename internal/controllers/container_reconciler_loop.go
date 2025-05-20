@@ -3415,7 +3415,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 	// check local container status and propagate failure message (if any) as event
 	internalStatus := localContainer.InternalStatus.DisplayStatus
-	if internalStatus != "READY" && localContainer.LastFailure != "" {
+	if internalStatus != "READY" && localContainer.LastFailure != "" && !container.IsDistMode() {
 		msg := fmt.Sprintf(
 			"Container is not ready, status: %s, last failure: %s (%s)",
 			internalStatus, localContainer.LastFailure, localContainer.LastFailureTime,
