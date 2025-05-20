@@ -77,5 +77,5 @@ spec:
 
 ## Cluster Status Monitoring
 After provisioning, monitor the cluster status through the Kubernetes API:
-- `status.status` field should reach "Ready" state
+- `status.status` field should reach "Ready" state, can be looked up by `kubectl get -o wide CLUSTER_NAME -n NAMESPACE`, or by json representatin of `status.status` field
 - If not "Ready" within 10 minutes, consider the provisioning failed
