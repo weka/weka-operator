@@ -349,12 +349,25 @@ type TracesConfiguration struct {
 	MaxCapacityPerIoNode int `json:"maxCapacityPerIoNode,omitempty"`
 	// +kubebuilder:default=20
 	EnsureFreeSpace int `json:"ensureFreeSpace,omitempty"`
+	// +kubebuilder:default=auto
+	// +kubebuilder:validation:Enum=override;partial-override;auto;cluster
+	DumperConfigMode DumperConfigMode `json:"dumperConfigMode,omitempty"`
 }
+
+type DumperConfigMode string
+
+const (
+	DumperConfigModeAuto            DumperConfigMode = "auto"
+	DumperConfigModeOverride        DumperConfigMode = "override"
+	DumperConfigOverrideModePartial DumperConfigMode = "partial-override"
+	DumperConfigOverrideModeCluster DumperConfigMode = "cluster"
+)
 
 func GetDefaultTracesConfiguration() *TracesConfiguration {
 	return &TracesConfiguration{
 		MaxCapacityPerIoNode: 10,
 		EnsureFreeSpace:      20,
+		DumperConfigMode:     DumperConfigModeAuto,
 	}
 }
 
