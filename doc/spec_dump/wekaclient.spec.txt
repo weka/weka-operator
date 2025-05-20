@@ -95,6 +95,8 @@ FIELDS:
       namespace	<string> -required-
     tolerations	<[]string>
     tracesConfiguration	<Object>
+      dumperConfigMode	<string>
+      enum: override, partial-override, auto, cluster
       ensureFreeSpace	<integer>
       maxCapacityPerIoNode	<integer>
     upgradePolicy	<Object>

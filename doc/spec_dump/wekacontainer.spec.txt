@@ -239,6 +239,8 @@ FIELDS:
       topologyKey	<string> -required-
       whenUnsatisfiable	<string> -required-
     tracesConfiguration	<Object>
+      dumperConfigMode	<string>
+      enum: override, partial-override, auto, cluster
       ensureFreeSpace	<integer>
       maxCapacityPerIoNode	<integer>
     upgradePolicyType	<string>

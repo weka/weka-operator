@@ -689,6 +689,8 @@ FIELDS:
     template	<string>
     tolerations	<[]string>
     tracesConfiguration	<Object>
+      dumperConfigMode	<string>
+      enum: override, partial-override, auto, cluster
       ensureFreeSpace	<integer>
       maxCapacityPerIoNode	<integer>
     wekaHome	<Object>
