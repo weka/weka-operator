@@ -397,6 +397,10 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			PVC:               resources.GetPvcConfig(wekaClient.Spec.GlobalPVC),
 		},
 	}
+
+	if wekaClient.Spec.ServiceAccountName != "" {
+		container.Spec.ServiceAccountName = wekaClient.Spec.ServiceAccountName
+	}
 	return container, nil
 }
 
