@@ -1,0 +1,23 @@
+- delete existing wekacluster/wekaclient CRs, if any exist in cluster(all namespaces)
+- delete existing wekapolicies, if any exist in cluster
+- delete any wekacontainers if remain in cluster, of all types, across all namespaces
+- ensure policy for drivers distribution
+- ensure policy for drive signing of all not mounted, create policy if does not exist
+
+
+Provision weka cluster, and then permutating on traces dumper mode configuration by deleting any weka container of type compute, and validating new config within new container
+- weka cluster, 6 compute containers, 6 drive containers, 1 drive per drives container, 1 core for compute, and 1 core for driver containers. 0 hotspares. Do not configure hugepages fields, leave CR-level defaults
+- operate on tracesConfiguration field:
+    - no traces config at all(i.e field not set in cluster CR), CR-level defaults
+    - only one field filled in: dumperConfigMode: "cluster"
+    - only two other fields are filled with maxCapacityPerIoNode: 5 and ensureFreeSpace: 10
+
+For no traces config, validate that ENV var on DUMPER_CONFIG_MODE in pod is set to auto and within pod, within weka container there is file `/data/reserved_space/dumper_config.json.override`
+  - can be validated by: `weka local exec cat /data/reserved_space/dumper_config.json.override` within weka container of type compute/drive
+  - validate that `dumper_config.json.override` exists
+
+ For dumperConfigMode: "cluster" - validate that same override file does not exist
+ for just-two-fields config - validate that override file exists
+
+ all checks should be done on wekacontaienrs of type compute, that already joined weka cluster. checking just one container is sufficient
+  - Weka image to use: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (WEKA_IMAGE)
