@@ -623,6 +623,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.PVC = updatableSpec.PvcConfig
 		}
 
+		if container.Spec.TracesConfiguration != updatableSpec.TracesConfiguration {
+			container.Spec.TracesConfiguration = updatableSpec.TracesConfiguration
+		}
+
 		if container.IsDriveContainer() {
 			if updatableSpec.UpgradeForceReplaceDrives { // above check will reset to common flag, so we dont need to put reversal direction here
 				if container.Spec.GetOverrides().UpgradeForceReplace != updatableSpec.UpgradeForceReplaceDrives {
@@ -2429,6 +2433,7 @@ type UpdatableClusterSpec struct {
 	UpgradeForceReplaceDrives bool
 	NetworkSelector           wekav1alpha1.NetworkSelector
 	PvcConfig                 *wekav1alpha1.PVCConfig
+	TracesConfiguration       *wekav1alpha1.TracesConfiguration
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -2444,5 +2449,6 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
+		TracesConfiguration:       spec.TracesConfiguration,
 	}
 }

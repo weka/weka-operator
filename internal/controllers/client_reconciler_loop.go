@@ -548,6 +548,10 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if container.Spec.TracesConfiguration != newClientSpec.TracesConfiguration {
+		container.Spec.TracesConfiguration = newClientSpec.TracesConfiguration
+	}
+
 	if container.Spec.AutoRemoveTimeout != newClientSpec.AutoRemoveTimeout {
 		container.Spec.AutoRemoveTimeout = newClientSpec.AutoRemoveTimeout
 		changed = true
@@ -873,6 +877,7 @@ type UpdatableClientSpec struct {
 	SkipActiveMountsCheck bool
 	UmountOnHost          bool
 	PvcConfig             *weka.PVCConfig
+	TracesConfiguration   *weka.TracesConfiguration
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -899,6 +904,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		SkipActiveMountsCheck: spec.GetOverrides().SkipActiveMountsCheck,
 		UmountOnHost:          spec.GetOverrides().UmountOnHost,
 		PvcConfig:             resources.GetPvcConfig(spec.GlobalPVC),
+		TracesConfiguration:   spec.TracesConfiguration,
 	}
 }
 

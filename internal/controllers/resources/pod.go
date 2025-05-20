@@ -138,10 +138,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.Spec.TracesConfiguration == nil {
-		f.container.Spec.TracesConfiguration = &wekav1alpha1.TracesConfiguration{
-			MaxCapacityPerIoNode: 10,
-			EnsureFreeSpace:      20,
-		}
+		f.container.Spec.TracesConfiguration = wekav1alpha1.GetDefaultTracesConfiguration()
 	}
 
 	tolerations := f.getTolerations()
@@ -303,6 +300,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "ENSURE_FREE_SPACE_GB",
 							Value: strconv.Itoa(f.container.Spec.TracesConfiguration.EnsureFreeSpace),
+						},
+						{
+							Name:  "DUMPER_CONFIG_MODE",
+							Value: string(f.container.Spec.TracesConfiguration.DumperConfigMode),
 						},
 						{
 							Name:  "IMAGE_NAME",

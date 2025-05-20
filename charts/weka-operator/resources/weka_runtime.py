@@ -49,6 +49,7 @@ NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
 IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
+DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -1044,6 +1045,7 @@ async def configure_traces():
     #   "retention_type": "DEFAULT",
     #   "version": 1
     # }
+    global DUMPER_CONFIG_MODE
     data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
                 retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1,
                 freeze_period=dict(start_time="0001-01-01T00:00:00+00:00", end_time="0001-01-01T00:00:00+00:00",
@@ -1053,15 +1055,27 @@ async def configure_traces():
         data['retention_bytes'] = 128 * 1024 * 1024 * 1024
     data_string = json.dumps(data)
 
-    command = dedent(f"""
-        set -e
-        mkdir -p /opt/weka/k8s-scripts
-        echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
-        weka local run --container {NAME} mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.override
-        """)
-    stdout, stderr, ec = await run_command(command)
-    if ec != 0:
-        raise Exception(f"Failed to configure traces: {stderr}")
+    if DUMPER_CONFIG_MODE in ["auto", ""]:
+        DUMPER_CONFIG_MODE = "override"
+
+    if DUMPER_CONFIG_MODE in ["override", "partial-override"]:
+        command = dedent(f"""
+            set -e
+            mkdir -p /opt/weka/k8s-scripts
+            echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
+            weka local run --container {NAME} mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.{DUMPER_CONFIG_MODE}
+            """)
+    elif DUMPER_CONFIG_MODE == "cluster":
+        command = f"""
+        weka local run --container {NAME} rm -f /data/reserved_space/dumper_config.json.override
+        """
+    else:
+        raise Exception(f"Invalid DUMPER_CONFIG_MODE: {DUMPER_CONFIG_MODE}")
+
+    if command:
+        stdout, stderr, ec = await run_command(command)
+        if ec != 0:
+            raise Exception(f"Failed to configure traces: {stderr}")
     logging.info("Traces configured successfully")
 
 
