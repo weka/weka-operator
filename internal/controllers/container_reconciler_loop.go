@@ -1337,7 +1337,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 	}
 
-	if container.IsBackend() && config.Config.EvictContainerOnDeletion && !(container.IsComputeContainer() && container.Spec.GetOverrides().UpgradePreventEviction) {
+	if container.IsBackend() && config.Config.EvictContainerOnDeletion && !(container.IsComputeContainer() && container.Spec.GetOverrides().UpgradePreventEviction) && !(container.IsS3Container()) {
 		// unless overrides were used, we are not allowing container to stop on-pod-deletion
 		// unless this was a force delete, or a force-upgrade scenario, we are not allowing container to stop on-pod-deletion and unless going deactivate flow
 		logger.Info("Evicting container on pod deletion")
