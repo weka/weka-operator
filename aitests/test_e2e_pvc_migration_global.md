@@ -4,7 +4,7 @@ Use weka-operator-system for everything
 - delete existing wekacluster/wekaclient CRs, if any exist in cluster(all namespaces)
 - delete existing wekapolicies, if any exist in cluster
 - delete any wekacontainers if remain in cluster, of all types, across all namespaces
-- install CSI for NFS, using pre-created secret `weka-csi-test-nfs-pywe1lgz` which uses external weka cluster, in weka-operator-system of the cluster above. use `nfs-csi-internal.weka.io` as driver name, and `weka-nfs-sc-internal` as storage class name
+- install CSI for NFS, using pre-created secret `weka-csi-test-nfs-pywe1lgz` which uses external weka cluster, in weka-operator-system of the cluster above. use `weka-csi.weka.io` as driver name, and `weka-nfs-sc` as storage class name
 - find nodes that run controllers label (pod label for controller is `app:weka-nfs-controller`) where weka-nfs is a release name, and install nfs-common and rpcbind on them
   - use ssh with root@nodeName user to connect to nodes by their name (i.e kubectl get node) names, and we are using all/any nodes in this test
 - provision nfs storage class
@@ -13,7 +13,7 @@ Use weka-operator-system for everything
 filesystemName: default
 volumeType: dir/v1
 ```
-- create 3TiB pvc using this storage class, in weka-operator-system namespace, wait for PVC to be bound, name it `weka-nfs-pvc`
+- create 3TiB pvc using this storage class, in weka-operator-system namespace, wait for PVC to be bound, name it `weka-nfs-pvc`, ReadWriteMany access mode
   - this is weka PVC despite using NFS, make sure to follow instructions for weka PVC, specifically - storage class must contain reference to secrets
 - after cleanup and pvc create, re-deploy operator using version OLD_OPERATOR_VERSION setting global param localDataPvc=weka-nfs-pvc
 - deploy legacy set of drivers distribution

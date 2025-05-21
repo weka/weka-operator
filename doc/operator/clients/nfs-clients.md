@@ -1,5 +1,6 @@
 There is option to use Weka CSI in NFS-only mode, for cases when there is no option to use standard WekaClients
 It is also useful when wekacontainer's local data needs to be placed on PVC, this way CSI in NFS mode  provides CSI that can be used for such purposes
+PVC used for such purposes should have ReadWriteMany
 
 For such purposes CSI should be installed with such values:
 ```yaml
