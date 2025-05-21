@@ -550,6 +550,7 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.TracesConfiguration != newClientSpec.TracesConfiguration {
 		container.Spec.TracesConfiguration = newClientSpec.TracesConfiguration
+		changed = true
 	}
 
 	if container.Spec.AutoRemoveTimeout != newClientSpec.AutoRemoveTimeout {
