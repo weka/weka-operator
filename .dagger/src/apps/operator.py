@@ -23,7 +23,7 @@ async def _calc_operator_version(src: Directory, version: str = "") -> str:
     if not version:
         digest = await src.digest()
         sha = digest.split(":")[-1]
-        version = f"v999.0.0-{sha[:12]}"
+        version = f"v999.0.0-s{sha[:12]}"
     return version
 
 

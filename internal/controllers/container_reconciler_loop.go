@@ -223,6 +223,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.ShouldDeactivate,
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotTrueCondition(condition.CondContainerRemoved, &container.Status.Conditions),
+					lifecycle.IsNotFunc(container.IsS3Container), // no need to recover S3 container on deactivate
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -276,16 +277,17 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
-			{
-				Condition:  condition.CondRemovedFromS3Cluster,
-				CondReason: "Deletion",
-				Run:        loop.RemoveFromS3Cluster,
-				Predicates: lifecycle.Predicates{
-					loop.ShouldDeactivate,
-					container.IsS3Container,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
+			// Disabled: As we aim the flow where we deactivate S3 container only when there is no pod anymore
+			//{
+			//	Condition:  condition.CondRemovedFromS3Cluster,
+			//	CondReason: "Deletion",
+			//	Run:        loop.RemoveFromS3Cluster,
+			//	Predicates: lifecycle.Predicates{
+			//		loop.ShouldDeactivate,
+			//		container.IsS3Container,
+			//	},
+			//	ContinueOnPredicatesFalse: true,
+			//},
 			{
 				Condition:  condition.CondRemovedFromNFS,
 				CondReason: "Deletion",
@@ -1003,7 +1005,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 	}
 
 	if r.container.IsS3Container() {
-		err := r.s3ContainerPreDeactivate(ctx)
+		err := r.stopAndEnsureNoPod(ctx)
 		if err != nil {
 			return err
 		}
