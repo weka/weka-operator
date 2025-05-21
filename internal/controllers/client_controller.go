@@ -18,32 +18,35 @@ package controllers
 
 import (
 	"context"
-	"github.com/weka/weka-operator/internal/services/exec"
-	util2 "github.com/weka/weka-operator/pkg/util"
-	"k8s.io/client-go/rest"
 
-	"go.opentelemetry.io/otel/codes"
-
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
+	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/services/exec"
 )
 
 type ClientController struct {
+	client.Client
 	Manager       ctrl.Manager
-	ThrottlingMap *util2.ThrottlingSyncMap
+	ThrottlingMap throttling.Throttler
 	ExecService   exec.ExecService
 }
 
 func NewClientController(mgr ctrl.Manager, restClient rest.Interface) *ClientController {
 	return &ClientController{
-		ThrottlingMap: util2.NewSyncMapThrottler(),
-		Manager:       mgr,
+		Client:        mgr.GetClient(),
 		ExecService:   exec.NewExecService(restClient, mgr.GetConfig()),
+		Manager:       mgr,
+		ThrottlingMap: throttling.NewSyncMapThrottler(),
 	}
 }
 

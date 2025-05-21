@@ -3,12 +3,13 @@ package services
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/rest"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"k8s.io/client-go/rest"
 
-	"github.com/weka/weka-operator/pkg/workers"
+	"github.com/weka/go-steps-engine/lifecycle"
+
+	"github.com/weka/go-steps-engine/workers"
 
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"

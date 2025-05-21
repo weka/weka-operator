@@ -4,26 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/pkg/workers"
 	"hash/fnv"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/workers"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 const (
@@ -120,14 +121,14 @@ func (o *EnsureDistServiceOperation) GetJsonResult() string {
 
 func (o *EnsureDistServiceOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
-		{Name: "DiscoverImages", Run: o.DiscoverImages},
-		{Name: "EnsureDistService", Run: o.EnsureDistService},
-		{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
-		{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
-		{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
+		&lifecycle.SingleStep{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
+		&lifecycle.SingleStep{Name: "DiscoverImages", Run: o.DiscoverImages},
+		&lifecycle.SingleStep{Name: "EnsureDistService", Run: o.EnsureDistService},
+		&lifecycle.SingleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
+		&lifecycle.SingleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
+		&lifecycle.SingleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
 		//{Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
-		{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
+		&lifecycle.SingleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
 	}
 }
 
@@ -673,7 +674,7 @@ func hashFNV(s string) string {
 }
 
 func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "EnableLocalDriversDistribution",
 		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
 	}

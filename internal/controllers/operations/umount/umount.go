@@ -3,20 +3,22 @@ package umount
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 type UmountOperation struct {
@@ -43,7 +45,7 @@ func NewUmountOperation(mgr ctrl.Manager, targetContainer *weka.WekaContainer) *
 }
 
 func (o *UmountOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "Umount",
 		Run:  operations.AsRunFunc(o),
 	}
@@ -51,12 +53,12 @@ func (o *UmountOperation) AsStep() lifecycle.Step {
 
 func (o *UmountOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetContainer", Run: o.GetContainer},
-		{
+		&lifecycle.SingleStep{Name: "GetContainer", Run: o.GetContainer},
+		&lifecycle.SingleStep{
 			Name: "EnsureContainer",
 			Run:  o.EnsureContainer,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "WaitResults",
 			Run:  o.WaitResults,
 		},

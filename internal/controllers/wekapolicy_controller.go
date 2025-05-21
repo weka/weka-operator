@@ -6,11 +6,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 )
 
 // WekaPolicyReconciler reconciles a WekaPolicy object
@@ -195,10 +196,14 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	steps := loop.Op.GetSteps()
 
-	reconSteps := lifecycle.ReconciliationSteps{
-		StatusObject: wekaPolicy,
-		Client:       r.Client,
-		Steps:        steps,
+	k8sObj := &lifecycle.K8sObject{
+		Object: wekaPolicy,
+		Client: r.Client,
+	}
+
+	reconSteps := lifecycle.StepsEngine{
+		Object: k8sObj,
+		Steps:  steps,
 	}
 
 	result, err := reconSteps.RunAsReconcilerResponse(ctx)

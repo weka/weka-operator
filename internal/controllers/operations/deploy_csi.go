@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type DeployCsiOperation struct {
@@ -48,7 +50,7 @@ func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, 
 }
 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DeployCsi",
 		Run:  AsRunFunc(o),
 	}
@@ -56,33 +58,33 @@ func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 
 func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	deploySteps := []lifecycle.Step{
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployCsiDriver",
 			Run:  o.deployCsiDriver,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployStorageClasses",
 			Run:  o.deployStorageClasses,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "UpdateCsiController",
 			Run:  o.updateCsiController,
 		},
 	}
 	undeploySteps := []lifecycle.Step{
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployCsiDriver",
 			Run:  o.undeployCsiDriver,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployStorageClasses",
 			Run:  o.undeployStorageClasses,
 		},
-		{
+		&lifecycle.SingleStep{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
 		},

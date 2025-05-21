@@ -2,25 +2,26 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 const bootScriptConfigName = "weka-boot-scripts"
@@ -37,7 +38,7 @@ func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *Contai
 		ExecService:   execService,
 		Manager:       mgr,
 		RestClient:    restClient,
-		ThrottlingMap: util.NewSyncMapThrottler(),
+		ThrottlingMap: throttling.NewSyncMapThrottler(),
 	}
 }
 
@@ -49,7 +50,7 @@ type ContainerController struct {
 	ExecService   exec.ExecService
 	Manager       ctrl.Manager
 	RestClient    rest.Interface
-	ThrottlingMap *util.ThrottlingSyncMap // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
+	ThrottlingMap throttling.Throttler
 }
 
 func (c *ContainerController) RunGC(ctx context.Context) {}

@@ -1,3 +1,6 @@
 [submodule "pkg/weka-k8s-api"]
 	path = pkg/weka-k8s-api
 	url = git@github.com:weka/weka-k8s-api.git
+[submodule "pkg/go-steps-engine"]
+	path = pkg/go-steps-engine
+	url = git@github.com:weka/go-steps-engine.git

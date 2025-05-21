@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
+	"github.com/weka/go-steps-engine/workers"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -35,13 +38,11 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type ReadyForClusterizationContainers struct {
@@ -83,8 +84,8 @@ type wekaClusterReconcilerLoop struct {
 	containers      []*wekav1alpha1.WekaContainer
 	SecretsService  services.SecretsService
 	RestClient      rest.Interface
-	GlobalThrottler *util2.ThrottlingSyncMap
-	Throttler       util2.Throttler
+	GlobalThrottler throttling.Throttler
+	Throttler       throttling.Throttler
 	// internal field used to store data in-memory between steps
 	readyContainers *ReadyForClusterizationContainers
 }
@@ -1426,10 +1427,12 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 
 	count := r.GetUpgradedCount(r.containers)
 	key := fmt.Sprintf("upgrade-%s-%d/%d/%d", r.cluster.Spec.Image, count.UpgradedCompute, count.UpgradedDrive, count.UpgradedS3)
-	if !r.Throttler.ShouldRun(key, 10*time.Minute, util2.ThrolltingSettings{EnsureStepSuccess: true}) {
+	if !r.Throttler.ShouldRun(key, &throttling.ThrottlingSettings{
+		DisableRandomPreSetInterval: true,
+		Interval:                    10 * time.Minute,
+	}) {
 		return
 	}
-	r.Throttler.SetNow(key)
 
 	msg := "Upgrading cluster progress: drive:%d:%d compute:%d:%d"
 	msg = fmt.Sprintf(msg, count.UpgradedDrive, count.TotalDrive, count.UpgradedCompute, count.TotalCompute)

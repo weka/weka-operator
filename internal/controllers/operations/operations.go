@@ -3,7 +3,7 @@ package operations
 import (
 	"context"
 
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/go-steps-engine/lifecycle"
 )
 
 type Operation interface {
@@ -15,7 +15,7 @@ type Operation interface {
 func AsRunFunc(op Operation) lifecycle.StepFunc {
 	return func(ctx context.Context) error {
 		steps := op.GetSteps()
-		reconSteps := lifecycle.ReconciliationSteps{
+		reconSteps := lifecycle.StepsEngine{
 			Steps: steps,
 		}
 		return reconSteps.Run(ctx)
@@ -24,8 +24,8 @@ func AsRunFunc(op Operation) lifecycle.StepFunc {
 
 func ExecuteOperation(ctx context.Context, op Operation) error {
 	step := op.AsStep()
-	reconSteps := lifecycle.ReconciliationSteps{
+	stepsEngine := lifecycle.StepsEngine{
 		Steps: []lifecycle.Step{step},
 	}
-	return reconSteps.Run(ctx)
+	return stepsEngine.Run(ctx)
 }

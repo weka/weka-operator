@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +16,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type DiscoverDrivesOperation struct {
@@ -76,7 +77,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 }
 
 func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DiscoverDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -84,13 +85,13 @@ func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *DiscoverDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetContainers", Run: o.GetContainers},
-		{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
-		{Name: "EnsureContainers", Run: o.EnsureContainers},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
+		&lifecycle.SingleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }
 

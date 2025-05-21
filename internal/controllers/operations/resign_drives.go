@@ -4,25 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 	"time"
 
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/factory"
-
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type ResignDrivesResult struct {
@@ -67,7 +67,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 }
 
 func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "ResignDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -75,28 +75,31 @@ func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *ResignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetNamespace", Run: o.GetNamespace},
-		{Name: "GetContainer", Run: o.GetContainer},
-		{Name: "DeleteOnDone", Run: o.DeleteContainer, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
-		{
-			Name:                      "EnsureContainer",
-			Run:                       o.EnsureContainer,
-			Predicates:                lifecycle.Predicates{o.HasNoContainer},
-			ContinueOnPredicatesFalse: true,
+		&lifecycle.SingleStep{Name: "GetNamespace", Run: o.GetNamespace},
+		&lifecycle.SingleStep{Name: "GetContainer", Run: o.GetContainer},
+		&lifecycle.SingleStep{
+			Name:            "DeleteOnDone",
+			Run:             o.DeleteContainer,
+			Predicates:      lifecycle.Predicates{o.IsDone},
+			FinishOnSuccess: true,
 		},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{
+		&lifecycle.SingleStep{
+			Name:       "EnsureContainer",
+			Run:        o.EnsureContainer,
+			Predicates: lifecycle.Predicates{o.HasNoContainer},
+		},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{
 			Name: "FailureUpdate",
 			Run:  o.FailureCallback,
 			Predicates: lifecycle.Predicates{
 				o.OperationFailed,
 			},
-			ContinueOnPredicatesFalse: true,
-			FinishOnSuccess:           true,
+			FinishOnSuccess: true,
 		},
-		{Name: "SuccessCallback", Run: o.SuccessCallback},
-		{Name: "DeleteContainer", Run: o.DeleteContainer},
+		&lifecycle.SingleStep{Name: "SuccessCallback", Run: o.SuccessCallback},
+		&lifecycle.SingleStep{Name: "DeleteContainer", Run: o.DeleteContainer},
 	}
 }
 

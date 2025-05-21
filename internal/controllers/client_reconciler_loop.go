@@ -3,48 +3,46 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"reflect"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
+	"github.com/weka/go-steps-engine/workers"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const defaultPortRangeBase = 45000
 
-func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
-	mgr := r.Manager
-	kClient := mgr.GetClient()
+func NewClientReconcileLoop(r *ClientController, restClient rest.Interface) *clientReconcilerLoop {
 	return &clientReconcilerLoop{
-		Client:        kClient,
-		Scheme:        mgr.GetScheme(),
-		Recorder:      mgr.GetEventRecorderFor("weka-operator"),
-		KubeService:   kubernetes.NewKubeService(kClient),
-		Manager:       mgr,
+		Client:        r.Client,
+		Scheme:        r.Manager.GetScheme(),
+		KubeService:   kubernetes.NewKubeService(r.Client),
+		Manager:       r.Manager,
 		ThrottlingMap: r.ThrottlingMap,
 		ExecService:   r.ExecService,
 	}
@@ -55,10 +53,9 @@ type clientReconcilerLoop struct {
 	Scheme        *runtime.Scheme
 	KubeService   kubernetes.KubeService
 	Manager       ctrl.Manager
-	Recorder      record.EventRecorder
 	containers    []*weka.WekaContainer
 	wekaClient    *weka.WekaClient
-	ThrottlingMap *util2.ThrottlingSyncMap
+	ThrottlingMap throttling.Throttler
 	nodes         []v1.Node
 	// keep in state for future steps referencing
 	upgradeInProgress bool
@@ -67,52 +64,58 @@ type clientReconcilerLoop struct {
 	csiDeployed       bool
 }
 
-func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.ReconciliationSteps {
-	loop := NewClientReconcileLoop(r)
+func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) *lifecycle.StepsEngine {
+	loop := NewClientReconcileLoop(r, nil)
 	loop.wekaClient = wekaClient
 
-	return lifecycle.ReconciliationSteps{
-		Throttler:    r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
-		Client:       loop.Client,
-		StatusObject: loop.wekaClient,
-		Conditions:   &loop.wekaClient.Status.Conditions,
+	k8sObj := &lifecycle.K8sObject{
+		Object:     wekaClient,
+		Client:     loop.Client,
+		Conditions: &wekaClient.Status.Conditions,
+	}
+
+	return &lifecycle.StepsEngine{
+		Object:    k8sObj,
+		Throttler: r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
 		Steps: []lifecycle.Step{
-			{Run: loop.getCurrentContainers},
-			{Run: loop.setApplicableNodes},
-			{
-				Run:       loop.updateMetrics,
-				Throttled: time.Minute,
+			&lifecycle.SingleStep{
+				Run: loop.getCurrentContainers,
 			},
-			{
+			&lifecycle.SingleStep{
+				Run: loop.setApplicableNodes,
+			},
+			&lifecycle.SingleStep{
+				Run: loop.updateMetrics,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: time.Minute,
+				},
+			},
+			&lifecycle.SingleStep{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
 					wekaClient.IsMarkedForDeletion,
 				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				FinishOnSuccess: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.ensureFinalizer,
 				Predicates: lifecycle.Predicates{
 					func() bool { return wekaClient.GetFinalizers() == nil },
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.deleteContainersOnNodeSelectorMismatch,
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CleanupClientsOnNodeSelectorMismatch),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.deleteContainersOnTolerationsMismatch,
 				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.FetchTargetCluster,
 				Predicates: lifecycle.Predicates{
 					func() bool {
@@ -120,21 +123,9 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != "" && loop.targetCluster == nil
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.EnsureClientsWekaContainers},
-			{
-				Run: loop.FetchTargetCluster,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						emptyRef := weka.ObjectReference{}
-						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
-					},
-					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+			&lifecycle.SingleStep{Run: loop.EnsureClientsWekaContainers},
+			&lifecycle.SingleStep{
 				Condition:             condition.CondCsiDeployed,
 				SkipOwnConditionCheck: true,
 				Run:                   loop.DeployCsiPlugin,
@@ -142,26 +133,22 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.CheckCsiConfigChanged,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.HandleSpecUpdates},
-			{Run: loop.HandleUpgrade},
-			{
+			&lifecycle.SingleStep{Run: loop.HandleSpecUpdates},
+			&lifecycle.SingleStep{Run: loop.HandleUpgrade},
+			&lifecycle.SingleStep{
 				Run: loop.setStatusRunning,
 				Predicates: lifecycle.Predicates{
-					// upgrade step migth not fail (with ExpectedError) so check if upgrade is in progress
 					func() bool {
 						return !loop.upgradeInProgress && wekaClient.Status.Status != weka.WekaClientStatusRunning
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
 		},
 	}
@@ -190,19 +177,6 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	}
 
 	logger.Info("Deleting wekaClient")
-	return nil
-}
-
-func (c *clientReconcilerLoop) RecordEvent(eventtype *string, reason string, message string) error {
-	if c.wekaClient == nil {
-		return fmt.Errorf("current client is nil")
-	}
-	if eventtype == nil {
-		normal := v1.EventTypeNormal
-		eventtype = &normal
-	}
-
-	c.Recorder.Event(c.wekaClient, *eventtype, reason, message)
 	return nil
 }
 
@@ -709,23 +683,22 @@ func (c *clientReconcilerLoop) GetUpgradedCount() int {
 func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "emitClientUpgradeCustomEvent")
 	defer end()
-
 	logger.Info("Emitting client custom event")
-
 	activeContainer := discovery.SelectActiveContainer(c.getClusterContainers(ctx))
 	if activeContainer == nil {
 		logger.Debug("Active cluster container not found, skipping Weka client event emit")
 		return
 	}
-
 	count := c.GetUpgradedCount()
 	key := fmt.Sprintf("upgrade-%s-%d", c.wekaClient.Spec.Image, count)
-	if !c.ThrottlingMap.ShouldRun(key, 10*time.Minute, util2.ThrolltingSettings{EnsureStepSuccess: true}) {
+	if !c.ThrottlingMap.ShouldRun(key, &throttling.ThrottlingSettings{
+		DisableRandomPreSetInterval: true,
+		Interval:                    10 * time.Minute,
+	}) {
 		return
 	}
-	c.ThrottlingMap.SetNow(key)
-	logger.SetValues("image", c.wekaClient.Spec.Image, "client", count)
 
+	logger.SetValues("image", c.wekaClient.Spec.Image, "client", count)
 	msg := fmt.Sprintf("Upgrading clients progress: %d:%d", count, len(c.containers))
 	wekaService := services.NewWekaService(c.ExecService, activeContainer)
 	err := wekaService.EmitCustomEvent(ctx, msg)
@@ -816,6 +789,10 @@ func (c *clientReconcilerLoop) getClientCores() int {
 		numCores = 1
 	}
 	return numCores
+}
+
+func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka.WekaContainer {
+	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
 }
 
 func (c *clientReconcilerLoop) getClientHugePages() int {
@@ -959,10 +936,6 @@ func (c *clientReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
 	}
 	c.targetCluster = wekaCluster
 	return nil
-}
-
-func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka.WekaContainer {
-	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
 }
 
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {

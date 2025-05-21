@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -194,7 +195,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	steps := []lifecycle.Step{
-		{
+		&lifecycle.SingleStep{
 			Name: "DeleteSelf",
 			Run: func(ctx context.Context) error {
 				err := r.Delete(ctx, wekaManualOperation)
@@ -208,17 +209,20 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 					return wekaManualOperation.DeletionTimestamp != nil || (wekaManualOperation.Status.Status == "Done" && time.Since(wekaManualOperation.Status.CompletedAt.Time) > 5*time.Minute)
 				},
 			},
-			FinishOnSuccess:           true,
-			ContinueOnPredicatesFalse: true,
+			FinishOnSuccess: true,
 		},
 	}
 
 	steps = append(steps, loop.Op.AsStep())
 
-	reconSteps := lifecycle.ReconciliationSteps{
-		StatusObject: wekaManualOperation,
-		Client:       r.Client,
-		Steps:        steps,
+	k8sObj := &lifecycle.K8sObject{
+		Object: wekaManualOperation,
+		Client: r.Client,
+	}
+
+	reconSteps := lifecycle.StepsEngine{
+		Object: k8sObj,
+		Steps:  steps,
 	}
 
 	return reconSteps.RunAsReconcilerResponse(ctx)
