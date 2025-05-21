@@ -277,17 +277,16 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
-			// Disabled: As we aim the flow where we deactivate S3 container only when there is no pod anymore
-			//{
-			//	Condition:  condition.CondRemovedFromS3Cluster,
-			//	CondReason: "Deletion",
-			//	Run:        loop.RemoveFromS3Cluster,
-			//	Predicates: lifecycle.Predicates{
-			//		loop.ShouldDeactivate,
-			//		container.IsS3Container,
-			//	},
-			//	ContinueOnPredicatesFalse: true,
-			//},
+			{
+				Condition:  condition.CondRemovedFromS3Cluster,
+				CondReason: "Deletion",
+				Run:        loop.RemoveFromS3Cluster,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldDeactivate,
+					container.IsS3Container,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{
 				Condition:  condition.CondRemovedFromNFS,
 				CondReason: "Deletion",
@@ -893,29 +892,21 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	err := r.stopAndEnsureNoPod(ctx)
+	if err != nil {
+		return err
+	}
 
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
-		return errors.New("Container ID is not set")
+		return nil
 	}
 
-	executeInContainer := r.container
-
-	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
-		containers, err := r.getClusterContainers(ctx)
-		if err != nil {
-			return err
-		}
-		executeInContainer = discovery.SelectActiveContainer(containers)
-	}
-
-	if executeInContainer == nil {
-		return errors.New("No active container found")
-	}
-
-	logger.Info("Removing container from S3 cluster", "container_id", *containerId)
+	containers, err := r.getClusterContainers(ctx)
+	executeInContainer := discovery.SelectActiveContainer(containers)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
 	return wekaService.RemoveFromS3Cluster(ctx, *containerId)
