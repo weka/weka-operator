@@ -772,7 +772,7 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 		return false
 	}
 
-	if !strings.HasPrefix(r.node.Spec.ProviderID, "aws://") {
+	if !strings.HasPrefix(r.node.Spec.ProviderID, "aws://") && !strings.HasPrefix(r.node.Spec.ProviderID, "ocid1.") {
 		return false
 
 	}

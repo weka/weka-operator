@@ -45,7 +45,16 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 		return
 	}
 
-	if strings.HasPrefix(node.Spec.ProviderID, "aws://") && !container.Spec.Network.UdpMode {
+	nicPrefix := ""
+	if strings.HasPrefix(node.Spec.ProviderID, "aws://") {
+		nicPrefix = "aws_"
+	}
+
+	if strings.HasPrefix(node.Spec.ProviderID, "ocid1.") {
+		nicPrefix = "oci_"
+	}
+
+	if nicPrefix != "" && !container.Spec.Network.UdpMode {
 		var allocations domain.Allocations
 		var allNICs []domain.NIC
 
@@ -101,7 +110,7 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 					}
 					netDevices = append(
 						netDevices,
-						fmt.Sprintf("aws_%s/%s/%s/%s", nic.MacAddress, nic.PrimaryIP, mask, gw),
+						fmt.Sprintf("%s%s/%s/%s/%s", nicPrefix, nic.MacAddress, nic.PrimaryIP, mask, gw),
 					)
 				}
 			}

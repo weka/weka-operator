@@ -962,6 +962,12 @@ async def resolve_dhcp_net(device):
     return f"'{mac_address}/{ip_address}/{cidr}'"
 
 
+def is_managed_k8s(network_device=None):
+    if network_device is None:
+        network_device = NETWORK_DEVICE
+
+    return "aws_" in network_device or "oci_" in network_device
+
 async def create_container():
     full_cores = find_full_cores(NUM_CORES)
     mode_part = ""
@@ -998,8 +1004,8 @@ async def create_container():
 
         NETWORK_DEVICE = ",".join(devices)
 
-    if "aws_" in NETWORK_DEVICE:
-        devices = [dev.replace("aws_", "") for dev in NETWORK_DEVICE.split(",")]
+    if is_managed_k8s():
+        devices = [dev.replace("aws_", "").replace("oci_",  "") for dev in NETWORK_DEVICE.split(",")]
         net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
@@ -1079,7 +1085,7 @@ async def configure_traces():
     logging.info("Traces configured successfully")
 
 
-async def ensure_aws_nics(num: int):
+async def ensure_nics(num: int):
     command = dedent(f"""
         set -e
         mkdir -p /opt/weka/k8s-scripts
@@ -1220,7 +1226,7 @@ async def ensure_weka_container():
 
     # cli-based changes
     cli_changes = False
-    if 'aws_' not in NETWORK_DEVICE and not is_udp():
+    if not is_managed_k8s() and not is_udp():
         target_devices = set(NETWORK_DEVICE.split(","))
         if SUBNETS:
             target_devices = set(await get_devices_by_subnets(SUBNETS))
@@ -1903,7 +1909,7 @@ async def wait_for_resources():
 
     logging.info("found resources.json: %s", data)
     net_devices = ",".join(data.get("netDevices",[]))
-    if net_devices and "aws_" in net_devices:
+    if net_devices and is_managed_k8s(net_devices):
         NETWORK_DEVICE = net_devices
 
     if data.get("machineIdentifier"):
@@ -1974,7 +1980,7 @@ async def write_management_ips():
 
     ipAddresses = []
 
-    if os.environ.get("MANAGEMENT_IP") and "aws_" in NETWORK_DEVICE:
+    if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
     elif not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)
@@ -2210,8 +2216,8 @@ async def main():
         logging.info(f"adhoc-op-with-container instruction: {instruction}")
         payload =  json.loads(instruction['payload'])
         if instruction.get('type') == 'ensure-nics':
-            if payload.get('type') == "aws":
-                await ensure_aws_nics(payload['dataNICsNumber'])
+            if payload.get('type') in ["aws", "oci"]:
+                await ensure_nics(payload['dataNICsNumber'])
                 return
             else:
                 raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
