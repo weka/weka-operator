@@ -880,11 +880,11 @@ async def write_logrotate_config():
                 compress
                 delaycompress
                 postrotate
-                   if [ -f /var/run/syslog-ng.pid ]; then
-                      pkill -HUP $(cat /var/run/syslog-ng.pid)
-                   else
-                      echo "syslog-ng.pid not found, skipping reload" >&2
-                   fi
+                  if [ -f /var/run/syslog-ng.pid ]; then
+                    kill -HUP $(cat /var/run/syslog-ng.pid)
+                  else
+                    echo "syslog-ng.pid not found, skipping reload" >&2
+                  fi
                 endscript
             }
 """))
@@ -2174,7 +2174,7 @@ async def main():
 
     if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
-        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf", "syslog")
+        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid", "syslog")
         await syslog.start()
 
     await override_dependencies_flag()
