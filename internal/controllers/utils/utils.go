@@ -1,16 +1,29 @@
-package controllers
+package utils
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/domain"
-	v1 "k8s.io/api/core/v1"
 	"net"
 	"strings"
+
+	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+
+	"github.com/weka/weka-operator/internal/pkg/domain"
 )
+
+// GetSoftwareVersion extracts the software version of weka
+func GetSoftwareVersion(image string) string {
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 {
+		return ""
+	}
+	tag := image[idx+1:]
+	parts := strings.Split(tag, "-")
+	return parts[0]
+}
 
 func getAWSGatewayIP(cidr string) (string, error) {
 	_, ipNet, err := net.ParseCIDR(cidr)
@@ -27,8 +40,8 @@ func getAWSGatewayIP(cidr string) (string, error) {
 	return ip.String(), nil
 }
 
-func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "getNetDevices")
+func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "GetNetDevices")
 	defer end()
 
 	// if subnet for devices auto-discovery is set, we don't need to set the netDevice

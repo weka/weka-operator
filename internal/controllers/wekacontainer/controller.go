@@ -1,4 +1,4 @@
-package controllers
+package wekacontainer
 
 import (
 	"context"
@@ -24,8 +24,6 @@ import (
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
-const bootScriptConfigName = "weka-boot-scripts"
-
 func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *ContainerController {
 	config := mgr.GetConfig()
 	kClient := mgr.GetClient()
@@ -50,7 +48,7 @@ type ContainerController struct {
 	ExecService   exec.ExecService
 	Manager       ctrl.Manager
 	RestClient    rest.Interface
-	ThrottlingMap throttling.Throttler
+	ThrottlingMap throttling.Throttler // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
 }
 
 func (c *ContainerController) RunGC(ctx context.Context) {}

@@ -1,4 +1,4 @@
-package controllers
+package metrics
 
 import (
 	"context"

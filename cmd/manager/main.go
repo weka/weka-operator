@@ -23,14 +23,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/weka/weka-operator/internal/node_agent"
+	//+kubebuilder:scaffold:imports
 
+	"github.com/go-logr/logr"
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,7 +47,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	//+kubebuilder:scaffold:imports
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers"
+	"github.com/weka/weka-operator/internal/controllers/wekaclient"
+	"github.com/weka/weka-operator/internal/controllers/wekacluster"
+	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
+	"github.com/weka/weka-operator/internal/node_agent"
 )
 
 var scheme = runtime.NewScheme()
@@ -199,9 +203,9 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 	}
 
 	ctrls := []WekaReconciler{
-		controllers.NewClientController(mgr, restClient),
-		controllers.NewContainerController(mgr, restClient),
-		controllers.NewWekaClusterController(mgr, restClient),
+		wekaclient.NewClientController(mgr, restClient),
+		wekacontainer.NewContainerController(mgr, restClient),
+		wekacluster.NewWekaClusterController(mgr, restClient),
 		controllers.NewWekaPolicyController(mgr),
 		controllers.NewWekaManualOperationController(mgr, restClient),
 	}

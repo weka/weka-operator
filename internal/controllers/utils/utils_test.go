@@ -1,4 +1,4 @@
-package controllers
+package utils
 
 import "testing"
 
@@ -39,7 +39,7 @@ func TestGetNumericVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.image, func(t *testing.T) {
-			got := getSoftwareVersion(tt.image)
+			got := GetSoftwareVersion(tt.image)
 			if got != tt.want {
 				t.Errorf("getNumericVersion(%q) = %q, want %q", tt.image, got, tt.want)
 			}

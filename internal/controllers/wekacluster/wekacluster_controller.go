@@ -1,4 +1,4 @@
-package controllers
+package wekacluster
 
 import (
 	"context"
@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	WekaFinalizer     = "weka.weka.io/finalizer"
 	ClusterStatusInit = "Init"
 )
 

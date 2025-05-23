@@ -1,4 +1,4 @@
-package controllers
+package wekaclient
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/controllers/upgrade"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -145,6 +146,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) *lif
 			&lifecycle.SingleStep{
 				Run: loop.setStatusRunning,
 				Predicates: lifecycle.Predicates{
+					// upgrade step migth not fail (with ExpectedError) so check if upgrade is in progress
 					func() bool {
 						return !loop.upgradeInProgress && wekaClient.Status.Status != weka.WekaClientStatusRunning
 					},
@@ -158,7 +160,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	if !controllerutil.ContainsFinalizer(c.wekaClient, WekaFinalizer) {
+	if !controllerutil.ContainsFinalizer(c.wekaClient, resources.WekaFinalizer) {
 		return nil
 	}
 
@@ -170,7 +172,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 
-	controllerutil.RemoveFinalizer(c.wekaClient, WekaFinalizer)
+	controllerutil.RemoveFinalizer(c.wekaClient, resources.WekaFinalizer)
 	if err := c.Update(ctx, c.wekaClient); err != nil {
 		logger.Error(err, "Error removing finalizer")
 		return errors.Wrap(err, "failed to update wekaClient")
@@ -185,7 +187,7 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	defer end()
 
 	logger.Info("Adding Finalizer for weka client")
-	if ok := controllerutil.AddFinalizer(c.wekaClient, WekaFinalizer); !ok {
+	if ok := controllerutil.AddFinalizer(c.wekaClient, resources.WekaFinalizer); !ok {
 		return nil
 	}
 
@@ -708,7 +710,7 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 }
 
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
-	uController := NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
+	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
 	if uController.AreUpgraded() {
 		return nil
 	}

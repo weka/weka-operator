@@ -1,4 +1,4 @@
-package controllers
+package test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,7 +19,7 @@ type ContainerTestCase struct {
 }
 
 //	func TestWekaContainerController(t *testing.T) {
-//		testEnv, err := setupTestEnv(context.Background())
+//		testEnv, err := SetupTestEnv(context.Background())
 //		if err != nil {
 //			t.Fatalf("failed to setup test environment: %v", err)
 //		}
@@ -113,7 +114,7 @@ func TestNewContainerController(t *testing.T) {
 		return
 	}
 
-	subject := NewContainerController(testEnv.Manager, testEnv.RestClient)
+	subject := wekacontainer.NewContainerController(testEnv.Manager, testEnv.RestClient)
 	if subject == nil {
 		t.Errorf("NewContainerController() returned nil")
 		return

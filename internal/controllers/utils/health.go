@@ -1,7 +1,8 @@
-package controllers
+package utils
 
 import (
 	"context"
+
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
