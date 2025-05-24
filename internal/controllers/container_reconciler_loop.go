@@ -184,19 +184,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			},
 			{Run: loop.GetNode},
 			{Run: loop.refreshPod},
-			{
-				Run: loop.setJoinIpsIfStuckInStemMode,
-				Predicates: lifecycle.Predicates{
-					container.ShouldJoinCluster,
-					func() bool {
-						return container.Status.ClusterContainerID == nil && len(container.Spec.JoinIps) == 0
-					},
-					func() bool {
-						return container.Status.InternalStatus == "STEM"
-					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			// if cluster marked container state as deleting, update status and put deletion timestamp
 			{
 				Run: loop.handleStateDeleting,
@@ -700,6 +687,19 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.applyCurrentImage,
 				Predicates: lifecycle.Predicates{
 					loop.IsNotAlignedImage,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.setJoinIpsIfStuckInStemMode,
+				Predicates: lifecycle.Predicates{
+					container.ShouldJoinCluster,
+					func() bool {
+						return container.Status.ClusterContainerID == nil && len(container.Spec.JoinIps) == 0
+					},
+					func() bool {
+						return container.Status.InternalStatus == "STEM"
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
