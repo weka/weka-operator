@@ -1,7 +1,7 @@
 - upgrade operator, make sure to upgrade CRDs first
 - ensure policy for drivers distribution, it might already exist
 - ensure policy for drive signing of all not mounted, create policy if does not exist
-- weka cluster, 6 compute containers, 6 drive containers, 3 s3containers, 1 drive per drives container, 1 core for compute, and 1 core for driver containers. 0 hotspares. Do not configure hugepages fields, leave CR-level defaults
+- create new weka cluster, 6 compute containers, 6 drive containers, 3 s3containers, 1 drive per drives container, 1 core for compute, and 1 core for driver containers. 0 hotspares. Do not configure hugepages fields, leave CR-level defaults
 
 - wait for weka cluster to be ready by status.status=Ready
 - wait for weka s3 cluster status to show that all three are up
