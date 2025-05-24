@@ -315,9 +315,15 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
         - Do not wrap pull requests as markdown links, just put links as-is, as a space separated list. Make sure to include all PRs in appropriate place
         - Make sure to include all input items in the output, do not drop any of them, they are separated by <item> tags in the input
         - IF for whatever reason something was dropped - list this items explicitly, in the end of the output, explaining why
-        - [Group name] is a category name, it can be "Breaking changes", "Features", "Fixes" in this order
+        - [Group name] is a category name, it can be "Breaking changes", "Features", "Improvements", "Fixed Issues" in this order
             - If there is no content for the group do not include it  
+            - Improvements should be extracted from "Fixes" category, if it's not a bugfix but some new minor functionality marked as fix
         <instructions>
+        <trademarks_instructions>
+        - For any occurrence of stand-alone Weka word - replace it with WEKA, uppercase
+            - if something like "wekafsio" appears, or "wekafs" - keep as is, replace only stand-alone WEKA word
+        - Any occurrence of "AWS EKS" should be replaced with "Amazon EKS"
+        </trademarks_instructions>
         """
 
     instructions += """Output in following format:
