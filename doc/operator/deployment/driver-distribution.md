@@ -122,7 +122,8 @@ spec:
         apt-get update && apt-get install -y gcc-12
 ```
 
-After deploy of policy `status.typesStatus.distService.serviceUrl` will contain the URL of the driver distribution service, which can be used to configure the driver distribution service in the WekaCluster and WekaClient CRs.
+After deploy of policy `status.typesStatus.distService.serviceUrl` will contain the URL of the driver distribution service
+This URL should be used in the WekaCluster and WekaClient CRs being deploy, as `spec.driversDistService`
 
 drivers-builder wekacontainer's pods will be alive only during building, after building completed wekacontainer remains with no active pod
 If wekapolicy is deleted - all created resources will be deleted as well

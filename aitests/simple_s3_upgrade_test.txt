@@ -1,0 +1,18 @@
+- upgrade operator, make sure to upgrade CRDs first
+- ensure policy for drivers distribution, it might already exist
+- ensure policy for drive signing of all not mounted, create policy if does not exist
+- weka cluster, 6 compute containers, 6 drive containers, 3 s3containers, 1 drive per drives container, 1 core for compute, and 1 core for driver containers. 0 hotspares. Do not configure hugepages fields, leave CR-level defaults
+
+- wait for weka cluster to be ready by status.status=Ready
+- wait for weka s3 cluster status to show that all three are up
+- change weka cluster image to the new version
+- wait for all containers to rotate, this will be rolling upgrade, taking for each container 1-10 minutes. If there is no progress in container states for 10 minutes - abort the test
+
+Params:
+    start/target versions represents image field on spec of WekaCluster
+  - START_VERSION quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3 (might be referenced as start version, source version, initial version or so on)
+  - TARGET_VERSION: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (might be referenced as target version, destination version, final version or so on)
+  - OPERATOR_VERSION: v1.6.1-dev.3
+
+
+- delete cluster after a test

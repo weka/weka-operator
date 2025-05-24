@@ -1,0 +1,20 @@
+
+Test goal:
+    - validate that wekacluster, wekaclient, CSI, storageclass, pvc and workload can be provisioned and reach Ready stage
+Test scenario
+    - cleanup any existing WekaCluster, WekaClient
+    - upgrade operator to OPERATOR_VERSION
+    - ensure policy for drivers distribution, it might already exist
+    - ensure policy for drive signing of all not mounted, create policy if does not exist
+    - provision a wekacluster CR, 7 compute and 7 drive containers, 4 stripe width, 2 redundancy level, 1 hot spare, 5 leadership raft and 5 buckets raft, 14 minDrive startio condition
+    - provision a wekaclient CR, 1 core
+    - apply both objects and wait for wekacluster to become ready, then wait for all clients container to join, then ensure on the weka side that weka status shows expected numbers of clients connected
+    - set up CSI, storageclass, pvc and workload
+    - ensure workload is running
+    - ensure that PVC mount is visible on node and that it is of "wekafs" filesystem type
+    - Cleanup all created by test resources
+
+
+ Params:
+  - Weka image to use: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (WEKA_IMAGE)
+  - Operator version to use: v1.6.0 (OPERATOR_VERSION)
