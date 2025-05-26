@@ -752,7 +752,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.DeployCsiNodeServerPod,
+				Condition:             condition.CondCsiDeployed,
+				SkipOwnConditionCheck: true,
+				Run:                   loop.DeployCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
@@ -763,7 +765,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run: loop.CleanupCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
-					lifecycle.BoolValue(loop.container.Spec.CsiNodeRef != ""),
+					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
 					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
@@ -2066,7 +2068,7 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// delete csi node pod
 	csiNodePodNamespace, _ := util.GetPodNamespace()
 	csiNodePod := &v1.Pod{}
-	csiNodePod.Name = container.Spec.CsiNodeRef
+	csiNodePod.Name = fmt.Sprintf("%s-csi-node", r.container.Name)
 	csiNodePod.Namespace = csiNodePodNamespace
 	_ = r.Delete(ctx, csiNodePod)
 
@@ -4509,23 +4511,19 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 		return err
 	}
 
-	csiNodeRef := r.container.Spec.CsiNodeRef
-	if csiNodeRef == "" {
-		csiNodeRef = fmt.Sprintf("%s-csi-node", r.container.Name)
-		r.container.Spec.CsiNodeRef = csiNodeRef
-	}
-
 	csiDriverName := r.container.Spec.CsiDriverName
 	if csiDriverName == "" {
 		return errors.New("failed to get csi driver name from WekaContainer spec")
 	}
 
+	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
+
 	pod := &v1.Pod{}
-	err = r.Get(ctx, client.ObjectKey{Name: csiNodeRef, Namespace: namespace}, pod)
+	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating CSI node pod")
-			podSpec := csi.NewCsiNodePod(csiNodeRef, namespace, csiDriverName, string(nodeName), r.container.Spec.Tolerations)
+			podSpec := csi.NewCsiNodePod(csiNodeName, namespace, csiDriverName, string(nodeName), r.container.Spec.Tolerations)
 			if err = r.Create(ctx, podSpec); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
 					return errors.Wrap(err, "failed to create CSI node pod")
@@ -4545,15 +4543,14 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 	if err != nil {
 		return err
 	}
-
+	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
 	if err = r.Delete(ctx, &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      r.container.Spec.CsiNodeRef,
+			Name:      csiNodeName,
 			Namespace: namespace,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI node pod %s: %w", r.container.Spec.CsiNodeRef, err)
+		return fmt.Errorf("failed to delete CSI node pod %s: %w", csiNodeName, err)
 	}
-	r.container.Spec.CsiNodeRef = ""
-	return r.Update(ctx, r.container)
+	return nil
 }

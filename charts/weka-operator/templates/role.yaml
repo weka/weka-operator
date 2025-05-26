@@ -104,10 +104,10 @@ rules:
   - storageclasses
   verbs:
   - create
+  - delete
   - get
   - list
   - watch
-  - delete
 - apiGroups:
   - weka.weka.io
   resources:

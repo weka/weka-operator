@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"reflect"
@@ -134,18 +135,19 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.CheckCsiConfigChanged,
+				Condition:             condition.CondCsiDeployed,
+				SkipOwnConditionCheck: true,
+				Run:                   loop.DeployCsiPlugin,
 				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(loop.wekaClient.Status.CsiDeployed),
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.DeployCsiPlugin,
+				Run: loop.CheckCsiConfigChanged,
 				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
-					lifecycle.BoolValue(!loop.wekaClient.Status.CsiDeployed),
-					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
+					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -239,8 +241,8 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return errors.Wrap(err, "failed to mark containers destroying")
 	}
 
-	if c.wekaClient.Status.CsiDeployed {
-		err = c.UndeployCsiPlugin(ctx)
+	if config.Config.CsiInstallationEnabled {
+		err = c.UndeployCsiPlugin(ctx, c.getCsiDriverName())
 		if err != nil {
 			return errors.Wrap(err, "failed to undeploy CSI plugin")
 		}
@@ -963,83 +965,29 @@ func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka
 	return discovery.GetClusterContainers(ctx, c.Manager.GetClient(), c.targetCluster, "")
 }
 
-type UpdatableCsiSpec struct {
-	NodeSelector               *util2.HashableMap
-	Tolerations                []v1.Toleration
-	CsiGroup                   string
-	TargetClusterName          string
-	TargetClusterCsiDriverName string
-	CsiProvisionerImage        string
-	CsiAttacherImage           string
-	CsiResizerImage            string
-	CsiSnapshotterImage        string
-	CsiLivenessProbeImage      string
-	CsiImage                   string
-	CsiDriverVersion           string
-}
-
-func NewUpdatableCsiSpec(wekaClient *weka.WekaClient) *UpdatableCsiSpec {
-	return &UpdatableCsiSpec{
-		NodeSelector:               util2.NewHashableMap(wekaClient.Spec.NodeSelector),
-		CsiGroup:                   wekaClient.Spec.CsiGroup,
-		TargetClusterName:          wekaClient.Spec.TargetCluster.Name,
-		TargetClusterCsiDriverName: "",
-		CsiProvisionerImage:        config.Config.CsiProvisionerImage,
-		CsiAttacherImage:           config.Config.CsiAttacherImage,
-		CsiResizerImage:            config.Config.CsiResizerImage,
-		CsiSnapshotterImage:        config.Config.CsiSnapshotterImage,
-		CsiLivenessProbeImage:      config.Config.CsiLivenessProbeImage,
-		CsiImage:                   config.Config.CsiImage,
-		CsiDriverVersion:           config.Config.CsiDriverVersion,
-	}
-}
-
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
+	csiDriverName := c.getCsiDriverName()
+
 	if !config.Config.CsiInstallationEnabled {
 		// if we are here, installation was switched off
-		return c.UndeployCsiPlugin(ctx)
+		return c.UndeployCsiPlugin(ctx, csiDriverName)
+	}
+
+	if len(c.containers) > 0 && csiDriverName != c.containers[0].Spec.CsiDriverName {
+		logger.Info("CSI driver name changed, undeploying CSI plugin")
+
+		// cleanup with old name
+		return c.UndeployCsiPlugin(ctx, csiDriverName)
 	}
 
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
-
-	updatableSpec := NewUpdatableCsiSpec(c.wekaClient)
-	updatableSpec.Tolerations = tolerations
-	if c.targetCluster != nil {
-		if c.targetCluster.Spec.CsiConfig.CsiDriverName != "" {
-			updatableSpec.TargetClusterCsiDriverName = c.targetCluster.Spec.CsiConfig.CsiDriverName
-		}
-	}
-
-	specHash, err := util2.DeterministicHashStruct(updatableSpec)
-	logger.Info("CSI spec hash", "specHash", specHash)
+	err := csi.UpdateCsiController(ctx, c.Client, csiDriverName, c.wekaClient.Spec.NodeSelector, tolerations)
 	if err != nil {
+		logger.Error(err, "failed to update CSI controller")
 		return err
-	}
-
-	if c.wekaClient.Status.LastAppliedCsiSpec == "" {
-		logger.Info("setting last applied CSI spec")
-		c.wekaClient.Status.LastAppliedCsiSpec = specHash
-		return c.Status().Update(ctx, c.wekaClient)
-	}
-
-	csiDriverName := c.getCsiDriverName()
-	if len(c.containers) > 0 && csiDriverName != c.containers[0].Spec.CsiDriverName {
-		logger.Info("CSI driver name changed, undeploying CSI plugin")
-		// csi components will be redeployed with the correct names
-		return c.UndeployCsiPlugin(ctx)
-	}
-
-	if specHash != c.wekaClient.Status.LastAppliedCsiSpec {
-		err = csi.UpdateCsiController(ctx, c.Client, c.wekaClient.Spec.CsiControllerRef, c.wekaClient.Spec.NodeSelector, tolerations)
-		if err != nil {
-			logger.Error(err, "failed to update CSI controller")
-			return err
-		}
-		c.wekaClient.Status.LastAppliedCsiSpec = specHash
-		return c.Status().Update(ctx, c.wekaClient)
 	}
 	return nil
 }
@@ -1069,20 +1017,12 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		return err
 	}
 
-	c.wekaClient.Status.CsiDeployed = true
 	return c.Status().Update(ctx, c.wekaClient)
 }
 
-func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
+func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
-
-	var csiDriverName string
-	if len(c.containers) == 0 || c.containers[0].Spec.CsiDriverName == "" {
-		csiDriverName = c.getCsiDriverName()
-	} else {
-		csiDriverName = c.containers[0].Spec.CsiDriverName
-	}
 
 	logger.Info("Undeploying CSI plugin")
 	op := operations.NewDeployCsiOperation(
@@ -1097,9 +1037,7 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 		return err
 	}
 
-	c.wekaClient.Status.CsiDeployed = false
-	c.wekaClient.Status.LastAppliedCsiSpec = ""
-	return c.Status().Update(ctx, c.wekaClient)
+	return nil
 }
 
 func (c *clientReconcilerLoop) updateContainersCsiDriverName(ctx context.Context, csiDriverName string) error {

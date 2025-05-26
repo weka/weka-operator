@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
@@ -181,22 +180,18 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 		return err
 	}
 
-	o.wekaClient.Spec.CsiControllerRef = controllerDeploymentName
 	return o.client.Update(ctx, o.wekaClient)
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
-	contollerRef := o.wekaClient.Spec.CsiControllerRef
-	if contollerRef == "" {
-		return errors.New("CSI controller ref is empty")
-	}
+	controllerDeploymentName := o.csiBaseName + "-csi-controller"
 	if err := o.client.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      contollerRef,
+			Name:      controllerDeploymentName,
 			Namespace: o.namespace,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI controller deployment %s: %w", contollerRef, err)
+		return fmt.Errorf("failed to delete CSI controller deployment %s: %w", controllerDeploymentName, err)
 	}
 	return nil
 }

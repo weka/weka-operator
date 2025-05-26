@@ -437,14 +437,16 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 	}
 }
 
-func UpdateCsiController(ctx context.Context, c client.Client, csiControllerName string, nodeSelector map[string]string, tolerations []corev1.Toleration) error {
+func UpdateCsiController(ctx context.Context, c client.Client, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	controllerDeploymentName := GetBaseNameFromDriverName(csiDriverName) + "-csi-controller"
 
 	deployment := &appsv1.Deployment{}
 	namespace, _ := util2.GetPodNamespace()
 	err := c.Get(ctx, client.ObjectKey{
-		Name:      csiControllerName,
+		Name:      controllerDeploymentName,
 		Namespace: namespace,
 	}, deployment)
 	if err != nil {
