@@ -27,7 +27,7 @@ logging:
   level: 0
   timeOnly: true
 # -- can be overridden with any other basic linux image
-maintenanceImage: busybox
+maintenanceImage: quay.io/weka.io/busybox
 # -- if required, you can specify a pull secret for that image
 # maintenanceImagePullSecret: ""
 # -- used by various operations that are not in context of wekacluster/wekacontainer, for example: GC of persistent storage/removal of tobmstones
