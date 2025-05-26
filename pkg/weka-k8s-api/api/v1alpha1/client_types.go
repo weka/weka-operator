@@ -95,6 +95,10 @@ type PodResourcesSpec struct {
 	Limits   PodResources `json:"limits,omitempty"`
 }
 
+type ClientCsiConfig struct {
+	CsiGroup string `json:"csiGroup,omitempty"`
+}
+
 // WekaClientSpec defines the desired state of WekaClient
 type WekaClientSpec struct {
 	// full container image in format of quay.io/weka.io/weka-in-container:VERSION
@@ -146,24 +150,21 @@ type WekaClientSpec struct {
 	AutoRemoveTimeout metav1.Duration `json:"autoRemoveTimeout,omitempty"`
 	GlobalPVC         *PVCConfig      `json:"globalPVC,omitempty"`
 
-	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Type=object
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients
-	CsiGroup         string `json:"csiGroup,omitempty"`
-	CsiControllerRef string `json:"csiControllerRef,omitempty"`
+	CsiConfig *ClientCsiConfig `json:"csiConfig,omitempty"`
 }
 
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
-	LastAppliedSpec    string             `json:"lastAppliedSpec,omitempty"`
-	LastAppliedCsiSpec string             `json:"lastAppliedCsiSpec,omitempty"`
+	Conditions      []metav1.Condition `json:"conditions,omitempty"`
+	LastAppliedSpec string             `json:"lastAppliedSpec,omitempty"`
 	// +kubebuilder:validation:Enum=Init;Running;Upgrading;Destroying
 	// +kubebuilder:default=Init
 	Status         WekaClientStatusEnum `json:"status,omitempty"`
 	Stats          *ClientMetrics       `json:"stats,omitempty"`
 	PrinterColumns ClientPrinterColumns `json:"printer,omitempty"`
-	CsiDeployed    bool                 `json:"csiDeployed,omitempty"`
 }
 
 type ClientPrinterColumns struct {

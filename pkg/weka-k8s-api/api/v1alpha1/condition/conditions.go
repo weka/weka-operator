@@ -39,4 +39,5 @@ const (
 	CondContainerImageUpdated        = "ContainerImageUpdated"
 	CondClusterReady                 = "ClusterIsReady"
 	CondContainerMigratedOutFromPVC  = "MigratedOutFromPVC"
+	CondCsiDeployed                  = "CsiDeployed"
 )
