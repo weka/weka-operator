@@ -125,7 +125,7 @@ spec:
             - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
               value: "{{ .Values.prefix }}-maintenance"
             - name: WEKA_MAINTENANCE_IMAGE
-              value: "{{ .Values.maintenanceImage | default "busybox" }}"
+              value: "{{ .Values.maintenanceImage | default "quay.io/weka.io/busybox" }}"
             - name: WEKA_MAINTENANCE_IMAGE_PULL_SECRET
               value: "{{ .Values.maintenanceImagePullSecret | default "" }}"
             - name: WEKA_OCP_PULL_SECRET
