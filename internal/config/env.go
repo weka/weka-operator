@@ -162,6 +162,10 @@ var Consts struct {
 	PeriodicDrivesCheckInterval time.Duration
 	// Interval for checking drivers on distribution wekacontainer
 	CheckDriversInterval time.Duration
+	// Max allowed percentage of unhealthy containers in a cluster (0-100)
+	// (this is the threshold for creating new wekacontainers ignoring unhealthy ones,
+	// is calculated as a percentage of unhealthy containers to the tolal desired number of containers)
+	ClusterMaxUnhealthyContainersPercentage int
 	// Min compute containers to be UP before forming a weka cluster
 	FormClusterMinComputeContainers int
 	// Min drive containers to be UP before forming a weka cluster
@@ -191,6 +195,7 @@ func init() {
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
 	Consts.PeriodicDrivesCheckInterval = 10 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
+	Consts.ClusterMaxUnhealthyContainersPercentage = 50
 	Consts.FormClusterMinComputeContainers = 5
 	Consts.FormClusterMinDriveContainers = 5
 	Consts.FormClusterMaxComputeContainers = 10

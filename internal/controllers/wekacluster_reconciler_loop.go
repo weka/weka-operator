@@ -2323,19 +2323,28 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 		}
 
 		currentCount := 0
+		unhealthyCount := 0
+		maxUnhealthyPercent := config.Consts.ClusterMaxUnhealthyContainersPercentage
 		for _, container := range existingContainers {
+			if container.Spec.Mode != role {
+				continue
+			}
 			if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+				unhealthyCount++
 				continue // we don't care why it's unhealthy, but if it is - we do not account for it and replacement will be scheduled
 			}
-			if container.Spec.Mode == role {
-				currentCount++
-			}
+			currentCount++
 		}
 
 		toCreateNum := numContainers - currentCount
 		totalByrole[role] = existingByRole[role] + toCreateNum
 		if role == "envoy" {
 			numContainers = totalByrole["s3"]
+		}
+
+		if numContainers > 0 && unhealthyCount > int(numContainers*maxUnhealthyPercent/100) {
+			logger.Info("Too many unhealthy containers, skipping creation for role", "role", role, "unhealthyCount", unhealthyCount, "maxUnhealthyPercent", maxUnhealthyPercent, "numContainers", numContainers)
+			continue
 		}
 
 		for i := currentCount; i < numContainers; i++ {

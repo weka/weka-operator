@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"go/types"
 	"io"
 	"net/http"
@@ -39,6 +38,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/operations/tempops"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -530,6 +530,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
+			{Run: loop.WaitForNodeReady},
 			{
 				Run: loop.ensurePod,
 				Predicates: lifecycle.Predicates{
@@ -597,7 +598,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.WaitForNodeReady},
 			{Run: loop.WaitForPodRunning},
 			{
 				Run:       loop.WriteResources,
@@ -2451,7 +2451,24 @@ func (r *containerReconcilerLoop) WaitForNodeReady(ctx context.Context) error {
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
 
+		// if there is no pod, we can return wait error
+		if r.PodNotSet() {
+			return lifecycle.NewWaitErrorWithDuration(errors.New(msg), time.Second*15)
+		}
+
 		return nil
+	}
+
+	// no reason to go further and schedule new pod if node has taints that are not tolerated by the container
+	if r.PodNotSet() && node != nil {
+		notTolerated := !util.CheckTolerations(node.Spec.Taints, r.container.Spec.Tolerations)
+		if notTolerated {
+			err := fmt.Errorf("container is not tolerating node's %s taints", node.Name)
+
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "TolerationsMismatch", err.Error(), time.Minute)
+			// stop here, no reason to go to the next steps
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		}
 	}
 
 	return nil
