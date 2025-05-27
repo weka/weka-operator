@@ -1,7 +1,7 @@
-git Test goal:
+Test goal:
     - validate that wekacluster, wekaclient, CSI, storageclass, pvc and workload can be provisioned and reach Ready stage
 Test scenario
-    - cleanup any existing WekaCluster, WekaClient, WekaPolicy, WekaContainer resources
+    - cleanup any existing workload goader daemonsets, WekaCluster, WekaClient, WekaPolicy, WekaContainer resources
     - upgrade operator to OPERATOR_VERSION
     - ensure policy for drivers distribution. make sure to use policy service url on the cluster and client specs
     - ensure policy for drive signing of all not mounted, create policy if does not exist
@@ -14,9 +14,10 @@ Test scenario
         - make sure to be consistent on csi driver name reference in csi install and storageclass
     - ensure workload is running
     - ensure that PVC mount is visible on node and that it is of "wekafs" filesystem type
-    - Cleanup all created by test resources
+    - Cleanup all created by test resources, start from workload, make sure to maintain correct order of deletion
 
 
  Params:
   - Weka image to use: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (WEKA_IMAGE)
-  - Operator version to use: v1.6.0 (OPERATOR_VERSION)
+  - Operator version to use: v1.7.0-dev.2 (OPERATOR_VERSION)
+  - CSI version to use: v2.7.2 (CSI_VERSION)
