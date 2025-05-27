@@ -63,9 +63,10 @@ func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
 }
 
 func GetTracingFlag() string {
-	// TODO: csi 2.7.2 appends :443 port making url invalid
-	//if config.Config.Otel.ExporterOtlpEndpoint != "" {
-	//	return "--tracingurl=" + config.Config.Otel.ExporterOtlpEndpoint
-	//}
+	if config.Config.Otel.ExporterOtlpEndpoint != "" {
+		endpoint := strings.TrimPrefix(config.Config.Otel.ExporterOtlpEndpoint, "http://")
+		endpoint = strings.TrimPrefix(endpoint, "https://")
+		return "--tracingurl=" + endpoint
+	}
 	return ""
 }
