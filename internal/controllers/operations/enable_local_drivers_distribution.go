@@ -676,6 +676,6 @@ func hashFNV(s string) string {
 func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "EnableLocalDriversDistribution",
-		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
+		Run:  lifecycle.AsRunFunc(o), // Assuming lifecycle.AsRunFunc helper exists
 	}
 }

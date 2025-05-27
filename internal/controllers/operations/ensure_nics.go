@@ -42,7 +42,7 @@ type EnsureNICsOperation struct {
 func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "EnsureNICs",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

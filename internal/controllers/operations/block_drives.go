@@ -55,7 +55,7 @@ func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPa
 func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "BlockDrives",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

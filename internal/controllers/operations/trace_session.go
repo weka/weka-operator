@@ -49,7 +49,7 @@ func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payloa
 func (o *MaintainTraceSession) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "MaintainTraceSession",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 
@@ -329,6 +329,9 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 		return err
 	}
 	container, err := resources.SelectActiveContainerWithRole(ctx, o.containers, "compute")
+	if err != nil {
+		return err
+	}
 	wekaService := services.NewWekaService(execService, container)
 	processes, err := wekaService.ListProcesses(ctx, services.ProcessListOptions{})
 	if err != nil {

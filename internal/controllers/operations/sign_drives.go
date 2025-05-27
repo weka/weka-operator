@@ -50,7 +50,7 @@ type SignDrivesOperation struct {
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "SignDrives",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

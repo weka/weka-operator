@@ -105,7 +105,8 @@ crd: $(CRD) ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) crd paths="./pkg/..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): internal/controllers/client_controller.go
+CONTROLLER_FILES = $(wildcard internal/controllers/*.go)
+$(RBAC): $(CONTROLLER_FILES)
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.

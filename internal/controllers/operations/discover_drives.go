@@ -79,7 +79,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "DiscoverDrives",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

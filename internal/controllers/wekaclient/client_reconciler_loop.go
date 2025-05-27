@@ -649,9 +649,9 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
 	}
 
-	logger.Info("Got nodes by labels", "nodes", len(nodes))
-
 	if config.Config.SkipClientsTolerationValidation {
+		logger.Info("Got nodes by labels", "nodes", len(nodes))
+
 		return nodes, nil
 	}
 
@@ -979,7 +979,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		false,
 	)
 
-	err := operations.ExecuteOperation(ctx, op)
+	err := lifecycle.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to deploy CSI plugin")
 		return err
@@ -1006,7 +1006,7 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 		csiDriverName,
 		true,
 	)
-	err := operations.ExecuteOperation(ctx, op)
+	err := lifecycle.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to undeploy CSI plugin")
 		return err

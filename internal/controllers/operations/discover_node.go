@@ -61,7 +61,7 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "DiscoverNode",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

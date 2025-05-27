@@ -39,7 +39,7 @@ func NewWekaPolicyController(mgr ctrl.Manager) *WekaPolicyReconciler {
 type policyLoop struct {
 	Policy *weka.WekaPolicy
 	Client client.Client
-	Op     operations.Operation
+	Op     lifecycle.Operation
 }
 
 func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}

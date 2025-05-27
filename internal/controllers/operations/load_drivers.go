@@ -86,7 +86,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.W
 func (o *LoadDrivers) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "LoadDrivers",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

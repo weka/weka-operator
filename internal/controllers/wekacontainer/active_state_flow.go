@@ -374,18 +374,21 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		Name: "CsiInstallation",
 		Predicates: lifecycle.Predicates{
 			r.container.IsClientContainer,
-			lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 		},
 		Steps: []lifecycle.Step{
 			&lifecycle.SingleStep{
 				Condition:             condition.CondCsiDeployed,
 				SkipOwnConditionCheck: true,
 				Run:                   r.DeployCsiNodeServerPod,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				},
 			},
 			&lifecycle.SingleStep{
 				Run: r.CleanupCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &r.container.Status.Conditions),
+					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
 			},
 		},

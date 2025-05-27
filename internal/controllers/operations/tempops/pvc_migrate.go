@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -61,7 +60,7 @@ func NewPvcMigrateOperation(mgr ctrl.Manager, container *weka.WekaContainer) *Pv
 func (o *PvcMigrateOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "PvcMigrate",
-		Run:  operations.AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

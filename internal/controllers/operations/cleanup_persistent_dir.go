@@ -60,7 +60,7 @@ func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersiste
 func (o *CleanupPersistentDirOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "CleanupPersistentDir",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

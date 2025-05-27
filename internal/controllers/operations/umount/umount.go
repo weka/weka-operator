@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -47,7 +46,7 @@ func NewUmountOperation(mgr ctrl.Manager, targetContainer *weka.WekaContainer) *
 func (o *UmountOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "Umount",
-		Run:  operations.AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

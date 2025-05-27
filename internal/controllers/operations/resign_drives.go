@@ -69,7 +69,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "ResignDrives",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 

@@ -41,7 +41,7 @@ func NewWekaManualOperationController(mgr ctrl.Manager, restClient rest.Interfac
 type manualOpLoop struct {
 	Operation *weka.WekaManualOperation
 	Client    client.Client
-	Op        operations.Operation
+	Op        lifecycle.Operation
 }
 
 func (r *WekaManualOperationReconciler) RunGC(ctx context.Context) {}

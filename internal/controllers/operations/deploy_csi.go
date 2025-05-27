@@ -52,7 +52,7 @@ func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 	return &lifecycle.SingleStep{
 		Name: "DeployCsi",
-		Run:  AsRunFunc(o),
+		Run:  lifecycle.AsRunFunc(o),
 	}
 }
 
