@@ -28,6 +28,7 @@ type DeployCsiOperation struct {
 	namespace     string
 	csiBaseName   string
 	csiDriverName string
+	csiSecret     client.ObjectKey
 	undeploy      bool
 }
 
@@ -36,7 +37,7 @@ type DeployCsiResult struct {
 	Result v1alpha1.CsiDeploymentOutputs `json:"result,omitempty"`
 }
 
-func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, undeploy bool) *DeployCsiOperation {
+func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, csiSecret client.ObjectKey, undeploy bool) *DeployCsiOperation {
 	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
 	namespace, _ := util2.GetPodNamespace()
 
@@ -44,6 +45,7 @@ func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, 
 		client:        mgr.GetClient(),
 		wekaClient:    targetClient,
 		csiDriverName: csiDriverName,
+		csiSecret:     csiSecret,
 		csiBaseName:   csiBaseName,
 		namespace:     namespace,
 		undeploy:      undeploy,
@@ -130,7 +132,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.csiBaseName, o.csiDriverName, storageClassName, fileSystemName)
+			return csi.NewCsiStorageClass(o.csiDriverName, storageClassName, fileSystemName, o.csiSecret)
 		}); err != nil {
 		return err
 	}
@@ -147,8 +149,8 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.csiBaseName, o.csiDriverName,
-				storageClassForceDirectName, fileSystemName, mountOptions...)
+			return csi.NewCsiStorageClass(o.csiDriverName,
+				storageClassForceDirectName, fileSystemName, o.csiSecret, mountOptions...)
 		}); err != nil {
 		return err
 	}

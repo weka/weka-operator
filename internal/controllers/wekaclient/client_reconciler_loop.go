@@ -218,7 +218,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 	}
 
 	if config.Config.CsiInstallationEnabled {
-		err = c.UndeployCsiPlugin(ctx, c.getCsiDriverName())
+		err = c.UndeployCsiPlugin(ctx, c.getCsiDriverName(), c.getCsiSecret())
 		if err != nil {
 			return errors.Wrap(err, "failed to undeploy CSI plugin")
 		}
@@ -945,17 +945,18 @@ func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error 
 	defer end()
 
 	csiDriverName := c.getCsiDriverName()
+	csiSecret := c.getCsiSecret()
 
 	if !config.Config.CsiInstallationEnabled {
 		// if we are here, installation was switched off
-		return c.UndeployCsiPlugin(ctx, csiDriverName)
+		return c.UndeployCsiPlugin(ctx, csiDriverName, csiSecret)
 	}
 
 	if len(c.containers) > 0 && csiDriverName != c.containers[0].Spec.CsiDriverName {
 		logger.Info("CSI driver name changed, undeploying CSI plugin")
 
 		// cleanup with old name
-		return c.UndeployCsiPlugin(ctx, csiDriverName)
+		return c.UndeployCsiPlugin(ctx, csiDriverName, csiSecret)
 	}
 
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
@@ -972,10 +973,12 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 	defer end()
 
 	csiDriverName := c.getCsiDriverName()
+	csiSecret := c.getCsiSecret()
 	op := operations.NewDeployCsiOperation(
 		c.Manager,
 		c.wekaClient,
 		csiDriverName,
+		csiSecret,
 		false,
 	)
 
@@ -1005,7 +1008,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 	return c.Status().Update(ctx, c.wekaClient)
 }
 
-func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string) error {
+func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string, csiSecret client.ObjectKey) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UndeployCsiPlugin")
 	defer end()
 
@@ -1014,6 +1017,7 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 		c.Manager,
 		c.wekaClient,
 		csiDriverName,
+		csiSecret,
 		true,
 	)
 	err := lifecycle.ExecuteOperation(ctx, op)
@@ -1049,4 +1053,19 @@ func (c *clientReconcilerLoop) getCsiDriverName() string {
 		return csi.GetCsiDriverNameFromTargetCluster(c.targetCluster)
 	}
 	return csi.GetCsiDriverNameFromClient(c.wekaClient)
+}
+
+func (c *clientReconcilerLoop) getCsiSecret() client.ObjectKey {
+	if c.targetCluster != nil {
+		name := csi.GetCsiSecretName(c.targetCluster)
+		return client.ObjectKey{
+			Name:      name,
+			Namespace: c.targetCluster.Namespace,
+		}
+	}
+	name := fmt.Sprintf("weka-csi-%s", c.wekaClient.Name)
+	return client.ObjectKey{
+		Name:      name,
+		Namespace: c.wekaClient.Namespace,
+	}
 }
