@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -31,8 +32,8 @@ type DeployCsiOperation struct {
 }
 
 type DeployCsiResult struct {
-	Err    string `json:"err,omitempty"`
-	Result string `json:"result"`
+	Err    string                        `json:"err,omitempty"`
+	Result v1alpha1.CsiDeploymentOutputs `json:"result,omitempty"`
 }
 
 func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, undeploy bool) *DeployCsiOperation {
@@ -109,6 +110,7 @@ func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
 		func() client.Object { return csi.NewCsiDriver(o.csiDriverName) }); err != nil {
 		return err
 	}
+	o.results.Result.CsiDriverName = o.csiDriverName
 	return nil
 }
 
@@ -133,6 +135,14 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 		return err
 	}
 
+	if !slices.Contains(o.results.Result.StorageClassesNames, storageClassName) {
+		if o.results.Result.StorageClassesNames == nil {
+			o.results.Result.StorageClassesNames = []string{storageClassName}
+		} else {
+			o.results.Result.StorageClassesNames = append(o.results.Result.StorageClassesNames, storageClassName)
+		}
+	}
+
 	mountOptions := []string{"forcedirect"}
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
@@ -141,6 +151,10 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 				storageClassForceDirectName, fileSystemName, mountOptions...)
 		}); err != nil {
 		return err
+	}
+
+	if !slices.Contains(o.results.Result.StorageClassesNames, storageClassForceDirectName) {
+		o.results.Result.StorageClassesNames = append(o.results.Result.StorageClassesNames, storageClassForceDirectName)
 	}
 
 	return nil
@@ -182,7 +196,9 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 		return err
 	}
 
-	return o.client.Update(ctx, o.wekaClient)
+	o.results.Result.CsiControllerName = controllerDeploymentName
+
+	return nil
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {

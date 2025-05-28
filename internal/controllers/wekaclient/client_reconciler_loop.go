@@ -985,6 +985,16 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		return err
 	}
 
+	res := op.GetResult()
+	if res.Err == "" && res.Result.CsiControllerName != "" {
+		c.wekaClient.Status.CsiOutputs = res.Result
+
+		err = c.Status().Update(ctx, c.wekaClient)
+		if err != nil {
+			return errors.Wrap(err, "failed to update wekaClient status with CSI outputs")
+		}
+	}
+
 	logger.Info("updating containers CSI driver name", "csiDriverName", csiDriverName, "containers", len(c.containers))
 	err = c.updateContainersCsiDriverName(ctx, csiDriverName)
 	if err != nil {
@@ -1031,6 +1041,10 @@ func (c *clientReconcilerLoop) updateContainersCsiDriverName(ctx context.Context
 }
 
 func (c *clientReconcilerLoop) getCsiDriverName() string {
+	if c.wekaClient.Status.CsiOutputs.CsiDriverName != "" {
+		return c.wekaClient.Status.CsiOutputs.CsiDriverName
+	}
+
 	if c.targetCluster != nil {
 		return csi.GetCsiDriverNameFromTargetCluster(c.targetCluster)
 	}
