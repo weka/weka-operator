@@ -155,6 +155,13 @@ type WekaClientSpec struct {
 	CsiConfig *ClientCsiConfig `json:"csiConfig,omitempty"`
 }
 
+func (c *WekaClientSpec) GetCsiConfig() ClientCsiConfig {
+	if c.CsiConfig == nil {
+		return ClientCsiConfig{}
+	}
+	return *c.CsiConfig
+}
+
 // WekaClientStatus defines the observed state of WekaClient
 type WekaClientStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status
