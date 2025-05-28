@@ -989,7 +989,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 	}
 
 	res := op.GetResult()
-	if res.Err == "" && res.Result.CsiControllerName != "" {
+	if res.Err == "" && res.Result.CsiControllerName != "" && c.wekaClient.Status.CsiOutputs.CsiDriverName != res.Result.CsiDriverName {
 		c.wekaClient.Status.CsiOutputs = res.Result
 
 		err = c.Status().Update(ctx, c.wekaClient)
@@ -998,14 +998,13 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		}
 	}
 
-	logger.Info("updating containers CSI driver name", "csiDriverName", csiDriverName, "containers", len(c.containers))
 	err = c.updateContainersCsiDriverName(ctx, csiDriverName)
 	if err != nil {
 		logger.Error(err, "failed to update containers CSI driver name")
 		return err
 	}
 
-	return c.Status().Update(ctx, c.wekaClient)
+	return nil
 }
 
 func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string, csiSecret client.ObjectKey) error {
@@ -1031,6 +1030,10 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 
 func (c *clientReconcilerLoop) updateContainersCsiDriverName(ctx context.Context, csiDriverName string) error {
 	return workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
+		if container.Spec.CsiDriverName == csiDriverName {
+			return nil // no need to update, already set
+		}
+
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersCsiDriverName", "container", container.Name)
 		defer end()
 		logger.Info("updating container CSI driver name", "csiDriverName", csiDriverName)
