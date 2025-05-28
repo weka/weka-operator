@@ -996,7 +996,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UndeployCsiPlugin")
 	defer end()
 
 	logger.Info("Undeploying CSI plugin")

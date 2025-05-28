@@ -77,11 +77,11 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	}
 	undeploySteps := []lifecycle.Step{
 		&lifecycle.SingleStep{
-			Name: "DeployCsiDriver",
+			Name: "UndeployCsiDriver",
 			Run:  o.undeployCsiDriver,
 		},
 		&lifecycle.SingleStep{
-			Name: "DeployStorageClasses",
+			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
 		},
 		&lifecycle.SingleStep{

@@ -2,10 +2,12 @@ package csi
 
 import (
 	"fmt"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
 	"regexp"
 	"strings"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 func GenerateStorageClassName(csiDriverName string, fileSystemName string, mountOptions ...string) string {
@@ -25,10 +27,12 @@ func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
 }
 
 func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
-	if wekaClient.Spec.CsiConfig.CsiGroup == "" {
+	csiConfig := wekaClient.Spec.GetCsiConfig()
+
+	if csiConfig.CsiGroup == "" {
 		return config.Consts.CsiLegacyDriverName
 	}
-	return generateCsiDriverName(wekaClient.Spec.CsiConfig.CsiGroup)
+	return generateCsiDriverName(csiConfig.CsiGroup)
 }
 
 func generateCsiDriverName(baseName string) string {
