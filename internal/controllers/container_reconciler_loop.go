@@ -3015,21 +3015,6 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 		if err != nil {
 			return err
 		}
-
-		logger.Debug("Removing wekafsio and wekafsgw drivers")
-		_, stderr, err := executor.ExecNamed(ctx, "RemoveWekaFsDrivers", []string{"bash", "-ce", `
-if lsmod | grep wekafsio; then 
-	rmmod wekafsio
-fi
-if lsmod | grep wekafsgw; then
-	rmmod wekafsgw
-fi
-
-`})
-		if err != nil {
-			err = fmt.Errorf("error removing wekafsio and wekafsgw drivers: %w, stderr: %s", err, stderr.String())
-			return err
-		}
 	} else {
 		logger.Info("Running prepare-upgrade")
 		err = r.runDriverPrepareUpgrade(ctx, executor)

@@ -16,12 +16,14 @@ from os.path import exists
 from textwrap import dedent
 from typing import List, Optional, Tuple
 
+
 @dataclass
 class SignOptions:
     allowEraseWekaPartitions: bool = False
     allowEraseNonWekaPartitions: bool = False
     allowNonEmptyDevice: bool = False
     skipTrimFormat: bool = False
+
 
 MODE = os.environ.get("MODE")
 assert MODE != ""
@@ -181,7 +183,8 @@ async def sign_device_path(device_path, options: SignOptions):
     if options.skipTrimFormat:
         params.append("--skip-trim-format")
 
-    stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
+    stdout, stderr, ec = await run_command(
+        f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
     if ec != 0:
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
@@ -570,6 +573,15 @@ async def load_drivers():
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
         ]
         load_cmds = [
+            (f"""
+if lsmod | grep wekafsio; then
+	if [ -e /proc/wekafs/interface ]; then
+		if ! echo prepare-upgrade > /proc/wekafs/interface; then
+			echo "Failed to run prepare-upgrade command, continuing regardless"
+		fi 
+	fi
+fi
+            """, "preparing for upgrade"),
             (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed",
              "unloading wekafsio"),
             (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed",
@@ -968,6 +980,7 @@ def is_managed_k8s(network_device=None):
 
     return "aws_" in network_device or "oci_" in network_device
 
+
 async def create_container():
     full_cores = find_full_cores(NUM_CORES)
     mode_part = ""
@@ -1005,7 +1018,7 @@ async def create_container():
         NETWORK_DEVICE = ",".join(devices)
 
     if is_managed_k8s():
-        devices = [dev.replace("aws_", "").replace("oci_",  "") for dev in NETWORK_DEVICE.split(",")]
+        devices = [dev.replace("aws_", "").replace("oci_", "") for dev in NETWORK_DEVICE.split(",")]
         net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
     elif ',' in NETWORK_DEVICE:
         net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
@@ -1095,7 +1108,8 @@ async def ensure_nics(num: int):
     if ec != 0:
         raise Exception(f"Failed to ensure NICs: {stderr}")
     logging.info("Ensured NICs successfully")
-    write_results(dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics'][1:]))
+    write_results(
+        dict(err=None, ensured=True, nics=json.loads(stdout.decode('utf-8').strip())['metadata']['vnics'][1:]))
 
 
 async def get_containers():
@@ -1250,7 +1264,6 @@ async def ensure_weka_container():
             ln -sf `readlink /opt/weka/data/{NAME}/container/resources.json.staging` /opt/weka/data/{NAME}/container/resources.json
         """)
 
-
     if ec != 0:
         raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
@@ -1283,7 +1296,6 @@ async def get_shutdown_instructions() -> ShutdownInstructions:
         with open(instructions_file, "r") as file:
             data = json.load(file)
             ret = ShutdownInstructions(**data)
-
 
     if exists("/tmp/.allow-force-stop"):
         ret.allow_force_stop = True
@@ -1908,7 +1920,7 @@ async def wait_for_resources():
         data = json.load(f)
 
     logging.info("found resources.json: %s", data)
-    net_devices = ",".join(data.get("netDevices",[]))
+    net_devices = ",".join(data.get("netDevices", []))
     if net_devices and is_managed_k8s(net_devices):
         NETWORK_DEVICE = net_devices
 
@@ -2083,7 +2095,7 @@ async def run_prerun_script():
 
 
 async def umount_drivers():
-    #TODO: Should support specific container id
+    # TODO: Should support specific container id
     logging.info("Umounting driver")
     find_mounts_cmd = "nsenter --target=1 --mount -- mount -t wekafs | awk '{print $3}'"
     stdout, stderr, ec = await run_command(find_mounts_cmd)
@@ -2110,15 +2122,16 @@ async def umount_drivers():
             rmmod wekafsio
         fi
         """
-        )
+                                               )
         if ec != 0:
             errs.append(stderr)
 
     logging.info("weka mounts umounted successfully")
     write_results(dict(
         error=errs,
-        umounted_paths = umounted_paths,
+        umounted_paths=umounted_paths,
     ))
+
 
 async def main():
     host_info = get_host_info()
@@ -2180,7 +2193,8 @@ async def main():
 
     if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
-        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid", "syslog")
+        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
+                        "syslog")
         await syslog.start()
 
     await override_dependencies_flag()
@@ -2214,7 +2228,7 @@ async def main():
         await ensure_container_exec()
         instruction = json.loads(INSTRUCTIONS)
         logging.info(f"adhoc-op-with-container instruction: {instruction}")
-        payload =  json.loads(instruction['payload'])
+        payload = json.loads(instruction['payload'])
         if instruction.get('type') == 'ensure-nics':
             if payload.get('type') in ["aws", "oci"]:
                 await ensure_nics(payload['dataNICsNumber'])
