@@ -7,11 +7,13 @@ import (
 	"slices"
 
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -117,11 +119,21 @@ func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployCsiDriver(ctx context.Context) error {
-	if err := o.client.Delete(ctx, &storagev1.CSIDriver{
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "undeployCsiDriver")
+	defer end()
+
+	logger.Info("Undeploying CSI driver", "csiDriverName", o.csiDriverName)
+
+	err := o.client.Delete(ctx, &storagev1.CSIDriver{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: o.csiDriverName,
 		},
-	}); err != nil {
+	})
+	if apierrors.IsNotFound(err) {
+		logger.Debug("CSI driver not found, skipping undeployment", "csiDriverName", o.csiDriverName)
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("failed to delete CSI driver %s: %w", o.csiDriverName, err)
 	}
 	return nil
@@ -163,23 +175,38 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "undeployStorageClasses")
+	defer end()
+
 	fileSystemName := config.Consts.CsiFileSystemName
 	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
-	if err := o.client.Delete(ctx, &storagev1.StorageClass{
+
+	logger.Info("Deleting CSI storage class", "storageClassName", storageClassName)
+
+	err := o.client.Delete(ctx, &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: storageClassName,
 		},
-	}); err != nil {
+	})
+	if apierrors.IsNotFound(err) {
+		logger.Debug("CSI storage class not found, skipping deletion", "storageClassName", storageClassName)
+	} else if err != nil {
 		return fmt.Errorf("failed to delete CSI storage class %s: %w", storageClassName, err)
 	}
 
 	mountOptions := []string{"forcedirect"}
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
-	if err := o.client.Delete(ctx, &storagev1.StorageClass{
+
+	logger.Info("Deleting CSI storage class with mount options", "storageClassName", storageClassForceDirectName, "mountOptions", mountOptions)
+
+	err = o.client.Delete(ctx, &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: storageClassForceDirectName,
 		},
-	}); err != nil {
+	})
+	if apierrors.IsNotFound(err) {
+		logger.Debug("CSI storage class with mount options not found, skipping deletion", "storageClassName", storageClassForceDirectName)
+	} else if err != nil {
 		return fmt.Errorf("failed to delete CSI storage class %s: %w", storageClassForceDirectName, err)
 	}
 
@@ -204,13 +231,22 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "undeployCsiController")
+	defer end()
+
 	controllerDeploymentName := o.csiBaseName + "-csi-controller"
-	if err := o.client.Delete(ctx, &appsv1.Deployment{
+
+	logger.Info("Deleting CSI controller deployment", "controllerDeploymentName", controllerDeploymentName)
+
+	err := o.client.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      controllerDeploymentName,
 			Namespace: o.namespace,
 		},
-	}); err != nil {
+	})
+	if apierrors.IsNotFound(err) {
+		logger.Debug("CSI controller deployment not found, skipping deletion", "controllerDeploymentName", controllerDeploymentName)
+	} else if err != nil {
 		return fmt.Errorf("failed to delete CSI controller deployment %s: %w", controllerDeploymentName, err)
 	}
 	return nil
