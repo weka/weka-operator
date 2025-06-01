@@ -15,5 +15,7 @@ Params:
   - START_VERSION quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3 (might be referenced as start version, source version, initial version or so on)
   - TARGET_VERSION: quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4 (might be referenced as target version, destination version, final version or so on)
   - OPERATOR_VERSION: v1.7.0-antonr.605
+  - use weka-operator-system namespace for all resources
+  - no nodeSelectors are needed for any resources created by this test
 
 - delete cluster after a test
