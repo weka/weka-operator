@@ -1,5 +1,6 @@
 import base64
 import fcntl
+import ipaddress
 import json
 import logging
 import os
@@ -909,16 +910,39 @@ async def periodic_logrotate():
         await asyncio.sleep(60)
 
 
-async def autodiscover_network_devices(subnet) -> List[str]:
+async def autodiscover_network_devices(subnet_str) -> List[str]:
     """Returns comma-separated list of network devices
     that belong to the given subnet.
     """
-    cmd = f"ip route show {subnet} | awk '{{print $3}}'"
+    subnet = ipaddress.ip_network(subnet_str, strict=False)
+    cmd = f"ip -o addr"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to discover network devices: {stderr}")
-    devices = stdout.decode('utf-8').strip().split("\n")
-    devices = [d for d in devices if d]
+    lines = stdout.decode('utf-8').strip().split("\n")
+    devices = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+
+        device_name = parts[1]
+        family = parts[2]
+        ip_with_cidr = parts[3]
+
+        # Only match address families relevant to the subnet version
+        if (subnet.version == 4 and family != "inet") or (subnet.version == 6 and family != "inet6"):
+            continue
+
+        # Strip interface zone ID (e.g., fe80::1%eth0)
+        ip_str = ip_with_cidr.split("/")[0].split("%")[0]
+
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            if ip in subnet:
+                devices.append(device_name)
+        except ValueError:
+            continue  # skip invalid IPs
 
     if not devices:
         logging.error(f"No network devices found for subnet {subnet}")
