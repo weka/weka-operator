@@ -121,6 +121,7 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 			logger.Error(err, "Error getting NICs from allocations")
 			return
 		}
+		return
 	}
 
 	netDevices = []string{"udp"}
