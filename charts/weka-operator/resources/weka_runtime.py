@@ -573,15 +573,6 @@ async def load_drivers():
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
         ]
         load_cmds = [
-            (f"""
-if lsmod | grep wekafsio; then
-	if [ -e /proc/wekafs/interface ]; then
-		if ! echo prepare-upgrade > /proc/wekafs/interface; then
-			echo "Failed to run prepare-upgrade command, continuing regardless"
-		fi 
-	fi
-fi
-            """, "preparing for upgrade"),
             (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed",
              "unloading wekafsio"),
             (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed",
@@ -2179,6 +2170,7 @@ async def main():
                     ))
                     # return (not raise) to avoid infinite container restarts in the pod
                     return
+                logging.exception("Failed to load drivers, retrying...", exc_info=e)
                 logging.info("retrying drivers download... will reach timeout in %d seconds", end_time - time.time())
         if not loaded:
             raise Exception("Failed to load drivers")
