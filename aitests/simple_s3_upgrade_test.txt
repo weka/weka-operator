@@ -1,7 +1,7 @@
-- cleanup any existing workload goader daemonsets, WekaCluster, WekaClient, WekaPolicy, WekaContainer resources, in this order, in this order, in this order, in this order
+- cleanup any existing workload goader daemonsets, WekaCluster, WekaClient, WekaPolicy, WekaContainer resources, in this order, across all namespaces
 - upgrade operator to OPERATOR_VERSION
     - do not forget to upgrade crds
-- ensure policy for drivers distribution. make sure to use policy service url on the cluster and client specs
+- ensure policy for drivers distribution. make sure to retrieve  policy service URL and use it on the cluster and client specs
 - ensure policy for drive signing of all not mounted, create policy if does not exist
 - create new weka cluster, 6 compute containers, 6 drive containers, 6 s3containers, 1 drive per drives container, 1 core for compute, and 1 core for driver containers. 0 hotspares. Do not configure hugepages fields, leave CR-level defaults
 
