@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"go/types"
 	"io"
 	"net/http"
@@ -39,6 +38,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/operations/tempops"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -2616,7 +2616,20 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	}
 
 	timeout := time.Minute * 2
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+
+	// Get random active container to execute list drives command
+	// NOTE: caused by incompatibility between the versions where a CLI from 4.4.7 sends an API with newer params to the version installed
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	execInContainer := discovery.SelectActiveContainer(containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
 
 	driveListoptions := services.DriveListOptions{
 		ContainerId: container.Status.ClusterContainerID,
