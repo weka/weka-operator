@@ -732,7 +732,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 				Active:  weka.IntMetric(int64(activeDrives)),
 				Created: weka.IntMetric(int64(totalDrives)),
 			},
-			DriveFailures: failedDrives,
+			DriveFailures: failedDrives, // here
 		}
 	}
 

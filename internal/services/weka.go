@@ -960,6 +960,10 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 		"wekaauthcli", "cluster", "drive", "remove", driveUuid, "-f",
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveDrive", cmd)
+	// handle error: The given drive "3b265a18-3e1a-45ab-abe3-a7729497cb1a" does not exist.
+	if err != nil && strings.Contains(stderr.String(), "does not exist") {
+		return nil
+	}
 	if err != nil {
 		err = errors.Wrapf(err, "Failed to remove drive %s: %s", driveUuid, stderr.String())
 		return err

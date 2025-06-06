@@ -11,10 +11,11 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -36,6 +37,7 @@ type Allocator interface {
 	//ClaimResources(ctx context.Context, cluster v1alpha1.WekaCluster, containers []*v1alpha1.WekaContainer) error
 	DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error
 	GetAllocations(ctx context.Context) (*Allocations, error)
+	AllocateNewDrivesForContainer(ctx context.Context, cluster *weka.WekaCluster, container *weka.WekaContainer, driveFailures []weka.DriveFailures) error
 	//DeallocateContainers(ctx context.Context, containers []v1alpha1.WekaContainer) error
 }
 
@@ -96,6 +98,60 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		nodeInfo.AvailableDrives = availableDrives
 		return
 	}
+}
+
+func (t *ResourcesAllocator) AllocateNewDrivesForContainer(ctx context.Context, cluster *weka.WekaCluster, container *weka.WekaContainer, driveFailures []weka.DriveFailures) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateNewDrivesForContainer")
+	defer end()
+
+	ownerCluster := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
+	owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: container.Spec.Mode}
+
+	allocations, err := t.configStore.GetAllocations(ctx)
+	if err != nil {
+		return nil
+	}
+
+	nodeMap := allocations.NodeMap
+	nodeName := container.GetNodeAffinity()
+	if _, ok := nodeMap[nodeName]; !ok {
+		err := fmt.Errorf("node %s not found in allocations", nodeName)
+		return err
+	}
+	nodeAlloc := nodeMap[nodeName]
+
+	var allocatedDrives []string
+
+	if container.Spec.NumDrives > 0 {
+		if nodeAlloc.Drives[owner] == nil || len(nodeAlloc.Drives[owner]) == 0 {
+			nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
+			if err != nil {
+				return err
+			}
+
+			allDrives := nodeInfo.AvailableDrives
+			if len(allDrives) < container.Spec.NumDrives {
+				logger.Info("Not enough drives to allocate", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
+				return fmt.Errorf("not enough drives to allocate to replace failed")
+			}
+
+			// we need to allocate same amount of drives as failed
+			numDrivesToAllocate := len(driveFailures)
+			allocatedDrives = nodeAlloc.allocateDrives(owner, numDrivesToAllocate, allDrives)
+			if allocatedDrives == nil {
+				logger.Info("Not enough drives free to replace failed", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives, "failedDrives", len(driveFailures))
+				return fmt.Errorf("not enough drives to allocate to replace failed")
+			}
+		}
+	}
+
+	if len(allocatedDrives) > 0 {
+		err = t.configStore.UpdateAllocations(ctx, allocations)
+		if err != nil {
+			return fmt.Errorf("failed to update allocations: %w", err)
+		}
+	}
+	return nil
 }
 
 func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, error) {

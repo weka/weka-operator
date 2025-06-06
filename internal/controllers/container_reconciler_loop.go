@@ -3,8 +3,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"go/types"
@@ -765,6 +763,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Name: "ReplaceFailedDrives",
+				Predicates: lifecycle.Predicates{
+					loop.HasFailedDrives,
+					container.IsDriveContainer,
+				},
+				Run: loop.ReplaceFailedDrives,
 			},
 		},
 	}
@@ -3138,16 +3144,120 @@ func handleFailureDomainValue(fd string) string {
 	// if it exceeds 16 characters, truncate it to 16 characters
 	if len(fd) > 16 {
 		// get 16 characters' hash value (to guarantee uniqueness)
-		return getHash(fd)
+		return util.GetHash(fd, 16)
 	}
 	// replace all "/" with "-"
 	return strings.ReplaceAll(fd, "/", "-")
 }
 
-// Generates SHA-256 hash and takes the first 16 characters
-func getHash(s string) string {
-	hash := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(hash[:])[:16]
+func (r *containerReconcilerLoop) ReplaceFailedDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SelfUpdateAllocations")
+	defer end()
+
+	container := r.container
+
+	containerId := r.container.Status.ClusterContainerID
+	if containerId == nil {
+		return errors.New("Container ID is not set")
+	}
+
+	cs, err := allocator.NewConfigMapStore(ctx, r.Client)
+	if err != nil {
+		return err
+	}
+
+	allAllocations, err := cs.GetAllocations(ctx)
+	if err != nil {
+		return errors.New("allocations are not set")
+	}
+
+	owner := container.GetOwnerReferences()
+	nodeName := container.GetNodeAffinity()
+	nodeAlloc, ok := allAllocations.NodeMap[nodeName]
+	if !ok {
+		return errors.New("node allocations are not set")
+	}
+
+	allocOwner := allocator.Owner{
+		OwnerCluster: allocator.OwnerCluster{
+			ClusterName: owner[0].Name,
+			Namespace:   container.Namespace,
+		},
+		Container: container.Name,
+		Role:      container.Spec.Mode,
+	}
+
+	allocatedDrives, ok := nodeAlloc.Drives[allocOwner]
+	if !ok {
+		return fmt.Errorf("no drives allocated")
+	}
+
+	if !util.SliceEquals(allocatedDrives, container.Status.Allocations.Drives) {
+		container.Status.Allocations.Drives = allocatedDrives
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			err = fmt.Errorf("cannot update container status with allocations: %w", err)
+			return err
+		}
+	}
+
+	wekaService := services.NewWekaService(r.ExecService, container)
+
+	statusActive := "ACTIVE"
+	statusInactive := "INACTIVE"
+	drives, err := wekaService.ListContainerDrives(ctx, *containerId)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+
+	for _, drive := range drives {
+		isFailed := false
+		for _, failedDrive := range container.Status.GetStats().Drives.DriveFailures {
+			if failedDrive.SerialId == drive.SerialNumber {
+				isFailed = true
+				break
+			}
+		}
+
+		if !isFailed {
+			continue
+		}
+
+		switch drive.Status {
+		case statusActive:
+			logger.Info("Deactivating drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+			err = wekaService.DeactivateDrive(ctx, drive.Uuid)
+			if err != nil {
+				return err
+			}
+
+			_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber))
+		case statusInactive:
+			logger.Debug("Drive is inactive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+		default:
+			err := fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
+			errs = append(errs, err)
+			continue
+		}
+
+		// remove failed drive from weka
+		logger.Info("Removing failed drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+		err = wekaService.RemoveDrive(ctx, drive.Uuid)
+		if err != nil {
+			err = fmt.Errorf("error removing drive %s: %w", drive.SerialNumber, err)
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during drive replacement: %v", errs)
+	}
+
+	// add new
+
+	return nil
 }
 
 func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) error {
@@ -4690,4 +4800,8 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 
 	logger.Info("Envoy container deleted as it has no S3 neighbor")
 	return nil
+}
+
+func (r *containerReconcilerLoop) HasFailedDrives() bool {
+	return len(r.container.Status.GetStats().Drives.DriveFailures) > 0
 }

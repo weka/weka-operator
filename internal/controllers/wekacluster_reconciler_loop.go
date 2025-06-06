@@ -106,6 +106,61 @@ func (r *wekaClusterReconcilerLoop) FetchCluster(ctx context.Context, req ctrl.R
 	return err
 }
 
+func (r *wekaClusterReconcilerLoop) AllocateReplacementsForFailedDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	containers := r.containers
+
+	containerDriveFailures := make(map[string][]wekav1alpha1.DriveFailures)
+	toAllocate := make([]*wekav1alpha1.WekaContainer, 0)
+
+	// check if any container has failed drives
+	for _, container := range containers {
+		if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+			continue
+		}
+
+		// check if any container has failed drives
+		driveFailures := container.Status.GetStats().Drives.DriveFailures
+		if len(driveFailures) > 0 {
+			containerDriveFailures[container.Name] = driveFailures
+			toAllocate = append(toAllocate, container)
+		}
+	}
+
+	if len(containerDriveFailures) == 0 {
+		return nil
+	}
+
+	// make re-allocations and add new drive into the container spec
+	resourceAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
+	if err != nil {
+		return err
+	}
+
+	var failedContainers []string
+
+	for _, container := range toAllocate {
+		driveFailures := containerDriveFailures[container.Name]
+
+		err = resourceAllocator.AllocateNewDrivesForContainer(ctx, r.cluster, container, driveFailures)
+		if err != nil {
+			failedContainers = append(failedContainers, container.Name)
+			logger.Error(err, "Failed to allocate drives for container", "container", container.Name)
+		}
+	}
+
+	if len(failedContainers) > 0 {
+		msg := fmt.Sprintf("Failed to allocate drives for containers: %v", failedContainers)
+		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateNewDrivesForContainerError", msg)
+
+		return errors.New(msg)
+	}
+
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()

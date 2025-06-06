@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -76,4 +77,10 @@ func DeterministicHashStruct(s any) (string, error) {
 	}
 	hash := sha256.Sum256(jsonData)
 	return fmt.Sprintf("%x", hash), nil
+}
+
+// Generates SHA-256 hash and takes the first n characters
+func GetHash(s string, n int) string {
+	hash := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(hash[:])[:n]
 }
