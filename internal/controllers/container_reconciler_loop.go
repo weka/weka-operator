@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"go/types"
 	"io"
 	"net/http"
@@ -39,6 +38,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/operations/tempops"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -2647,6 +2647,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		drivesAddedBySerial[drive.SerialNumber] = true
 	}
 
+	var errs []error
+
 	// Adding drives to weka one by one
 	for _, drive := range container.Status.Allocations.Drives {
 		l := logger.WithValues("drive_name", drive)
@@ -2666,13 +2668,15 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		if _, ok := kDrives[drive]; !ok {
 			err := fmt.Errorf("drive %s not found in kernel", drive)
 			l.Error(err, "Error configuring drive")
-			return err
+			errs = append(errs, err)
+			continue
 		}
 
 		if kDrives[drive].Partition == "" {
 			err := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
 			l.Error(err, "Error configuring drive")
-			return err
+			errs = append(errs, err)
+			continue
 		}
 
 		l = l.WithValues("partition", kDrives[drive].Partition)
@@ -2681,12 +2685,15 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		stdout, stderr, err := executor.ExecNamed(ctx, "GetPartitionSignature", []string{"bash", "-ce", cmd})
 		if err != nil {
 			err = fmt.Errorf("Error getting partition signature for drive %s: %s, %v", drive, stderr.String(), err)
-			return err
+			errs = append(errs, err)
+			continue
 		}
 
 		if stdout.String() != "90f0090f90f0090f90f0090f90f0090f" {
 			l.Info("Drive has Weka signature on it, forbidding usage")
-			return fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
+			err := fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
+			errs = append(errs, err)
+			continue
 		}
 
 		l.Info("Adding drive into system")
@@ -2696,7 +2703,9 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		if err != nil {
 			if !strings.Contains(stderr.String(), "Device is already in use") {
 				l.WithValues("stderr", stderr.String(), "command", cmd).Error(err, "Error adding drive into system")
-				return errors.Wrap(err, stderr.String())
+				err = errors.Wrap(err, stderr.String())
+				errs = append(errs, err)
+				continue
 			} else {
 				l.Info("Drive already added into system")
 			}
@@ -2704,6 +2713,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			l.Info("Drive added into system")
 			r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive))
 		}
+	}
+
+	if len(errs) > 0 {
+		err := fmt.Errorf("errors while adding drives: %v", errs)
+		return err
 	}
 
 	logger.InfoWithStatus(codes.Ok, "All drives added")
