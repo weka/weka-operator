@@ -3667,14 +3667,6 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 
-	//Update weka.io/weka-nics annotation
-	var nics []domain.NIC
-	if nicsStr, ok := node.Annotations["weka.io/weka-nics"]; ok {
-		_ = json.Unmarshal([]byte(nicsStr), &nics)
-	}
-	node.Status.Capacity["weka.io/nics"] = *resource.NewQuantity(int64(len(nics)), resource.DecimalSI)
-	node.Status.Allocatable["weka.io/nics"] = *resource.NewQuantity(int64(len(nics)), resource.DecimalSI)
-
 	// Update weka.io/weka-drives annotation
 	previousDrives := []string{}
 	newDrivesFound := 0
