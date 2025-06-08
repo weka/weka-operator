@@ -3715,6 +3715,8 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	}
 	newDrivesStr, _ := json.Marshal(updatedDrivesList)
 	node.Annotations["weka.io/weka-drives"] = string(newDrivesStr)
+	// calculate hash, based on o.node.Status.NodeInfo.BootID
+	node.Annotations["weka.io/sign-drives-hash"] = domain.CalculateNodeDriveSignHash(node)
 
 	// Update weka.io/drives extended resource
 	blockedDrives := []string{}
