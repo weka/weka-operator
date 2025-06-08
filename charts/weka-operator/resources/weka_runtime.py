@@ -2396,9 +2396,6 @@ def is_wrong_generation():
 
 
 async def takeover_shutdown():
-    while not is_wrong_generation():
-        await asyncio.sleep(1)
-
     await run_command("weka local stop --force", capture_stdout=False)
 
 
@@ -2445,6 +2442,24 @@ async def watch_for_force_shutdown():
         await asyncio.sleep(5)
 
 
+async def is_container_running(no_agent_as_not_running=False):
+    try:
+        containers = await get_containers()
+    except Exception as e:
+        if no_agent_as_not_running:
+            logging.exception("agent error, due to force stop - assuming container is not running")
+            return False
+        else:
+            logging.exception("agent error, since no force stop - assuming container is running")
+            return True
+    for container in containers:
+        if container['name'] == NAME:
+            if container['runStatus'] == "Stopped":
+                return False
+            return True
+    return False
+
+
 async def shutdown():
     global exiting
     while not (exiting or is_wrong_generation()):
@@ -2471,7 +2486,8 @@ async def shutdown():
         if "--force" not in stop_flag:
             force_shutdown_task = asyncio.create_task(watch_for_force_shutdown())
 
-        await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
+        while await is_container_running(no_agent_as_not_running=force_stop):
+            await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
         if force_shutdown_task is not None:
             force_shutdown_task.cancel()
         logging.info("finished stopping weka container")
