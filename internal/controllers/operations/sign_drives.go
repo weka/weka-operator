@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"strings"
 	"time"
 
@@ -155,9 +156,9 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		}
 
 		// if data exists and not force - skip
-		// TODO: Does it work? repeat runs do create repeate wekacontainers, so sounds like this check is broken
 		if !o.force {
-			if node.Annotations["weka.io/weka-drives"] != "" {
+			targetHash := domain.CalculateNodeDriveSignHash(&node)
+			if node.Annotations["weka.io/sign-drives-hash"] == targetHash {
 				skip += 1
 				continue
 			}
