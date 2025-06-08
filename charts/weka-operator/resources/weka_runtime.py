@@ -2479,7 +2479,6 @@ async def shutdown():
         if force_shutdown_task is not None:
             force_shutdown_task.cancel()
         logging.info("finished stopping weka container")
-        sys.exit(1)
 
     if MODE == "drive":
         timeout = 60
