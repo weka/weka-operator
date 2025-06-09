@@ -24,6 +24,13 @@ class SignOptions:
     allowNonEmptyDevice: bool = False
     skipTrimFormat: bool = False
 
+
+@dataclass
+class Disk:
+    path: str
+    is_mounted: bool
+
+
 MODE = os.environ.get("MODE")
 assert MODE != ""
 NUM_CORES = int(os.environ.get("CORES", 0))
@@ -127,30 +134,66 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict)
     return signed_drives
 
 
+async def find_disks() -> List[Disk]:
+    """
+    Find all disk devices and check if they or their partitions are mounted.
+    :return: A list of Disk objects.
+    """
+    logging.info("Finding disks and checking mount status")
+    # Use -J for JSON output, -p for full paths, -o to specify columns
+    cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT"
+    stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
+    if ec != 0:
+        logging.error(f"Failed to execute lsblk: {stderr.decode()}")
+        return []
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        logging.error(f"Failed to parse lsblk JSON output: {stdout.decode()}")
+        return []
+
+    disks = []
+
+    def has_mountpoint(device_info: dict) -> bool:
+        """Recursively check if a device or any of its children has a mountpoint."""
+        if device_info.get("mountpoint"):
+            return True
+        if "children" in device_info:
+            for child in device_info["children"]:
+                if has_mountpoint(child):
+                    return True
+        return False
+
+    for device in data.get("blockdevices", []):
+        if device.get("type") == "disk":
+            is_mounted = has_mountpoint(device)
+            logging.info(f"Found disk: {device['name']}, mounted: {is_mounted}")
+            disks.append(Disk(path=device["name"], is_mounted=is_mounted))
+
+    return disks
+
+
 async def sign_not_mounted(options: dict) -> List[str]:
     """
-    [root@wekabox18 sdc] 2024-08-21 19:14:58 $ cat /run/udev/data/b`cat /sys/block/sdc/dev` | grep ID_SERIAL=
-        E:ID_SERIAL=TOSHIBA_THNSN81Q92CSE_86DS107ATB4V
-    :return:
+    Signs all disk devices that are not mounted and have no mounted partitions.
+    :param options:
+    :return: list of signed drive paths
     """
-    logging.info("Signing drives not mounted")
-    stdout, stderr, ec = await run_command("nsenter --mount --pid --target 1 -- lsblk -o NAME,TYPE,MOUNTPOINT", capture_stdout=True)
-    if ec != 0:
-        return
-    lines = stdout.decode().strip().split("\n")
+    logging.info("Signing drives that are not mounted")
+    all_disks = await find_disks()
     signed_drives = []
-    logging.info(f"Found drives: {lines}")
-    for line in lines[1:]:
-        parts = line.split()
-        logging.info(f"Processing line: {parts}")
-        if parts[1] == "disk" and len(parts) < 3:
-            device = f"/dev/{parts[0]}"
-            try:
-                await sign_device_path(device, options)
-                signed_drives.append(device)
-            except SignException as e:
-                logging.error(str(e))
-                continue
+
+    unmounted_disks = [disk for disk in all_disks if not disk.is_mounted]
+    logging.info(f"Found {len(unmounted_disks)} unmounted disks to sign: {[d.path for d in unmounted_disks]}")
+
+    for disk in unmounted_disks:
+        try:
+            await sign_device_path(disk.path, options)
+            signed_drives.append(disk.path)
+        except SignException as e:
+            logging.error(str(e))
+            continue
     return signed_drives
 
 
@@ -253,10 +296,10 @@ async def get_block_device_path_by_serial(serial: str):
 
 async def discover_drives():
     drives = await find_weka_drives()
-    mounted_drives = await find_mounted_devices()
     write_results(dict(
         err=None,
         drives=drives,
+        raw_drives=await find_disks(),
     ))
 
 
@@ -2265,7 +2308,7 @@ async def main():
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
         elif instruction.get('type') and instruction['type'] == 'debug':
-            pass # nothing to do, but runtime will wait for termination signal
+            pass  # nothing to do, but runtime will wait for termination signal
         # TODO: Should we support generic command proxy? security concern?
         elif instruction.get('type') and instruction['type'] == 'umount':
             logging.info(f"umounting wekafs mounts")
