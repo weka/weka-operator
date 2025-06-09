@@ -180,6 +180,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				ImagePullSecret: o.pullSecret,
 				Instructions:    instructions,
 				Tolerations:     o.tolerations,
+				HostPID:         true,
 			},
 		}
 		toCreate = append(toCreate, newContainer)

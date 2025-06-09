@@ -184,6 +184,7 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 			ImagePullSecret: o.pullSecret,
 			Instructions:    instructions,
 			Tolerations:     o.tolerations,
+			HostPID:         true,
 		},
 	}
 
