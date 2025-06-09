@@ -134,7 +134,7 @@ async def sign_not_mounted(options: dict) -> List[str]:
     :return:
     """
     logging.info("Signing drives not mounted")
-    stdout, stderr, ec = await run_command("lsblk -o NAME,TYPE,MOUNTPOINT", capture_stdout=True)
+    stdout, stderr, ec = await run_command("nsenter --mount --pid --target 1 -- lsblk -o NAME,TYPE,MOUNTPOINT", capture_stdout=True)
     if ec != 0:
         return
     lines = stdout.decode().strip().split("\n")
@@ -182,7 +182,8 @@ async def sign_device_path(device_path, options: SignOptions):
     if options.skipTrimFormat:
         params.append("--skip-trim-format")
 
-    stdout, stderr, ec = await run_command(f"nsenter --target=1 --mount /weka-sign-drive {' '.join(params)} -- {device_path}")
+    stdout, stderr, ec = await run_command(
+        f"nsenter --mount --pid --target 1 -- /weka-sign-drive {' '.join(params)} -- {device_path}")
     if ec != 0:
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
@@ -252,6 +253,7 @@ async def get_block_device_path_by_serial(serial: str):
 
 async def discover_drives():
     drives = await find_weka_drives()
+    mounted_drives = await find_mounted_devices()
     write_results(dict(
         err=None,
         drives=drives,
@@ -2103,7 +2105,7 @@ async def run_prerun_script():
 async def umount_drivers():
     #TODO: Should support specific container id
     logging.info("Umounting driver")
-    find_mounts_cmd = "nsenter --target=1 --mount -- mount -t wekafs | awk '{print $3}'"
+    find_mounts_cmd = "nsenter --mount --pid --target 1 -- mount -t wekafs | awk '{print $3}'"
     stdout, stderr, ec = await run_command(find_mounts_cmd)
     if ec != 0:
         logging.info(f"Failed to find weka mounts: {stderr} {stdout}")
@@ -2114,7 +2116,7 @@ async def umount_drivers():
     for mount in stdout.decode('utf-8').split("\n"):
         if not mount:
             continue
-        umount_cmd = f"nsenter --target=1 --mount -- umount {mount}"
+        umount_cmd = f"nsenter --mount --pid --target 1 -- umount {mount}"
         stdout, stderr, ec = await run_command(umount_cmd)
         errs.append(stderr)
         if ec != 0:
