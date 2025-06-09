@@ -227,6 +227,7 @@ spec:
                       type:
                         enum:
                         - aws-all
+                        - gcp-all
                         - device-identifiers
                         - device-paths
                         - all-not-root
