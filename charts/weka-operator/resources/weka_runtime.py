@@ -2346,8 +2346,8 @@ async def main():
             await discover_drives()
         elif instruction.get('type') and instruction['type'] == 'debug':
             # TODO: Wrap this as conditional based on payload, as might fail in some cases
-            print(await discover_drives())
-            pass  # nothing to do, but runtime will wait for termination signal
+            raw_disks = await find_disks()
+            logging.info(f"Raw disks: {raw_disks}")
         # TODO: Should we support generic command proxy? security concern?
         elif instruction.get('type') and instruction['type'] == 'umount':
             logging.info(f"umounting wekafs mounts")
