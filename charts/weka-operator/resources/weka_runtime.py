@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from functools import lru_cache, partial
 from os.path import exists
 from textwrap import dedent
@@ -30,6 +30,7 @@ class SignOptions:
 class Disk:
     path: str
     is_mounted: bool
+    serial_id: Optional[str]
 
 
 MODE = os.environ.get("MODE")
@@ -111,6 +112,36 @@ logging.basicConfig(
 )
 
 
+async def get_serial_id_fallback(device_path: str) -> Optional[str]:
+    """
+    Fallback method to get serial ID for a device using udev data.
+    This is useful for non-nvme devices where lsblk might not report a serial.
+    """
+    device_name = os.path.basename(device_path)
+    logging.info(f"Attempting fallback to get serial for {device_name}")
+    try:
+        # Get major:minor device number
+        dev_index_out, _, ec = await run_command(f"cat /sys/block/{device_name}/dev")
+        if ec != 0:
+            logging.warning(f"Fallback failed: could not get dev index for {device_name}")
+            return None
+        dev_index = dev_index_out.decode().strip()
+
+        # Get serial from udev data
+        serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
+        serial_id_out, _, ec = await run_command(serial_id_cmd)
+        if ec != 0:
+            logging.warning(f"Fallback failed: could not get ID_SERIAL from udev for {device_name}")
+            return None
+
+        serial_id = serial_id_out.decode().strip().split("=")[-1]
+        logging.info(f"Fallback successful for {device_name}, found serial: {serial_id}")
+        return serial_id
+    except Exception as e:
+        logging.error(f"Exception during serial ID fallback for {device_name}: {e}")
+        return None
+
+
 async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict) -> List[str]:
     logging.info("Signing drives. Vendor ID: %s, Device ID: %s", vendor_id, device_id)
 
@@ -142,7 +173,7 @@ async def find_disks() -> List[Disk]:
     """
     logging.info("Finding disks and checking mount status")
     # Use -J for JSON output, -p for full paths, -o to specify columns
-    cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT"
+    cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT,SERIAL"
     stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
     if ec != 0:
         logging.error(f"Failed to execute lsblk: {stderr.decode()}")
@@ -169,8 +200,13 @@ async def find_disks() -> List[Disk]:
     for device in data.get("blockdevices", []):
         if device.get("type") == "disk":
             is_mounted = has_mountpoint(device)
-            logging.info(f"Found disk: {device['name']}, mounted: {is_mounted}")
-            disks.append(Disk(path=device["name"], is_mounted=is_mounted))
+            serial_id = device.get("serial")
+            device_path = device["name"]
+            if not serial_id:
+                logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
+                serial_id = await get_serial_id_fallback(device_path)
+            logging.info(f"Found disk: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
+            disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id))
 
     return disks
 
@@ -297,10 +333,11 @@ async def get_block_device_path_by_serial(serial: str):
 
 async def discover_drives():
     drives = await find_weka_drives()
+    raw_disks = await find_disks()
     write_results(dict(
         err=None,
         drives=drives,
-        raw_drives=await find_disks(),
+        raw_drives=[asdict(d) for d in raw_disks],
     ))
 
 
@@ -1466,8 +1503,8 @@ async def configure_agent(agent_handle_drivers=False):
     #TODO: once moving to 4.3+ only switch to ignore_driver_spec. Problem that 4.2 had it in different category
     # and check by skip_driver_install is sort of abuse of not anymore existing flag to have something to validate by
     if ! grep -q "skip_driver_install" /etc/wekaio/service.conf; then
-        sed -i "/\[os\]/a skip_driver_install={ignore_driver_flag}" /etc/wekaio/service.conf
-        sed -i "/\[os\]/a ignore_driver_spec={ignore_driver_flag}" /etc/wekaio/service.conf
+        sed -i "/\\[os\\]/a skip_driver_install={ignore_driver_flag}" /etc/wekaio/service.conf
+        sed -i "/\\[os\\]/a ignore_driver_spec={ignore_driver_flag}" /etc/wekaio/service.conf
     else
         sed -i "s/skip_driver_install=.*/skip_driver_install={ignore_driver_flag}/g" /etc/wekaio/service.conf
     fi
@@ -2318,6 +2355,8 @@ async def main():
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
         elif instruction.get('type') and instruction['type'] == 'debug':
+            # TODO: Wrap this as conditional based on payload, as might fail in some cases
+            print(await discover_drives())
             pass  # nothing to do, but runtime will wait for termination signal
         # TODO: Should we support generic command proxy? security concern?
         elif instruction.get('type') and instruction['type'] == 'umount':
