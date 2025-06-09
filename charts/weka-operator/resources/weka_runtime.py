@@ -2274,6 +2274,8 @@ async def main():
             logging.info(f"signed_drives: {signed_drives}")
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
             await discover_drives()
+        elif instruction.get('type') and instruction['type'] == 'debug':
+            pass # nothing to do, but runtime will wait for termination signal
         # TODO: Should we support generic command proxy? security concern?
         elif instruction.get('type') and instruction['type'] == 'umount':
             logging.info(f"umounting wekafs mounts")
