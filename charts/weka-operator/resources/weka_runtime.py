@@ -205,7 +205,7 @@ async def find_disks() -> List[Disk]:
             if not serial_id:
                 logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
                 serial_id = await get_serial_id_fallback(device_path)
-            logging.info(f"Found disk: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
+            logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
             disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id))
 
     return disks

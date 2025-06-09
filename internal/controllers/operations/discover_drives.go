@@ -46,10 +46,16 @@ type DriveInfo struct {
 	Partition  string `json:"partition"`
 }
 
+type DriveRawInfo struct {
+	SerialId  string `json:"serial_id"`
+	Path      string `json:"path"`
+	IsMounted bool   `json:"is_mounted"`
+}
+
 type DriveNodeResults struct {
-	Err       error       `json:"err"`
-	Drives    []DriveInfo `json:"drives"`
-	RawDrives []DriveInfo `json:"drives"`
+	Err       error          `json:"err"`
+	Drives    []DriveInfo    `json:"drives"`
+	RawDrives []DriveRawInfo `json:"raw_drives"`
 }
 
 type DiscoverDrivesResult struct {
