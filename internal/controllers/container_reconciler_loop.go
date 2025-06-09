@@ -3696,13 +3696,37 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	// calculate hash, based on o.node.Status.NodeInfo.BootID
 	node.Annotations["weka.io/sign-drives-hash"] = domain.CalculateNodeDriveSignHash(node)
 
-	// Update weka.io/drives extended resource
 	blockedDrives := []string{}
 	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
 		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
 	}
+
+	for _, drive := range opResult.RawDrives {
+		if drive.IsMounted {
+			if _, ok := seenDrives[drive.SerialId]; ok {
+				// We found mounted drive that previously was used for weka
+				// We should block it from being used in the future
+				// check if already in blocked list, and if not add it
+				if !slices.Contains(blockedDrives, drive.SerialId) {
+					blockedDrives = append(blockedDrives, drive.SerialId)
+					logger.Info("Blocking drive", "serial_id", drive.SerialId, "reason", "drive is mounted")
+				}
+			}
+		}
+	}
+
 	availableDrives := len(seenDrives) - len(blockedDrives)
+
+	// Update weka.io/drives extended resource
 	node.Status.Capacity["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	node.Status.Allocatable["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	//marshal blocked drives back and update annotation
+	blockedDrivesStr, err := json.Marshal(blockedDrives)
+	if err != nil {
+		err = fmt.Errorf("error marshalling blocked drives: %w", err)
+		return err
+	}
+	node.Annotations["weka.io/blocked-drives"] = string(blockedDrivesStr)
 
 	if err := r.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
