@@ -47,8 +47,9 @@ type DriveInfo struct {
 }
 
 type DriveNodeResults struct {
-	Err    error       `json:"err"`
-	Drives []DriveInfo `json:"drives"`
+	Err       error       `json:"err"`
+	Drives    []DriveInfo `json:"drives"`
+	RawDrives []DriveInfo `json:"drives"`
 }
 
 type DiscoverDrivesResult struct {
