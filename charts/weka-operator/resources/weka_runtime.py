@@ -172,6 +172,7 @@ async def find_disks() -> List[Disk]:
     """
     logging.info("Finding disks and checking mount status")
     # Use -J for JSON output, -p for full paths, -o to specify columns
+    # TODO: We are dependant on lsblk here on host here. Is it a probelm? potentially
     cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT,SERIAL"
     stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
     if ec != 0:
@@ -262,7 +263,7 @@ async def sign_device_path(device_path, options: SignOptions):
         params.append("--skip-trim-format")
 
     stdout, stderr, ec = await run_command(
-        f"nsenter --mount --pid --target 1 -- /weka-sign-drive {' '.join(params)} -- {device_path}")
+        f"/weka-sign-drive {' '.join(params)} -- {device_path}")
     if ec != 0:
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
