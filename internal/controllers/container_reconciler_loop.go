@@ -3729,7 +3729,12 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
-	availableDrives := len(seenDrives) - len(blockedDrives)
+	availableDrives := 0
+	for _, drive := range updatedDrivesList {
+		if !slices.Contains(blockedDrives, drive) {
+			availableDrives++
+		}
+	}
 
 	// Update weka.io/drives extended resource
 	node.Status.Capacity["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
