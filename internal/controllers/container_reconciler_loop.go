@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sTypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -180,6 +181,17 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotFunc(container.IsDeletingState),
 					lifecycle.IsNotFunc(container.IsDestroyingState),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				// for drivers-dist container generate new pod name if all pods are in Terminating state or there is no owned pod
+				Run: loop.setPodName,
+				Predicates: lifecycle.Predicates{
+					loop.container.IsDistMode,
+					func() bool {
+						return loop.container.Status.PodName == nil
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -473,6 +485,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.container.IsOneOff,
 					loop.ResultsAreProcessed,
 					loop.container.IsDriversBuilder,
+					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
 				ContinueOnPredicatesFalse: true,
 				Throttled:                 config.Consts.CheckDriversInterval,
@@ -597,7 +610,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.WaitForNodeReady},
+			{Run: loop.HandleNodeNotReady},
 			{Run: loop.WaitForPodRunning},
 			{
 				Run:       loop.WriteResources,
@@ -1794,12 +1807,59 @@ func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx conte
 	return nil
 }
 
+func (r *containerReconcilerLoop) setPodName(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "setPodName")
+	defer end()
+
+	ownedPods, err := discovery.GetDriversDistOwnedPods(ctx, r.Client, r.container)
+	if err != nil {
+		return fmt.Errorf("failed to get owned pods: %w", err)
+	}
+
+	nonTerminatingPods := discovery.SelectNonTerminatingPods(ownedPods)
+
+	var podName string
+	if len(nonTerminatingPods) == 0 {
+		podName = names.SimpleNameGenerator.GenerateName(fmt.Sprintf("%s-", r.container.Name))
+		logger.Info("No non-terminating pods found, generating new pod name", "pod_name", podName)
+	} else {
+		podName = nonTerminatingPods[0].Name
+		logger.Info("Multiple non-terminating pods found, using the first one", "pod_count", len(nonTerminatingPods), "pod_name", podName)
+	}
+
+	r.container.Status.PodName = &podName
+
+	if err := r.Status().Update(ctx, r.container); err != nil {
+		return fmt.Errorf("failed to update container status with pod name: %w", err)
+	}
+
+	logger.Info("Set pod name", "pod_name", podName)
+	return nil
+}
+
+func (r *containerReconcilerLoop) getPodName(ctx context.Context) (string, error) {
+	if r.container.Spec.Mode != weka.WekaContainerModeDriversDist {
+		return r.container.Name, nil
+	}
+
+	if r.container.Status.PodName != nil {
+		return *r.container.Status.PodName, nil
+	}
+
+	return "", errors.New("Pod name is not set in container status")
+}
+
 func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "refreshPod")
 	defer end()
 
+	podName, err := r.getPodName(ctx)
+	if err != nil {
+		return err
+	}
+
 	pod := &v1.Pod{}
-	key := client.ObjectKey{Name: r.container.Name, Namespace: r.container.Namespace}
+	key := client.ObjectKey{Name: podName, Namespace: r.container.Namespace}
 	if err := r.Get(ctx, key, pod); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -2277,8 +2337,13 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod")
 	defer end()
 
+	podName, err := r.getPodName(ctx)
+	if err != nil {
+		return err
+	}
+
 	pod := &v1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
+	err = r.Get(ctx, client.ObjectKey{Name: podName, Namespace: container.Namespace}, pod)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -2288,7 +2353,7 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	}
 
 	// setting for forceful termination, as we are in container delete flow
-	logger.Info("Deleting pod", "pod", pod.Name)
+	logger.Info("Deleting pod", "pod", podName)
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
 	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
@@ -2335,8 +2400,13 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNoPod", "skipExec", skipExec)
 	defer end()
 
+	podName, err := r.getPodName(ctx)
+	if err != nil {
+		return err
+	}
+
 	pod := &v1.Pod{}
-	err := r.Get(ctx, client.ObjectKey{Name: container.Name, Namespace: container.Namespace}, pod)
+	err = r.Get(ctx, client.ObjectKey{Name: podName, Namespace: container.Namespace}, pod)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -2345,7 +2415,7 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		return err
 	}
 
-	logger.Info("Deleting pod", "pod", pod.Name)
+	logger.Info("Deleting pod", "pod", podName)
 	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
 	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
 		logger.Info("Node agent pod not running, skipping force stop")
@@ -2417,7 +2487,12 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
+	podName, err := r.getPodName(ctx)
+	if err != nil {
+		return err
+	}
+
+	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image, &podName)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
@@ -2437,20 +2512,47 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) WaitForNodeReady(ctx context.Context) error {
-	node := r.node
+func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleNodeNotReady")
+	defer end()
 
-	if node != nil && !NodeIsReady(node) {
+	if r.node == nil {
+		return errors.New("node is not set")
+	}
+
+	node := r.node
+	pod := r.pod
+
+	if !NodeIsReady(node) {
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+
+		// if node is not ready, we should terminate the pod and let it be rescheduled
+		if pod != nil && pod.Status.Phase == v1.PodRunning {
+			// clear status for drivers dist container to make it reschedule the pod
+			if r.container.Spec.Mode == weka.WekaContainerModeDriversDist && r.container.Status.NodeAffinity != "" {
+				err := r.clearStatus(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to clear status for drivers dist container: %w", err)
+				}
+			}
+
+			logger.Info("Deleting pod on NotReady node", "pod", pod.Name)
+			err := r.Delete(ctx, pod)
+
+			return lifecycle.NewWaitErrorWithDuration(
+				fmt.Errorf("deleting pod on NotReady node, err: %w", err),
+				time.Second*15,
+			)
+		}
 
 		// stop here, no reason to go to the next steps
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	// if node is unschedulable, just send the event
-	if node != nil && NodeIsUnschedulable(node) {
+	if NodeIsUnschedulable(node) {
 		msg := fmt.Sprintf("node %s is unschedulable", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)

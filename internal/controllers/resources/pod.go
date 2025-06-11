@@ -86,7 +86,7 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 	}
 }
 
-func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
+func (f *PodFactory) Create(ctx context.Context, podImage, podName *string) (*corev1.Pod, error) {
 	labels := LabelsForWekaPod(f.container)
 
 	image := f.container.Spec.Image
@@ -156,10 +156,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
+	if podName == nil {
+		podName = &f.container.Name
+	}
+
 	serviceAccountName := f.container.Spec.ServiceAccountName
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      f.container.Name,
+			Name:      *podName,
 			Namespace: f.container.Namespace,
 			Labels:    labels,
 		},

@@ -404,3 +404,50 @@ func GetContainerByName(ctx context.Context, c client.Client, name weka.ObjectRe
 	}
 	return container, nil
 }
+
+func GetDriversDistOwnedPods(ctx context.Context, c client.Client, distContainer *weka.WekaContainer) ([]*corev1.Pod, error) {
+	if distContainer == nil || distContainer.Spec.Mode != weka.WekaContainerModeDriversDist {
+		err := fmt.Errorf("container %s is not a drivers dist container", distContainer.Name)
+		return nil, err
+	}
+
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "GetDriversDistOwnedPods", "distName", distContainer.Name, "namespace", distContainer.Namespace)
+	defer end()
+
+	matchingLabels := distContainer.GetLabels()
+	matchingLabels["weka.io/mode"] = weka.WekaContainerModeDriversDist
+
+	podsList := corev1.PodList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(distContainer.Namespace),
+		client.MatchingLabels(matchingLabels),
+	}
+
+	err := c.List(ctx, &podsList, listOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	pods := []*corev1.Pod{}
+	for i := range podsList.Items {
+		// Ensure that the pod is owned by the dist container
+		if len(podsList.Items[i].OwnerReferences) == 0 {
+			continue
+		}
+		if podsList.Items[i].OwnerReferences[0].UID != distContainer.UID {
+			continue
+		}
+		pods = append(pods, &podsList.Items[i])
+	}
+	return pods, nil
+}
+
+func SelectNonTerminatingPods(pods []*corev1.Pod) []*corev1.Pod {
+	nonTerminatingPods := []*corev1.Pod{}
+	for _, pod := range pods {
+		if pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+			nonTerminatingPods = append(nonTerminatingPods, pod)
+		}
+	}
+	return nonTerminatingPods
+}

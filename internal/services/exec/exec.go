@@ -6,8 +6,9 @@ import (
 
 	"github.com/pkg/errors"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	"k8s.io/client-go/rest"
+
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type ExecService interface {
@@ -31,7 +32,7 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 	config := s.getConfig()
 	executor, err := util2.NewExecWithConfig(s.restClient, config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
-		Name:      container.ObjectMeta.Name,
+		Name:      container.GetPodName(),
 	}, timeout, "weka-container")
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
@@ -43,7 +44,7 @@ func (s *PodExecService) GetExecutor(ctx context.Context, container *wekav1alpha
 	config := s.getConfig()
 	executor, err := util2.NewExecWithConfig(s.restClient, config, util2.NamespacedObject{
 		Namespace: container.ObjectMeta.Namespace,
-		Name:      container.ObjectMeta.Name,
+		Name:      container.GetPodName(),
 	}, nil, "weka-container")
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")
