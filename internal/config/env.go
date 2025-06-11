@@ -50,6 +50,10 @@ type GkeCompatibility struct {
 	ServiceAccountSecret string
 }
 
+type OkeCompatibility struct {
+	EnableNicsAllocation bool
+}
+
 type Logging struct {
 	Level    int
 	TimeOnly bool
@@ -95,6 +99,7 @@ var Config struct {
 	MaintenanceImagePullSecret     string
 	OcpCompatibility               OcpCompatibility
 	GkeCompatibility               GkeCompatibility
+	OkeCompatibility               OkeCompatibility
 	WekaAllocZombieDeleteAfter     time.Duration
 	DevMode                        bool
 	Logging                        Logging
@@ -286,6 +291,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CsiRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.CsiDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
 
+	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }
 
 func getEnvOrFail(envKey string) string {

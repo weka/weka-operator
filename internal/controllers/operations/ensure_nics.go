@@ -9,6 +9,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -217,6 +218,14 @@ func (o *EnsureNICsOperation) ProcessResult(ctx context.Context) error {
 		err = o.client.Update(ctx, node)
 		if err != nil {
 			return lifecycle.NewWaitError(err)
+		}
+
+		node.Status.Capacity["weka.io/nics"] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
+		node.Status.Allocatable["weka.io/nics"] = *resource.NewQuantity(int64(len(opResult.NICs)), resource.DecimalSI)
+		err = o.client.Status().Update(ctx, node)
+		if err != nil {
+			err = fmt.Errorf("error updating node status: %w", err)
+			return err
 		}
 	}
 

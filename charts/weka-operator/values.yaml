@@ -87,6 +87,10 @@ gkeCompatibility:
   # -- if enabled, the operator will disable driver signing enforcement on the GKE nodes (WARNING: will reboot nodes forcefully!)
   disableDriverSigning: false
 
+okeCompatibility:
+  # -- if enabled, the operator will allocate NICs for OKE nodes
+  enableNicsAllocation: false
+
 manager:
   resources:
     limits:

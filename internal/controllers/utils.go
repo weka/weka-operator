@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/domain"
-	v1 "k8s.io/api/core/v1"
 	"net"
 	"strings"
+
+	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	v1 "k8s.io/api/core/v1"
 )
 
 func getAWSGatewayIP(cidr string) (string, error) {
@@ -50,7 +52,8 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 		nicPrefix = "aws_"
 	}
 
-	if strings.HasPrefix(node.Spec.ProviderID, "ocid1.") {
+	// Check OKE only if configuration is enabled
+	if strings.HasPrefix(node.Spec.ProviderID, "ocid1.") && config.Config.OkeCompatibility.EnableNicsAllocation {
 		nicPrefix = "oci_"
 	}
 

@@ -24,22 +24,43 @@ const (
 	ocpDriverToolkitMapName = "ocp-driver-toolkit-images"
 )
 
+// Provider represents the cloud provider
+type Provider string
+
+const (
+	ProviderAWS     Provider = "aws"
+	ProviderOCI     Provider = "oci"
+	ProviderUnknown Provider = ""
+)
+
 type DiscoveryNodeInfo struct {
-	IsHt               bool   `json:"is_ht"`
-	KubernetesDistro   string `json:"kubernetes_distro,omitempty"`
-	Os                 string `json:"os,omitempty"`
-	OsBuildId          string `json:"os_build_id,omitempty"`
-	BootID             string `json:"boot_id,omitempty"`
-	Schema             int    `json:"schema,omitempty"`
-	InitContainerImage string `json:"init_container_image,omitempty"`
-	NumCpus            int    `json:"num_cpus,omitempty"`
-	NumDrives          int    `json:"num_drives,omitempty"`
+	IsHt               bool     `json:"is_ht"`
+	KubernetesDistro   string   `json:"kubernetes_distro,omitempty"`
+	Os                 string   `json:"os,omitempty"`
+	OsBuildId          string   `json:"os_build_id,omitempty"`
+	BootID             string   `json:"boot_id,omitempty"`
+	Schema             int      `json:"schema,omitempty"`
+	InitContainerImage string   `json:"init_container_image,omitempty"`
+	NumCpus            int      `json:"num_cpus,omitempty"`
+	NumDrives          int      `json:"num_drives,omitempty"`
+	Provider           Provider `json:"provider,omitempty"`
 	// this field is for internal use only, is populayed by DiscoverNodeOperation.Enrich
 	//Node *corev1.Node `json:"-"` // this is not necesserally aligned with a node
 }
 
 func (nodeInfo *DiscoveryNodeInfo) GetDrivesNumber() int {
 	return nodeInfo.NumDrives
+}
+
+func (nodeInfo *DiscoveryNodeInfo) ShouldRequestNICs() bool {
+	if nodeInfo.Provider == ProviderAWS {
+		return true
+	}
+	if nodeInfo.Provider == ProviderOCI {
+		// OKE/OCI only allocates NICs if configuration is enabled
+		return config.Config.OkeCompatibility.EnableNicsAllocation
+	}
+	return false
 }
 
 func (nodeInfo *DiscoveryNodeInfo) IsRhCos() bool {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -135,9 +137,20 @@ func (o *DiscoverNodeOperation) GetDrivesNum() int {
 	return 0
 }
 
+func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
+	if strings.HasPrefix(o.node.Spec.ProviderID, "aws://") {
+		return discovery.ProviderAWS
+	}
+	if strings.HasPrefix(o.node.Spec.ProviderID, "ocid1.") {
+		return discovery.ProviderOCI
+	}
+	return discovery.ProviderUnknown
+}
+
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
 	o.result.NumDrives = o.GetDrivesNum()
+	o.result.Provider = o.GetProvider()
 
 	if o.result.IsRhCos() {
 		if o.result.OsBuildId == "" {

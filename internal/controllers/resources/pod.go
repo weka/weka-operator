@@ -1133,6 +1133,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		pod.Spec.Containers[0].Resources.Limits["weka.io/drives"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 	}
 
+	logger.Info("container spec:", "speccc", f.container.Spec)
+	if f.nodeInfo.ShouldRequestNICs() {
+		pod.Spec.Containers[0].Resources.Requests["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
+		pod.Spec.Containers[0].Resources.Limits["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
+	}
+
 	return nil
 }
 

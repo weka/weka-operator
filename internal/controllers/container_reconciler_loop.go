@@ -796,9 +796,13 @@ func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
 		return false
 	}
 
-	if !strings.HasPrefix(r.node.Spec.ProviderID, "aws://") && !strings.HasPrefix(r.node.Spec.ProviderID, "ocid1.") {
-		return false
+	// Check EKS (always enabled)
+	isEKS := strings.HasPrefix(r.node.Spec.ProviderID, "aws://")
+	// Check OKE only if configuration is enabled
+	isOKE := strings.HasPrefix(r.node.Spec.ProviderID, "ocid1.") && config.Config.OkeCompatibility.EnableNicsAllocation
 
+	if !isEKS && !isOKE {
+		return false
 	}
 
 	annotationAllocations := make(domain.Allocations)
@@ -3136,7 +3140,7 @@ func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string 
 }
 
 func handleFailureDomainValue(fd string) string {
-	// failure domain must not exceed 16 characters, and match regular expression “^(?:[^\\/]+)$“'
+	// failure domain must not exceed 16 characters, and match regular expression "^(?:[^\\/]+)$"'
 	// if it exceeds 16 characters, truncate it to 16 characters
 	if len(fd) > 16 {
 		// get 16 characters' hash value (to guarantee uniqueness)

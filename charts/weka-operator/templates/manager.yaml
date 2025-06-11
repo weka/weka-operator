@@ -142,6 +142,8 @@ spec:
               value: "{{ .Values.gkeCompatibility.hugepageConfiguration.hugepageCount }}"
             - name: WEKA_COS_SERVICE_ACCOUNT_SECRET
               value: "{{ .Values.gkeCompatibility.gkeServiceAccountSecret }}"
+            - name: OKE_ENABLE_NICS_ALLOCATION
+              value: "{{ .Values.okeCompatibility.enableNicsAllocation }}"
             - name: SKIP_UNHEALTHY_TOLERATION
               value: "{{ .Values.skipUnhealthyToleration }}"
             - name: CLEANUP_REMOVED_NODES
