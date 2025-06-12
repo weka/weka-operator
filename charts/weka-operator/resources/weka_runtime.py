@@ -146,6 +146,30 @@ done"""
     return signed_drives
 
 
+async def get_serial_id_cos_specific(device_path: str) -> Optional[str]:
+    """
+    Get serial ID for Google COS 
+    """
+    logging.info(f"Getting serial ID for {device_path} using COS-specific method")
+    device_name = os.path.basename(device_path)  # Returns "nvme0n1"
+
+    cmd = f"cat /sys/block/{device_name}/wwid 2>/dev/null || echo 'None'"
+
+    stdout, stderr, ec = await run_command(cmd)
+    
+    if ec != 0:
+        logging.warning(f"COS-specific fallback failed: could not get info for {device_path}: {stderr.decode()}")
+        return None
+    
+    serial_id = stdout.decode().strip()
+    if serial_id and serial_id != 'None':
+        logging.info(f"COS-specific fallback successful for {device_path}, found serial id: {serial_id}")
+        return serial_id
+    
+    logging.warning(f"COS-specific fallback failed: could not find serial id for {device_name}")
+    return None
+
+
 async def get_serial_id_fallback(device_path: str) -> Optional[str]:
     """
     Fallback method to get serial ID for a device using udev data.
@@ -153,6 +177,14 @@ async def get_serial_id_fallback(device_path: str) -> Optional[str]:
     """
     device_name = os.path.basename(device_path)
     logging.info(f"Attempting fallback to get serial for {device_name}")
+    
+    # Try Google COS-specific method first if on COS
+    if is_google_cos():
+        logging.info(f"Using COS-specific method for {device_name}")
+        serial_id = await get_serial_id_cos_specific(device_name)
+        if serial_id:
+            return serial_id
+    
     try:
         # Get major:minor device number
         dev_index_out, _, ec = await run_command(f"cat /sys/block/{device_name}/dev")
@@ -240,6 +272,10 @@ async def find_disks() -> List[Disk]:
             if not serial_id:
                 logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
                 serial_id = await get_serial_id_fallback(device_path)
+            if serial_id == "nvme_card":
+                logging.warning(f"nvme card not a valid name {device_path}. Using fallback.")
+                serial_id = await get_serial_id_fallback(device_path)
+
             logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
             disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id))
 
@@ -434,12 +470,16 @@ async def find_weka_drives():
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
                 serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
                 device_path = "/dev/" + pci_device_path.split("/")[-2]
+                if is_google_cos() and (not serial_id or serial_id == "nvme_card"):
+                    serial_id = await get_serial_id_cos_specific(os.path.basename(device_path))
             else:
                 device_name = pci_device_path.split("/")[-2]
                 device_path = "/dev/" + device_name
                 dev_index = subprocess.check_output(f"cat /sys/block/{device_name}/dev", shell=True).decode().strip()
                 serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
                 serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
+                if is_google_cos() and (not serial_id or serial_id == "nvme_card"):
+                    serial_id = await get_serial_id_cos_specific(device_name)
 
             drives.append({
                 "partition": "/dev/" + part_name,
