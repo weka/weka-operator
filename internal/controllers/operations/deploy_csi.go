@@ -26,6 +26,7 @@ type DeployCsiOperation struct {
 	csiBaseName   string
 	csiDriverName string
 	undeploy      bool
+	nodes         []corev1.Node
 }
 
 type DeployCsiResult struct {
@@ -33,7 +34,7 @@ type DeployCsiResult struct {
 	Result string `json:"result"`
 }
 
-func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, undeploy bool) *DeployCsiOperation {
+func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, nodes []corev1.Node, undeploy bool) *DeployCsiOperation {
 	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
 	namespace, _ := util2.GetPodNamespace()
 
@@ -44,6 +45,7 @@ func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, 
 		csiBaseName:   csiBaseName,
 		namespace:     namespace,
 		undeploy:      undeploy,
+		nodes:         nodes,
 	}
 }
 
@@ -67,10 +69,6 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
-		},
-		{
-			Name: "UpdateCsiController",
-			Run:  o.updateCsiController,
 		},
 	}
 	undeploySteps := []lifecycle.Step{
@@ -196,10 +194,6 @@ func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
 	return nil
 }
 
-func (o *DeployCsiOperation) updateCsiController(ctx context.Context) error {
-	return nil
-}
-
 func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.ObjectKey,
 	objectFactory func() client.Object) error {
 
@@ -208,6 +202,66 @@ func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.O
 	err := o.client.Create(ctx, newObj)
 	if client.IgnoreAlreadyExists(err) != nil {
 		return fmt.Errorf("failed to create %s %s: %w", typeName, key.Name, err)
+	}
+
+	return nil
+}
+
+func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, accessibleLabel string) {
+	return fmt.Sprintf("topology.%s/node", csiDriverName),
+		fmt.Sprintf("topology.%s/transport", csiDriverName),
+		fmt.Sprintf("topology.%s/accessible", csiDriverName)
+}
+
+func CheckCsiNodeTopologyLabelsSet(ctx context.Context, node corev1.Node, csiDriverName string) (bool, error) {
+	labels := node.Labels
+	if labels == nil {
+		return false, nil
+	}
+
+	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
+	_, hasNodeLabel := labels[nodeLabel]
+	_, hasTransportLabel := labels[transportLabel]
+	_, hasAccessibleLabel := labels[accessibleLabel]
+
+	return hasNodeLabel && hasTransportLabel && hasAccessibleLabel, nil
+}
+
+func SetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
+	labels := node.Labels
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+
+	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
+	labels[nodeLabel] = node.Name
+	labels[transportLabel] = "wekafs"
+	labels[accessibleLabel] = "true"
+
+	node.Labels = labels
+
+	if err := client.Update(ctx, &node); err != nil {
+		return fmt.Errorf("failed to update node %s with topology labels: %w", node.Name, err)
+	}
+
+	return nil
+}
+
+func UnsetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
+	labels := node.Labels
+	if labels == nil {
+		return nil
+	}
+
+	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
+	delete(labels, nodeLabel)
+	delete(labels, transportLabel)
+	delete(labels, accessibleLabel)
+
+	node.Labels = labels
+
+	if err := client.Update(ctx, &node); err != nil {
+		return fmt.Errorf("failed to update node %s with topology labels: %w", node.Name, err)
 	}
 
 	return nil

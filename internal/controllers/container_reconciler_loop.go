@@ -758,6 +758,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.ManageCsiTopologyLabels,
+				Predicates: lifecycle.Predicates{
+					container.IsClientContainer,
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.CleanupCsiNodeServerPod,
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
@@ -2068,6 +2077,11 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		logger.Info("Container deallocated")
 	}
 	// deallocate from allocmap
+
+	// remove csi node topology labels
+	if r.container.Spec.CsiDriverName != "" && r.node != nil {
+		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.container.Spec.CsiDriverName)
+	}
 
 	// delete csi node pod
 	csiNodePodNamespace, _ := util.GetPodNamespace()
@@ -4555,7 +4569,7 @@ func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureCsiNodeServerPod")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeployCsiNodeServerPod")
 	defer end()
 
 	nodeName := r.container.GetNodeAffinity()
@@ -4690,5 +4704,34 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 	}
 
 	logger.Info("Envoy container deleted as it has no S3 neighbor")
+	return nil
+}
+
+func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ManageCsiTopologyLabels")
+	defer end()
+
+	csiDriverName := r.container.Spec.CsiDriverName
+	if r.container.Status.Status != weka.Running {
+		err := operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
+		if err != nil {
+			return err
+		} else {
+			logger.Info("Unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
+		}
+	} else {
+		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(ctx, *r.node, csiDriverName)
+		if err != nil {
+			return errors.Wrap(err, "failed to check CSI node topology labels")
+		}
+		if !labelsSet {
+			err = operations.SetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
+			if err != nil {
+				return errors.Wrap(err, "failed to set CSI node topology labels")
+			} else {
+				logger.Info("Set CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
+			}
+		}
+	}
 	return nil
 }
