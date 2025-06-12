@@ -404,3 +404,17 @@ func GetContainerByName(ctx context.Context, c client.Client, name weka.ObjectRe
 	}
 	return container, nil
 }
+
+func SelectNonDeletedWekaContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
+	nonDeleted := make([]*weka.WekaContainer, 0, len(containers))
+	for _, container := range containers {
+		if container.DeletionTimestamp != nil {
+			continue // skip deleted containers
+		}
+		if slices.Contains([]weka.ContainerState{weka.ContainerStateDeleting, weka.ContainerStateDestroying}, container.Spec.State) {
+			continue // skip containers that are in deleting or destroying state
+		}
+		nonDeleted = append(nonDeleted, container)
+	}
+	return nonDeleted
+}

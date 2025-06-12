@@ -472,6 +472,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.container.IsOneOff,
 					loop.ResultsAreProcessed,
 					loop.container.IsDriversBuilder,
+					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
 				ContinueOnPredicatesFalse: true,
 				Throttled:                 config.Consts.CheckDriversInterval,
@@ -596,7 +597,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.WaitForNodeReady},
+			{Run: loop.HandleNodeNotReady},
 			{Run: loop.WaitForPodRunning},
 			{
 				Run:       loop.WriteResources,
@@ -2412,20 +2413,38 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) WaitForNodeReady(ctx context.Context) error {
-	node := r.node
+func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleNodeNotReady")
+	defer end()
 
-	if node != nil && !NodeIsReady(node) {
+	if r.node == nil {
+		return errors.New("node is not set")
+	}
+
+	node := r.node
+	pod := r.pod
+
+	if !NodeIsReady(node) {
 		err := fmt.Errorf("node %s is not ready", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+
+		// if node is not ready, we should terminate the pod and let it be rescheduled
+		if pod != nil && pod.Status.Phase == v1.PodRunning {
+			logger.Info("Deleting pod on NotReady node", "pod", pod.Name)
+			err := r.Delete(ctx, pod)
+			return lifecycle.NewWaitErrorWithDuration(
+				fmt.Errorf("deleting pod on NotReady node, err: %w", err),
+				time.Second*15,
+			)
+		}
 
 		// stop here, no reason to go to the next steps
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	// if node is unschedulable, just send the event
-	if node != nil && NodeIsUnschedulable(node) {
+	if NodeIsUnschedulable(node) {
 		msg := fmt.Sprintf("node %s is unschedulable", node.Name)
 
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
