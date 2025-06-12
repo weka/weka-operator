@@ -1004,6 +1004,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 		c.Manager,
 		c.wekaClient,
 		csiDriverName,
+		c.nodes,
 		false,
 	)
 
@@ -1032,6 +1033,7 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 		c.Manager,
 		c.wekaClient,
 		csiDriverName,
+		c.nodes,
 		true,
 	)
 	err := operations.ExecuteOperation(ctx, op)
