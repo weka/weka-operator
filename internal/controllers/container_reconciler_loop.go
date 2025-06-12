@@ -473,7 +473,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.container.IsOneOff,
 					loop.ResultsAreProcessed,
 					loop.container.IsDriversBuilder,
-					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
 				ContinueOnPredicatesFalse: true,
 				Throttled:                 config.Consts.CheckDriversInterval,

@@ -2580,13 +2580,24 @@ async def shutdown():
     if MODE == "drive":
         timeout = 60
         # print out in-kernel devices for up to 60 seconds every 0.3 seconds
-        requested_drives = len(await get_requested_drives())
+        requested_drives = await get_requested_drives()
+        logging.info(f"Waiting for {len(requested_drives)} requested drives to return to kernel: {requested_drives}")
+
         for _ in range(int(timeout / 0.3)):
             drives = await find_weka_drives()
             logging.info(f"Found {len(drives)}: {drives}")
-            if len(drives) == requested_drives:
-                logging.info("all drives returned to kernel")
+            in_kernel_drives_serials = [d['serial_id'] for d in drives]
+
+            requested_drives_returned = True
+            for requested_serial in requested_drives:
+                if requested_serial not in in_kernel_drives_serials:
+                    logging.info(f"Requested drive {requested_serial} not found in kernel drives")
+                    requested_drives_returned = False
+
+            if requested_drives_returned:
+                logging.info("All requested drives returned to kernel")
                 break
+
             await asyncio.sleep(0.3)
 
     for key, process in dict(processes.items()).items():
