@@ -42,21 +42,21 @@ Non-standard mount options are also reflected in the name, for example:
 ## Enabling the CSI Plugin
 
 To enable the embedded CSI plugin, set `csi.installationEnabled: true` in your Helm values or operator configuration.
+In case this method is used - no need to install CSI separately as might be instructed in other documentation.
 
 ```yaml
 # Example: enabling CSI in Helm values
 csi:
-  installationEnabled: true
+  installationEnabled: true # Feature flag to enable/disable embedded CSI
 ```
 
-## Exposed Configuration
+## Additional Configuration
 
-The configurable options in the `values.yaml` are:
+The configurable options in the `values.yaml` are as follows, defaults might differ. No need to override anything unless there are specific requirements
 
 ```yaml
 csi:
   namespace: weka-operator-system  # Namespace where CSI components will be deployed
-  installationEnabled: false       # Feature flag to enable/disable embedded CSI
   driverVersion: "2.7.2"           # Version of the CSI driver
   image: "quay.io/weka.io/csi-wekafs:v2.7.2"  # CSI driver image
   provisionerImage: "registry.k8s.io/sig-storage/csi-provisioner:v5.1.0"
@@ -99,7 +99,7 @@ For each client WekaContainer, the container reconciler:
 - **CSI Node Server Pods**: 
   - Automatically deployed alongside client containers on each node
   - Inherit tolerations from the parent WekaClient
-  - Do not inherit NodeSelector (they must run on the same node as their client container)
+  - Does not inherit NodeSelector, as scheduled by specific node affinity rules
 
 When a client container is deleted (due to node tainting, NodeSelector mismatch, etc.), its CSI node server pod is automatically removed.
 
@@ -132,21 +132,6 @@ This handles scenarios like:
 Deleting CSI resources (driver, StorageClass, controller, node server) does not affect existing mounts, PVCs, or PVs. It only prevents the provisioning and mounting of new volumes.
 
 This makes it safe to delete and recreate CSI resources with updated specifications as needed.
-
-## Troubleshooting
-
-### Known Issues
-
-#### Tracing Configuration Issues
-
-In CSI driver version 2.7.2, there's a known issue with the tracing URL configuration that can cause errors:
-
-```
-traces export: failed to exit idle mode: invalid target address https://otelcollector.rnd.weka.io:4317, 
-error info: address https://otelcollector.rnd.weka.io:4317:443: too many colons in address
-```
-
-This occurs because the driver incorrectly appends `:443` to the `--tracingurl` flag. 
 
 ## Common Operations
 

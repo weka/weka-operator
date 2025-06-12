@@ -24,3 +24,4 @@ pluginConfig:
   allowInsecureHttps: true
   skipGarbageCollection: true
 ```
+- always use embedded CSI driver when possible, instead of installing stand alone one. NFS is notable exception, as it is not supported by embedded CSI driver
