@@ -4,26 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/pkg/workers"
 	"hash/fnv"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apiserver/pkg/storage/names"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const (
@@ -75,6 +79,7 @@ type EnsureDistServiceOperation struct {
 	kubeService      kubernetes.KubeService
 
 	// Internal state
+	distContainerName   string                    // Name of the drivers-dist container
 	discoveredNodesAttr map[string]nodeAttributes // nodeName -> attributes
 	discoveredImages    map[string]bool           // imageName -> true
 	targetKernelArchs   map[string]nodeAttributes // unique kernel/arch pairs, key is na.StringKey()
@@ -146,7 +151,9 @@ func (o *EnsureDistServiceOperation) getArchLabelKey() string {
 }
 
 func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
+	defer end()
+
 	logger.Info("Discovering nodes and ensuring labels")
 
 	kernelLabelKey := o.getKernelLabelKey()
@@ -244,7 +251,9 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 }
 
 func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "DiscoverImages")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverImages")
+	defer end()
+
 	logger.Info("Discovering Weka images")
 
 	// Add images from payload
@@ -290,7 +299,48 @@ func (o *EnsureDistServiceOperation) getDistServiceName() string {
 	return fmt.Sprintf("%s%s", o.policy.GetName(), DriverDistServiceSuffix)
 }
 
-func (o *EnsureDistServiceOperation) getDistContainerName() string {
+func (o *EnsureDistServiceOperation) getDistContainerName(ctx context.Context) (string, error) {
+	// look for existing dist container (by labels)
+	if o.distContainerName != "" {
+		return o.distContainerName, nil
+	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getDistContainerName")
+	defer end()
+
+	wekaContainerList := &weka.WekaContainerList{}
+	listOpts := &client.ListOptions{
+		Namespace:     o.policy.GetNamespace(),
+		LabelSelector: labels.SelectorFromSet(o.getDistContainerLabels()),
+	}
+
+	if err := o.client.List(ctx, wekaContainerList, listOpts); err != nil {
+		if !apierrors.IsNotFound(err) {
+			logger.Error(err, "Failed to list WekaContainers for dist container")
+			return "", err
+		}
+	}
+
+	var wekaContainers []*weka.WekaContainer
+	for i := range wekaContainerList.Items {
+		wekaContainers = append(wekaContainers, &wekaContainerList.Items[i])
+	}
+
+	nonDeletedContainers := discovery.SelectNonDeletedWekaContainers(wekaContainers)
+
+	if len(nonDeletedContainers) == 0 {
+		// No existing dist container found, generate a new name
+		name := fmt.Sprintf("%s%s-", o.policy.GetName(), DriverDistContainerSuffix)
+		o.distContainerName = names.SimpleNameGenerator.GenerateName(name)
+	} else {
+		o.distContainerName = nonDeletedContainers[0].Name
+		logger.Info("Found existing dist container", "name", o.distContainerName)
+	}
+
+	return o.distContainerName, nil
+}
+
+func (o *EnsureDistServiceOperation) getDistAppName() string {
 	return fmt.Sprintf("%s%s", o.policy.GetName(), DriverDistContainerSuffix)
 }
 
@@ -299,7 +349,9 @@ func (o *EnsureDistServiceOperation) getServiceUrl() string {
 }
 
 func (o *EnsureDistServiceOperation) EnsureDistService(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "EnsureDistService")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDistService")
+	defer end()
+
 	serviceName := o.getDistServiceName()
 	namespace := o.policy.GetNamespace()
 	logger.Info("Ensuring drivers distribution service", "service", serviceName, "namespace", namespace)
@@ -334,14 +386,21 @@ func (o *EnsureDistServiceOperation) EnsureDistService(ctx context.Context) erro
 }
 
 func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "EnsureDistContainer")
-	containerName := o.getDistContainerName()
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureDistContainer")
+	defer end()
+
+	containerName, err := o.getDistContainerName(ctx)
+	if err != nil {
+		return err
+	}
+
 	namespace := o.policy.GetNamespace()
 	logger.Info("Ensuring drivers distribution (dist) container", "container", containerName, "namespace", namespace)
 
 	if o.containerDetails.Image == "" {
-		logger.Error(fmt.Errorf("image for drivers-dist container is not specified in WekaPolicy spec"), "Cannot create dist container")
-		return fmt.Errorf("image for drivers-dist container is not specified in WekaPolicy spec")
+		err := fmt.Errorf("image for drivers-dist container is not specified in WekaPolicy spec")
+		logger.Error(err, "Cannot create dist container")
+		return err
 	}
 
 	wc := &weka.WekaContainer{
@@ -352,7 +411,12 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 		},
 	}
 
-	_, err := controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
+	err = o.DeleteIfNodeNotReady(ctx, wc)
+	if err != nil {
+		return err
+	}
+
+	_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
 		wc.Spec = weka.WekaContainerSpec{
 			Image:             o.containerDetails.Image, // Image from WekaPolicy.Spec.Image
 			ImagePullSecret:   o.containerDetails.ImagePullSecret,
@@ -379,8 +443,57 @@ func (o *EnsureDistServiceOperation) EnsureDistContainer(ctx context.Context) er
 	return nil
 }
 
+func (o *EnsureDistServiceOperation) DeleteIfNodeNotReady(ctx context.Context, container *weka.WekaContainer) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleNodeNotReady")
+	defer end()
+
+	var wc weka.WekaContainer
+	err := o.client.Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, &wc)
+	if err != nil && apierrors.IsNotFound(err) {
+		return nil // Container does not exist, nothing to delete
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get WekaContainer %s: %w", container.Name, err)
+	}
+
+	// check dist container's node state and delete container if node is not ready
+	nodeName := wc.GetNodeAffinity()
+	if nodeName == "" {
+		logger.Info("Dist container has no node affinity set, skipping node readiness check", "container", wc.Name)
+		return nil
+	}
+
+	node := &corev1.Node{}
+	if err := o.client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Node not found, deleting dist container", "container", wc.Name, "node", nodeName)
+			err := o.client.Delete(ctx, container)
+
+			return lifecycle.NewWaitErrorWithDuration(
+				fmt.Errorf("node %s not found, deleting dist container %s, err: %w", nodeName, wc.Name, err),
+				time.Second*10,
+			)
+		}
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	if NodeNotReady(node) {
+		logger.Info("Node is not ready, deleting dist container", "container", wc.Name, "node", nodeName)
+		err := o.client.Delete(ctx, container)
+
+		return lifecycle.NewWaitErrorWithDuration(
+			fmt.Errorf("node %s is not ready, deleting dist container %s, err: %w", nodeName, wc.Name, err),
+			time.Second*10,
+		)
+	}
+
+	return nil // Node is ready, no action needed
+}
+
 func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "EnsureBuilderContainers")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureBuilderContainers")
+	defer end()
+
 	logger.Info("Ensuring drivers builder containers")
 
 	if len(o.targetKernelArchs) == 0 {
@@ -408,7 +521,12 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 				},
 			}
 
-			_, err := controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
+			distContainerName, err := o.getDistContainerName(ctx)
+			if err != nil {
+				return err
+			}
+
+			_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
 				wc.Spec = weka.WekaContainerSpec{
 					Image:             image,                              // The Weka image for which to build drivers
 					ImagePullSecret:   o.containerDetails.ImagePullSecret, // Assuming same pull secret for all
@@ -417,7 +535,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					AgentPort:         60001,
 					Port:              60002,
 					NumCores:          1,
-					UploadResultsTo:   o.getDistContainerName(),
+					UploadResultsTo:   distContainerName,
 					Tolerations:       o.containerDetails.Tolerations,
 					// NodeSelector logic:
 					// Merge payload selector (ka.nodeSelector), specific kernel/arch, and amd64.
@@ -489,7 +607,9 @@ fi
 }
 
 func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "PollBuilderContainersStatus")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "PollBuilderContainersStatus")
+	defer end()
+
 	logger.Info("Polling builder containers status")
 
 	var builderList weka.WekaContainerList
@@ -564,7 +684,9 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 }
 
 func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Context) error {
-	_, logger, _ := instrumentation.GetLogSpan(ctx, "CleanupOldBuilderContainers")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupOldBuilderContainers")
+	defer end()
+
 	logger.Info("Cleaning up old builder containers")
 
 	var existingBuilderList weka.WekaContainerList
@@ -621,7 +743,7 @@ func (o *EnsureDistServiceOperation) getCommonLabels() map[string]string {
 
 func (o *EnsureDistServiceOperation) getDistContainerLabels() map[string]string {
 	labels := o.getCommonLabels()
-	labels["app"] = o.getDistContainerName() // For service selector
+	labels["app"] = o.getDistAppName() // For service selector
 	labels["weka.io/mode"] = weka.WekaContainerModeDriversDist
 	return labels
 }
@@ -677,4 +799,16 @@ func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
 		Name: "EnableLocalDriversDistribution",
 		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
 	}
+}
+
+func NodeNotReady(node *corev1.Node) bool {
+	if node == nil {
+		return true // If node is nil, consider it not ready
+	}
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady && condition.Status != corev1.ConditionTrue {
+			return true // Node is not ready
+		}
+	}
+	return false // Node is ready
 }
