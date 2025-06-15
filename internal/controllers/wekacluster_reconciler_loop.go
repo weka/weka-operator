@@ -2065,9 +2065,14 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
 	// TODO: Re-wrap as operation
 
-	labels := map[string]string{
+	identifierLabels := map[string]string{
 		"app":                "weka-cluster-monitoring",
 		"weka.io/cluster-id": string(r.cluster.GetUID()),
+	}
+
+	labels := make(map[string]string)
+	for k, v := range identifierLabels {
+		labels[k] = v
 	}
 	for k, v := range r.cluster.Labels {
 		labels[k] = v
@@ -2181,7 +2186,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	// we should have deployment at hand now
 	kubeService := kubernetes.NewKubeService(r.getClient())
 	// searching for own pods
-	pods, err := kubeService.GetPodsSimple(ctx, r.cluster.Namespace, "", labels)
+	pods, err := kubeService.GetPodsSimple(ctx, r.cluster.Namespace, "", identifierLabels)
 	if err != nil {
 		return err
 	}
