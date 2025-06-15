@@ -11,8 +11,10 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, asdict
 from functools import lru_cache, partial
+from os import makedirs
 from os.path import exists
 from textwrap import dedent
 from typing import List, Optional, Tuple
@@ -1315,14 +1317,20 @@ async def ensure_weka_container():
             resources['net_devices'][0]['gateway'] = NET_GATEWAY
 
     # save resources
-    with open("/tmp/weka-resources.json", "w") as f:
+    resources_dir = f"/opt/weka/k8s-runtime/resources"
+    os.makedirs(resources_dir, exist_ok=True)
+    resource_gen = str(uuid.uuid4())
+    resource_file = f"{resources_dir}/weka-resources.{resource_gen}.json"
+    with open(resource_file, "w") as f:
         json.dump(resources, f)
     # reconfigure containers
     stdout, stderr, ec = await run_command(f"""
-        mv /tmp/weka-resources.json /opt/weka/data/{NAME}/container/resources-operator.json
-        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json
-        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.stable
-        ln -sf resources-operator.json /opt/weka/data/{NAME}/container/resources.json.staging
+        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json
+        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json.stable
+        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json.staging
+        ln -sf {resource_file} /opt/weka/data/{NAME}/weka-resources.{resource_gen}.json
+        # at some point weka creates such, basically expecting relative path: 'resources.json.stable -> weka-resources.35fda56d-2ce3-4f98-b77c-a399df0940af.json'
+        # stable flow might not even be used, and should be fixed on wekapp side
     """)
 
     # cli-based changes
