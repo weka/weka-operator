@@ -783,6 +783,79 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
 	}
 
+	// process api metrics
+	apiTaggedValues := []metrics2.TaggedValue{}
+	apiStats := []CategoryStat{
+		{Stat: "TOTAL_2xx_RQ", Category: "api"},
+		{Stat: "TOTAL_3xx_RQ", Category: "api"},
+		{Stat: "TOTAL_4xx_RQ", Category: "api"},
+		{Stat: "TOTAL_429_RQ", Category: "api"},
+		{Stat: "TOTAL_5xx_RQ", Category: "api"},
+	}
+
+	for _, apiStat := range apiStats {
+		if stats, ok := groupedMetrics[apiStat]; ok {
+			httpCodeGroup := ""
+			switch apiStat.Stat {
+			case "TOTAL_2xx_RQ":
+				httpCodeGroup = "2xx"
+			case "TOTAL_3xx_RQ":
+				httpCodeGroup = "3xx"
+			case "TOTAL_4xx_RQ", "TOTAL_429_RQ":
+				httpCodeGroup = "4xx"
+			case "TOTAL_5xx_RQ":
+				httpCodeGroup = "5xx"
+			}
+
+			for _, stat := range stats {
+				processed := processStat(ctx, stat, container)
+				apiTaggedValues = append(apiTaggedValues, metrics2.TaggedValue{
+					Tags: util.MergeMaps(labels, metrics2.TagMap{
+						"http_code_group": httpCodeGroup,
+						"process_id":      strconv.Itoa(processed.NodeId),
+					}),
+					Value:     processed.Value,
+					Timestamp: container.statsResponseLastPoll,
+				})
+			}
+			delete(groupedMetrics, apiStat)
+		}
+	}
+
+	if len(apiTaggedValues) > 0 {
+		// aggregation logic
+		aggregated := make(map[string]metrics2.TaggedValue)
+
+		for _, tv := range apiTaggedValues {
+			var sb strings.Builder
+			for k, v := range util.MapOrdered(tv.Tags) {
+				sb.WriteString(k)
+				sb.WriteString("=")
+				sb.WriteString(v)
+				sb.WriteString(",")
+			}
+			key := sb.String()
+
+			if existing, ok := aggregated[key]; ok {
+				existing.Value += tv.Value
+				aggregated[key] = existing
+			} else {
+				aggregated[key] = tv
+			}
+		}
+
+		finalValues := make([]metrics2.TaggedValue, 0, len(aggregated))
+		for _, v := range aggregated {
+			finalValues = append(finalValues, v)
+		}
+
+		response.AddMetric(metrics2.PromMetric{
+			Metric: "weka_api_requests_total",
+			Help:   "Total API requests by HTTP code group",
+			Type:   "counter",
+		}, finalValues)
+	}
+
 	for categoryStat, stats := range groupedMetrics {
 		taggedValues := []metrics2.TaggedValue{}
 		switch categoryStat {
