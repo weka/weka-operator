@@ -707,11 +707,11 @@ type CategoryStat struct {
 type GrouppedMetrics map[CategoryStat][]WekaStat
 
 type processedStat struct {
-	Stat         string    `json:"stat"`
-	Value        float64   `json:"value"`
-	NodeId       int       `json:"nodeId"`
-	FsName       string    `json:"fsName"`
-	DriveDetails WekaDrive `json:"driveDetails"`
+	OriginalStat WekaStat
+	Value        float64
+	NodeId       int
+	FsName       string
+	DriveDetails WekaDrive
 }
 
 func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) processedStat {
@@ -758,12 +758,53 @@ func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) p
 	}
 
 	return processedStat{
-		Stat:         stat.Stat,
+		OriginalStat: stat,
 		Value:        floatVal,
 		NodeId:       nodeIdInt,
 		FsName:       fsName,
 		DriveDetails: wekaDrive,
 	}
+}
+
+type MetricDefinition struct {
+	PromMetricName string
+	Help           string
+	Type           string
+	CategoryStats  []CategoryStat
+	ValueTransform func(float64) float64
+	TagsFunc       func(p processedStat) metrics2.TagMap
+	Aggregate      bool
+	Reduce         bool
+	ReduceBy       string
+	ReduceKeep     []string
+}
+
+func aggregateTaggedValues(values []metrics2.TaggedValue) []metrics2.TaggedValue {
+	aggregated := make(map[string]metrics2.TaggedValue)
+
+	for _, tv := range values {
+		var sb strings.Builder
+		for k, v := range util.MapOrdered(tv.Tags) {
+			sb.WriteString(k)
+			sb.WriteString("=")
+			sb.WriteString(v)
+			sb.WriteString(",")
+		}
+		key := sb.String()
+
+		if existing, ok := aggregated[key]; ok {
+			existing.Value += tv.Value
+			aggregated[key] = existing
+		} else {
+			aggregated[key] = tv
+		}
+	}
+
+	finalValues := make([]metrics2.TaggedValue, 0, len(aggregated))
+	for _, v := range aggregated {
+		finalValues = append(finalValues, v)
+	}
+	return finalValues
 }
 
 func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.PromResponse, container *ContainerInfo, labels map[string]string) {
@@ -783,408 +824,232 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
 	}
 
-	// process api metrics
-	apiTaggedValues := []metrics2.TaggedValue{}
-	apiStats := []CategoryStat{
-		{Stat: "TOTAL_2xx_RQ", Category: "api"},
-		{Stat: "TOTAL_3xx_RQ", Category: "api"},
-		{Stat: "TOTAL_4xx_RQ", Category: "api"},
-		{Stat: "TOTAL_429_RQ", Category: "api"},
-		{Stat: "TOTAL_5xx_RQ", Category: "api"},
+	latencyToSeconds := func(v float64) float64 { return v / (1000 * 1000) }
+	blocksToBytes := func(v float64) float64 { return v * 4096 }
+
+	fsTags := func(p processedStat) metrics2.TagMap {
+		return metrics2.TagMap{
+			"fs_id":      p.OriginalStat.Params.FsId,
+			"fs_name":    p.FsName,
+			"process_id": strconv.Itoa(p.NodeId),
+		}
 	}
-
-	for _, apiStat := range apiStats {
-		if stats, ok := groupedMetrics[apiStat]; ok {
-			httpCodeGroup := ""
-			switch apiStat.Stat {
-			case "TOTAL_2xx_RQ":
-				httpCodeGroup = "2xx"
-			case "TOTAL_3xx_RQ":
-				httpCodeGroup = "3xx"
-			case "TOTAL_4xx_RQ", "TOTAL_429_RQ":
-				httpCodeGroup = "4xx"
-			case "TOTAL_5xx_RQ":
-				httpCodeGroup = "5xx"
-			}
-
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				apiTaggedValues = append(apiTaggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"http_code_group": httpCodeGroup,
-						"process_id":      strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			delete(groupedMetrics, apiStat)
+	driveTags := func(p processedStat) metrics2.TagMap {
+		return metrics2.TagMap{
+			"status":     p.DriveDetails.Status,
+			"serial":     p.DriveDetails.SerialNumber,
+			"weka_uid":   p.DriveDetails.Uid,
+			"is_failed":  strconv.FormatBool(p.DriveDetails.IsFailed),
+			"process_id": strconv.Itoa(p.NodeId),
+		}
+	}
+	networkTags := func(p processedStat) metrics2.TagMap {
+		return metrics2.TagMap{
+			"process_id": strconv.Itoa(p.NodeId),
 		}
 	}
 
-	if len(apiTaggedValues) > 0 {
-		// aggregation logic
-		aggregated := make(map[string]metrics2.TaggedValue)
-
-		for _, tv := range apiTaggedValues {
-			var sb strings.Builder
-			for k, v := range util.MapOrdered(tv.Tags) {
-				sb.WriteString(k)
-				sb.WriteString("=")
-				sb.WriteString(v)
-				sb.WriteString(",")
-			}
-			key := sb.String()
-
-			if existing, ok := aggregated[key]; ok {
-				existing.Value += tv.Value
-				aggregated[key] = existing
-			} else {
-				aggregated[key] = tv
-			}
-		}
-
-		finalValues := make([]metrics2.TaggedValue, 0, len(aggregated))
-		for _, v := range aggregated {
-			finalValues = append(finalValues, v)
-		}
-
-		response.AddMetric(metrics2.PromMetric{
-			Metric: "weka_api_requests_total",
-			Help:   "Total API requests by HTTP code group",
-			Type:   "counter",
-		}, finalValues)
+	metricDefinitions := []MetricDefinition{
+		{
+			PromMetricName: "weka_api_requests_total",
+			Help:           "Total API requests by HTTP code group",
+			Type:           "counter",
+			CategoryStats: []CategoryStat{
+				{Stat: "TOTAL_2xx_RQ", Category: "api"}, {Stat: "TOTAL_3xx_RQ", Category: "api"},
+				{Stat: "TOTAL_4xx_RQ", Category: "api"}, {Stat: "TOTAL_429_RQ", Category: "api"},
+				{Stat: "TOTAL_5xx_RQ", Category: "api"},
+			},
+			TagsFunc: func(p processedStat) metrics2.TagMap {
+				httpCodeGroup := ""
+				switch p.OriginalStat.Stat {
+				case "TOTAL_2xx_RQ":
+					httpCodeGroup = "2xx"
+				case "TOTAL_3xx_RQ":
+					httpCodeGroup = "3xx"
+				case "TOTAL_4xx_RQ", "TOTAL_429_RQ":
+					httpCodeGroup = "4xx"
+				case "TOTAL_5xx_RQ":
+					httpCodeGroup = "5xx"
+				}
+				return metrics2.TagMap{"http_code_group": httpCodeGroup, "process_id": strconv.Itoa(p.NodeId)}
+			},
+			Aggregate: true,
+		},
+		{
+			PromMetricName: "weka_fs_read_requests_total",
+			Help:           "Number of reads per weka filesystem",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "READS", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_fs_write_requests_total",
+			Help:           "Number of writes per weka filesystem",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "WRITES", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_fs_read_seconds_total",
+			Help:           "Total read latency per weka filesystem, divide by reads to get average",
+			CategoryStats:  []CategoryStat{{Stat: "READ_LATENCY", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			ValueTransform: latencyToSeconds,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_fs_write_seconds_total",
+			Help:           "Total write latency per weka filesystem, divide by writes to get average",
+			CategoryStats:  []CategoryStat{{Stat: "WRITE_LATENCY", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			ValueTransform: latencyToSeconds,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_fs_read_bytes_total",
+			Help:           "Total read bytes per weka filesystem",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "READ_BYTES", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_fs_write_bytes_total",
+			Help:           "Total write bytes per weka filesystem",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "WRITE_BYTES", Category: "fs_stats"}},
+			TagsFunc:       fsTags,
+			Reduce:         true,
+			ReduceBy:       "process_id",
+			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_port_tx_bytes_total",
+			Help:           "Total bytes transmitted per weka node",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "PORT_TX_BYTES", Category: "network"}},
+			TagsFunc:       networkTags,
+		},
+		{
+			PromMetricName: "weka_port_rx_bytes_total",
+			Help:           "Total bytes received per weka node",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "PORT_RX_BYTES", Category: "network"}},
+			TagsFunc:       networkTags,
+		},
+		{
+			PromMetricName: "weka_drive_read_requests_total",
+			Help:           "Total read operations per weka drive",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_READ_OPS", Category: "ssd"}},
+			TagsFunc:       driveTags,
+		},
+		{
+			PromMetricName: "weka_drive_write_requests_total",
+			Help:           "Total write operations per weka drive",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_WRITE_OPS", Category: "ssd"}},
+			TagsFunc:       driveTags,
+		},
+		{
+			PromMetricName: "weka_drive_write_seconds_total",
+			Help:           "Total duration of drive writes per drive drive, divide by writes to get average latency",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_WRITE_LATENCY", Category: "ssd"}},
+			TagsFunc:       driveTags,
+			ValueTransform: latencyToSeconds,
+		},
+		{
+			PromMetricName: "weka_drive_read_seconds_total",
+			Help:           "Total duration of drive reads per drive drive, divide by reads to get average latency",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_READ_LATENCY", Category: "ssd"}},
+			TagsFunc:       driveTags,
+			ValueTransform: latencyToSeconds,
+		},
+		{
+			PromMetricName: "weka_drive_read_bytes_total",
+			Help:           "Total bytes read per drive",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_MEDIA_BLOCKS_READ", Category: "ssd"}},
+			TagsFunc:       driveTags,
+			ValueTransform: blocksToBytes,
+		},
+		{
+			PromMetricName: "weka_drive_write_bytes_total",
+			Help:           "Total bytes written per drive",
+			Type:           "counter",
+			CategoryStats:  []CategoryStat{{Stat: "DRIVE_MEDIA_BLOCKS_WRITE", Category: "ssd"}},
+			TagsFunc:       driveTags,
+			ValueTransform: blocksToBytes,
+		},
+		{
+			PromMetricName: "weka_drive_smart_media_errors_sample",
+			Help:           "Total media errors per drive",
+			Type:           "gauge",
+			CategoryStats:  []CategoryStat{{Stat: "NVME_SMART_MEDIA_ERRORS", Category: "ssd"}},
+			TagsFunc:       driveTags,
+		},
+		{
+			PromMetricName: "weka_drive_smart_critical_warnings_sample",
+			Help:           "Total critical warnings per drive",
+			Type:           "gauge",
+			CategoryStats:  []CategoryStat{{Stat: "NVME_SMART_CRITICAL_WARNING", Category: "ssd"}},
+			TagsFunc:       driveTags,
+		},
+		{
+			PromMetricName: "weka_drive_smart_composite_temp",
+			Help:           "Composite temperature of drives",
+			Type:           "gauge",
+			CategoryStats:  []CategoryStat{{Stat: "NVME_SMART_COMPOSITE_TEMP", Category: "ssd"}},
+			TagsFunc:       driveTags,
+		},
 	}
 
-	for categoryStat, stats := range groupedMetrics {
-		taggedValues := []metrics2.TaggedValue{}
-		switch categoryStat {
-		case CategoryStat{Stat: "READS", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-				// TODO Parametrize by cluster->container config to allow user to choose if to aggregate for them
+	for _, def := range metricDefinitions {
+		var taggedValues []metrics2.TaggedValue
+		for _, cs := range def.CategoryStats {
+			if stats, ok := groupedMetrics[cs]; ok {
+				for _, stat := range stats {
+					processed := processStat(ctx, stat, container)
+					value := processed.Value
+					if def.ValueTransform != nil {
+						value = def.ValueTransform(value)
+					}
+					taggedValues = append(taggedValues, metrics2.TaggedValue{
+						Tags:      util.MergeMaps(labels, def.TagsFunc(processed)),
+						Value:     value,
+						Timestamp: container.statsResponseLastPoll,
+					})
+				}
+				delete(groupedMetrics, cs)
 			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			// we first build taggedValues as a proxy, and then doing another pass to summarize dropping one tag and groupping by rest of tags
+		}
+
+		if len(taggedValues) > 0 {
+			if def.Aggregate {
+				taggedValues = aggregateTaggedValues(taggedValues)
+			}
+			if def.Reduce {
+				taggedValues = sumTagsBy(def.ReduceBy, def.ReduceKeep, taggedValues)
+			}
 
 			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_read_requests_total",
-				Help:   "Number of reads per weka filesystem",
-				Type:   "counter",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "WRITES", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_write_requests_total",
-				Help:   "Number of writes per weka filesystem",
-				Type:   "counter",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "READ_LATENCY", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_read_seconds_total",
-				Help:   "Total read latency per weka filesystem, divide by reads to get average",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "WRITE_LATENCY", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_write_seconds_total",
-				Help:   "Total write latency per weka filesystem, divide by writes to get average",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "READ_BYTES", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_read_bytes_total",
-				Help:   "Total read bytes per weka filesystem",
-				Type:   "counter",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "WRITE_BYTES", Category: "fs_stats"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"fs_id":      stat.Params.FsId,
-						"fs_name":    processed.FsName,
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			reducedTaggedValues := sumTagsBy("process_id", []string{"fs_id", "fs_name"}, taggedValues)
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_fs_write_bytes_total",
-				Help:   "Total write bytes per weka filesystem",
-				Type:   "counter",
-			}, reducedTaggedValues)
-		case CategoryStat{Stat: "PORT_TX_BYTES", Category: "network"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_port_tx_bytes_total",
-				Help:   "Total bytes transmitted per weka node",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "PORT_RX_BYTES", Category: "network"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_port_rx_bytes_total",
-				Help:   "Total bytes received per weka node",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_READ_OPS", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_read_requests_total",
-				Help:   "Total read operations per weka drive",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_WRITE_OPS", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_write_requests_total",
-				Help:   "Total write operations per weka drive",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_WRITE_LATENCY", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_write_seconds_total",
-				Help:   "Total duration of drive writes per drive drive, divide by writes to get average latency",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_READ_LATENCY", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value / (1000 * 1000), // microseconds to seconds
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_read_seconds_total",
-				Help:   "Total duration of drive reads per drive drive, divide by reads to get average latency",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_MEDIA_BLOCKS_READ", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value * 4096,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_read_bytes_total",
-				Help:   "Total bytes read per drive",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "DRIVE_MEDIA_BLOCKS_WRITE", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value * 4096,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_write_bytes_total",
-				Help:   "Total bytes written per drive",
-				Type:   "counter",
-			}, taggedValues)
-		case CategoryStat{Stat: "NVME_SMART_MEDIA_ERRORS", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_smart_media_errors_sample",
-				Help:   "Total media errors per drive",
-				Type:   "gauge",
-			}, taggedValues)
-		case CategoryStat{Stat: "NVME_SMART_CRITICAL_WARNING", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_smart_critical_warnings_sample",
-				Help:   "Total critical warnings per drive",
-				Type:   "gauge",
-			}, taggedValues)
-		case CategoryStat{Stat: "NVME_SMART_COMPOSITE_TEMP", Category: "ssd"}:
-			for _, stat := range stats {
-				processed := processStat(ctx, stat, container)
-				taggedValues = append(taggedValues, metrics2.TaggedValue{
-					Tags: util.MergeMaps(labels, metrics2.TagMap{
-						"status":     processed.DriveDetails.Status,
-						"serial":     processed.DriveDetails.SerialNumber,
-						"weka_uid":   processed.DriveDetails.Uid,
-						"is_failed":  strconv.FormatBool(processed.DriveDetails.IsFailed),
-						"process_id": strconv.Itoa(processed.NodeId),
-					}),
-					Value:     processed.Value,
-					Timestamp: container.statsResponseLastPoll,
-				})
-			}
-			response.AddMetric(metrics2.PromMetric{
-				Metric: "weka_drive_smart_composite_temp",
-				Help:   "Composite temperature of drives",
-				Type:   "gauge",
+				Metric: def.PromMetricName,
+				Help:   def.Help,
+				Type:   def.Type,
 			}, taggedValues)
 		}
 	}
