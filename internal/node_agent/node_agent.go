@@ -475,8 +475,9 @@ type LocalCpuUtilizationResponse struct {
 
 type WekaStat struct {
 	Params struct {
-		FsId string `json:"fS,omitempty"`   // integer in string format
-		Disk string `json:"disk,omitempty"` // integer in string format
+		FsId  string `json:"fS,omitempty"`   // integer in string format
+		Disk  string `json:"disk,omitempty"` // integer in string format
+		FeIdx string `json:"feIdx,omitempty"`
 	} `json:"params"`
 	Stat     string `json:"stat"`
 	NodeId   string `json:"nodeId"` //NodeId<25011>
@@ -770,6 +771,7 @@ type MetricDefinition struct {
 	PromMetricName string
 	Help           string
 	Type           string
+	Modes          []string
 	CategoryStats  []CategoryStat
 	ValueTransform func(float64) float64
 	TagsFunc       func(p processedStat) metrics2.TagMap
@@ -854,6 +856,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			PromMetricName: "weka_api_requests_total",
 			Help:           "Total API requests by HTTP code group",
 			Type:           "counter",
+			Modes:          []string{weka.WekaContainerModeCompute, weka.WekaContainerModeDrive},
 			CategoryStats: []CategoryStat{
 				{Stat: "TOTAL_2xx_RQ", Category: "api"}, {Stat: "TOTAL_3xx_RQ", Category: "api"},
 				{Stat: "TOTAL_4xx_RQ", Category: "api"}, {Stat: "TOTAL_429_RQ", Category: "api"},
@@ -866,8 +869,10 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 					httpCodeGroup = "2xx"
 				case "TOTAL_3xx_RQ":
 					httpCodeGroup = "3xx"
-				case "TOTAL_4xx_RQ", "TOTAL_429_RQ":
+				case "TOTAL_4xx_RQ":
 					httpCodeGroup = "4xx"
+				case "TOTAL_429_RQ":
+					httpCodeGroup = "429"
 				case "TOTAL_5xx_RQ":
 					httpCodeGroup = "5xx"
 				}
@@ -934,6 +939,17 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			Reduce:         true,
 			ReduceBy:       "process_id",
 			ReduceKeep:     []string{"fs_id", "fs_name"},
+		},
+		{
+			PromMetricName: "weka_client_pending_ios_count",
+			Help:           "Total pending IO operations for a weka client container",
+			Type:           "gauge",
+			Modes:          []string{weka.WekaContainerModeClient},
+			CategoryStats:  []CategoryStat{{Stat: "PENDING_IOS_COUNT", Category: "ops_driver"}},
+			TagsFunc: func(p processedStat) metrics2.TagMap {
+				return metrics2.TagMap{}
+			},
+			Aggregate: true,
 		},
 		{
 			PromMetricName: "weka_port_tx_bytes_total",
@@ -1019,6 +1035,9 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 	}
 
 	for _, def := range metricDefinitions {
+		if len(def.Modes) > 0 && !slices.Contains(def.Modes, container.mode) {
+			continue
+		}
 		var taggedValues []metrics2.TaggedValue
 		for _, cs := range def.CategoryStats {
 			if stats, ok := groupedMetrics[cs]; ok {
