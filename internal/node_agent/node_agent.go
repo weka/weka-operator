@@ -54,8 +54,10 @@ type ContainerInfo struct {
 	mode                   string
 	scrapeTargets          []ScrapeTarget
 	scrappedData           map[ScrapeTarget][]byte
-	statsResponse          StatsResponse
-	statsResponseLastPoll  time.Time
+	statsResponse                StatsResponse
+	statsResponseLastPoll        time.Time
+	pendingIOsFromProcfs         int
+	pendingIOsFromProcfsLastPoll time.Time
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -135,6 +137,79 @@ func NewNodeAgent(logger logr.Logger) *NodeAgent {
 			data: make(map[string]*ContainerInfo),
 		},
 	}
+}
+
+// getPendingIOsFromProcfs reads the /proc/wekafs/<wekaContainerName>/queue file
+// and counts IO operations with an age greater than 1 minute.
+// The wekaContainerName is expected to be the directory name in /proc/wekafs/
+func getPendingIOsFromProcfs(ctx context.Context, wekaContainerName string) (int, error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "getPendingIOsFromProcfs", "wekaContainerName", wekaContainerName)
+	defer end()
+
+	filePath := fmt.Sprintf("/proc/wekafs/%s/queue", wekaContainerName)
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.V(1).Info("Procfs queue file not found, assuming 0 pending IOs.", "path", filePath)
+			return 0, nil // File not existing could mean client is not active or no IOs, treat as 0.
+		}
+		return 0, errors.Wrapf(err, "failed to open procfs queue file %s", filePath)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	pendingIOsCount := 0
+	inDataSection := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if !inDataSection {
+			// Header line starts with '#' and contains specific keywords
+			if strings.HasPrefix(line, "#") && strings.Contains(line, "FE") && strings.Contains(line, "opcode") && strings.Contains(line, "age") {
+				inDataSection = true
+			}
+			continue // Skip lines until the data section header is found
+		}
+
+		// Lines indicating end of data section or summary lines
+		if line == "" || strings.HasPrefix(line, "total:") || strings.HasPrefix(line, "Gateway is aware") || strings.HasPrefix(line, "Container ") {
+			break // Stop parsing if we are past the IO data lines
+		}
+
+		fields := strings.Fields(line)
+		// Age and unit are expected to be the last two fields.
+		if len(fields) < 2 {
+			logger.V(2).Info("Skipping short/malformed line in procfs queue file", "line", line)
+			continue
+		}
+
+		ageStr := fields[len(fields)-2]
+		unitStr := fields[len(fields)-1]
+
+		if unitStr != "ms" {
+			// This might be a line that is not an IO entry, or a malformed entry.
+			logger.V(2).Info("Unexpected age unit or not an IO data line in procfs queue file", "unit", unitStr, "line", line)
+			continue
+		}
+
+		ageMs, errConv := strconv.ParseInt(ageStr, 10, 64)
+		if errConv != nil {
+			logger.V(1).Info("Failed to parse age in procfs queue file", "age", ageStr, "line", line, "error", errConv)
+			continue
+		}
+
+		if ageMs > 60000 { // 1 minute = 60,000 milliseconds
+			pendingIOsCount++
+		}
+	}
+
+	if errScan := scanner.Err(); errScan != nil {
+		return 0, errors.Wrapf(errScan, "error scanning procfs queue file %s", filePath)
+	}
+
+	logger.V(1).Info("Successfully parsed procfs queue file", "path", filePath, "pendingIOsCount", pendingIOsCount)
+	return pendingIOsCount, nil
 }
 
 func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
@@ -504,9 +579,9 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		var response LocalConfigStateResponse
 		err := jrpcCall(ctx, container, "get_local_config_summary", &response)
 		if err != nil {
-			return err
-		}
-		if response.Result.HasLease == nil || *response.Result.HasLease {
+			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
+			// Do not return; attempt to gather other metrics.
+		} else if response.Result.HasLease == nil || *response.Result.HasLease {
 			//if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
 			container.containerState = response
 			container.containerStateLastPull = time.Now()
@@ -515,10 +590,12 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		var cpuResponse LocalCpuUtilizationResponse
 		err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
 		if err != nil {
-			return err
+			logger.Error(err, "Failed to fetch local realtime cpu usage, proceeding with other metrics")
+			// Do not return; attempt to gather other metrics.
+		} else {
+			container.cpuInfo = cpuResponse
+			container.cpuInfoLastPoll = time.Now()
 		}
-		container.cpuInfo = cpuResponse
-		container.cpuInfoLastPoll = time.Now()
 
 		var statsResponse StatsResponse
 		err = jrpcCall(ctx, container, "fetch_local_stats", &statsResponse)
@@ -527,6 +604,18 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		} else {
 			container.statsResponse = statsResponse
 			container.statsResponseLastPoll = time.Now()
+		}
+
+		if container.mode == weka.WekaContainerModeClient {
+			pendingIOs, errGetIOs := getPendingIOsFromProcfs(ctx, container.wekaContainerName)
+			if errGetIOs != nil {
+				// Log error but don't fail the whole metric population for this.
+				// The metric will either be absent or stale if this fails.
+				logger.Error(errGetIOs, "Failed to get pending IOs from procfs", "wekaContainerName", container.wekaContainerName)
+			} else {
+				container.pendingIOsFromProcfs = pendingIOs
+				container.pendingIOsFromProcfsLastPoll = time.Now()
+			}
 		}
 	}
 
@@ -779,10 +868,13 @@ type MetricDefinition struct {
 	CategoryStats  []CategoryStat
 	ValueTransform func(float64) float64
 	TagsFunc       func(p processedStat) metrics2.TagMap
-	Aggregate      bool
-	Reduce         bool
-	ReduceBy       string
-	ReduceKeep     []string
+	// CustomGetValueAndTagsFunc provides an alternative way to fetch metric values and tags,
+	// bypassing the CategoryStats logic. If set, it's used; otherwise, CategoryStats processing is attempted.
+	CustomGetValueAndTagsFunc func(ctx context.Context, container *ContainerInfo, baseLabels metrics2.TagMap) []metrics2.TaggedValue
+	Aggregate                 bool
+	Reduce                    bool
+	ReduceBy                  string
+	ReduceKeep                []string
 }
 
 func aggregateTaggedValues(values []metrics2.TaggedValue) []metrics2.TaggedValue {
@@ -946,14 +1038,23 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		},
 		{
 			PromMetricName: "weka_client_pending_ios_count",
-			Help:           "Total pending IO operations for a weka client container",
+			Help:           "Total pending IO operations (age > 1min) for a weka client container, from /proc/wekafs.",
 			Type:           "gauge",
 			Modes:          []string{weka.WekaContainerModeClient},
-			CategoryStats:  []CategoryStat{{Stat: "PENDING_IOS_COUNT", Category: "ops_driver"}},
-			TagsFunc: func(p processedStat) metrics2.TagMap {
-				return metrics2.TagMap{}
+			// CategoryStats is nil/empty for this custom metric
+			TagsFunc: func(p processedStat) metrics2.TagMap { return metrics2.TagMap{} }, // Returns empty, base labels are sufficient
+			CustomGetValueAndTagsFunc: func(ctx context.Context, container *ContainerInfo, baseLabels metrics2.TagMap) []metrics2.TaggedValue {
+				var taggedValues []metrics2.TaggedValue
+				if time.Since(container.pendingIOsFromProcfsLastPoll) <= 5*time.Minute {
+					taggedValues = append(taggedValues, metrics2.TaggedValue{
+						Tags:      baseLabels, // Custom logic might add more tags here if needed by merging with baseLabels
+						Value:     float64(container.pendingIOsFromProcfs),
+						Timestamp: container.pendingIOsFromProcfsLastPoll,
+					})
+				}
+				return taggedValues
 			},
-			Aggregate: true,
+			// Aggregate: true, // Not strictly needed for a single value metric with simple tags
 		},
 		{
 			PromMetricName: "weka_port_tx_bytes_total",
@@ -1043,21 +1144,29 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 			continue
 		}
 		var taggedValues []metrics2.TaggedValue
-		for _, cs := range def.CategoryStats {
-			if stats, ok := groupedMetrics[cs]; ok {
-				for _, stat := range stats {
-					processed := processStat(ctx, stat, container)
-					value := processed.Value
-					if def.ValueTransform != nil {
-						value = def.ValueTransform(value)
+
+		if def.CustomGetValueAndTagsFunc != nil {
+			taggedValues = def.CustomGetValueAndTagsFunc(ctx, container, labels)
+		} else if len(def.CategoryStats) > 0 {
+			for _, cs := range def.CategoryStats {
+				if stats, ok := groupedMetrics[cs]; ok {
+					for _, stat := range stats {
+						processed := processStat(ctx, stat, container)
+						value := processed.Value
+						if def.ValueTransform != nil {
+							value = def.ValueTransform(value)
+						}
+						var currentTags metrics2.TagMap = metrics2.TagMap{}
+						if def.TagsFunc != nil {
+							currentTags = def.TagsFunc(processed)
+						}
+						taggedValues = append(taggedValues, metrics2.TaggedValue{
+							Tags:      util.MergeMaps(labels, currentTags),
+							Value:     value,
+							Timestamp: container.statsResponseLastPoll,
+						})
 					}
-					taggedValues = append(taggedValues, metrics2.TaggedValue{
-						Tags:      util.MergeMaps(labels, def.TagsFunc(processed)),
-						Value:     value,
-						Timestamp: container.statsResponseLastPoll,
-					})
 				}
-				delete(groupedMetrics, cs)
 			}
 		}
 
