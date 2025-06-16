@@ -235,6 +235,10 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			containerLabels["weka_io_cluster_name"] = defaultLabels["weka_io_target_cluster_name"]
 		}
 
+		if cluster_name, ok := defaultLabels["weka_io_cluster_name"]; ok {
+			containerLabels["cluster_name"] = cluster_name
+		}
+
 		for _, target := range container.scrapeTargets {
 			if container.scrappedData == nil {
 				continue
