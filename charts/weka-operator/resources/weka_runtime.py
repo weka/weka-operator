@@ -14,11 +14,9 @@ import time
 import uuid
 from dataclasses import dataclass, asdict, fields
 from functools import lru_cache, partial
-from os import makedirs
 from os.path import exists
 from textwrap import dedent
 from typing import List, Optional, Tuple, Set, Union
-
 
 
 @dataclass
@@ -114,6 +112,7 @@ logging.basicConfig(
     handlers=[stdout_handler, stderr_handler]
 )
 
+
 class FeaturesFlags:
     # Bit positions (class-level ints) – will be shadowed by bools on the instance
     traces_override_partial_support: Union[bool, int] = 0
@@ -124,12 +123,13 @@ class FeaturesFlags:
 
         # Walk over class attributes that are ints (flag indices)
         for name, bit in self.__class__.__dict__.items():
-            if isinstance(bit, int):        # skip dunders, methods, etc.
+            if isinstance(bit, int):  # skip dunders, methods, etc.
                 # true  ⇢ flag bit present, false ⇢ absent
                 setattr(self, name, bit in active)
 
         # Store raw list/set if needed elsewhere
         self._active_bits: Set[int] = active
+
 
 def parse_feature_bitmap(b64_str: str) -> list[int]:
     """
@@ -137,17 +137,17 @@ def parse_feature_bitmap(b64_str: str) -> list[int]:
     * Accepts the Base-64 string produced by get_feature_bitmap
     * Returns a sorted list of bit indexes that are set (e.g. [1, 5, 30])
     """
-    if not b64_str:                      # empty / None -> no features
+    if not b64_str:  # empty / None -> no features
         return []
 
     bitmap: bytes = base64.b64decode(b64_str)
     indexes: list[int] = []
 
     for byte_idx, byte in enumerate(bitmap):
-        if byte == 0:                    # quick skip for sparse bitmaps
+        if byte == 0:  # quick skip for sparse bitmaps
             continue
         for bit_idx in range(8):
-            if byte & (1 << bit_idx):    # same bit ordering as encoder
+            if byte & (1 << bit_idx):  # same bit ordering as encoder
                 indexes.append(byte_idx * 8 + bit_idx)
 
     return indexes
@@ -650,7 +650,7 @@ async def get_release_spec() -> ReleaseSpec:
     spec_fields = {f.name for f in fields(ReleaseSpec)}
     # Filter data to include only known fields
     filtered_data = {k: v for k, v in data.items() if k in spec_fields}
-    
+
     return ReleaseSpec(**filtered_data)
 
 
@@ -1229,28 +1229,53 @@ async def configure_traces():
     #   "version": 1
     # }
     global DUMPER_CONFIG_MODE
-    data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
-                retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1,
-                freeze_period=dict(start_time="0001-01-01T00:00:00+00:00", end_time="0001-01-01T00:00:00+00:00",
-                                   retention=0))
+    ff = await get_feature_flags()
+    if DUMPER_CONFIG_MODE in ["auto", ""]:
+        if ff.traces_override_partial_support:
+            DUMPER_CONFIG_MODE = "partial-override"
+        else:
+            DUMPER_CONFIG_MODE = "cluster"
+
+    data = dict()
+    if DUMPER_CONFIG_MODE == "override":
+        data = dict(enabled=True, ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
+                    retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024, retention_type="BYTES", version=1,
+                    freeze_period=dict(start_time="0001-01-01T00:00:00+00:00", end_time="0001-01-01T00:00:00+00:00",
+                                       retention=0))
+    elif DUMPER_CONFIG_MODE == "partial-override":
+        data = dict(
+            ensure_free_space_bytes=int(ENSURE_FREE_SPACE_GB) * 1024 * 1024 * 1024,
+            retention_bytes=int(MAX_TRACE_CAPACITY_GB) * 1024 * 1024 * 1024,
+            retention_type="BYTES"
+        )
+
     if MODE == 'dist':
         data['enabled'] = False
-        data['retention_bytes'] = 128 * 1024 * 1024 * 1024
+        data['retention_bytes'] = 1 * 1024 * 1024 * 1024 # value should not be in effect due to enabled=False
     data_string = json.dumps(data)
 
-    if DUMPER_CONFIG_MODE in ["auto", ""]:
-        DUMPER_CONFIG_MODE = "override"
+    old_full_location = "/data/reserved_space/dumper_config.json.override"
+    legacy_partial_location = "/data/reserved_space/dumper_config_overrides.json"
+    new_partial_location = "/traces/config_overrides.json"
+
+    write_location = old_full_location
+
+    if DUMPER_CONFIG_MODE == "partial-override":
+        if ff.traces_override_in_slash_traces:
+            write_location = new_partial_location
+        else:
+            write_location = legacy_partial_location
 
     if DUMPER_CONFIG_MODE in ["override", "partial-override"]:
         command = dedent(f"""
             set -e
             mkdir -p /opt/weka/k8s-scripts
             echo '{data_string}' > /opt/weka/k8s-scripts/dumper_config.json.override
-            weka local run --container {NAME} mv /opt/weka/k8s-scripts/dumper_config.json.override /data/reserved_space/dumper_config.json.{DUMPER_CONFIG_MODE}
+            weka local run --container {NAME} mv /opt/weka/k8s-scripts/dumper_config.json.override {write_location}
             """)
     elif DUMPER_CONFIG_MODE == "cluster":
         command = f"""
-        weka local run --container {NAME} rm -f /data/reserved_space/dumper_config.json.override
+        weka local run --container {NAME} rm -f {old_full_location} {legacy_partial_location} {new_partial_location}
         """
     else:
         raise Exception(f"Invalid DUMPER_CONFIG_MODE: {DUMPER_CONFIG_MODE}")
