@@ -12,12 +12,13 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from functools import lru_cache, partial
 from os import makedirs
 from os.path import exists
 from textwrap import dedent
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Set, Union
+
 
 
 @dataclass
@@ -112,6 +113,44 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
     handlers=[stdout_handler, stderr_handler]
 )
+
+class FeaturesFlags:
+    # Bit positions (class-level ints) – will be shadowed by bools on the instance
+    traces_override_partial_support: Union[bool, int] = 0
+    traces_override_in_slash_traces: Union[bool, int] = 1
+
+    def __init__(self, b64_flags: Optional[str]) -> None:
+        active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
+
+        # Walk over class attributes that are ints (flag indices)
+        for name, bit in self.__class__.__dict__.items():
+            if isinstance(bit, int):        # skip dunders, methods, etc.
+                # true  ⇢ flag bit present, false ⇢ absent
+                setattr(self, name, bit in active)
+
+        # Store raw list/set if needed elsewhere
+        self._active_bits: Set[int] = active
+
+def parse_feature_bitmap(b64_str: str) -> list[int]:
+    """
+    Reverse of get_feature_bitmap():
+    * Accepts the Base-64 string produced by get_feature_bitmap
+    * Returns a sorted list of bit indexes that are set (e.g. [1, 5, 30])
+    """
+    if not b64_str:                      # empty / None -> no features
+        return []
+
+    bitmap: bytes = base64.b64decode(b64_str)
+    indexes: list[int] = []
+
+    for byte_idx, byte in enumerate(bitmap):
+        if byte == 0:                    # quick skip for sparse bitmaps
+            continue
+        for bit_idx in range(8):
+            if byte & (1 << bit_idx):    # same bit ordering as encoder
+                indexes.append(byte_idx * 8 + bit_idx)
+
+    return indexes
 
 
 async def get_serial_id_fallback(device_path: str) -> Optional[str]:
@@ -591,6 +630,33 @@ async def get_weka_version():
     assert len(files) == 1, Exception(f"More then one release found: {files}")
     version = files[0].partition(".spec")[0]
     return version
+
+
+@dataclass
+class ReleaseSpec:
+    feature_flags: Optional[str] = None
+
+
+async def get_release_spec() -> ReleaseSpec:
+    release_dir = "/opt/weka/dist/release"
+    files = os.listdir(release_dir)
+    assert len(files) == 1, Exception(f"Expected one release spec file, found: {files}")
+    spec_file_path = os.path.join(release_dir, files[0])
+
+    with open(spec_file_path, 'r') as f:
+        data = json.load(f)
+
+    # Get defined fields for ReleaseSpec to avoid TypeError with extra keys in JSON
+    spec_fields = {f.name for f in fields(ReleaseSpec)}
+    # Filter data to include only known fields
+    filtered_data = {k: v for k, v in data.items() if k in spec_fields}
+    
+    return ReleaseSpec(**filtered_data)
+
+
+async def get_feature_flags() -> FeaturesFlags:
+    spec = await get_release_spec()
+    return FeaturesFlags(spec.feature_flags)
 
 
 async def load_drivers():
