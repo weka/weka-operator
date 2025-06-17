@@ -191,6 +191,10 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 		},
 	}
 
+	if o.payload.NodeName != "" {
+		job.Spec.Template.Spec.NodeName = string(o.payload.NodeName)
+	}
+
 	if maintenanceImagePullSecret != "" {
 		job.Spec.Template.Spec.ImagePullSecrets = []corev1.LocalObjectReference{
 			{

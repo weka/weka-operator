@@ -2106,11 +2106,10 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 	var persistencePath string
 	if r.container.Spec.PVC == nil {
-		// only check node unschedulability if we skip "NoSchedule" toleration for cleanup (is considered "auxiliary")
-		if config.Config.SkipAuxNoScheduleToleration && r.node != nil && NodeIsUnschedulable(r.node) {
-			err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
-			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		}
+		// if r.node != nil && NodeIsUnschedulable(r.node) {
+		// 	err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
+		// 	return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		// }
 		if r.node != nil && !NodeIsReady(r.node) {
 			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
