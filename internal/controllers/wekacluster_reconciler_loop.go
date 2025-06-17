@@ -693,7 +693,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			}
 		}
 		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
-			container.Spec.NodeSelector = cluster.Spec.NodeSelector
+			container.Spec.NodeSelector = newNodeSelector
 		}
 
 		err = r.getClient().Patch(ctx, container, patch)
