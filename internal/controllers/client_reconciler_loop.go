@@ -3,15 +3,13 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"reflect"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,6 +22,8 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
@@ -673,27 +673,30 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
 	}
 
-	logger.Info("Got nodes by labels", "nodes", len(nodes))
-
 	if config.Config.SkipClientsTolerationValidation {
+		logger.Info("Got nodes by labels", "nodes", len(nodes))
+
 		return nodes, nil
-	}
+	} else {
+		clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
+		// account for "expanded" NoSchedule tolerations
+		clientTolerations = resources.ConditionalExpandNoScheduleTolerations(clientTolerations, !config.Config.SkipClientNoScheduleToleration)
 
-	clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
+		var filteredNodes []v1.Node
 
-	var filteredNodes []v1.Node
-	for _, node := range nodes {
-		if node.Spec.Unschedulable {
-			continue
+		for _, node := range nodes {
+			if node.Spec.Unschedulable {
+				continue
+			}
+			if !util2.CheckTolerations(node.Spec.Taints, clientTolerations) {
+				continue
+			}
+			filteredNodes = append(filteredNodes, node)
 		}
-		if !util2.CheckTolerations(node.Spec.Taints, clientTolerations) {
-			continue
-		}
-		filteredNodes = append(filteredNodes, node)
-	}
-	logger.Info("Got nodes by labels", "nodes", len(nodes), "filteredNodes", len(filteredNodes))
+		logger.Info("Got nodes by labels", "nodes", len(nodes), "filteredNodes", len(filteredNodes))
 
-	return filteredNodes, nil
+		return filteredNodes, nil
+	}
 }
 
 func (c *clientReconcilerLoop) GetUpgradedCount() int {
