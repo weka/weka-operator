@@ -216,6 +216,8 @@ spec:
               value: "{{ .Values.evictContainerOnDeletion }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
+            - name: DELETE_ENVOY_WITHOUT_S3_NEIGHBOT_TIMEOUT
+              value: "{{ .Values.deleteEnvoyWithoutS3NeighborTimeout }}"
             - name: CSI_INSTALLATION_ENABLED
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_IMAGE

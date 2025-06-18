@@ -455,6 +455,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.deleteEnvoyIfNoS3Neighbor,
+				Predicates: lifecycle.Predicates{
+					container.IsEnvoy,
+					loop.HasNodeAffinity,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				// let drivers being re-built if node with drivers container is not found
 				Run: loop.clearStatusOnNodeNotFound,
 				Predicates: lifecycle.Predicates{
@@ -4615,5 +4623,80 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 	}); err != nil {
 		return fmt.Errorf("failed to delete CSI node pod %s: %w", csiNodeName, err)
 	}
+	return nil
+}
+
+func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context) error {
+	if !r.container.IsEnvoy() {
+		return nil // only envoy containers should be checked
+	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteEnvoyIfNoS3Neighbor")
+	defer end()
+
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return errors.New("node affinity is not set")
+	}
+
+	ownerRefs := r.container.GetOwnerReferences()
+	if len(ownerRefs) == 0 {
+		return errors.New("no owner references found")
+	} else if len(ownerRefs) > 1 {
+		return errors.New("more than one owner reference found")
+	}
+
+	ownerUid := string(ownerRefs[0].UID)
+
+	// Check if there are any S3 wekacontainera on the same node
+	s3Containers := discovery.GetClusterContainersByClusterUID(ctx, r.Manager.GetClient(), ownerUid, r.container.Namespace, weka.WekaContainerModeS3)
+
+	foundS3Neighbor := false
+	for _, s3Container := range s3Containers {
+		if s3Container.GetNodeAffinity() == nodeName {
+			foundS3Neighbor = true
+			break
+		}
+	}
+	if foundS3Neighbor {
+		logger.Info("Found S3 neighbor, not deleting envoy container")
+		return nil
+	}
+
+	noS3NeighborKey := "NoS3Neighbor"
+
+	if r.container.Status.Timestamps == nil {
+		r.container.Status.Timestamps = make(map[string]metav1.Time)
+	}
+	if since, ok := r.container.Status.Timestamps[noS3NeighborKey]; !ok {
+		r.container.Status.Timestamps[noS3NeighborKey] = metav1.Time{Time: time.Now()}
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			return err
+		}
+	} else if time.Since(since.Time) < config.Config.DeleteEnvoyWithoutS3NeighborTimeout {
+		logger.Info("Envoy container has no S3 neighbor, but waiting for 5 minutes before deleting it",
+			"waited", time.Since(since.Time).String(),
+			"node", nodeName,
+		)
+		return nil
+	}
+
+	_ = r.RecordEvent(
+		v1.EventTypeNormal,
+		"EnvoyContainerWithoutS3Neighbor",
+		"Envoy container has no S3 neighbor, deleting it",
+	)
+
+	if err := r.Client.Delete(ctx, r.container); err != nil {
+		return errors.Wrap(err, "failed to delete envoy container")
+	}
+
+	// Clear the timestamp to avoid re-deleting the container on next reconcile
+	delete(r.container.Status.Timestamps, noS3NeighborKey)
+	if err := r.Status().Update(ctx, r.container); err != nil {
+		return errors.Wrap(err, "failed to update container status after deleting envoy")
+	}
+
+	logger.Info("Envoy container deleted as it has no S3 neighbor")
 	return nil
 }
