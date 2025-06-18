@@ -109,7 +109,7 @@ tolerations: []
 # -- if true, pods will not tolerate unhealthy nodes (unschedulable and not-ready)
 skipUnhealthyToleration: false
 # -- if true, client pods will not tolerate NoSchedule taints
-skipClientNoScheduleToleration: false
+skipClientNoScheduleToleration: true
 # -- if true, auxiliary pods (discovery, sign-drives, etc.) will not tolerate NoSchedule taints
 skipAuxNoScheduleToleration: false
 deploymentIdentifier: ""
