@@ -171,6 +171,7 @@ dnsPolicy:
 
 defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
+  deleteUnschedulablePodsAfter: 1m
 
 csi:
   namespace: weka-operator-system

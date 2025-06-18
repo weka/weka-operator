@@ -548,11 +548,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{
 				Run: loop.deletePodIfUnschedulable,
 				Predicates: lifecycle.Predicates{
-					container.IsDriversContainer,
 					func() bool {
-						// if node affinity is set in container status, try to reschedule pod
-						// (do not delete pod if node affinity is set on wekacontainer's spec)
-						return loop.pod.Status.Phase == v1.PodPending && container.Status.NodeAffinity != ""
+						// do not delete pod if node affinity is set on wekacontainer's spec
+						return loop.pod.Status.Phase == v1.PodPending && container.Spec.NodeAffinity == ""
 					},
 				},
 				ContinueOnPredicatesFalse: true,
@@ -3564,11 +3562,15 @@ func (r *containerReconcilerLoop) clearStatusOnNodeNotFound(ctx context.Context)
 	return nil
 }
 
+// Possible use cases:
+// - wekacontainer was created with wrong node selector, node selector was changed, but pod is still in Pending state
+// - drivers container is in Pending state, but node affinity is set, so we want to change node affinity and reschedule pod
 func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	pod := r.pod
+	container := r.container
 
 	unschedulable := false
 	unschedulableSince := time.Time{}
@@ -3584,20 +3586,29 @@ func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) 
 	}
 
 	// relying on lastTransitionTime of Unschedulable condition
-	rescheduleAfter := 1 * time.Minute
+	rescheduleAfter := config.Config.DeleteUnschedulablePodsAfter
 	if time.Since(unschedulableSince) > rescheduleAfter {
-		logger.Debug("Pod is unschedulable, cleaning container status", "unschedulable_since", unschedulableSince)
+		// handle drivers container
+		// if node affinity is set in container status, try to reschedule pod
+		if container.IsDriversContainer() && r.container.Status.NodeAffinity != "" {
+			logger.Debug("Pod is unschedulable, cleaning container status", "unschedulable_since", unschedulableSince)
 
-		// clear status before deleting pod (let reconciler start from the beginning)
-		if err := r.clearStatus(ctx); err != nil {
-			err = fmt.Errorf("error clearing status: %w", err)
-			return err
+			// clear status before deleting pod (let reconciler start from the beginning)
+			if err := r.clearStatus(ctx); err != nil {
+				err = fmt.Errorf("error clearing status: %w", err)
+				return err
+			}
 		}
 
-		logger.Debug("Deleting pod", "pod", pod.Name)
+		_ = r.RecordEvent(
+			v1.EventTypeWarning,
+			"UnschedulablePod",
+			fmt.Sprintf("Pod is unschedulable since %s, deleting it", unschedulableSince),
+		)
+
 		err := r.Delete(ctx, pod)
 		if err != nil {
-			logger.Error(err, "Error deleting client container")
+			err = fmt.Errorf("error deleting unschedulable pod: %w", err)
 			return err
 		}
 		return errors.New("Pod is unschedulable and is being deleted")
