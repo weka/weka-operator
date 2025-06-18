@@ -216,7 +216,7 @@ spec:
               value: "{{ .Values.evictContainerOnDeletion }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
-            - name: DELETE_ENVOY_WITHOUT_S3_NEIGHBOT_TIMEOUT
+            - name: DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT
               value: "{{ .Values.defaultIntervals.deleteEnvoyWithoutS3NeighborTimeout }}"
             - name: DELETE_UNSCHEDULABLE_PODS_AFTER
               value: "{{ .Values.defaultIntervals.deleteUnschedulablePodsAfter }}"

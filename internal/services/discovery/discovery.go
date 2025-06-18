@@ -299,10 +299,11 @@ func GetAllContainers(ctx context.Context, c client.Client) []weka.WekaContainer
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) []*weka.WekaContainer {
-	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
+	containers, _ := GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
+	return containers
 }
 
-func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) []*weka.WekaContainer {
+func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) ([]*weka.WekaContainer, error) {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(clusterNamespace),
@@ -314,14 +315,14 @@ func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clus
 	err := c.List(ctx, &containersList, listOpts...)
 
 	if err != nil {
-		return nil
+		return nil, errors.Wrap(err, "Failed to list containers for cluster")
 	}
 
 	containers := []*weka.WekaContainer{}
 	for i := range containersList.Items {
 		containers = append(containers, &containersList.Items[i])
 	}
-	return containers
+	return containers, nil
 }
 
 func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.WekaClient) []*weka.WekaContainer {
