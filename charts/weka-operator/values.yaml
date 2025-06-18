@@ -169,6 +169,9 @@ dnsPolicy:
   # dns policy for the pods with hostNetwork: true
   hostNetwork: ""
 
+defaultIntervals:
+  deleteEnvoyWithoutS3NeighborTimeout: 5m
+
 csi:
   namespace: weka-operator-system
   installationEnabled: false

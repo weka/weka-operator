@@ -299,10 +299,14 @@ func GetAllContainers(ctx context.Context, c client.Client) []weka.WekaContainer
 }
 
 func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) []*weka.WekaContainer {
+	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
+}
+
+func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) []*weka.WekaContainer {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
-		client.InNamespace(cluster.Namespace),
-		client.MatchingFields{"metadata.ownerReferences.uid": string(cluster.UID)},
+		client.InNamespace(clusterNamespace),
+		client.MatchingFields{"metadata.ownerReferences.uid": clusterUID},
 	}
 	if mode != "" {
 		listOpts = append(listOpts, client.MatchingLabels{"weka.io/mode": mode})
