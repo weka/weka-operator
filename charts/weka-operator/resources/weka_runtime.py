@@ -1413,7 +1413,7 @@ async def ensure_weka_container():
             # TODO: Multi-nic support with custom gateways
             # figure out what is meant here ^
             if len(resources['net_devices']) != 1:
-                logging.error("Gateway configuration is not supported with multiple or zero NICs")
+                raise Exception("Gateway configuration is not supported with multiple or zero NICs")
             resources['net_devices'][0]['gateway'] = NET_GATEWAY
 
     # save resources
