@@ -1134,7 +1134,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	}
 
 	logger.Info("container spec:", "speccc", f.container.Spec)
-	if f.nodeInfo.ShouldRequestNICs() {
+	if f.nodeInfo.ShouldRequestNICs() && !f.container.Spec.Network.UdpMode {
 		pod.Spec.Containers[0].Resources.Requests["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 		pod.Spec.Containers[0].Resources.Limits["weka.io/nics"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumCores))
 	}
