@@ -2568,6 +2568,22 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	}
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
+		// also verify that /opt/weka/k8s-runtime/resources.json exists
+		if meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerResourcesWritten) {
+			_, stderr2, err2 := executor.ExecNamed(ctx, "CheckResourcesJson", []string{"bash", "-ce", "cat /opt/weka/k8s-runtime/resources.json"})
+			if err2 != nil {
+				err2 = fmt.Errorf("error checking resources.json: %v, %s, original err: %v", err2, stderr2.String(), err)
+
+				logger.Info("resources.json not found, re-writing it", "error", err2)
+
+				err3 := r.WriteResources(ctx)
+				if err3 != nil {
+					err3 = fmt.Errorf("error writing resources.json: %v, prev. error %v", err3, err2)
+					return false, fmt.Errorf("error writing resources.json: %v", err3)
+				}
+			}
+
+		}
 		return false, fmt.Errorf("error checking drivers loaded: %v, %s", err, stderr.String())
 	}
 
