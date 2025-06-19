@@ -1,4 +1,4 @@
-name: Run Test with AI hooks
+name: Run Test with AI hooks (deprecated)
 run-name: ${{ github.actor }} is running the AI test
 
 concurrency:
@@ -16,12 +16,12 @@ on:
   #     - ready_for_review
     # branches:
     #   - main
-  workflow_dispatch:
-    inputs:
-      pr_ids:
-        description: 'Space-separated list of PR IDs to process'
-        required: true
-        type: string
+  # workflow_dispatch:
+  #   inputs:
+  #     pr_ids:
+  #       description: 'Space-separated list of PR IDs to process'
+  #       required: true
+  #       type: string
   workflow_call:
     inputs:
       pr_ids:

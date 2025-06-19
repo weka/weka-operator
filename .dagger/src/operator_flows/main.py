@@ -203,8 +203,7 @@ class OperatorFlows:
         logger.info(f"Hook env vars: {hook_env_dict}")
 
         if not hook_env_dict:
-            logger.info("No generated hooks found, skipping upgrade test")
-            return test_artifacts_dir
+            logger.info("No generated hooks found")
         
         env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, current_gh_token)
 

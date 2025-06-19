@@ -12,11 +12,11 @@ permissions:
   actions: read
 
 on:
-  workflow_run:
-    workflows:
-      - Package Operator (HELM)
-    types:
-      - completed
+  # workflow_run:
+  #   workflows:
+  #     - Package Operator (HELM)
+  #   types:
+  #     - completed
   workflow_dispatch:
     inputs:
       operator-version:

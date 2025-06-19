@@ -29,7 +29,8 @@ jobs:
     if: |
       needs.optimize_ci.outputs.skip == 'false' &&
       (startsWith(github.head_ref, 'gtmq_') || 
-      contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan'))
+      contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan')) &&
+      !contains(github.event.pull_request.labels.*.name, 'skip_ci_on_merge_queue_plan')
     runs-on: ubuntu-latest
     steps:
       - name: Show PR Info
