@@ -84,6 +84,7 @@ async def install_helm_chart(image: str, kubeconfig: dagger.Secret, operator_rep
                   .with_exec(["sh", "-ec", f"""
         helm upgrade --install weka-operator oci://{repo} --namespace weka-operator-system \
             --version {version} \
+            --create-namespace \
             --set image.repository={operator_repo} \
         {"--values /values.yaml" if values_file is not None else ""}
          """])
