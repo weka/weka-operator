@@ -2580,6 +2580,7 @@ def is_wrong_generation():
 
 
 async def takeover_shutdown():
+    logging.info("takeover_shutdown called")
     await run_command("weka local stop --force", capture_stdout=False)
 
 

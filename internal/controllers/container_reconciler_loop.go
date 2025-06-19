@@ -1571,7 +1571,7 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowForceStopInstruction")
 	defer end()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
@@ -1600,7 +1600,7 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 }
 
 func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowStopInstruction")
 	defer end()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
@@ -4616,7 +4616,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 		return nil // only envoy containers should be checked
 	}
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteEnvoyIfNoS3Neighbor")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	nodeName := r.container.GetNodeAffinity()
