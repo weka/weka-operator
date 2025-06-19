@@ -588,15 +588,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				},
 				ContinueOnPredicatesFalse: true,
 			},
-			{
-				Run: loop.cleanupFinished,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						return loop.pod.Status.Phase == v1.PodSucceeded
-					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			{Run: loop.HandleNodeNotReady},
 			{Run: loop.WaitForPodRunning},
 			{
@@ -2490,22 +2481,6 @@ func (r *containerReconcilerLoop) WaitForPodRunning(ctx context.Context) error {
 	}
 
 	return lifecycle.NewWaitErrorWithDuration(errors.New("Pod is not running"), time.Second*10)
-}
-
-func (r *containerReconcilerLoop) cleanupFinished(ctx context.Context) error {
-	pod := r.pod
-
-	if pod.Status.Phase != v1.PodSucceeded {
-		// should we also check for Failed status?
-		return nil
-	}
-
-	err := r.stopForceAndEnsureNoPod(ctx)
-	if err != nil {
-		return err
-	}
-
-	return lifecycle.NewWaitError(errors.New("Pod is finished and will be deleted"))
 }
 
 func (r *containerReconcilerLoop) updateStatusWaitForDrivers(ctx context.Context) error {
