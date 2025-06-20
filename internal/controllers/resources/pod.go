@@ -1187,7 +1187,6 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			Values:   []string{string(f.container.GetNodeAffinity())},
 		})
 	}
-
 	if len(f.container.Spec.NodeSelector) != 0 {
 		for k, v := range f.container.Spec.NodeSelector {
 			matchExpression = append(matchExpression, corev1.NodeSelectorRequirement{
@@ -1201,19 +1200,14 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions = matchExpression
 
 	clusterId := f.container.GetParentClusterId()
-	if f.container.IsAllocatable() && !f.container.Spec.NoAffinityConstraints {
+	if (f.container.IsAllocatable() || f.container.IsClientContainer()) && !f.container.Spec.NoAffinityConstraints {
 		term := corev1.PodAffinityTerm{
 			LabelSelector: &metav1.LabelSelector{},
 			TopologyKey:   "kubernetes.io/hostname",
 		}
-		if !f.container.IsProtocolContainer() {
-			// S3: we dont want to allow more then one s3 container per node
+		if f.container.HasFrontend() {
+			// we don't want to allow more than one s3 or client container per node
 			// Other types of containers we validate to be once for cluster
-			term.LabelSelector.MatchLabels = client.MatchingLabels{
-				domain.WekaLabelClusterId: clusterId,
-				domain.WekaLabelMode:      f.container.Spec.Mode,
-			}
-		} else {
 			term.LabelSelector.MatchExpressions = []metav1.LabelSelectorRequirement{
 				{
 					Key:      domain.WekaLabelMode,
@@ -1221,6 +1215,12 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 					Values:   domain.ContainerModesWithFrontend,
 				},
 			}
+		} else {
+			term.LabelSelector.MatchLabels = client.MatchingLabels{
+				domain.WekaLabelClusterId: clusterId,
+				domain.WekaLabelMode:      f.container.Spec.Mode,
+			}
+
 		}
 
 		// generalize above code using mode
