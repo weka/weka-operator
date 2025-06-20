@@ -22,6 +22,11 @@ const (
 	SinglePortsOffset = 300
 )
 
+var (
+	globalAllocator Allocator
+	allocatorOnce   sync.Once
+)
+
 type AllocateClusterRangeError struct {
 	Msg string
 }
@@ -37,7 +42,11 @@ type Allocator interface {
 	//ClaimResources(ctx context.Context, cluster v1alpha1.WekaCluster, containers []*v1alpha1.WekaContainer) error
 	DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error
 	GetAllocations(ctx context.Context) (*Allocations, error)
-	AllocateNewDrivesForContainer(ctx context.Context, cluster *weka.WekaCluster, container *weka.WekaContainer, driveFailures []weka.DriveFailures) error
+	// RefreshAllocations forces a refresh from the backing store, bypassing cache
+	RefreshAllocations(ctx context.Context) (*Allocations, error)
+	AllocateNewDrivesForContainer(ctx context.Context, clusterObjKey client.ObjectKey, container *weka.WekaContainer, newDrivesNumber int, deleteSerialIds []string) error
+	DeallocateContainer(ctx context.Context, container *weka.WekaContainer) error
+	DeallocateNamespacedObject(ctx context.Context, namespacedObject util.NamespacedObject) error
 	//DeallocateContainers(ctx context.Context, containers []v1alpha1.WekaContainer) error
 }
 
@@ -51,6 +60,42 @@ type ResourcesAllocator struct {
 	configStore    AllocationsStore
 	client         client.Client
 	nodeInfoGetter NodeInfoGetter
+}
+
+func newResourcesAllocator(ctx context.Context, client client.Client) (Allocator, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewResourcesAllocator")
+	defer end()
+
+	allocatorOnce.Do(func() {
+		logger.Info("Initializing global allocator")
+
+		cs, err := NewConfigMapStore(ctx, client)
+		if err != nil {
+			// Handle error in the once function by setting globalAllocator to nil
+			globalAllocator = nil
+			return
+		}
+
+		resAlloc := &ResourcesAllocator{
+			configStore:    cs,
+			client:         client,
+			nodeInfoGetter: NewK8sNodeInfoGetter(client),
+		}
+
+		globalAllocator = resAlloc
+	})
+
+	if globalAllocator == nil {
+		allocatorOnce = sync.Once{}
+		return nil, fmt.Errorf("failed to initialize global allocator: config store creation failed")
+	}
+
+	_, err := globalAllocator.RefreshAllocations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to refresh allocations: %w", err)
+	}
+
+	return globalAllocator, nil
 }
 
 func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
@@ -100,16 +145,16 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 	}
 }
 
-func (t *ResourcesAllocator) AllocateNewDrivesForContainer(ctx context.Context, cluster *weka.WekaCluster, container *weka.WekaContainer, driveFailures []weka.DriveFailures) error {
+func (t *ResourcesAllocator) AllocateNewDrivesForContainer(ctx context.Context, clusterObjKey client.ObjectKey, container *weka.WekaContainer, newDrivesNumber int, deleteSerialIds []string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateNewDrivesForContainer")
 	defer end()
 
-	ownerCluster := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
+	ownerCluster := OwnerCluster{ClusterName: clusterObjKey.Name, Namespace: clusterObjKey.Namespace}
 	owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: container.Spec.Mode}
 
 	allocations, err := t.configStore.GetAllocations(ctx)
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to get allocations: %w", err)
 	}
 
 	nodeMap := allocations.NodeMap
@@ -122,26 +167,28 @@ func (t *ResourcesAllocator) AllocateNewDrivesForContainer(ctx context.Context, 
 
 	var allocatedDrives []string
 
+	// delete drives that are specified in deleteSerialIds
+	if len(deleteSerialIds) > 0 {
+		nodeAlloc.dealocateDrivesBySerials(owner, deleteSerialIds)
+	}
+
 	if container.Spec.NumDrives > 0 {
-		if nodeAlloc.Drives[owner] == nil || len(nodeAlloc.Drives[owner]) == 0 {
-			nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
-			if err != nil {
-				return err
-			}
+		nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
+		if err != nil {
+			return err
+		}
 
-			allDrives := nodeInfo.AvailableDrives
-			if len(allDrives) < container.Spec.NumDrives {
-				logger.Info("Not enough drives to allocate", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-				return fmt.Errorf("not enough drives to allocate to replace failed")
-			}
+		allDrives := nodeInfo.AvailableDrives
+		if len(allDrives) < container.Spec.NumDrives {
+			logger.Info("Not enough drives to allocate", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
+			return fmt.Errorf("not enough drives to allocate to replace failed")
+		}
 
-			// we need to allocate same amount of drives as failed
-			numDrivesToAllocate := len(driveFailures)
-			allocatedDrives = nodeAlloc.allocateDrives(owner, numDrivesToAllocate, allDrives)
-			if allocatedDrives == nil {
-				logger.Info("Not enough drives free to replace failed", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives, "failedDrives", len(driveFailures))
-				return fmt.Errorf("not enough drives to allocate to replace failed")
-			}
+		numDrivesToAllocate := newDrivesNumber
+		allocatedDrives = nodeAlloc.allocateDrives(owner, numDrivesToAllocate, allDrives)
+		if allocatedDrives == nil {
+			logger.Info("Not enough drives free to replace failed", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives, "allocatedDrives", len(allocatedDrives))
+			return fmt.Errorf("not enough drives to allocate to replace failed")
 		}
 	}
 
@@ -150,12 +197,19 @@ func (t *ResourcesAllocator) AllocateNewDrivesForContainer(ctx context.Context, 
 		if err != nil {
 			return fmt.Errorf("failed to update allocations: %w", err)
 		}
+		logger.Debug("Allocated new drives for container", "container", container.Name, "drives", allocatedDrives)
+	} else {
+		logger.Debug("No new drives allocated for container", "container", container.Name)
 	}
 	return nil
 }
 
 func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, error) {
 	return t.configStore.GetAllocations(ctx)
+}
+
+func (t *ResourcesAllocator) RefreshAllocations(ctx context.Context) (*Allocations, error) {
+	return t.configStore.RefreshAllocations(ctx)
 }
 
 func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error {
@@ -351,7 +405,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 		}
 
 		if nodeAlloc.HasDifferentContainerSameClusterRole(owner) && !cluster.Spec.GetOverrides().DisregardRedundancy {
-			revert(errors.New("Role container already allocated on this node"), container)
+			revert(errors.New("role container already allocated on this node"), container)
 			continue
 		}
 
@@ -367,7 +421,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 				allDrives := nodeInfo.AvailableDrives
 				if len(allDrives) < container.Spec.NumDrives {
 					logger.Info("Not enough drives to allocate request even on fully free node", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-					revert(fmt.Errorf("Not enough drives to allocate request"), container)
+					revert(fmt.Errorf("not enough drives to allocate request"), container)
 					continue
 				}
 
@@ -375,7 +429,7 @@ func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *we
 				allocatedDrives := nodeAlloc.allocateDrives(owner, container.Spec.NumDrives, allDrives)
 				if allocatedDrives == nil {
 					logger.Info("Not enough drives free to allocate request", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-					revert(fmt.Errorf("Not enough drives to allocate request"), container)
+					revert(fmt.Errorf("not enough drives to allocate request"), container)
 					continue
 				}
 				revertFuncs = append(revertFuncs, func() {
@@ -527,13 +581,8 @@ func (t *ResourcesAllocator) DeallocateCluster(ctx context.Context, cluster *wek
 		return nil
 	}
 
-	if _, ok := allocations.Global.ClusterRanges[owner]; ok {
-		delete(allocations.Global.ClusterRanges, owner)
-	}
-
-	if _, ok := allocations.Global.AllocatedRanges[owner]; ok {
-		delete(allocations.Global.AllocatedRanges, owner)
-	}
+	delete(allocations.Global.ClusterRanges, owner)
+	delete(allocations.Global.AllocatedRanges, owner)
 
 	// clear nodes as well
 	for _, nodeAlloc := range allocations.NodeMap {
@@ -563,17 +612,67 @@ func (t *ResourcesAllocator) DeallocateCluster(ctx context.Context, cluster *wek
 	return nil
 }
 
-func NewResourcesAllocator(ctx context.Context, client client.Client) (Allocator, error) {
-	cs, err := NewConfigMapStore(ctx, client)
-	if err != nil {
-		return nil, err
+func (t *ResourcesAllocator) DeallocateContainer(ctx context.Context, container *weka.WekaContainer) error {
+	if !container.IsAllocatable() {
+		return nil
 	}
 
-	return &ResourcesAllocator{
-		configStore:    cs,
-		client:         client,
-		nodeInfoGetter: NewK8sNodeInfoGetter(client),
-	}, nil
+	namespacedObject := util.NamespacedObject{
+		Namespace: container.Namespace,
+		Name:      container.Name,
+	}
+
+	return t.DeallocateNamespacedObject(ctx, namespacedObject)
+}
+
+func (t *ResourcesAllocator) DeallocateNamespacedObject(ctx context.Context, namespacedObject util.NamespacedObject) error {
+	allocations, err := t.configStore.GetAllocations(ctx)
+	if err != nil {
+		return nil
+	}
+
+	ownersToDelete := make([]Owner, 0)
+
+	for _, nodeAlloc := range allocations.NodeMap {
+		for owner, _ := range nodeAlloc.AllocatedRanges {
+			if owner.ToNamespacedObject() == namespacedObject {
+				ownersToDelete = append(ownersToDelete, owner)
+			}
+		}
+
+		for owner, _ := range nodeAlloc.EthSlots {
+			if owner.ToNamespacedObject() == namespacedObject {
+				ownersToDelete = append(ownersToDelete, owner)
+			}
+		}
+
+		for owner, _ := range nodeAlloc.Drives {
+			if owner.ToNamespacedObject() == namespacedObject {
+				ownersToDelete = append(ownersToDelete, owner)
+			}
+		}
+
+	}
+
+	for _, owner := range ownersToDelete {
+		for _, nodeAlloc := range allocations.NodeMap {
+			delete(nodeAlloc.AllocatedRanges, owner)
+			delete(nodeAlloc.EthSlots, owner)
+			delete(nodeAlloc.Drives, owner)
+		}
+	}
+
+	err = t.configStore.UpdateAllocations(ctx, allocations)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func NewContainerName(role string) string {
+	guid := string(uuid.NewUUID())
+	return fmt.Sprintf("%s-%s", role, guid)
 }
 
 // MarshalYAML implements the yaml.Marshaler interface for CustomType.
@@ -683,73 +782,9 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func DeallocateNamespacedObject(ctx context.Context, namespacedObject util.NamespacedObject, store AllocationsStore) error {
-	allocations, err := store.GetAllocations(ctx)
-	if err != nil {
-		return err
-	}
-
-	ownersToDelete := make([]Owner, 0)
-
-	for _, nodeAlloc := range allocations.NodeMap {
-		for owner, _ := range nodeAlloc.AllocatedRanges {
-			if owner.ToNamespacedObject() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-		for owner, _ := range nodeAlloc.EthSlots {
-			if owner.ToNamespacedObject() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-		for owner, _ := range nodeAlloc.Drives {
-			if owner.ToNamespacedObject() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-	}
-
-	for _, owner := range ownersToDelete {
-		for _, nodeAlloc := range allocations.NodeMap {
-			delete(nodeAlloc.AllocatedRanges, owner)
-			delete(nodeAlloc.EthSlots, owner)
-			delete(nodeAlloc.Drives, owner)
-		}
-	}
-
-	err = store.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var lock = &sync.Mutex{}
-
-func DeallocateContainer(ctx context.Context, container *weka.WekaContainer, client2 client.Client) error {
-	if !container.IsAllocatable() {
-		return nil
-	}
-	lock.Lock()
-	defer lock.Unlock()
-	allocationsStore, err := NewConfigMapStore(ctx, client2)
-	if err != nil {
-		return err
-	}
-
-	namespacedObject := util.NamespacedObject{
-		Namespace: container.Namespace,
-		Name:      container.Name,
-	}
-
-	return DeallocateNamespacedObject(ctx, namespacedObject, allocationsStore)
-}
-
-func NewContainerName(role string) string {
-	guid := string(uuid.NewUUID())
-	return fmt.Sprintf("%s-%s", role, guid)
+// GetAllocator returns the global allocator instance, creating it if necessary.
+// This ensures a single allocator instance is used throughout the application,
+// preventing parallel ConfigMap updates and ensuring consistent resource allocation.
+func GetAllocator(ctx context.Context, client client.Client) (Allocator, error) {
+	return newResourcesAllocator(ctx, client)
 }

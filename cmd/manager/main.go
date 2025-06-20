@@ -23,14 +23,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/logr"
-	"github.com/weka/weka-operator/internal/node_agent"
+	//+kubebuilder:scaffold:imports
 
+	"github.com/go-logr/logr"
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,7 +47,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	//+kubebuilder:scaffold:imports
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers"
+	"github.com/weka/weka-operator/internal/node_agent"
 )
 
 var scheme = runtime.NewScheme()

@@ -769,8 +769,10 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					loop.HasFailedDrives,
 					container.IsDriveContainer,
+					func() bool { return config.Config.AllocateReplacementForFailedDrives },
 				},
-				Run: loop.ReplaceFailedDrives,
+				Run:                       loop.ReplaceFailedDrives,
+				ContinueOnPredicatesFalse: true,
 			},
 		},
 	}
@@ -2066,7 +2068,12 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		return err
 	}
 
-	err = allocator.DeallocateContainer(ctx, container, r.Client)
+	resourceAllocator, err := allocator.GetAllocator(ctx, r.Client)
+	if err != nil {
+		return err
+	}
+
+	err = resourceAllocator.DeallocateContainer(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error deallocating container")
 		return err
@@ -3151,7 +3158,7 @@ func handleFailureDomainValue(fd string) string {
 }
 
 func (r *containerReconcilerLoop) ReplaceFailedDrives(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SelfUpdateAllocations")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	container := r.container
@@ -4754,7 +4761,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 			}
 		}
 		if foundS3Neighbor {
-			logger.Info("Found S3 neighbor, not deleting envoy container")
+			logger.Debug("Found S3 neighbor, not deleting envoy container")
 			return nil
 		}
 	}

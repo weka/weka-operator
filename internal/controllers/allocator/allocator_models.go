@@ -2,6 +2,8 @@ package allocator
 
 import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"k8s.io/utils/strings/slices"
+
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -96,6 +98,21 @@ func (n *NodeAllocations) allocateDrives(owner Owner, numDrives int, allDrives [
 
 func (n *NodeAllocations) deallocateDrives(owner Owner) {
 	delete(n.Drives, owner)
+}
+
+func (n *NodeAllocations) dealocateDrivesBySerials(owner Owner, serials []string) {
+	if drives, ok := n.Drives[owner]; ok {
+		newDrives := []string{}
+		for _, drive := range drives {
+			if !slices.Contains(serials, drive) {
+				newDrives = append(newDrives, drive)
+			}
+		}
+		n.Drives[owner] = newDrives
+		if len(n.Drives[owner]) == 0 {
+			delete(n.Drives, owner)
+		}
+	}
 }
 
 func (n *NodeAllocations) HasDifferentContainerSameClusterRole(owner Owner) bool {

@@ -14,9 +14,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func newTestAllocatorInfoGetter(numDrives int) NodeInfoGetter {

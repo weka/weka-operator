@@ -134,17 +134,26 @@ func (r *wekaClusterReconcilerLoop) AllocateReplacementsForFailedDrives(ctx cont
 	}
 
 	// make re-allocations and add new drive into the container spec
-	resourceAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
+	resourceAllocator, err := allocator.GetAllocator(ctx, r.getClient())
 	if err != nil {
 		return err
+	}
+
+	clusterObjKey := client.ObjectKey{
+		Namespace: r.cluster.Namespace,
+		Name:      r.cluster.Name,
 	}
 
 	var failedContainers []string
 
 	for _, container := range toAllocate {
 		driveFailures := containerDriveFailures[container.Name]
+		failesSerialIds := make([]string, 0, len(driveFailures))
+		for _, driveFailure := range driveFailures {
+			failesSerialIds = append(failesSerialIds, driveFailure.SerialId)
+		}
 
-		err = resourceAllocator.AllocateNewDrivesForContainer(ctx, r.cluster, container, driveFailures)
+		err = resourceAllocator.AllocateNewDrivesForContainer(ctx, clusterObjKey, container, len(failesSerialIds), failesSerialIds)
 		if err != nil {
 			failedContainers = append(failedContainers, container.Name)
 			logger.Error(err, "Failed to allocate drives for container", "container", container.Name)
@@ -195,7 +204,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return nil
 	}
 
-	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
+	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
 	if err != nil {
 		logger.Error(err, "Failed to create resources allocator")
 		return err
@@ -605,7 +614,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 		return err
 	}
 
-	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
+	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
 	if err != nil {
 		return err
 	}
@@ -1805,7 +1814,7 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 		return nil
 	}
 
-	resourceAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
+	resourceAllocator, err := allocator.GetAllocator(ctx, r.getClient())
 	if err != nil {
 		return err
 	}

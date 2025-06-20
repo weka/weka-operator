@@ -2,25 +2,35 @@ package allocator
 
 import (
 	"context"
+	"sync"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/pkg/util"
 	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/pkg/util"
+)
+
+const (
+	configMapName    = "weka-operator-allocmap"
+	configMapDataKey = "allocmap.yaml"
 )
 
 type AllocationsStore interface {
 	GetAllocations(ctx context.Context) (*Allocations, error)
 	UpdateAllocations(ctx context.Context, allocations *Allocations) error
+	// RefreshAllocations forces a refresh from the backing store and returns fresh data
+	RefreshAllocations(ctx context.Context) (*Allocations, error)
 }
 
 type ConfigMapStore struct {
 	configMap   *v1.ConfigMap
 	client      client.Client
 	allocations *Allocations
+	mu          sync.RWMutex
 }
 
 func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (AllocationsStore, error) {
@@ -36,12 +46,12 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 	}
 
 	allocMapConfigMap := &v1.ConfigMap{}
-	podNamespace, err := util.GetPodNamespace()
+
+	key, err := getConfigMapKey()
 	if err != nil {
-		logger.Error(err, "Failed to get pod namespace")
+		logger.Error(err, "Failed to get ConfigMap key")
 		return nil, err
 	}
-	key := client.ObjectKey{Namespace: podNamespace, Name: "weka-operator-allocmap"}
 	err = k8sClient.Get(ctx, key, allocMapConfigMap)
 	if err != nil && apierrors.IsNotFound(err) {
 		compressedYamlData, err := util.CompressBytes(yamlData)
@@ -52,11 +62,11 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 		// Define a new ConfigMap
 		allocMapConfigMap = &v1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "weka-operator-allocmap",
-				Namespace: podNamespace,
+				Name:      configMapName,
+				Namespace: key.Namespace,
 			},
 			BinaryData: map[string][]byte{
-				"allocmap.yaml": compressedYamlData,
+				configMapDataKey: compressedYamlData,
 			},
 		}
 		err = k8sClient.Create(ctx, allocMapConfigMap)
@@ -68,12 +78,12 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 			return nil, err
 		}
 
-		yamlData, err := util.DecompressBytes(allocMapConfigMap.BinaryData["allocmap.yaml"])
+		yamlData, err := util.DecompressBytes(allocMapConfigMap.BinaryData[configMapDataKey])
 		if err != nil {
 			return nil, err
 		}
 
-		err = yaml.Unmarshal(yamlData, &allocations)
+		err = yaml.Unmarshal(yamlData, allocations)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +98,63 @@ func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (Allocation
 	return configStore, nil
 }
 
+// getConfigMapKey returns the consistent key for the ConfigMap
+func getConfigMapKey() (client.ObjectKey, error) {
+	podNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return client.ObjectKey{}, err
+	}
+	return client.ObjectKey{Namespace: podNamespace, Name: configMapName}, nil
+}
+
+// refreshFromConfigMap fetches the latest data from ConfigMap
+func (c *ConfigMapStore) refreshFromConfigMap(ctx context.Context) error {
+	key, err := getConfigMapKey()
+	if err != nil {
+		return err
+	}
+
+	err = c.client.Get(ctx, key, c.configMap)
+	if err != nil {
+		return err
+	}
+
+	// Always refresh - decompress and unmarshal the latest data
+	yamlData, err := util.DecompressBytes(c.configMap.BinaryData[configMapDataKey])
+	if err != nil {
+		return err
+	}
+
+	allocations := InitAllocationsMap()
+	err = yaml.Unmarshal(yamlData, allocations)
+	if err != nil {
+		return err
+	}
+
+	// Update cached data
+	c.allocations = allocations
+
+	return nil
+}
+
 func (c *ConfigMapStore) GetAllocations(ctx context.Context) (*Allocations, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Return cached data without any API calls for fast access
+	return c.allocations, nil
+}
+
+func (c *ConfigMapStore) RefreshAllocations(ctx context.Context) (*Allocations, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Force refresh from ConfigMap regardless of ResourceVersion
+	err := c.refreshFromConfigMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return c.allocations, nil
 }
 
@@ -103,7 +169,11 @@ func InitAllocationsMap() *Allocations {
 }
 
 func (c *ConfigMapStore) UpdateAllocations(ctx context.Context, allocations *Allocations) error {
-	yamlData, err := yaml.Marshal(&allocations)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Marshal and compress the allocations
+	yamlData, err := yaml.Marshal(allocations)
 	if err != nil {
 		return err
 	}
@@ -112,17 +182,26 @@ func (c *ConfigMapStore) UpdateAllocations(ctx context.Context, allocations *All
 	if err != nil {
 		return err
 	}
-	c.configMap.BinaryData["allocmap.yaml"] = compressedYamlData
+
+	// Update the ConfigMap data
+	c.configMap.BinaryData[configMapDataKey] = compressedYamlData
+
+	// Let Kubernetes handle optimistic concurrency control
+	// If the ResourceVersion is outdated, k8s will return a conflict error
 	err = c.client.Update(ctx, c.configMap)
 	if err != nil {
 		return err
 	}
+
+	// Update cache after successful write
 	c.allocations = allocations
+
 	return nil
 }
 
 type InMemoryConfigStore struct {
 	allocations *Allocations
+	mu          sync.RWMutex
 }
 
 func NewInMemoryConfigStore() *InMemoryConfigStore {
@@ -131,14 +210,23 @@ func NewInMemoryConfigStore() *InMemoryConfigStore {
 	}
 }
 
-func (i InMemoryConfigStore) GetAllocations(ctx context.Context) (*Allocations, error) {
+func (i *InMemoryConfigStore) GetAllocations(ctx context.Context) (*Allocations, error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	if i.allocations == nil {
 		panic("allocations not initialized")
 	}
 	return i.allocations, nil
 }
 
-func (i InMemoryConfigStore) UpdateAllocations(ctx context.Context, allocations *Allocations) error {
+func (i *InMemoryConfigStore) UpdateAllocations(ctx context.Context, allocations *Allocations) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.allocations = allocations
 	return nil
+}
+
+func (i *InMemoryConfigStore) RefreshAllocations(ctx context.Context) (*Allocations, error) {
+	// In-memory store doesn't need refresh, just return current allocations
+	return i.GetAllocations(ctx)
 }

@@ -42,18 +42,18 @@ type NodeAgent struct {
 }
 
 type ContainerInfo struct {
-	labels                 map[string]string
-	wekaContainerName      string
-	cpuInfo                LocalCpuUtilizationResponse
-	cpuInfoLastPoll        time.Time
-	containerState         LocalConfigStateResponse
-	containerStateLastPull time.Time
-	lastRegisterTimestamp  time.Time
-	containerName          string
-	containerId            string
-	mode                   string
-	scrapeTargets          []ScrapeTarget
-	scrappedData           map[ScrapeTarget][]byte
+	labels                       map[string]string
+	wekaContainerName            string
+	cpuInfo                      LocalCpuUtilizationResponse
+	cpuInfoLastPoll              time.Time
+	containerState               LocalConfigStateResponse
+	containerStateLastPull       time.Time
+	lastRegisterTimestamp        time.Time
+	containerName                string
+	containerId                  string
+	mode                         string
+	scrapeTargets                []ScrapeTarget
+	scrappedData                 map[ScrapeTarget][]byte
 	statsResponse                StatsResponse
 	statsResponseLastPoll        time.Time
 	pendingIOsFromProcfs         int

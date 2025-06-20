@@ -1,0 +1,12 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: replace-drive
+  namespace: weka-operator-system
+spec:
+  action: "replace-drives"
+  payload:
+    replaceDrivesPayload:
+      oldSerialIDs:
+        - "3823104FB2A3"
+      nodeName: h6-9-d

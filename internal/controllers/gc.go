@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -16,7 +17,8 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	defer end()
 
 	containers := discovery.GetAllContainers(ctx, r.Client)
-	configStore, err := allocator.NewConfigMapStore(ctx, r.Client)
+
+	resourcesAllocator, err := allocator.GetAllocator(ctx, r.Client)
 	if err != nil {
 		return err
 	}
@@ -29,7 +31,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		existingContainers[container.Namespace][container.Name] = true
 	}
 
-	allocations, err := configStore.GetAllocations(ctx)
+	allocations, err := resourcesAllocator.GetAllocations(ctx)
 	if err != nil {
 		return err
 	}
@@ -64,7 +66,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	for owner, _ := range misses {
 		if firstDetected, ok := r.DetectedZombies[owner]; ok {
 			if time.Since(firstDetected) > detectZombiesTime {
-				err := allocator.DeallocateNamespacedObject(ctx, owner, configStore)
+				err := resourcesAllocator.DeallocateNamespacedObject(ctx, owner)
 				if err != nil {
 					logger.Error(err, "Failed to deallocate container", "owner", owner)
 				}

@@ -7,9 +7,6 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +15,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -144,6 +145,15 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			onFailure,
 		)
 		loop.Op = unblockDrivesOp
+	case "replace-drives":
+		replaceDriveOp := operations.NewReplaceDrivesOperation(
+			r.Mgr,
+			wekaManualOperation.Spec.Payload.ReplaceDrives,
+			&wekaManualOperation.Status.Status,
+			onSuccess,
+			onFailure,
+		)
+		loop.Op = replaceDriveOp
 	case "discover-drives":
 		discoverDrivesOp := operations.NewDiscoverDrivesOperation(
 			r.Mgr,

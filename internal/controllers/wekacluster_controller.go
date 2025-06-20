@@ -180,11 +180,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				SkipOwnConditionCheck: true,
 			},
 			{
-				Run:       loop.AllocateReplacementsForFailedDrives,
+				Run: loop.AllocateReplacementsForFailedDrives,
+				Predicates: lifecycle.Predicates{
+					func() bool { return config.Config.AllocateReplacementForFailedDrives },
+				},
 				Throttled: config.Consts.CheckContainersFailedDrivesInterval,
 				ThrolltingSettings: util.ThrolltingSettings{
 					EnsureStepSuccess: true,
 				},
+				ContinueOnPredicatesFalse: true,
 			},
 			{
 				Run: loop.HandleSpecUpdates,

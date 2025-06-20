@@ -126,6 +126,7 @@ var Config struct {
 	SkipClientsTolerationValidation        bool
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
+	AllocateReplacementForFailedDrives     bool
 
 	CsiInstallationEnabled bool
 	CsiImage               string
@@ -283,6 +284,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
+	Config.AllocateReplacementForFailedDrives = getBoolEnvOrDefault("ALLOCATE_REPLACEMENT_FOR_FAILED_DRIVES", false)
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
