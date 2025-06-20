@@ -708,6 +708,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				CondMessage:               "Container joined cluster",
 			},
 			{
+				Run: loop.ReplaceDrives,
+				Predicates: lifecycle.Predicates{
+					loop.HasDrivesToReplace,
+					container.IsDriveContainer,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.EnsureDrives,
 				Predicates: lifecycle.Predicates{
 					container.IsDriveContainer,
@@ -762,16 +770,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
 					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
-				Name: "ReplaceFailedDrives",
-				Predicates: lifecycle.Predicates{
-					loop.HasFailedDrives,
-					container.IsDriveContainer,
-					func() bool { return config.Config.AllocateReplacementForFailedDrives },
-				},
-				Run:                       loop.ReplaceFailedDrives,
 				ContinueOnPredicatesFalse: true,
 			},
 		},
@@ -2635,7 +2633,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	}
 
 	if container.Status.Stats != nil {
-		if int(container.Status.Stats.Drives.DriveCounters.Active) == len(container.Status.Allocations.Drives) {
+		if int(container.Status.Stats.Drives.DriveCounters.Active) == len(container.Status.Allocations.Drives) && len(container.Status.Allocations.ReplaceDrives) == 0 {
 			return r.updateContainerStatusIfNotEquals(ctx, weka.Running)
 		}
 	}
@@ -3157,7 +3155,7 @@ func handleFailureDomainValue(fd string) string {
 	return strings.ReplaceAll(fd, "/", "-")
 }
 
-func (r *containerReconcilerLoop) ReplaceFailedDrives(ctx context.Context) error {
+func (r *containerReconcilerLoop) ReplaceDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -3210,51 +3208,93 @@ func (r *containerReconcilerLoop) ReplaceFailedDrives(ctx context.Context) error
 
 	wekaService := services.NewWekaService(r.ExecService, container)
 
-	statusActive := "ACTIVE"
-	statusInactive := "INACTIVE"
 	drives, err := wekaService.ListContainerDrives(ctx, *containerId)
 	if err != nil {
 		return err
 	}
 
+	addedDrivesSerialNumbers := make(map[string]bool)
+	for _, drive := range drives {
+		addedDrivesSerialNumbers[drive.SerialNumber] = true
+	}
+
+	// check explicit "replace drives" list
+	// if no more drives from this list are present in the cluster, clear the list
+	clearReplaceDrives := true
+	for _, replaceDrive := range container.Status.Allocations.ReplaceDrives {
+		if _, ok := addedDrivesSerialNumbers[replaceDrive]; ok {
+			clearReplaceDrives = false
+			break
+		}
+	}
+	if clearReplaceDrives && len(container.Status.Allocations.ReplaceDrives) > 0 {
+		// TODO: figure out the right place to resign drives marked as failed in container metrics
+		// resign drives that are in replace drives list
+		payload := weka.ForceResignDrivesPayload{
+			NodeName:      container.GetNodeAffinity(),
+			DeviceSerials: container.Status.Allocations.ReplaceDrives,
+		}
+		emptyCallback := func(ctx context.Context) error { return nil }
+		details := *container.ToContainerDetails()
+		details.Image = config.Config.SignDrivesImage
+		op := operations.NewResignDrivesOperation(
+			r.Manager, &payload, container, details, nil, emptyCallback, nil,
+		)
+
+		err = operations.ExecuteOperation(ctx, op)
+		if err != nil {
+			err = fmt.Errorf("error resigning drives: %w", err)
+			return err
+		}
+
+		// trigger resources.json re-write
+		logger.Info("Re-writing resources.json after resigning drives")
+		err = r.WriteResources(ctx)
+		if err != nil {
+			err = fmt.Errorf("error writing resources.json after resigning drives: %w", err)
+			return err
+		}
+
+		// clear replace drives list
+		logger.Info("Clearing replace drives list, no more drives from this list are present in the cluster")
+		container.Status.Allocations.ReplaceDrives = nil
+		err = r.Status().Update(ctx, container)
+		if err != nil {
+			err = fmt.Errorf("cannot update container status with cleared replace drives list: %w", err)
+			return err
+		}
+
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("Cleared replace drives list, retry drive replacement"),
+			time.Second*10,
+		)
+	}
+
 	var errs []error
 
 	for _, drive := range drives {
-		isFailed := false
+		toReplace := false
+		// check if drive is failed according to container metrics
 		for _, failedDrive := range container.Status.GetStats().Drives.DriveFailures {
 			if failedDrive.SerialId == drive.SerialNumber {
-				isFailed = true
+				toReplace = true
 				break
 			}
 		}
 
-		if !isFailed {
+		// also check if drive is in replace drives list
+		if !toReplace && slices.Contains(container.Status.Allocations.ReplaceDrives, drive.SerialNumber) {
+			toReplace = true
+		}
+
+		if !toReplace {
 			continue
 		}
 
-		switch drive.Status {
-		case statusActive:
-			logger.Info("Deactivating drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
-			err = wekaService.DeactivateDrive(ctx, drive.Uuid)
-			if err != nil {
-				return err
-			}
-
-			_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber))
-		case statusInactive:
-			logger.Debug("Drive is inactive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
-		default:
-			err := fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
-			errs = append(errs, err)
-			continue
-		}
-
-		// remove failed drive from weka
-		logger.Info("Removing failed drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
-		err = wekaService.RemoveDrive(ctx, drive.Uuid)
+		err := r.removeReplacedDriveFromWeka(ctx, &drive, wekaService)
 		if err != nil {
-			err = fmt.Errorf("error removing drive %s: %w", drive.SerialNumber, err)
 			errs = append(errs, err)
+			continue
 		}
 	}
 
@@ -3262,8 +3302,46 @@ func (r *containerReconcilerLoop) ReplaceFailedDrives(ctx context.Context) error
 		return fmt.Errorf("errors during drive replacement: %v", errs)
 	}
 
-	// add new
+	// adding of new drive is covered by EnsureDrives
+	return nil
+}
 
+func (r *containerReconcilerLoop) removeReplacedDriveFromWeka(ctx context.Context, drive *services.Drive, wekaService services.WekaService) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeReplacedDriveFromWeka")
+	defer end()
+
+	statusActive := "ACTIVE"
+	statusInactive := "INACTIVE"
+
+	switch drive.Status {
+	case statusActive:
+		logger.Info("Deactivating drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+		err := wekaService.DeactivateDrive(ctx, drive.Uuid)
+		if err != nil {
+			err = fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, err)
+			return err
+		}
+
+		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber))
+	case statusInactive:
+		logger.Debug("Drive is inactive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+	default:
+		err := fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
+		return err
+	}
+
+	// remove failed (replaced) drive from weka
+	logger.Info("Removing drive", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
+
+	err := wekaService.RemoveDrive(ctx, drive.Uuid)
+	if err != nil {
+		err = fmt.Errorf("error removing drive %s: %w", drive.SerialNumber, err)
+		return err
+	}
+
+	_ = r.RecordEvent("", "DriveRemoved", fmt.Sprintf("Drive %s removed", drive.SerialNumber))
+
+	logger.Info("Drive removed from weka", "drive_id", drive.Uuid, "serial_number", drive.SerialNumber)
 	return nil
 }
 
@@ -4809,6 +4887,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 	return nil
 }
 
-func (r *containerReconcilerLoop) HasFailedDrives() bool {
-	return len(r.container.Status.GetStats().Drives.DriveFailures) > 0
+func (r *containerReconcilerLoop) HasDrivesToReplace() bool {
+	return len(r.container.Status.GetStats().Drives.DriveFailures) > 0 && config.Config.AllocateReplacementForFailedDrives ||
+		r.container.Status.Allocations != nil && len(r.container.Status.Allocations.ReplaceDrives) > 0
 }

@@ -227,8 +227,12 @@ func (o *ReplaceDrivesOperation) ReplaceDrives(ctx context.Context) error {
 				return fmt.Errorf("no drives allocated")
 			}
 
+			replaceDrives := alocatedDrivesToReplaceByWekaContainer[container.Name]
+
 			if !util.SliceEquals(newDrives, container.Status.Allocations.Drives) {
 				container.Status.Allocations.Drives = newDrives
+				container.Status.Allocations.ReplaceDrives = replaceDrives
+
 				err = o.manager.GetClient().Status().Update(ctx, container)
 				if err != nil {
 					return errors.Wrap(err, "failed to update drive container status after drive allocation")
