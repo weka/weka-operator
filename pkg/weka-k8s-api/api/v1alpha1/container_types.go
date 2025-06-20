@@ -282,7 +282,18 @@ func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
 	if c.FailureDomain != nil && *c.FailureDomain != *other.FailureDomain {
 		return false
 	}
+	if c.MachineIdentifier != other.MachineIdentifier {
+		return false
+	}
 	return true
+}
+
+type Drive struct {
+	Uuid         string `json:"uuid"`
+	AddedTime    string `json:"added_time"`
+	DevicePath   string `json:"device_path"`
+	SerialNumber string `json:"serial_number"`
+	Status       string `json:"status"`
 }
 
 type WekaContainerMetrics struct {
@@ -329,10 +340,22 @@ type WekaContainerStatus struct {
 	NodeAffinity             NodeName                 `json:"nodeAffinity,omitempty"`     // active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity
 	ExecutionResult          *string                  `json:"result,omitempty"`
 	Allocations              *ContainerAllocations    `json:"allocations,omitempty"`
+	AddedDrives              []Drive                  `json:"addedDrives,omitempty"` // drives that were added to the weka cluster
 	Stats                    *WekaContainerMetrics    `json:"stats,omitempty"`
 	PrinterColumns           *ContainerPrinterColumns `json:"printer,omitempty"`
 	Timestamps               map[string]metav1.Time   `json:"timestamps,omitempty"`
 	NotToleratedOnReschedule bool                     `json:"notToleratedOnReschedule,omitempty"`
+}
+
+func (s *WekaContainerStatus) GetAddedDrivesSerials() []string {
+	serials := make([]string, 0, len(s.AddedDrives))
+	for _, d := range s.AddedDrives {
+		if d.SerialNumber == "" {
+			continue
+		}
+		serials = append(serials, d.SerialNumber)
+	}
+	return serials
 }
 
 func (s *WekaContainerStatus) GetManagementIps() []string {
@@ -350,6 +373,13 @@ func (s *WekaContainerStatus) GetPrinterColumns() *ContainerPrinterColumns {
 		return &ContainerPrinterColumns{}
 	}
 	return s.PrinterColumns
+}
+
+func (s *WekaContainerStatus) GetStats() *WekaContainerMetrics {
+	if s.Stats == nil {
+		return &WekaContainerMetrics{}
+	}
+	return s.Stats
 }
 
 // TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes
