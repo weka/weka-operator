@@ -85,6 +85,8 @@ WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_CO
 
 AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
+GCP_VENDOR_ID = "0x1ae0"
+GCP_DEVICE_ID = "0x001f"
 AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
 
 # for client dynamic port allocation
@@ -111,6 +113,38 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
     handlers=[stdout_handler, stderr_handler]
 )
+
+async def sign_drives_gke(vendor_id: str, device_id: str, options: dict) -> List[str]:
+    logging.info("Signing drives (GKE). Vendor ID: %s, Device ID: %s", vendor_id, device_id)
+
+    if not vendor_id or not device_id:
+        raise ValueError("Vendor ID and Device ID are required")
+    
+    cmd = f"""for dev in /sys/block/*; do
+if [ -f "$dev/device/device/vendor" ] && 
+   [ "$(cat $dev/device/device/vendor 2>/dev/null)" = "{vendor_id}" ] && 
+   [ "$(cat $dev/device/device/device 2>/dev/null)" = "{device_id}" ]; then
+    echo $(basename $dev)
+fi
+done"""
+
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        return
+
+    logging.info(f"Found {len(stdout.decode().strip().split())} drives to sign")
+    signed_drives = []
+    dev_devices = stdout.decode().strip().split("\n")
+    for dev_device in dev_devices:
+        device = f"/dev/{dev_device}"
+        try:
+            await sign_device_path(device, options)
+            signed_drives.append(device)
+
+        except SignException as e:
+            logging.error(str(e))
+            continue
+    return signed_drives
 
 
 class FeaturesFlags:
@@ -319,6 +353,12 @@ async def sign_drives(instruction: dict) -> List[str]:
         return await sign_drives_by_pci_info(
             vendor_id=AWS_VENDOR_ID,
             device_id=AWS_DEVICE_ID,
+            options=options
+        )
+    elif type == "gcp-all":
+        return await sign_drives_gke(
+            vendor_id=GCP_VENDOR_ID,
+            device_id=GCP_DEVICE_ID,
             options=options
         )
     elif type == "device-identifiers":
