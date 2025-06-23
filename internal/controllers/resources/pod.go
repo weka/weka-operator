@@ -1112,6 +1112,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memLimit = memRequest
 	}
 
+	requestedEphemeralStorage := "8M"
+	if f.container.HasAgent() && !f.container.HasPersistentStorage() {
+		// only /opt/weka/data/logs.loop takes 2G
+		requestedEphemeralStorage = "2Gi"
+	}
+
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
@@ -1124,7 +1130,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
 			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
 			corev1.ResourceMemory:           resource.MustParse(memRequest),
-			corev1.ResourceEphemeralStorage: resource.MustParse("8M"),
+			corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
 		},
 	}
 
