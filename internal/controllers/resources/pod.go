@@ -1116,6 +1116,10 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.HasAgent() && !f.container.HasPersistentStorage() {
 		// only /opt/weka/data/logs.loop takes 2G
 		requestedEphemeralStorage = "2Gi"
+
+		if f.container.IsWekaContainer() {
+			requestedEphemeralStorage = "3.5Gi"
+		}
 	}
 
 	// since this is HT, we are doubling num of cores on allocation
