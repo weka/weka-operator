@@ -413,7 +413,7 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
-	return w.IsWekaContainer() && !w.IsDistMode() && !w.IsEnvoy()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy()
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
@@ -430,11 +430,11 @@ func (w *WekaContainer) IsServiceContainer() bool {
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
-	return w.IsWekaContainer() && !w.IsDistMode()
+	return w.IsWekaContainer() && !w.IsDriversContainer()
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
-	return w.IsWekaContainer() && !w.IsDistMode() && !w.IsEnvoy()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy()
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
@@ -508,6 +508,7 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeEnvoy,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
+		WekaContainerModeDriversBuilder,
 		WekaContainerModeNfs,
 	}, w.Spec.Mode)
 }
@@ -528,6 +529,7 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeEnvoy,
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
+		WekaContainerModeDriversBuilder,
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeNfs,
 	}, w.Spec.Mode)
