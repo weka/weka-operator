@@ -1106,6 +1106,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 		total := 1024 + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
+		memLimit = fmt.Sprintf("%dMi", total+8192)
 	}
 
 	if memLimit == "" {
