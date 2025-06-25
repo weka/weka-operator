@@ -1455,7 +1455,9 @@ func (r *containerReconcilerLoop) checkAllowForceStopInstruction(ctx context.Con
 func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.Pod, force bool) error {
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "runWekaLocalStop")
 	defer end()
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+
+	timeout := 10 * time.Second
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
