@@ -1171,29 +1171,7 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 		return errors.New("Container ID is not set")
 	}
 
-	// if less then 1 minute passed from deactivation - hold on the removal
-	reset := func() {}
-	if !r.container.IsS3Container() {
-		throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
-		if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
-			return lifecycle.NewWaitErrorWithDuration(
-				errors.New("throttling removal of containers from weka"),
-				time.Second*15,
-			)
-		}
-		reset = func() {
-			throttler.Reset("removeDeactivatedContainers")
-		}
-	}
-
-	err := r.removeDeactivatedContainers(ctx, *containerId)
-	if err != nil {
-		// in case of error - we do not want to throttle
-		reset()
-		return err
-	}
-
-	return nil
+	return r.removeDeactivatedContainers(ctx, *containerId)
 }
 
 func (r *containerReconcilerLoop) removeAllocations(ctx context.Context) error {
