@@ -25,7 +25,7 @@ func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
 }
 
 func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
-	if wekaClient.Spec.CsiConfig.CsiGroup == "" {
+	if wekaClient.Spec.CsiConfig == nil || wekaClient.Spec.CsiConfig.CsiGroup == "" {
 		return config.Consts.CsiLegacyDriverName
 	}
 	return generateCsiDriverName(wekaClient.Spec.CsiConfig.CsiGroup)
