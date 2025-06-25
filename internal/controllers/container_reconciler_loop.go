@@ -4639,7 +4639,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 			}
 		}
 		if foundS3Neighbor {
-			logger.Info("Found S3 neighbor, not deleting envoy container")
+			logger.Debug("Found S3 neighbor, not deleting envoy container")
 			return nil
 		}
 	}

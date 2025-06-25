@@ -2436,6 +2436,10 @@ type UpdatableClusterSpec struct {
 	ImagePullSecret           string
 	Labels                    *util2.HashableMap
 	NodeSelector              *util2.HashableMap
+	S3NodeSelector            *util2.HashableMap
+	NfsNodeSelector           *util2.HashableMap
+	ComputeNodeSelector       *util2.HashableMap
+	DriveNodeSelector         *util2.HashableMap
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
 	NetworkSelector           wekav1alpha1.NetworkSelector
@@ -2452,6 +2456,10 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		ImagePullSecret:           spec.ImagePullSecret,
 		Labels:                    util2.NewHashableMap(meta.Labels),
 		NodeSelector:              util2.NewHashableMap(spec.NodeSelector),
+		S3NodeSelector:            util2.NewHashableMap(spec.RoleNodeSelector.S3),
+		NfsNodeSelector:           util2.NewHashableMap(spec.RoleNodeSelector.Nfs),
+		ComputeNodeSelector:       util2.NewHashableMap(spec.RoleNodeSelector.Compute),
+		DriveNodeSelector:         util2.NewHashableMap(spec.RoleNodeSelector.Drive),
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
