@@ -1417,18 +1417,19 @@ async def ensure_weka_container():
             resources['net_devices'][0]['gateway'] = NET_GATEWAY
 
     # save resources
-    resources_dir = f"/opt/weka/k8s-runtime/resources"
+    resources_dir = f"/opt/weka/data/{NAME}/container/"
     os.makedirs(resources_dir, exist_ok=True)
     resource_gen = str(uuid.uuid4())
-    resource_file = f"{resources_dir}/weka-resources.{resource_gen}.json"
+    file_name = f"weka-resources.{resource_gen}.json"
+    resource_file = os.path.join(resources_dir, file_name)
     with open(resource_file, "w") as f:
         json.dump(resources, f)
     # reconfigure containers
     stdout, stderr, ec = await run_command(f"""
-        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json
-        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json.stable
-        ln -sf {resource_file} /opt/weka/data/{NAME}/container/resources.json.staging
-        ln -sf {resource_file} /opt/weka/data/{NAME}/weka-resources.{resource_gen}.json
+        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json
+        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.stable
+        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.staging
+        ln -sf {file_name} /opt/weka/data/{NAME}/weka-resources.{resource_gen}.json
         # at some point weka creates such, basically expecting relative path: 'resources.json.stable -> weka-resources.35fda56d-2ce3-4f98-b77c-a399df0940af.json'
         # stable flow might not even be used, and should be fixed on wekapp side
     """)
