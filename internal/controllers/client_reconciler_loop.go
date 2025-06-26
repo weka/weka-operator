@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	storagev1 "k8s.io/api/storage/v1"
 	"reflect"
 	"time"
 
@@ -1028,6 +1029,16 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
+	csiDriver := &storagev1.CSIDriver{}
+	err := c.Get(ctx, client.ObjectKey{Name: csiDriverName}, csiDriver)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		} else {
+			return errors.Wrap(err, "failed to get CSI driver")
+		}
+	}
+
 	logger.Info("Undeploying CSI plugin")
 	op := operations.NewDeployCsiOperation(
 		c.Manager,
@@ -1036,7 +1047,7 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverN
 		c.nodes,
 		true,
 	)
-	err := operations.ExecuteOperation(ctx, op)
+	err = operations.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to undeploy CSI plugin")
 		return err
