@@ -1456,13 +1456,14 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 	ctx, _, end := instrumentation.GetLogSpan(ctx, "runWekaLocalStop")
 	defer end()
 
-	timeout := 10 * time.Second
+	timeout := 12 * time.Second
+	bashTimeout := 10 * time.Second
 	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
 
-	args := []string{"weka", "local", "stop"}
+	args := []string{"timeout", bashTimeout.String(), "weka", "local", "stop"}
 
 	// we need to use --force flag
 	if force {
