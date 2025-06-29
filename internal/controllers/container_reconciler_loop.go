@@ -1473,11 +1473,6 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "WekaLocalStop", args)
-	// handle the case when weka-agent isn't running:
-	// `error stopping weka local: No container names or types provided; applying action to all Weka containers on the server.\n\x00error: error: weka-agent isn't running. To start the agent, run 'service weka-agent start'\n\x00`
-	if err != nil && strings.Contains(stderr.String(), "error: weka-agent isn't running") {
-		return nil
-	}
 	// hanlde the case when there is no weka-container on the pod
 	if err != nil && strings.Contains(err.Error(), "container not found") {
 		return nil
