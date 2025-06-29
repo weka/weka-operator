@@ -1,14 +1,12 @@
 package csi
 
 import (
-	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewCsiStorageClass(baseName string, driverName string, storageClassName string, fileSystemName string, mountOptions ...string) *storagev1.StorageClass {
-	secretName := fmt.Sprintf("weka-csi-%s", baseName)
+func NewCsiStorageClass(secretName string, driverName string, storageClassName string, fileSystemName string, mountOptions ...string) *storagev1.StorageClass {
 	storageClass := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: storageClassName,

@@ -51,17 +51,6 @@ func GetBaseNameFromDriverName(csiDriverName string) string {
 	return parts[1]
 }
 
-func GetCsiSecretName(wekaCluster *weka.WekaCluster) string {
-	prefix := "weka-csi-"
-	if config.Config.CsiInstallationEnabled {
-		if wekaCluster.Spec.CsiConfig.CsiDriverName != "" {
-			return prefix + GetBaseNameFromDriverName(wekaCluster.Spec.CsiConfig.CsiDriverName)
-		}
-		return prefix + wekaCluster.Name + "-" + wekaCluster.Namespace
-	}
-	return prefix + wekaCluster.Name
-}
-
 func GetTracingFlag() string {
 	if config.Config.Otel.ExporterOtlpEndpoint != "" {
 		endpoint := strings.TrimPrefix(config.Config.Otel.ExporterOtlpEndpoint, "http://")

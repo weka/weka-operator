@@ -124,7 +124,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.csiBaseName, o.csiDriverName, storageClassName, fileSystemName)
+			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName, storageClassName, fileSystemName)
 		}); err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.csiBaseName, o.csiDriverName,
+			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName,
 				storageClassForceDirectName, fileSystemName, mountOptions...)
 		}); err != nil {
 		return err
@@ -205,6 +205,14 @@ func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.O
 	}
 
 	return nil
+}
+
+func (o *DeployCsiOperation) getSecretName() string {
+	emptyRef := v1alpha1.ObjectReference{}
+	if o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != "" {
+		return fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
+	}
+	return fmt.Sprintf("weka-csi-%s", o.csiBaseName)
 }
 
 func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, accessibleLabel string) {

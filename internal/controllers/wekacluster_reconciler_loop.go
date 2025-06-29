@@ -32,7 +32,6 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/pkg/lifecycle"
@@ -1334,7 +1333,7 @@ func (r *wekaClusterReconcilerLoop) applyCsiLoginCredentials(ctx context.Context
 
 	container := discovery.SelectActiveContainer(containers)
 
-	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, csi.GetCsiSecretName(cluster))
+	username, password, err := r.getUsernameAndPassword(ctx, cluster.Namespace, cluster.GetCsiSecretName())
 	if err != nil {
 		err = fmt.Errorf("failed to get client login credentials: %w", err)
 		return err
@@ -2378,7 +2377,7 @@ func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Contex
 	cluster := r.cluster
 	secret := &v1.Secret{}
 	err := r.getClient().Get(ctx, client.ObjectKey{
-		Name:      csi.GetCsiSecretName(cluster),
+		Name:      cluster.GetCsiSecretName(),
 		Namespace: cluster.Namespace,
 	}, secret)
 	if err != nil {
