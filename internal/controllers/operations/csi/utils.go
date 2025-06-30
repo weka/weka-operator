@@ -21,7 +21,7 @@ func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
 		return wekaCluster.Spec.CsiConfig.CsiDriverName
 	}
 
-	return generateCsiDriverName(wekaCluster.Name + "-" + wekaCluster.Namespace)
+	return fmt.Sprintf("%s.%s.weka.io", wekaCluster.Name, wekaCluster.Namespace)
 }
 
 func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
