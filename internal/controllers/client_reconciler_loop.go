@@ -85,6 +85,17 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Throttled: time.Minute,
 			},
 			{
+				Run: loop.FetchTargetCluster,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						emptyRef := weka.ObjectReference{}
+						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
+					},
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.HandleDeletion,
 				Predicates: lifecycle.Predicates{
 					wekaClient.IsMarkedForDeletion,
@@ -124,17 +135,6 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.EnsureClientsWekaContainers},
-			{
-				Run: loop.FetchTargetCluster,
-				Predicates: lifecycle.Predicates{
-					func() bool {
-						emptyRef := weka.ObjectReference{}
-						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
-					},
-					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
 			{
 				Condition:             condition.CondCsiDeployed,
 				SkipOwnConditionCheck: true,

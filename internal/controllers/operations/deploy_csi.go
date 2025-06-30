@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
@@ -13,9 +14,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	Csi_Controller_Suffix = "-csi-controller"
 )
 
 type DeployCsiOperation struct {
@@ -73,11 +79,11 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	}
 	undeploySteps := []lifecycle.Step{
 		{
-			Name: "DeployCsiDriver",
+			Name: "UndeployCsiDriver",
 			Run:  o.undeployCsiDriver,
 		},
 		{
-			Name: "DeployStorageClasses",
+			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
 		},
 		{
@@ -114,7 +120,9 @@ func (o *DeployCsiOperation) undeployCsiDriver(ctx context.Context) error {
 			Name: o.csiDriverName,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI driver %s: %w", o.csiDriverName, err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete CSI driver %s: %w", o.csiDriverName, err)
+		}
 	}
 	return nil
 }
@@ -150,7 +158,9 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 			Name: storageClassName,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI storage class %s: %w", storageClassName, err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete storage class %s: %w", storageClassName, err)
+		}
 	}
 
 	mountOptions := []string{"forcedirect"}
@@ -160,14 +170,15 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 			Name: storageClassForceDirectName,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI storage class %s: %w", storageClassForceDirectName, err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete storage class %s: %w", storageClassName, err)
+		}
 	}
-
 	return nil
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiBaseName + "-csi-controller"
+	controllerDeploymentName := o.csiBaseName + Csi_Controller_Suffix
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, o.wekaClient.Spec.Tolerations, o.wekaClient.Spec.RawTolerations)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
 		func() client.Object {
@@ -182,14 +193,16 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiBaseName + "-csi-controller"
+	controllerDeploymentName := o.csiBaseName + Csi_Controller_Suffix
 	if err := o.client.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      controllerDeploymentName,
 			Namespace: o.namespace,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI controller deployment %s: %w", controllerDeploymentName, err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete CSI controller deployment %s: %w", controllerDeploymentName, err)
+		}
 	}
 	return nil
 }

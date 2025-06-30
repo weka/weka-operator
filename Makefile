@@ -281,7 +281,8 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--set deploymentIdentifier="dev-${USER}" \
 		--set cleanupRemovedNodes=$(CLEANUP_REMOVED_NODES) \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
-        --set skipUnhealthyToleration=true
+        --set skipUnhealthyToleration=true \
+        --set csi.installationEnabled=true
 
 .PHONY: deployocp
 deployocp: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
