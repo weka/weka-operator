@@ -1244,7 +1244,27 @@ func (r *containerReconcilerLoop) removeDeactivatedContainers(ctx context.Contex
 		return err
 	}
 
-	return nil
+	// Verify that the container was actually removed from the cluster
+	_, err = wekaService.GetWekaContainer(ctx, containerId)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			logger.Info("Container successfully removed from cluster", "container_id", containerId)
+			return nil
+		}
+		// Other errors might be temporary, so we wait and retry
+		logger.Warn("Error checking container removal status", "container_id", containerId, "error", err)
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.Wrapf(err, "Failed to verify container %d removal", containerId),
+			time.Second*15,
+		)
+	}
+
+	// Container still exists in cluster, wait and retry
+	logger.Info("Container still exists in cluster, waiting for removal to complete", "container_id", containerId)
+	return lifecycle.NewWaitErrorWithDuration(
+		fmt.Errorf("container %d still exists in cluster", containerId),
+		time.Second*15,
+	)
 }
 
 func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
