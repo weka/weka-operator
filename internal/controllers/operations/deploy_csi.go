@@ -71,6 +71,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "DeployStorageClasses",
 			Run:  o.deployStorageClasses,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+			},
+			ContinueOnPredicatesFalse: true,
 		},
 		{
 			Name: "DeployCsiController",
@@ -85,6 +89,9 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+			},
 		},
 		{
 			Name: "UndeployCsiController",
