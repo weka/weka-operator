@@ -71,7 +71,7 @@ type EnsureDistServiceOperation struct {
 	scheme           *runtime.Scheme
 	payload          *weka.DriverDistPayload
 	policy           *weka.WekaPolicy // This is WekaPolicy
-	containerDetails weka.WekaContainerDetails
+	containerDetails weka.WekaOwnerDetails
 	ownerStatus      string // Current status of the WekaPolicy (e.g., "Running", "Done")
 	successCallback  lifecycle.StepFunc
 	failureCallback  lifecycle.StepFunc
@@ -90,7 +90,7 @@ func NewEnsureDistServiceOperation(
 	mgr ctrl.Manager,
 	payload *weka.DriverDistPayload,
 	policy *weka.WekaPolicy,
-	containerDetails weka.WekaContainerDetails,
+	containerDetails weka.WekaOwnerDetails,
 	ownerStatus string,
 	successCallback lifecycle.StepFunc,
 	failureCallback lifecycle.StepFunc,

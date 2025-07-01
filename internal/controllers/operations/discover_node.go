@@ -9,11 +9,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,39 +17,46 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type DiscoverNodeOperation struct {
-	client          client.Client
-	kubeService     kubernetes.KubeService
-	execService     exec.ExecService
-	scheme          *runtime.Scheme
-	nodeName        weka.NodeName
-	image           string
-	pullSecret      string
-	result          *discovery.DiscoveryNodeInfo
-	container       *weka.WekaContainer
-	ownerRef        client.Object
-	mgr             ctrl.Manager
-	successCallback lifecycle.StepFunc
-	tolerations     []corev1.Toleration
-	node            *corev1.Node
+	client         client.Client
+	kubeService    kubernetes.KubeService
+	execService    exec.ExecService
+	scheme         *runtime.Scheme
+	nodeName       weka.NodeName
+	image          string
+	pullSecret     string
+	serviceAccount string
+	result         *discovery.DiscoveryNodeInfo
+	container      *weka.WekaContainer
+	ownerRef       client.Object
+	mgr            ctrl.Manager
+	tolerations    []corev1.Toleration
+	node           *corev1.Node
 }
 
-func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaContainerDetails) *DiscoverNodeOperation {
+func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node weka.NodeName, ownerRef client.Object, ownerDetails *weka.WekaOwnerDetails) *DiscoverNodeOperation {
 	kclient := mgr.GetClient()
 	return &DiscoverNodeOperation{
-		mgr:         mgr,
-		client:      kclient,
-		kubeService: kubernetes.NewKubeService(kclient),
-		execService: exec.NewExecService(restClient, mgr.GetConfig()),
-		scheme:      mgr.GetScheme(),
-		nodeName:    node,
-		image:       ownerDetails.Image,
-		pullSecret:  ownerDetails.ImagePullSecret,
-		tolerations: ownerDetails.Tolerations,
-		result:      nil,
-		ownerRef:    ownerRef,
+		mgr:            mgr,
+		client:         kclient,
+		kubeService:    kubernetes.NewKubeService(kclient),
+		execService:    exec.NewExecService(restClient, mgr.GetConfig()),
+		scheme:         mgr.GetScheme(),
+		nodeName:       node,
+		image:          ownerDetails.Image,
+		pullSecret:     ownerDetails.ImagePullSecret,
+		serviceAccount: ownerDetails.ServiceAccountName,
+		tolerations:    ownerDetails.Tolerations,
+		result:         nil,
+		ownerRef:       ownerRef,
 	}
 }
 
@@ -204,11 +206,12 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Mode:            weka.WekaContainerModeDiscovery,
-			NodeAffinity:    weka.NodeName(o.node.Name),
-			Image:           o.image,
-			ImagePullSecret: o.pullSecret,
-			Tolerations:     o.tolerations,
+			Mode:               weka.WekaContainerModeDiscovery,
+			NodeAffinity:       weka.NodeName(o.node.Name),
+			Image:              o.image,
+			ImagePullSecret:    o.pullSecret,
+			Tolerations:        o.tolerations,
+			ServiceAccountName: o.serviceAccount,
 		},
 	}
 

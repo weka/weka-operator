@@ -4,20 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
-	"github.com/weka/weka-operator/pkg/workers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +18,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type SignDrivesOperation struct {
@@ -35,6 +36,7 @@ type SignDrivesOperation struct {
 	payload         *weka.SignDrivesPayload
 	image           string
 	pullSecret      string
+	serviceAccount  string
 	containers      []*weka.WekaContainer
 	ownerRef        client.Object
 	results         DiscoverDrivesResult
@@ -54,7 +56,7 @@ func (o *SignDrivesOperation) AsStep() lifecycle.Step {
 	}
 }
 
-func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback, failureCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
+func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback, failureCallback lifecycle.StepFunc, force bool) *SignDrivesOperation {
 	kclient := mgr.GetClient()
 	return &SignDrivesOperation{
 		mgr:             mgr,
@@ -64,6 +66,7 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
+		serviceAccount:  ownerDetails.ServiceAccountName,
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
@@ -174,13 +177,14 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
-				Mode:            weka.WekaContainerModeAdhocOp,
-				NodeAffinity:    weka.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
-				HostPID:         true,
+				Mode:               weka.WekaContainerModeAdhocOp,
+				NodeAffinity:       weka.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				HostPID:            true,
+				ServiceAccountName: o.serviceAccount,
 			},
 		}
 		toCreate = append(toCreate, newContainer)

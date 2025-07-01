@@ -31,6 +31,7 @@ type EnsureNICsOperation struct {
 	payload         *weka.EnsureNICsPayload
 	image           string
 	pullSecret      string
+	serviceAccount  string
 	containers      []*weka.WekaContainer
 	ownerRef        client.Object
 	results         EnsureNICsResult
@@ -58,7 +59,7 @@ type EnsureNICsResult struct {
 	Results map[string]ensureNICsResult `json:"results"`
 }
 
-func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation {
+func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation {
 	kclient := mgr.GetClient()
 	return &EnsureNICsOperation{
 		mgr:             mgr,
@@ -68,6 +69,7 @@ func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, o
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
+		serviceAccount:  ownerDetails.ServiceAccountName,
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
@@ -139,14 +141,15 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
-				Mode:            weka.WekaContainerModeAdhocOpWC,
-				Port:            weka.StaticPortAdhocyWCOperations,
-				AgentPort:       weka.StaticPortAdhocyWCOperationsAgent,
-				NodeAffinity:    weka.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
+				Mode:               weka.WekaContainerModeAdhocOpWC,
+				Port:               weka.StaticPortAdhocyWCOperations,
+				AgentPort:          weka.StaticPortAdhocyWCOperationsAgent,
+				NodeAffinity:       weka.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				ServiceAccountName: o.serviceAccount,
 			},
 		}
 

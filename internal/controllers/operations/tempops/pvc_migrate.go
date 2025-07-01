@@ -44,7 +44,7 @@ type PvcMigrateOperation struct {
 }
 
 func NewPvcMigrateOperation(mgr ctrl.Manager, container *weka.WekaContainer) *PvcMigrateOperation {
-	ownerDetails := *container.ToContainerDetails()
+	ownerDetails := *container.ToOwnerDetails()
 	return &PvcMigrateOperation{
 		mgr:                  mgr,
 		client:               mgr.GetClient(),

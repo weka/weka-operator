@@ -1301,7 +1301,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 		DeviceSerials: deactivatedContainer.Status.Allocations.Drives,
 	}
 	emptyCallback := func(ctx context.Context) error { return nil }
-	details := *deactivatedContainer.ToContainerDetails()
+	details := *deactivatedContainer.ToOwnerDetails()
 	details.Image = config.Config.SignDrivesImage
 	op := operations.NewResignDrivesOperation(
 		r.Manager,
@@ -2153,7 +2153,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 		r.Manager,
 		&payload,
 		container,
-		*container.ToContainerDetails(),
+		*container.ToOwnerDetails(),
 		container.Spec.NodeSelector,
 	)
 	return operations.ExecuteOperation(ctx, op)
@@ -2206,7 +2206,7 @@ func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.D
 		r.RestClient,
 		nodeAffinity,
 		container,
-		container.ToContainerDetails(),
+		container.ToOwnerDetails(),
 	)
 	err := operations.ExecuteOperation(ctx, discoverNodeOp)
 	if err != nil {
@@ -2508,7 +2508,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 		return errors.New("node not found")
 	}
 
-	details := r.container.ToContainerDetails()
+	details := r.container.ToOwnerDetails()
 	if r.container.Spec.DriversLoaderImage != "" {
 		details.Image = r.container.Spec.DriversLoaderImage
 	} else if r.IsNotAlignedImage() {
@@ -3455,7 +3455,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 				return err
 			}
 
-			details := r.container.ToContainerDetails()
+			details := r.container.ToOwnerDetails()
 			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {

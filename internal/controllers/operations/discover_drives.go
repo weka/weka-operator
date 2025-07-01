@@ -8,10 +8,6 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +15,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type DiscoverDrivesOperation struct {
@@ -29,6 +30,7 @@ type DiscoverDrivesOperation struct {
 	namespace       string
 	image           string
 	pullSecret      string
+	serviceAccount  string
 	containers      []*v1alpha1.WekaContainer
 	ownerRef        client.Object
 	results         DiscoverDrivesResult
@@ -63,7 +65,7 @@ type DiscoverDrivesResult struct {
 	Results map[string]DriveNodeResults `json:"results"`
 }
 
-func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
+func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc, force bool) *DiscoverDrivesOperation {
 	kclient := mgr.GetClient()
 	return &DiscoverDrivesOperation{
 		mgr:             mgr,
@@ -73,6 +75,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
+		serviceAccount:  ownerDetails.ServiceAccountName,
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
 		tolerations:     ownerDetails.Tolerations,
@@ -154,14 +157,15 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: v1alpha1.WekaContainerSpec{
-				Mode:            v1alpha1.WekaContainerModeAdhocOp,
-				Port:            v1alpha1.StaticPortAdhocyWCOperations,
-				AgentPort:       v1alpha1.StaticPortAdhocyWCOperationsAgent,
-				NodeAffinity:    v1alpha1.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
+				Mode:               v1alpha1.WekaContainerModeAdhocOp,
+				Port:               v1alpha1.StaticPortAdhocyWCOperations,
+				AgentPort:          v1alpha1.StaticPortAdhocyWCOperationsAgent,
+				NodeAffinity:       v1alpha1.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				ServiceAccountName: o.serviceAccount,
 			},
 		}
 

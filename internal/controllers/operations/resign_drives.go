@@ -4,25 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 	"time"
 
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/factory"
-
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type ResignDrivesResult struct {
@@ -37,6 +37,7 @@ type ResignDrivesOperation struct {
 	payload         *v1alpha1.ForceResignDrivesPayload
 	image           string
 	pullSecret      string
+	serviceAccount  string
 	container       *v1alpha1.WekaContainer // internal field
 	ownerRef        client.Object
 	ownerStatus     *string
@@ -49,7 +50,7 @@ type ResignDrivesOperation struct {
 	namespace       string
 }
 
-func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaContainerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation {
+func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDrivesPayload, ownerRef client.Object, ownerDetails v1alpha1.WekaOwnerDetails, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *ResignDrivesOperation {
 	return &ResignDrivesOperation{
 		mgr:             mgr,
 		client:          mgr.GetClient(),
@@ -58,6 +59,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 		payload:         payload,
 		image:           ownerDetails.Image,
 		pullSecret:      ownerDetails.ImagePullSecret,
+		serviceAccount:  ownerDetails.ServiceAccountName,
 		tolerations:     ownerDetails.Tolerations,
 		ownerRef:        ownerRef,
 		ownerStatus:     ownerStatus,
@@ -163,13 +165,6 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 		Payload: string(payloadBytes),
 	}
 
-	//fetch NS to validate that it is not being deleted
-	ns := &corev1.Namespace{}
-	err = o.client.Get(ctx, client.ObjectKey{Name: o.ownerRef.GetNamespace()}, ns)
-	if err != nil {
-		return err
-	}
-
 	containerName := o.getContainerName()
 	container := &v1alpha1.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
@@ -178,13 +173,14 @@ func (o *ResignDrivesOperation) EnsureContainer(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: v1alpha1.WekaContainerSpec{
-			Mode:            v1alpha1.WekaContainerModeAdhocOp,
-			NodeAffinity:    o.payload.NodeName,
-			Image:           o.image,
-			ImagePullSecret: o.pullSecret,
-			Instructions:    instructions,
-			Tolerations:     o.tolerations,
-			HostPID:         true,
+			Mode:               v1alpha1.WekaContainerModeAdhocOp,
+			NodeAffinity:       o.payload.NodeName,
+			Image:              o.image,
+			ImagePullSecret:    o.pullSecret,
+			Instructions:       instructions,
+			Tolerations:        o.tolerations,
+			HostPID:            true,
+			ServiceAccountName: o.serviceAccount,
 		},
 	}
 
@@ -278,6 +274,7 @@ func (o *ResignDrivesOperation) GetNamespace(ctx context.Context) error {
 		o.nsIsDeleting = true
 		operatorNamespace, err := util2.GetPodNamespace()
 		o.namespace = operatorNamespace
+		o.serviceAccount = config.Config.MaintenanceSaName
 		if err != nil {
 			return err
 		}

@@ -118,7 +118,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.SignDrives,
 			wekaPolicy,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
@@ -135,7 +135,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DiscoverDrives,
 			wekaPolicy,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
@@ -151,7 +151,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.EnsureNICs,
 			wekaPolicy,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
@@ -178,7 +178,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.Mgr,
 			wekaPolicy.Spec.Payload.DriverDistPayload,
 			wekaPolicy,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           opImage,
 				ImagePullSecret: opImagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,

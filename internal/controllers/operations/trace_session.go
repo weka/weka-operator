@@ -29,13 +29,13 @@ type MaintainTraceSession struct {
 	payload          *weka.RemoteTracesSessionConfig
 	mgr              ctrl.Manager
 	ownerRef         client.Object
-	containerDetails weka.WekaContainerDetails
+	containerDetails weka.WekaOwnerDetails
 	deployment       *apps.Deployment
 	containers       []*weka.WekaContainer
 	restClient       rest.Interface
 }
 
-func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payload *weka.RemoteTracesSessionConfig, ownerRef client.Object, containerDetails weka.WekaContainerDetails) *MaintainTraceSession {
+func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payload *weka.RemoteTracesSessionConfig, ownerRef client.Object, containerDetails weka.WekaOwnerDetails) *MaintainTraceSession {
 	return &MaintainTraceSession{
 		payload:          payload,
 		mgr:              mgr,

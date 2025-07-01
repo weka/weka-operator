@@ -7,9 +7,6 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +15,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -98,11 +99,12 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.SignDrives,
 			wekaManualOperation,
-			weka.WekaContainerDetails{
-				Image:           image,
-				ImagePullSecret: imagePullSecret,
-				Tolerations:     wekaManualOperation.Spec.Tolerations,
-				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
+			weka.WekaOwnerDetails{
+				Image:              image,
+				ImagePullSecret:    imagePullSecret,
+				Tolerations:        wekaManualOperation.Spec.Tolerations,
+				Labels:             wekaManualOperation.ObjectMeta.GetLabels(),
+				ServiceAccountName: wekaManualOperation.Spec.ServiceAccountName,
 			},
 			wekaManualOperation.Status.Status,
 			onSuccess,
@@ -115,7 +117,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.ForceResignDrives,
 			wekaManualOperation,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
@@ -149,7 +151,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.DiscoverDrives,
 			wekaManualOperation,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
@@ -166,7 +168,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.RestClient,
 			wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig,
 			wekaManualOperation,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
@@ -179,7 +181,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			r.Mgr,
 			wekaManualOperation.Spec.Payload.EnsureNICs,
 			wekaManualOperation,
-			weka.WekaContainerDetails{
+			weka.WekaOwnerDetails{
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaManualOperation.Spec.Tolerations,

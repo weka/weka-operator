@@ -57,7 +57,7 @@ type LoadDrivers struct {
 	client              client.Client
 	kubeService         kubernetes.KubeService
 	scheme              *runtime.Scheme
-	containerDetails    weka.WekaContainerDetails
+	containerDetails    weka.WekaOwnerDetails
 	node                *v1.Node
 	distServiceEndpoint string
 	container           *weka.WekaContainer
@@ -66,7 +66,7 @@ type LoadDrivers struct {
 	force               bool // ignores existing node annotation
 }
 
-func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.WekaContainerDetails, distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
+func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails, distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace()
 	return &LoadDrivers{
@@ -74,7 +74,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, wekaContainerDetails weka.W
 		client:              kclient,
 		kubeService:         kubernetes.NewKubeService(kclient),
 		scheme:              mgr.GetScheme(),
-		containerDetails:    wekaContainerDetails,
+		containerDetails:    ownerDetails,
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
