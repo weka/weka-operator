@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	storagev1 "k8s.io/api/storage/v1"
 	"reflect"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1026,7 +1026,7 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context, csiDriverName string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UndeployCsiPlugin")
 	defer end()
 
 	csiDriver := &storagev1.CSIDriver{}

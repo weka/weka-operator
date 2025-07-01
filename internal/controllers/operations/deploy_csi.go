@@ -9,10 +9,6 @@ import (
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/operations/csi"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -20,6 +16,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -149,7 +150,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName, storageClassName, fileSystemName)
+			return csi.NewCsiStorageClass(o.getCsiSecret(), o.csiDriverName, storageClassName, fileSystemName)
 		}); err != nil {
 		return err
 	}
@@ -158,8 +159,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
 		func() client.Object {
-			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName,
-				storageClassForceDirectName, fileSystemName, mountOptions...)
+			return csi.NewCsiStorageClass(o.getCsiSecret(), o.csiDriverName, storageClassForceDirectName, fileSystemName, mountOptions...)
 		}); err != nil {
 		return err
 	}
@@ -237,12 +237,20 @@ func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.O
 	return nil
 }
 
-func (o *DeployCsiOperation) getSecretName() string {
+func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 	emptyRef := v1alpha1.ObjectReference{}
 	if o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != "" {
-		return fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
+		name := fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
+		return client.ObjectKey{
+			Name:      name,
+			Namespace: o.wekaClient.Spec.TargetCluster.Namespace,
+		}
 	}
-	return fmt.Sprintf("weka-csi-%s", o.csiGroupName)
+	name := fmt.Sprintf("weka-csi-%s", o.csiGroupName)
+	return client.ObjectKey{
+		Name:      name,
+		Namespace: o.wekaClient.Namespace,
+	}
 }
 
 func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, accessibleLabel string) {
