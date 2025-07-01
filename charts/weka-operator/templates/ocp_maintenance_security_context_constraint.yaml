@@ -5,6 +5,8 @@ metadata:
   name: {{ .Values.prefix }}-maintenance-scc
 allowPrivilegedContainer: true
 allowHostDirVolumePlugin: true
+allowHostPID: true
+allowHostNetwork: true
 allowedVolumeTypes:
   - hostPath
   - secret
