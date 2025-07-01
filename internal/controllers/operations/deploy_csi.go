@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
@@ -73,6 +74,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Run:  o.deployStorageClasses,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+				func() bool {
+					emptyRef := weka.ObjectReference{}
+					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
+				},
 			},
 			ContinueOnPredicatesFalse: true,
 		},
@@ -91,6 +96,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Run:  o.undeployStorageClasses,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+				func() bool {
+					emptyRef := weka.ObjectReference{}
+					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
+				},
 			},
 		},
 		{
