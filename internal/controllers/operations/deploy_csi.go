@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
@@ -29,7 +30,7 @@ type DeployCsiOperation struct {
 	results       DeployCsiResult
 	wekaClient    *v1alpha1.WekaClient
 	namespace     string
-	csiBaseName   string
+	csiGroupName  string
 	csiDriverName string
 	undeploy      bool
 	nodes         []corev1.Node
@@ -41,14 +42,14 @@ type DeployCsiResult struct {
 }
 
 func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, nodes []corev1.Node, undeploy bool) *DeployCsiOperation {
-	csiBaseName := csi.GetBaseNameFromDriverName(csiDriverName)
+	csiGroupName := strings.TrimSuffix(csiDriverName, ".weka.io")
 	namespace, _ := util2.GetPodNamespace()
 
 	return &DeployCsiOperation{
 		client:        mgr.GetClient(),
 		wekaClient:    targetClient,
 		csiDriverName: csiDriverName,
-		csiBaseName:   csiBaseName,
+		csiGroupName:  csiGroupName,
 		namespace:     namespace,
 		undeploy:      undeploy,
 		nodes:         nodes,
@@ -129,7 +130,7 @@ func (o *DeployCsiOperation) undeployCsiDriver(ctx context.Context) error {
 
 func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	fileSystemName := config.Consts.CsiFileSystemName
-	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
+	storageClassName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
 		func() client.Object {
 			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName, storageClassName, fileSystemName)
@@ -138,7 +139,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 	}
 
 	mountOptions := []string{"forcedirect"}
-	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
+	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName, mountOptions...)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
 		func() client.Object {
 			return csi.NewCsiStorageClass(o.getSecretName(), o.csiDriverName,
@@ -152,7 +153,7 @@ func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
 
 func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 	fileSystemName := config.Consts.CsiFileSystemName
-	storageClassName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName)
+	storageClassName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName)
 	if err := o.client.Delete(ctx, &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: storageClassName,
@@ -164,7 +165,7 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 	}
 
 	mountOptions := []string{"forcedirect"}
-	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiDriverName, fileSystemName, mountOptions...)
+	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName, mountOptions...)
 	if err := o.client.Delete(ctx, &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: storageClassForceDirectName,
@@ -178,7 +179,7 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiBaseName + Csi_Controller_Suffix
+	controllerDeploymentName := o.csiGroupName + Csi_Controller_Suffix
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, o.wekaClient.Spec.Tolerations, o.wekaClient.Spec.RawTolerations)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
 		func() client.Object {
@@ -193,7 +194,7 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiBaseName + Csi_Controller_Suffix
+	controllerDeploymentName := o.csiGroupName + Csi_Controller_Suffix
 	if err := o.client.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      controllerDeploymentName,
@@ -225,7 +226,7 @@ func (o *DeployCsiOperation) getSecretName() string {
 	if o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != "" {
 		return fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
 	}
-	return fmt.Sprintf("weka-csi-%s", o.csiBaseName)
+	return fmt.Sprintf("weka-csi-%s", o.csiGroupName)
 }
 
 func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, accessibleLabel string) {
