@@ -1072,8 +1072,12 @@ func (c *clientReconcilerLoop) updateContainersCsiDriverName(ctx context.Context
 }
 
 func (c *clientReconcilerLoop) getCsiDriverName() string {
+	var group string
 	if c.targetCluster != nil {
-		return csi.GetCsiDriverNameFromTargetCluster(c.targetCluster)
+		group = csi.GetGroupFromTargetCluster(c.targetCluster)
+	} else {
+		group = csi.GetGroupFromClient(c.wekaClient)
 	}
-	return csi.GetCsiDriverNameFromClient(c.wekaClient)
+
+	return fmt.Sprintf("%s.weka.io", group)
 }

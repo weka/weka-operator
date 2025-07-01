@@ -4,51 +4,29 @@ import (
 	"fmt"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	"regexp"
 	"strings"
 )
 
-func GenerateStorageClassName(csiDriverName string, fileSystemName string, mountOptions ...string) string {
-	base := "storageclass-" + strings.ReplaceAll(csiDriverName, ".", "-") + "-" + fileSystemName
+func GenerateStorageClassName(csiGroup string, fileSystemName string, mountOptions ...string) string {
+	base := "storageclass-" + strings.ReplaceAll(csiGroup, ".", "-") + "-" + fileSystemName
 	if len(mountOptions) > 0 {
 		base += "-" + strings.Join(mountOptions, "-")
 	}
 	return base
 }
 
-func GetCsiDriverNameFromTargetCluster(wekaCluster *weka.WekaCluster) string {
-	if wekaCluster.Spec.CsiConfig.CsiDriverName != "" {
-		return wekaCluster.Spec.CsiConfig.CsiDriverName
+func GetGroupFromTargetCluster(wekaCluster *weka.WekaCluster) string {
+	if wekaCluster.Spec.CsiConfig.CsiGroup != "" {
+		return wekaCluster.Spec.CsiConfig.CsiGroup
 	}
-
-	return fmt.Sprintf("%s.%s.weka.io", wekaCluster.Name, wekaCluster.Namespace)
+	return fmt.Sprintf("%s.%s", wekaCluster.Name, wekaCluster.Namespace)
 }
 
-func GetCsiDriverNameFromClient(wekaClient *weka.WekaClient) string {
+func GetGroupFromClient(wekaClient *weka.WekaClient) string {
 	if wekaClient.Spec.CsiConfig == nil || wekaClient.Spec.CsiConfig.CsiGroup == "" {
-		return config.Consts.CsiLegacyDriverName
-	}
-	return generateCsiDriverName(wekaClient.Spec.CsiConfig.CsiGroup)
-}
-
-func generateCsiDriverName(baseName string) string {
-	re := regexp.MustCompile("[^a-zA-Z0-9-]")
-	cleanName := re.ReplaceAllString(baseName, "-")
-	cleanName = strings.ToLower(cleanName)
-
-	parts := strings.SplitN(config.Consts.CsiLegacyDriverName, ".", 2)
-	if len(parts) < 2 {
-		return fmt.Sprintf("csi.%s.weka.io", cleanName)
-	}
-	return fmt.Sprintf("%s.%s.%s", parts[0], cleanName, parts[1])
-}
-
-func GetBaseNameFromDriverName(csiDriverName string) string {
-	parts := strings.Split(csiDriverName, ".")
-	if len(parts) < 3 {
 		return "csi"
 	}
-	return parts[1]
+	return wekaClient.Spec.CsiConfig.CsiGroup
 }
 
 func GetTracingFlag() string {

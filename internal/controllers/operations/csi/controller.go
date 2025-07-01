@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 )
 
 func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) *appsv1.Deployment {
@@ -441,7 +442,7 @@ func UpdateCsiController(ctx context.Context, c client.Client, csiDriverName str
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	controllerDeploymentName := GetBaseNameFromDriverName(csiDriverName) + "-csi-controller"
+	controllerDeploymentName := strings.TrimSuffix(csiDriverName, ".weka.io") + "-csi-controller"
 
 	deployment := &appsv1.Deployment{}
 	namespace, _ := util2.GetPodNamespace()
