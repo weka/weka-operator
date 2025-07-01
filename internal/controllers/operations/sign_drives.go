@@ -174,13 +174,14 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
-				Mode:            weka.WekaContainerModeAdhocOp,
-				NodeAffinity:    weka.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
-				HostPID:         true,
+				Mode:               weka.WekaContainerModeAdhocOp,
+				NodeAffinity:       weka.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				HostPID:            true,
+				ServiceAccountName: config.Config.MaintenanceSaName,
 			},
 		}
 		toCreate = append(toCreate, newContainer)

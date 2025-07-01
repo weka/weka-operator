@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/config"
 
 	"github.com/pkg/errors"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -139,14 +140,15 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: weka.WekaContainerSpec{
-				Mode:            weka.WekaContainerModeAdhocOpWC,
-				Port:            weka.StaticPortAdhocyWCOperations,
-				AgentPort:       weka.StaticPortAdhocyWCOperationsAgent,
-				NodeAffinity:    weka.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
+				Mode:               weka.WekaContainerModeAdhocOpWC,
+				Port:               weka.StaticPortAdhocyWCOperations,
+				AgentPort:          weka.StaticPortAdhocyWCOperationsAgent,
+				NodeAffinity:       weka.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				ServiceAccountName: config.Config.MaintenanceSaName,
 			},
 		}
 

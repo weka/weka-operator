@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/config"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -204,11 +205,12 @@ func (o *DiscoverNodeOperation) EnsureContainers(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Mode:            weka.WekaContainerModeDiscovery,
-			NodeAffinity:    weka.NodeName(o.node.Name),
-			Image:           o.image,
-			ImagePullSecret: o.pullSecret,
-			Tolerations:     o.tolerations,
+			Mode:               weka.WekaContainerModeDiscovery,
+			NodeAffinity:       weka.NodeName(o.node.Name),
+			Image:              o.image,
+			ImagePullSecret:    o.pullSecret,
+			Tolerations:        o.tolerations,
+			ServiceAccountName: config.Config.MaintenanceSaName,
 		},
 	}
 

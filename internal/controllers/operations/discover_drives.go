@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/weka-operator/internal/config"
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -154,14 +155,15 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 				Labels:    labels,
 			},
 			Spec: v1alpha1.WekaContainerSpec{
-				Mode:            v1alpha1.WekaContainerModeAdhocOp,
-				Port:            v1alpha1.StaticPortAdhocyWCOperations,
-				AgentPort:       v1alpha1.StaticPortAdhocyWCOperationsAgent,
-				NodeAffinity:    v1alpha1.NodeName(node.Name),
-				Image:           o.image,
-				ImagePullSecret: o.pullSecret,
-				Instructions:    instructions,
-				Tolerations:     o.tolerations,
+				Mode:               v1alpha1.WekaContainerModeAdhocOp,
+				Port:               v1alpha1.StaticPortAdhocyWCOperations,
+				AgentPort:          v1alpha1.StaticPortAdhocyWCOperationsAgent,
+				NodeAffinity:       v1alpha1.NodeName(node.Name),
+				Image:              o.image,
+				ImagePullSecret:    o.pullSecret,
+				Instructions:       instructions,
+				Tolerations:        o.tolerations,
+				ServiceAccountName: config.Config.MaintenanceSaName,
 			},
 		}
 
