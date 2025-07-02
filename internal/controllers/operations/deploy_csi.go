@@ -23,10 +23,6 @@ import (
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
-const (
-	Csi_Controller_Suffix = "-csi-controller"
-)
-
 type DeployCsiOperation struct {
 	client        client.Client
 	results       DeployCsiResult
@@ -195,7 +191,7 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiGroupName + Csi_Controller_Suffix
+	controllerDeploymentName := csi.GetCSIControllerName(o.csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, o.wekaClient.Spec.Tolerations, o.wekaClient.Spec.RawTolerations)
 	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
 		func() client.Object {
@@ -210,7 +206,7 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
-	controllerDeploymentName := o.csiGroupName + Csi_Controller_Suffix
+	controllerDeploymentName := csi.GetCSIControllerName(o.csiGroupName)
 	if err := o.client.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      controllerDeploymentName,

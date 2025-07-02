@@ -14,6 +14,10 @@ import (
 	"strings"
 )
 
+func GetCSIControllerName(CSIGroupName string) string {
+	return strings.Replace(CSIGroupName, ".", "-", -1) + "-weka-csi-controller"
+}
+
 func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) *appsv1.Deployment {
 	privileged := true
 	replicas := int32(2)
@@ -442,7 +446,7 @@ func UpdateCsiController(ctx context.Context, c client.Client, csiDriverName str
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	controllerDeploymentName := strings.TrimSuffix(csiDriverName, ".weka.io") + "-csi-controller"
+	controllerDeploymentName := GetCSIControllerName(strings.TrimSuffix(csiDriverName, ".weka.io"))
 
 	deployment := &appsv1.Deployment{}
 	namespace, _ := util2.GetPodNamespace()
