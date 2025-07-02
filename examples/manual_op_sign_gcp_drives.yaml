@@ -1,0 +1,11 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-gcp-drives
+  namespace: weka-operator-system
+spec:
+  action: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: gcp-all
+      nodeSelector: { }
