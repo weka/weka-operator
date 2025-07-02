@@ -85,6 +85,8 @@ WEKA_COS_GLOBAL_HUGEPAGE_COUNT = int(os.environ.get("WEKA_COS_GLOBAL_HUGEPAGE_CO
 
 AWS_VENDOR_ID = "1d0f"
 AWS_DEVICE_ID = "cd01"
+GCP_VENDOR_ID = "0x1ae0"
+GCP_DEVICE_ID = "0x001f"
 AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
 
 # for client dynamic port allocation
@@ -152,6 +154,28 @@ def parse_feature_bitmap(b64_str: str) -> list[int]:
 
     return indexes
 
+async def get_serial_id_cos_specific(device_path: str) -> Optional[str]:
+    """
+    Get serial ID for Google COS
+    """
+    logging.info(f"Getting serial ID for {device_path} using COS-specific method")
+    device_name = os.path.basename(device_path)  # Returns "nvme0n1"
+
+    cmd = f"cat /sys/block/{device_name}/wwid 2>/dev/null || echo 'None'"
+
+    stdout, stderr, ec = await run_command(cmd)
+
+    if ec != 0:
+        logging.warning(f"COS-specific fallback failed: could not get info for {device_path}: {stderr.decode()}")
+        return None
+
+    serial_id = stdout.decode().strip()
+    if serial_id and serial_id != 'None':
+        logging.info(f"COS-specific fallback successful for {device_path}, found serial id: {serial_id}")
+        return serial_id
+
+    logging.warning(f"COS-specific fallback failed: could not find serial id for {device_name}")
+    return None
 
 async def get_serial_id_fallback(device_path: str) -> Optional[str]:
     """
@@ -247,6 +271,11 @@ async def find_disks() -> List[Disk]:
             if not serial_id:
                 logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
                 serial_id = await get_serial_id_fallback(device_path)
+            if is_google_cos():
+                logging.info(f"Using COS-specific method for {device_path}")
+                device_name = os.path.basename(device_path)
+                serial_id = await get_serial_id_cos_specific(device_name)
+
             logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
             disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id))
 
@@ -310,6 +339,37 @@ async def sign_device_path(device_path, options: SignOptions):
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
 
+async def sign_drives_gke(vendor_id: str, device_id: str, options: dict) -> List[str]:
+    logging.info("Signing drives (GKE). Vendor ID: %s, Device ID: %s", vendor_id, device_id)
+
+    if not vendor_id or not device_id:
+        raise ValueError("Vendor ID and Device ID are required")
+
+    cmd = f"""for dev in /sys/block/*; do
+if [ -f "$dev/device/device/vendor" ] &&
+   [ "$(cat $dev/device/device/vendor 2>/dev/null)" = "{vendor_id}" ] &&
+   [ "$(cat $dev/device/device/device 2>/dev/null)" = "{device_id}" ]; then
+    echo $(basename $dev)
+fi
+done"""
+
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        return
+
+    logging.info(f"Found {len(stdout.decode().strip().split())} drives to sign")
+    signed_drives = []
+    dev_devices = stdout.decode().strip().split("\n")
+    for dev_device in dev_devices:
+        device = f"/dev/{dev_device}"
+        try:
+            await sign_device_path(device, options)
+            signed_drives.append(device)
+
+        except SignException as e:
+            logging.error(str(e))
+            continue
+    return signed_drives
 
 async def sign_drives(instruction: dict) -> List[str]:
     type = instruction['type']
@@ -321,6 +381,12 @@ async def sign_drives(instruction: dict) -> List[str]:
             device_id=AWS_DEVICE_ID,
             options=options
         )
+    elif type == "gcp-all":
+        return await sign_drives_gke(
+            vendor_id=GCP_VENDOR_ID,
+            device_id=GCP_DEVICE_ID,
+            options=options
+    )
     elif type == "device-identifiers":
         return await sign_drives_by_pci_info(
             vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
@@ -435,6 +501,8 @@ async def find_weka_drives():
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
                 serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
                 device_path = "/dev/" + pci_device_path.split("/")[-2]
+                if is_google_cos():
+                    serial_id = await get_serial_id_cos_specific(os.path.basename(device_path))
             else:
                 device_name = pci_device_path.split("/")[-2]
                 device_path = "/dev/" + device_name
