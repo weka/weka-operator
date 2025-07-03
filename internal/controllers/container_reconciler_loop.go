@@ -210,7 +210,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					loop.PodNotSet,
 					loop.ShouldDeactivate,
 					container.IsMarkedForDeletion,
-					lifecycle.IsNotTrueCondition(condition.CondContainerRemoved, &container.Status.Conditions),
+					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
 					lifecycle.IsNotFunc(container.IsS3Container), // no need to recover S3 container on deactivate
 				},
 				ContinueOnPredicatesFalse: true,
@@ -2296,8 +2296,13 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		return err
 	}
 
+	err = r.deletePod(ctx, pod)
+	if err != nil {
+		return err
+	}
+	logger.AddEvent("Pod deleted")
+
 	// setting for forceful termination, as we are in container delete flow
-	logger.Info("Deleting pod", "pod", pod.Name)
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
 	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
@@ -2321,12 +2326,6 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 		}
 	}
 
-	err = r.Delete(ctx, pod)
-	if err != nil {
-		logger.Error(err, "Error deleting pod")
-		return err
-	}
-	logger.AddEvent("Pod deleted")
 	return lifecycle.NewWaitError(errors.New("Pod deleted, reconciling for retry"))
 }
 
@@ -2354,10 +2353,15 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 		return err
 	}
 
-	logger.Info("Deleting pod", "pod", pod.Name)
+	err = r.deletePod(ctx, pod)
+	if err != nil {
+		return err
+	}
+	logger.AddEvent("Pod deleted")
+
 	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
 	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
-		logger.Info("Node agent pod not running, skipping force stop")
+		logger.Info("Node agent pod not running, skipping weka local stop")
 	} else if err != nil {
 		// do not return error, as we are deleting pod anyway
 		logger.Error(err, "Error writing allow stop instruction")
@@ -2369,20 +2373,14 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 			// for more graceful flows(when force delete is not set), weka_runtime awaits for more specific instructions then just delete
 			// for versions that do not yet support graceful shutdown touch-flag, we will force stop weka local
 			// this might impact performance of shrink, but should not be affecting whole cluster deletion
-			err = r.runWekaLocalStop(ctx, pod, true)
+			err = r.runWekaLocalStop(ctx, pod, false)
 			if err != nil {
-				logger.Error(err, "Error force-stopping weka local")
+				logger.Error(err, "Error stopping weka local")
 			}
 			// we do not abort on purpose, we still should call delete even if we failed to exec
 		}
 	}
 
-	err = r.Delete(ctx, pod)
-	if err != nil {
-		logger.Error(err, "Error deleting pod")
-		return err
-	}
-	logger.AddEvent("Pod deleted")
 	return lifecycle.NewWaitError(errors.New("Pod deleted, reconciling for retry"))
 }
 
@@ -2465,7 +2463,7 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 		// if node is not ready, we should terminate the pod and let it be rescheduled
 		if pod != nil && pod.Status.Phase == v1.PodRunning {
 			logger.Info("Deleting pod on NotReady node", "pod", pod.Name)
-			err := r.Delete(ctx, pod)
+			err := r.deletePod(ctx, pod)
 			return lifecycle.NewWaitErrorWithDuration(
 				fmt.Errorf("deleting pod on NotReady node, err: %w", err),
 				time.Second*15,
@@ -2951,6 +2949,28 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 	return true, nil
 }
 
+func (r *containerReconcilerLoop) deletePod(ctx context.Context, pod *v1.Pod) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deletePod")
+	defer end()
+
+	if pod == nil {
+		return errors.New("pod is nil")
+	}
+
+	if pod.GetDeletionTimestamp() != nil {
+		logger.Info("Pod is already being deleted", "pod", pod.Name)
+		return nil
+	}
+
+	logger.Info("Deleting pod", "pod", pod.Name)
+	err := r.Delete(ctx, pod)
+	if err != nil {
+		logger.Error(err, "Error deleting pod")
+		return err
+	}
+	return nil
+}
+
 func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImageUpdate")
 	defer end()
@@ -2983,7 +3003,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				logger.Error(err, "Error writing allow force stop instruction")
 				return err
 			}
-			return r.Delete(ctx, pod)
+			return r.deletePod(ctx, pod)
 		}
 
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
@@ -3013,7 +3033,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 						logger.Error(err, "Error writing allow force stop instruction")
 						return err
 					}
-					return r.Delete(ctx, pod)
+					return r.deletePod(ctx, pod)
 				}
 				if err != nil {
 					return err
@@ -3026,7 +3046,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 
 			logger.Info("Deleting pod to apply new image")
 			// delete pod
-			err = r.Delete(ctx, pod)
+			err = r.deletePod(ctx, pod)
 			if err != nil {
 				return err
 			}
@@ -3615,7 +3635,7 @@ func (r *containerReconcilerLoop) deletePodIfUnschedulable(ctx context.Context) 
 			fmt.Sprintf("Pod is unschedulable since %s, deleting it", unschedulableSince),
 		)
 
-		err := r.Delete(ctx, pod)
+		err := r.deletePod(ctx, pod)
 		if err != nil {
 			err = fmt.Errorf("error deleting unschedulable pod: %w", err)
 			return err
