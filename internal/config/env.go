@@ -130,7 +130,6 @@ var Config struct {
 	CsiInstallationEnabled          bool
 	CsiStorageClassCreationDisabled bool
 	CsiImage                        string
-	CsiDriverVersion                string
 	CsiProvisionerImage             string
 	CsiAttacherImage                string
 	CsiLivenessProbeImage           string
@@ -295,7 +294,6 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CsiResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
 	Config.CsiSnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
 	Config.CsiRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
-	Config.CsiDriverVersion = env.GetString("CSI_DRIVER_VERSION", "")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }

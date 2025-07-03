@@ -127,10 +127,6 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 									Value: csiDriverName,
 								},
 								{
-									Name:  "CSI_DRIVER_VERSION",
-									Value: config.Config.CsiDriverVersion,
-								},
-								{
 									Name:  "X_CSI_MODE",
 									Value: "controller",
 								},
@@ -490,12 +486,6 @@ func UpdateCsiController(ctx context.Context, c client.Client, csiDriverName str
 			if podContainer.Image != config.Config.CsiImage {
 				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiImage
 				updated = true
-			}
-			for j, env := range podContainer.Env {
-				if env.Name == "CSI_DRIVER_VERSION" && env.Value != config.Config.CsiDriverVersion {
-					deployment.Spec.Template.Spec.Containers[i].Env[j].Value = config.Config.CsiDriverVersion
-					updated = true
-				}
 			}
 		}
 	}
