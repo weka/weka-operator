@@ -134,6 +134,8 @@ spec:
               value: "{{ .Values.ocpCompatibility.driverToolkitImageBaseUrl }}"
             - name: WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING
               value: "{{ .Values.gkeCompatibility.disableDriverSigning }}"
+            - name: WEKA_K8S_RUNTIME_DIR
+              value: "{{ .Values.nodeAgent.persistencePaths }}"
             - name: WEKA_COS_ALLOW_HUGEPAGE_CONFIG
               value: "{{ .Values.gkeCompatibility.hugepageConfiguration.enabled}}"
             - name: WEKA_COS_GLOBAL_HUGEPAGE_SIZE

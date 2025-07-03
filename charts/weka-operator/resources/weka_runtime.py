@@ -70,6 +70,7 @@ OS_NAME_REDHAT_COREOS = "rhcos"
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
 
+WEKA_K8S_RUNTIME_DIR = os.environ.get("WEKA_K8S_RUNTIME_DIR","/opt/k8s-weka-default")
 WEKA_CONTAINER_ID = os.environ.get("WEKA_CONTAINER_ID", "")
 WEKA_PERSISTENCE_DIR = "/host-binds/opt-weka"
 WEKA_PERSISTENCE_MODE = os.environ.get("WEKA_PERSISTENCE_MODE", "local")
@@ -1984,7 +1985,7 @@ async def disable_driver_signing():
 
 
 SOCKET_NAME = '\0weka_runtime_' + NAME  # Abstract namespace socket
-WEKA_K8S_RUNTIME_DIR = '/opt/weka/k8s-runtime'
+
 GENERATION_PATH = f'{WEKA_K8S_RUNTIME_DIR}/runtime-generation'
 CURRENT_GENERATION = str(time.time())
 PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
