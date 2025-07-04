@@ -129,6 +129,7 @@ var Config struct {
 
 	CsiInstallationEnabled          bool
 	CsiStorageClassCreationDisabled bool
+	CsiControllerCreationDisabled   bool
 	CsiImage                        string
 	CsiProvisionerImage             string
 	CsiAttacherImage                string
@@ -287,6 +288,7 @@ func ConfigureEnv(ctx context.Context) {
 	// CSI configuration
 	Config.CsiInstallationEnabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
 	Config.CsiStorageClassCreationDisabled = getBoolEnvOrDefault("CSI_STORAGE_CLASS_CREATION_DISABLED", false)
+	Config.CsiControllerCreationDisabled = getBoolEnvOrDefault("CSI_CONTROLLER_CREATION_DISABLED", false)
 	Config.CsiImage = env.GetString("CSI_IMAGE", "")
 	Config.CsiProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
 	Config.CsiAttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
