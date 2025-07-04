@@ -7,11 +7,12 @@ import (
 
 // WekaPolicySpec defines the desired state of WekaPolicy
 type WekaPolicySpec struct {
-	Type            string          `json:"type"`
-	Payload         PolicyPayload   `json:"payload"`
-	Image           *string         `json:"image,omitempty"`
-	ImagePullSecret *string         `json:"imagePullSecret,omitempty"`
-	Tolerations     []v1.Toleration `json:"tolerations,omitempty"`
+	Type               string          `json:"type"`
+	Payload            PolicyPayload   `json:"payload"`
+	Image              *string         `json:"image,omitempty"`
+	ImagePullSecret    *string         `json:"imagePullSecret,omitempty"`
+	Tolerations        []v1.Toleration `json:"tolerations,omitempty"`
+	ServiceAccountName string          `json:"serviceAccountName,omitempty"`
 }
 
 // WekaPolicyStatus defines the observed state of WekaPolicy

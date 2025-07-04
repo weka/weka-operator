@@ -559,13 +559,14 @@ func (w *WekaContainer) GetNodeAffinity() NodeName {
 	return ""
 }
 
-func (w *WekaContainer) ToContainerDetails() *WekaContainerDetails {
-	return &WekaContainerDetails{
-		Image:           w.Spec.Image,
-		ImagePullSecret: w.Spec.ImagePullSecret,
-		Tolerations:     w.Spec.Tolerations,
-		Labels:          w.ObjectMeta.GetLabels(),
-		Affinity:        w.Spec.Affinity,
+func (w *WekaContainer) ToOwnerDetails() *WekaOwnerDetails {
+	return &WekaOwnerDetails{
+		Image:              w.Spec.Image,
+		ImagePullSecret:    w.Spec.ImagePullSecret,
+		Tolerations:        w.Spec.Tolerations,
+		Labels:             w.ObjectMeta.GetLabels(),
+		Affinity:           w.Spec.Affinity,
+		ServiceAccountName: w.Spec.ServiceAccountName,
 	}
 }
 
@@ -648,12 +649,13 @@ func (c *WekaContainer) DrivesRemoved() bool {
 	return meta.IsStatusConditionTrue(c.Status.Conditions, condition.CondContainerDrivesRemoved)
 }
 
-type WekaContainerDetails struct {
-	Image           string            `json:"image"`
-	ImagePullSecret string            `json:"imagePullSecrets"`
-	Tolerations     []v1.Toleration   `json:"tolerations,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Affinity        *v1.Affinity      `json:"affinity,omitempty"`
+type WekaOwnerDetails struct {
+	Image              string            `json:"image"`
+	ImagePullSecret    string            `json:"imagePullSecrets"`
+	Tolerations        []v1.Toleration   `json:"tolerations,omitempty"`
+	Labels             map[string]string `json:"labels,omitempty"`
+	Affinity           *v1.Affinity      `json:"affinity,omitempty"`
+	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
 }
 
 func (c *WekaContainerSpec) GetOverrides() *WekaContainerSpecOverrides {

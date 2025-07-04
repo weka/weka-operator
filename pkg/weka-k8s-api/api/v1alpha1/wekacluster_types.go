@@ -447,8 +447,8 @@ func (status *WekaClusterStatus) InitStatus() {
 	status.Status = WekaClusterStatusInit
 }
 
-func (w *WekaCluster) ToOwnerObject() *WekaContainerDetails {
-	return &WekaContainerDetails{
+func (w *WekaCluster) ToOwnerObject() *WekaOwnerDetails {
+	return &WekaOwnerDetails{
 		Image:           w.Spec.Image,
 		ImagePullSecret: w.Spec.ImagePullSecret,
 		Tolerations:     util.ExpandTolerations([]v1.Toleration{}, w.Spec.Tolerations, w.Spec.RawTolerations),

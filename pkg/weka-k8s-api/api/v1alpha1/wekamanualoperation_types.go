@@ -8,11 +8,12 @@ import (
 // WekaManualOperationSpec defines the desired state of WekaManualOperation
 type WekaManualOperationSpec struct {
 	// +kubebuilder:validation:Enum=sign-drives;discover-drives;force-resign-drives;block-drives;unblock-drives;ensure-nics;remote-traces-session
-	Action          string                `json:"action"`
-	Payload         ManualOperatorPayload `json:"payload"`
-	Image           *string               `json:"image,omitempty"`
-	ImagePullSecret *string               `json:"imagePullSecret,omitempty"`
-	Tolerations     []v1.Toleration       `json:"tolerations,omitempty"`
+	Action             string                `json:"action"`
+	Payload            ManualOperatorPayload `json:"payload"`
+	Image              *string               `json:"image,omitempty"`
+	ImagePullSecret    *string               `json:"imagePullSecret,omitempty"`
+	Tolerations        []v1.Toleration       `json:"tolerations,omitempty"`
+	ServiceAccountName string                `json:"serviceAccountName,omitempty"`
 }
 
 // WekaManualOperationStatus defines the observed state of WekaManualOperation
