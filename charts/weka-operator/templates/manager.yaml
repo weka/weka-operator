@@ -224,6 +224,8 @@ spec:
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_STORAGE_CLASS_CREATION_DISABLED
               value: "{{ .Values.csi.storageClassCreationDisabled }}"
+            - name: CSI_CONTROLLER_CREATION_DISABLED
+              value: "{{ .Values.csi.controllerCreationDisabled }}"
             - name: CSI_IMAGE
               value: "{{ .Values.csi.image }}"
             - name: CSI_PROVISIONER_IMAGE

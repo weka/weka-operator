@@ -82,6 +82,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(!config.Config.CsiControllerCreationDisabled),
+			},
+			ContinueOnPredicatesFalse: true,
 		},
 	}
 	undeploySteps := []lifecycle.Step{
@@ -103,6 +107,9 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(!config.Config.CsiControllerCreationDisabled),
+			},
 		},
 	}
 	if o.undeploy {
