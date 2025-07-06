@@ -2075,8 +2075,8 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// deallocate from allocmap
 
 	// remove csi node topology labels
-	if r.container.Spec.CsiDriverName != "" && r.node != nil {
-		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.container.Spec.CsiDriverName)
+	if r.container.Spec.TypedConfigs != nil && r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName != "" && r.node != nil {
+		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName)
 	}
 
 	// delete csi node pod
@@ -4598,30 +4598,38 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 		return err
 	}
 
-	csiDriverName := r.container.Spec.CsiDriverName
-	if csiDriverName == "" {
-		return errors.New("failed to get csi driver name from WekaContainer spec")
+	if r.container.Spec.TypedConfigs == nil {
+		return errors.New("failed to get TypedConfigs from WekaContainer spec")
 	}
 
 	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
 
 	pod := &v1.Pod{}
 	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
+	labels := csi.GetCsiLabels(r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName, csi.CSINode, r.container.Labels, r.container.Spec.TypedConfigs.TypedClientConfigs.CSINodeLabels)
+	tolerations := append(r.container.Spec.Tolerations, r.container.Spec.TypedConfigs.TypedClientConfigs.CSINodeTolerations...)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating CSI node pod")
-			podSpec := csi.NewCsiNodePod(csiNodeName, namespace, csiDriverName, string(nodeName), r.container.Spec.Tolerations)
+			podSpec := csi.NewCsiNodePod(
+				csiNodeName,
+				namespace,
+				r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName,
+				string(nodeName),
+				labels,
+				tolerations,
+			)
 			if err = r.Create(ctx, podSpec); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
 					return errors.Wrap(err, "failed to create CSI node pod")
 				}
 			}
-			return r.Update(ctx, r.container)
+			return nil
 		} else {
 			return errors.Wrap(err, "failed to get CSI node pod")
 		}
 	} else {
-		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, csiDriverName, r.container.Spec.Tolerations)
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName, labels, tolerations)
 	}
 }
 
@@ -4727,7 +4735,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ManageCsiTopologyLabels")
 	defer end()
 
-	csiDriverName := r.container.Spec.CsiDriverName
+	csiDriverName := r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName
 	if r.container.Status.Status != weka.Running {
 		err := operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
 		if err != nil {
@@ -4736,7 +4744,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 			logger.Info("Unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
 		}
 	} else {
-		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(ctx, *r.node, csiDriverName)
+		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName)
 		if err != nil {
 			return errors.Wrap(err, "failed to check CSI node topology labels")
 		}

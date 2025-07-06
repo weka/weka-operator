@@ -10,7 +10,8 @@ import (
 func NewCsiStorageClass(secret client.ObjectKey, driverName, storageClassName, fileSystemName string, mountOptions ...string) *storagev1.StorageClass {
 	storageClass := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: storageClassName,
+			Name:   storageClassName,
+			Labels: GetCsiLabels(driverName, CSIStorageclass, nil, nil),
 		},
 		Provisioner: driverName,
 		Parameters: map[string]string{

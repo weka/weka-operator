@@ -8,9 +8,11 @@ import (
 
 func NewCsiDriver(name string) *storagev1.CSIDriver {
 	fsGroupPolicy := storagev1.FileFSGroupPolicy
+
 	return &storagev1.CSIDriver{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:   name,
+			Labels: GetCsiLabels(name, CSIDriver, nil, nil),
 		},
 		Spec: storagev1.CSIDriverSpec{
 			AttachRequired: pointer.Bool(true),

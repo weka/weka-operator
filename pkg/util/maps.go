@@ -69,3 +69,17 @@ func (tsm *TypedSyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	}
 	return value, false
 }
+
+func AreMapsEqual[K comparable, V comparable](a, b map[K]V) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for k, v := range a {
+		if v2, ok := b[k]; !ok || v != v2 {
+			return false
+		}
+	}
+
+	return true
+}

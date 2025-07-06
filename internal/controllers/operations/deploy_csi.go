@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"strings"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -40,14 +37,13 @@ type DeployCsiResult struct {
 	Result string `json:"result"`
 }
 
-func NewDeployCsiOperation(mgr ctrl.Manager, targetClient *v1alpha1.WekaClient, csiDriverName string, nodes []corev1.Node, undeploy bool) *DeployCsiOperation {
-	csiGroupName := strings.TrimSuffix(csiDriverName, ".weka.io")
+func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClient, csiGroupName string, nodes []corev1.Node, undeploy bool) *DeployCsiOperation {
 	namespace, _ := util2.GetPodNamespace()
 
 	return &DeployCsiOperation{
-		client:        mgr.GetClient(),
+		client:        client,
 		wekaClient:    targetClient,
-		csiDriverName: csiDriverName,
+		csiDriverName: csi.GetCsiDriverName(csiGroupName),
 		csiGroupName:  csiGroupName,
 		namespace:     namespace,
 		undeploy:      undeploy,
@@ -67,6 +63,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "DeployCsiDriver",
 			Run:  o.deployCsiDriver,
+			Predicates: lifecycle.Predicates{
+				o.shouldDeployCSIDriver,
+			},
+			ContinueOnPredicatesFalse: true,
 		},
 		{
 			Name: "DeployStorageClasses",
@@ -77,6 +77,7 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
+				o.shouldDeployStorageClass,
 			},
 			ContinueOnPredicatesFalse: true,
 		},
@@ -85,14 +86,16 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Run:  o.deployCsiController,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
+				o.shouldDeployCSIController,
 			},
 			ContinueOnPredicatesFalse: true,
 		},
 	}
 	undeploySteps := []lifecycle.Step{
 		{
-			Name: "UndeployCsiDriver",
-			Run:  o.undeployCsiDriver,
+			Name:                      "UndeployCsiDriver",
+			Run:                       o.undeployCsiDriver,
+			ContinueOnPredicatesFalse: true,
 		},
 		{
 			Name: "UndeployStorageClasses",
@@ -104,10 +107,15 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
 			},
+			ContinueOnPredicatesFalse: true,
 		},
 		{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
+			},
+			ContinueOnPredicatesFalse: true,
 		},
 	}
 	if o.undeploy {
@@ -126,10 +134,14 @@ func (o *DeployCsiOperation) GetJsonResult() string {
 }
 
 func (o *DeployCsiOperation) deployCsiDriver(ctx context.Context) error {
-	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: o.csiDriverName},
-		func() client.Object { return csi.NewCsiDriver(o.csiDriverName) }); err != nil {
-		return err
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiDriver")
+	defer end()
+
+	err := o.client.Create(ctx, csi.NewCsiDriver(o.csiDriverName))
+	if err != nil {
+		return fmt.Errorf("failed to create CSI driver: %w", err)
 	}
+	logger.Info("Created CSI driver successfully")
 	return nil
 }
 
@@ -147,24 +159,39 @@ func (o *DeployCsiOperation) undeployCsiDriver(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployStorageClasses(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployStorageClasses")
+	defer end()
+
 	fileSystemName := config.Consts.CsiFileSystemName
 	storageClassName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName)
-	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassName},
-		func() client.Object {
-			return csi.NewCsiStorageClass(o.getCsiSecret(), o.csiDriverName, storageClassName, fileSystemName)
-		}); err != nil {
-		return err
-	}
 
+	// Deploy default storage class
+	err := o.client.Create(ctx, csi.NewCsiStorageClass(
+		o.getCsiSecret(),
+		o.csiDriverName,
+		storageClassName,
+		fileSystemName,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to create default storage class: %w", err)
+	}
+	logger.Info("Created default storage class successfully")
+
+	// Deploy force direct storage class
 	mountOptions := []string{"forcedirect"}
 	storageClassForceDirectName := csi.GenerateStorageClassName(o.csiGroupName, fileSystemName, mountOptions...)
-	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: storageClassForceDirectName},
-		func() client.Object {
-			return csi.NewCsiStorageClass(o.getCsiSecret(), o.csiDriverName, storageClassForceDirectName, fileSystemName, mountOptions...)
-		}); err != nil {
-		return err
-	}
 
+	err = o.client.Create(ctx, csi.NewCsiStorageClass(
+		o.getCsiSecret(),
+		o.csiDriverName,
+		storageClassForceDirectName,
+		fileSystemName,
+		mountOptions...,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to create force direct storage class: %w", err)
+	}
+	logger.Info("Created force direct storage class successfully")
 	return nil
 }
 
@@ -196,18 +223,18 @@ func (o *DeployCsiOperation) undeployStorageClasses(ctx context.Context) error {
 }
 
 func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
-	controllerDeploymentName := csi.GetCSIControllerName(o.csiGroupName)
-	tolerations := util.ExpandTolerations([]corev1.Toleration{}, o.wekaClient.Spec.Tolerations, o.wekaClient.Spec.RawTolerations)
-	if err := o.createIfNotExists(ctx, client.ObjectKey{Name: controllerDeploymentName, Namespace: o.namespace},
-		func() client.Object {
-			return csi.NewCsiControllerDeployment(controllerDeploymentName, o.namespace,
-				o.csiDriverName, o.wekaClient.Spec.NodeSelector, tolerations,
-			)
-		}); err != nil {
-		return err
-	}
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiController")
+	defer end()
 
-	return o.client.Update(ctx, o.wekaClient)
+	deploymentSpec := csi.NewCsiControllerDeployment(o.csiGroupName, o.wekaClient)
+
+	err := o.client.Create(ctx, deploymentSpec)
+	if err != nil {
+		return fmt.Errorf("failed to create CSI controller deployment: %w", err)
+	}
+	logger.Info("Created CSI controller deployment successfully")
+
+	return nil
 }
 
 func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
@@ -225,22 +252,58 @@ func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
 	return nil
 }
 
-func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.ObjectKey, objectFactory func() client.Object) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CSICreateIfNotExists")
+func (o *DeployCsiOperation) shouldDeployCSIDriver() bool {
+	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployCSIDriver")
 	defer end()
 
-	newObj := objectFactory()
-	typeName := fmt.Sprintf("%T", newObj)
-	err := o.client.Create(ctx, newObj)
-	if client.IgnoreAlreadyExists(err) != nil {
-		return fmt.Errorf("failed to create %s %s: %w", typeName, key.Name, err)
+	listOpts := []client.ListOption{
+		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIDriver, nil, nil)),
 	}
-
-	if err == nil {
-		logger.Info(fmt.Sprintf("Created %s %s successfully", typeName, key.Name))
+	var existingList storagev1.CSIDriverList
+	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
+		logger.Error(err, "failed to list existing CSIDrivers")
+		return false
 	}
+	if len(existingList.Items) > 0 {
+		return false
+	}
+	return true
+}
 
-	return nil
+func (o *DeployCsiOperation) shouldDeployStorageClass() bool {
+	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployStorageClass")
+	defer end()
+
+	listOpts := []client.ListOption{
+		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIStorageclass, nil, nil)),
+	}
+	var existingList storagev1.StorageClassList
+	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
+		logger.Error(err, "failed to list existing StorageClasses")
+		return false
+	}
+	if len(existingList.Items) > 0 {
+		return false
+	}
+	return true
+}
+
+func (o *DeployCsiOperation) shouldDeployCSIController() bool {
+	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployCSIController")
+	defer end()
+
+	listOpts := []client.ListOption{
+		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIController, nil, nil)),
+	}
+	var existingList appsv1.DeploymentList
+	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
+		logger.Error(err, "failed to list existing Deployments")
+		return false
+	}
+	if len(existingList.Items) > 0 {
+		return false
+	}
+	return true
 }
 
 func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
@@ -265,7 +328,7 @@ func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, a
 		fmt.Sprintf("topology.%s/accessible", csiDriverName)
 }
 
-func CheckCsiNodeTopologyLabelsSet(ctx context.Context, node corev1.Node, csiDriverName string) (bool, error) {
+func CheckCsiNodeTopologyLabelsSet(node corev1.Node, csiDriverName string) (bool, error) {
 	labels := node.Labels
 	if labels == nil {
 		return false, nil

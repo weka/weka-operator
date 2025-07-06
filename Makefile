@@ -305,6 +305,8 @@ deployocp: generate install ## Deploy controller to the K8s cluster specified in
 		--set deploymentIdentifier="dev-${USER}" \
 		--set gkeCompatibility.gkeServiceAccountSecret=weka-builder \
 		--set nodeAgent.persistencePaths='/root/k8s-weka'
+		--set csi.installationEnabled=true
+
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

@@ -1,24 +1,41 @@
 package csi
 
 import (
-	"context"
-	"github.com/pkg/errors"
-	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/config"
+	"fmt"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/util"
 	util2 "github.com/weka/weka-operator/pkg/util"
+	"strings"
+
+	"github.com/weka/weka-operator/internal/config"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
 )
 
 func GetCSIControllerName(CSIGroupName string) string {
 	return strings.Replace(CSIGroupName, ".", "-", -1) + "-weka-csi-controller"
 }
 
-func NewCsiControllerDeployment(name string, namespace string, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) *appsv1.Deployment {
+func GetCsiDriverName(csiGroup string) string {
+	return fmt.Sprintf("%s.weka.io", csiGroup)
+}
+
+func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient) *appsv1.Deployment {
+	name := GetCSIControllerName(csiGroupName)
+	csiDriverName := GetCsiDriverName(csiGroupName)
+	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+	var csiLabels map[string]string
+	if wekaClient.Spec.CsiConfig != nil {
+		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.ControllerTolerations...)
+		csiLabels = wekaClient.Spec.CsiConfig.ControllerLabels
+	}
+	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
+
+	nodeSelector := wekaClient.Spec.NodeSelector
+	namespace, _ := util2.GetPodNamespace()
+
 	privileged := true
 	replicas := int32(2)
 
@@ -30,10 +47,7 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				"app":       name,
-				"component": name,
-			},
+			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
@@ -436,77 +450,6 @@ func NewCsiControllerDeployment(name string, namespace string, csiDriverName str
 			},
 		},
 	}
-}
-
-func UpdateCsiController(ctx context.Context, c client.Client, csiDriverName string, nodeSelector map[string]string, tolerations []corev1.Toleration) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	controllerDeploymentName := GetCSIControllerName(strings.TrimSuffix(csiDriverName, ".weka.io"))
-
-	deployment := &appsv1.Deployment{}
-	namespace, _ := util2.GetPodNamespace()
-	err := c.Get(ctx, client.ObjectKey{
-		Name:      controllerDeploymentName,
-		Namespace: namespace,
-	}, deployment)
-	if err != nil {
-		return errors.Wrap(err, "failed to fetch CSI controller deployment")
-	}
-
-	updated := false
-	for i, podContainer := range deployment.Spec.Template.Spec.Containers {
-		switch podContainer.Name {
-		case "csi-provisioner":
-			if podContainer.Image != config.Config.CsiProvisionerImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiProvisionerImage
-				updated = true
-			}
-		case "csi-attacher":
-			if podContainer.Image != config.Config.CsiAttacherImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiAttacherImage
-				updated = true
-			}
-		case "csi-resizer":
-			if podContainer.Image != config.Config.CsiResizerImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiResizerImage
-				updated = true
-			}
-		case "csi-snapshotter":
-			if podContainer.Image != config.Config.CsiSnapshotterImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiSnapshotterImage
-				updated = true
-			}
-		case "liveness-probe":
-			if podContainer.Image != config.Config.CsiLivenessProbeImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiLivenessProbeImage
-				updated = true
-			}
-		case "wekafs":
-			if podContainer.Image != config.Config.CsiImage {
-				deployment.Spec.Template.Spec.Containers[i].Image = config.Config.CsiImage
-				updated = true
-			}
-		}
-	}
-
-	if !util2.NewHashableMap(deployment.Spec.Template.Spec.NodeSelector).Equals(util2.NewHashableMap(nodeSelector)) {
-		deployment.Spec.Template.Spec.NodeSelector = nodeSelector
-		updated = true
-	}
-	if !util2.CompareTolerations(deployment.Spec.Template.Spec.Tolerations, tolerations, false) {
-		deployment.Spec.Template.Spec.Tolerations = tolerations
-		updated = true
-	}
-
-	if updated {
-		logger.Info("Updated CSI controller deployment images")
-		err = c.Update(ctx, deployment)
-		if err != nil {
-			return errors.Wrap(err, "failed to update CSI controller deployment with new images")
-		}
-	}
-	return nil
 }
 
 // Helper function to create pointers to primitive types

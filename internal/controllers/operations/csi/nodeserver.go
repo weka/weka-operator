@@ -13,17 +13,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCsiNodePod(name string, namespace string, csiDriverName string, nodeName string, tolerations []corev1.Toleration) *corev1.Pod {
+func NewCsiNodePod(name, namespace, csiDriverName, nodeName string, labels map[string]string, tolerations []corev1.Toleration) *corev1.Pod {
 	privileged := true
 
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels: map[string]string{
-				"app":       name,
-				"component": name,
-			},
+			Labels:    labels,
 			Annotations: map[string]string{
 				"prometheus.io/scrape": "true",
 				"prometheus.io/path":   "/metrics",
@@ -298,7 +295,7 @@ func NewCsiNodePod(name string, namespace string, csiDriverName string, nodeName
 	}
 }
 
-func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c client.Client, csiDriverName string, tolerations []corev1.Toleration) error {
+func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c client.Client, csiDriverName string, labels map[string]string, tolerations []corev1.Toleration) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -318,7 +315,7 @@ func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c clien
 			}
 		}
 	}
-	outdated = outdated || (!util.CompareTolerations(pod.Spec.Tolerations, tolerations, true)) // ignore unhealthy default tolerations, since they are added by k8s on the pod level
+	outdated = outdated || !util.AreMapsEqual(labels, pod.Labels) || !util.CompareTolerations(pod.Spec.Tolerations, tolerations, true) // ignore unhealthy default tolerations, since they are added by k8s on the pod level
 
 	if outdated {
 		logger.Info("CSI node spec changed, re-deploying")
