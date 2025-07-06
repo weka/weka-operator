@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -82,6 +83,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 		{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
+			},
+			ContinueOnPredicatesFalse: true,
 		},
 	}
 	undeploySteps := []lifecycle.Step{
@@ -220,14 +225,19 @@ func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
 	return nil
 }
 
-func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.ObjectKey,
-	objectFactory func() client.Object) error {
+func (o *DeployCsiOperation) createIfNotExists(ctx context.Context, key client.ObjectKey, objectFactory func() client.Object) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CSICreateIfNotExists")
+	defer end()
 
 	newObj := objectFactory()
 	typeName := fmt.Sprintf("%T", newObj)
 	err := o.client.Create(ctx, newObj)
 	if client.IgnoreAlreadyExists(err) != nil {
 		return fmt.Errorf("failed to create %s %s: %w", typeName, key.Name, err)
+	}
+
+	if err == nil {
+		logger.Info(fmt.Sprintf("Created %s %s successfully", typeName, key.Name))
 	}
 
 	return nil
