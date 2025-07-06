@@ -388,7 +388,10 @@ async def find_weka_drives():
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
     devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True).decode().strip().split()
-    devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+    if os.path.exists("/dev/disk/by-path"):
+        devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+    else:
+        devices_by_path = []
 
     part_names = []
 
