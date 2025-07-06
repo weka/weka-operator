@@ -1,4 +1,4 @@
-{{- if and .Values.csi.installationEnabled (not .Values.csi.controllerCreationDisabled) }}
+{{- if .Values.csi.installationEnabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
