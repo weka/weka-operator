@@ -96,8 +96,12 @@ type PodResourcesSpec struct {
 }
 
 type ClientCsiConfig struct {
-	CsiGroup                  string `json:"csiGroup,omitempty"`
-	DisableControllerCreation bool   `json:"disableControllerCreation,omitempty"`
+	CsiGroup                  string            `json:"csiGroup,omitempty"`
+	DisableControllerCreation bool              `json:"disableControllerCreation,omitempty"`
+	ControllerLabels          map[string]string `json:"controllerLabels,omitempty"`
+	NodeLabels                map[string]string `json:"nodeLabels,omitempty"`
+	ControllerTolerations     []v1.Toleration   `json:"controllerTolerations,omitempty"`
+	NodeTolerations           []v1.Toleration   `json:"nodeTolerations,omitempty"`
 }
 
 // WekaClientSpec defines the desired state of WekaClient
