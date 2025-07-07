@@ -177,6 +177,18 @@ type Instructions struct {
 	Payload string `json:"payload,omitempty"`
 }
 
+type TypedClientConfigs struct {
+	CsiDriverName            string            `json:"csiDriverName,omitempty"`
+	CSIControllerLabels      map[string]string `json:"csiControllerLabels,omitempty"`
+	CSINodeLabels            map[string]string `json:"csiNodeLabels,omitempty"`
+	CSIControllerTolerations []v1.Toleration   `json:"csiControllerTolerations,omitempty"`
+	CSINodeTolerations       []v1.Toleration   `json:"csiNodeTolerations,omitempty"`
+}
+
+type TypedConfigs struct {
+	TypedClientConfigs *TypedClientConfigs `json:"clientCsiConfig,omitempty"`
+}
+
 type WekaContainerSpec struct {
 	// name of the node where the container should run on
 	NodeAffinity NodeName `json:"nodeAffinity,omitempty"`
@@ -245,8 +257,7 @@ type WekaContainerSpec struct {
 	PVC       *PVCConfig        `json:"pvc,omitempty"`
 
 	// +kubebuilder:validation:Type=string
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: computed csi driver name for client container to ensure csi-node
-	CsiDriverName string `json:"csiDriverName,omitempty"`
+	TypedConfigs *TypedConfigs `json:"typedConfigs,omitempty"`
 }
 
 type AWSNetwork struct {
