@@ -178,7 +178,7 @@ type Instructions struct {
 }
 
 type TypedClientConfigs struct {
-	CsiDriverName            string            `json:"csiDriverName,omitempty"`
+	CSIDriverName            string            `json:"csiDriverName,omitempty"`
 	CSIControllerLabels      map[string]string `json:"csiControllerLabels,omitempty"`
 	CSINodeLabels            map[string]string `json:"csiNodeLabels,omitempty"`
 	CSIControllerTolerations []v1.Toleration   `json:"csiControllerTolerations,omitempty"`
@@ -256,7 +256,6 @@ type WekaContainerSpec struct {
 	Resources *PodResourcesSpec `json:"resources,omitempty"`
 	PVC       *PVCConfig        `json:"pvc,omitempty"`
 
-	// +kubebuilder:validation:Type=string
 	TypedConfigs *TypedConfigs `json:"typedConfigs,omitempty"`
 }
 
