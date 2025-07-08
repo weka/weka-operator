@@ -141,3 +141,14 @@ jobs:
           name: test-artifacts
           path: ${{ github.workspace }}/test-artifacts
           retention-days: 1
+
+  ci_on_merge_queue_required_status:
+    needs: [run_condition_check, ci_on_merge_queue_plan]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Validate required workflow
+        run: |
+          if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
+            [[ "${{ needs.ci_on_merge_queue_plan.result }}" == "success" ]] || exit 1
+          fi
