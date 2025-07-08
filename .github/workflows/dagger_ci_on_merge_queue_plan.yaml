@@ -81,11 +81,13 @@ jobs:
           path: testing
           submodules: true
 
-      - name: Save Kubeconfig
+      - name: Save Kubeconfig(s)
         run: |
           mkdir -p ${{ github.workspace }}/.kube
           echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
+          echo "${{ secrets.OCP_CLUSTER_KUBECONFIG }}" > ${{ github.workspace }}/.kube/ocp-cluster-config
           chmod 600 ${{ github.workspace }}/.kube/config
+          chmod 600 ${{ github.workspace }}/.kube/ocp-cluster-config
 
       - name: Call Generate Test Artifacts
         uses: dagger/dagger-for-github@8.0.0
@@ -129,6 +131,8 @@ jobs:
             --new-weka-version=${{ env.NEW_WEKA_VERSION }}
             --test-artifacts-dir=${{ github.workspace }}/test-artifacts
             --use-gh-token-for-go-deps
+            --check-ocp-clients-only
+            --ocp-cluster-kubeconfig=file://${{ github.workspace }}/.kube/ocp-cluster-config
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4

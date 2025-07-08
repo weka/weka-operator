@@ -1,5 +1,6 @@
 import re
 import logging
+import random
 from typing import Dict, List, Annotated, Optional
 
 import dagger
@@ -185,6 +186,8 @@ class OperatorFlows:
         dry_run: bool = False,
         no_cleanup: bool = False,
         use_gh_token_for_go_deps: bool = False,
+        check_ocp_clients_only: bool = False,
+        ocp_cluster_kubeconfig: Optional[dagger.Secret] = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
@@ -194,6 +197,9 @@ class OperatorFlows:
                 logger.error("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
                 raise ValueError("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
             current_gh_token = gh_token
+
+        if check_ocp_clients_only and not ocp_cluster_kubeconfig:
+            raise ValueError("ocp_cluster_kubeconfig must be provided if check_ocp_clients_only is True")
 
         if not test_artifacts_dir:
             test_artifacts_dir = await self.generate_pr_test_artifacts(operator, pr_number, gh_token, openai_api_key)
@@ -250,6 +256,13 @@ class OperatorFlows:
         operator_image_with_version = operator_full_image.split("@")[0]
         operator_image = operator_image_with_version.removesuffix(f":{operator_version}")
 
+        cluster_name = "upgrade-extended"
+        namespace = "test-upgrade-extended"
+
+        # client and csi secrets are needed for "clients only" test flow in OpenShift environment
+        client_secret_name = "weka-client-" + cluster_name
+        csi_secret_name = "weka-csi-" + cluster_name
+
         if not dry_run:
             logger.info("Executing upgrade test.")
             result = await (
@@ -268,12 +281,62 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --operator-image {operator_image} \
     --operator-helm-image {operator_helm_image} \
     --node-selector "weka.io/dedicated:upgrade-extended" \
-    --namespace "test-upgrade-extended" \
-    --cluster-name "upgrade-extended" \
+    --namespace {namespace} \
+    --cluster-name {cluster_name} \
     --cleanup {"no-cleanup" if no_cleanup else "on-start"}
 """
                 ])
             )
+
+            if check_ocp_clients_only:
+                logger.info("Running OCP clients only test flow.")
+
+                secrets_to_copy = [client_secret_name, csi_secret_name, "quay-io-robot-secret"]
+                for secret_name in secrets_to_copy:
+                    logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
+
+                    await self.copy_k8s_secret_from_one_cluster_to_another(
+                        env=upgrade_test_container,
+                        source_kubeconfig=kubeconfig_path,
+                        target_kubeconfig=ocp_cluster_kubeconfig,
+                        source_secret_name=secret_name,
+                        source_namespace=namespace,
+                        target_secret_name=secret_name,
+                        target_namespace=namespace,
+                    )
+
+                join_ips = await self.get_join_ips(
+                    env=env,
+                    kubeconfig=kubeconfig_path,
+                    clusterName=cluster_name,
+                    namespace=namespace
+                )
+
+                # Mount the OCP kubeconfig and run the clients-only test
+                result = await (
+                    upgrade_test_container
+                    .with_mounted_secret("/.kube/ocp-config", ocp_cluster_kubeconfig)
+                    .with_exec([
+                        "sh", "-c",
+f"""
+unset OTEL_EXPORTER_OTLP_ENDPOINT
+/weka-k8s-testing clients-only \
+    --kubeconfig /.kube/ocp-config \
+    --namespace {namespace} \
+    --operator-version {operator_version} \
+    --operator-image {operator_image} \
+    --operator-helm-image {operator_helm_image} \
+    --weka-secret-ref {client_secret_name} \
+    --csi-secret-name {csi_secret_name} \
+    --is-openshift \
+    --join-ips {join_ips} \
+    --weka-image {new_weka_version}
+"""
+                    ])
+                )
+
+            logger.info("Upgrade test completed successfully.")
+
             # Return a directory that has both the test artifacts and result
             return (
                 dag.directory()
@@ -284,6 +347,171 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
             # In dry run mode, just return the artifacts directory
             return test_artifacts_dir
 
+    async def get_join_ips(self, env: dagger.Container, kubeconfig: dagger.Secret, clusterName: str, namespace: str) -> str:
+        """
+        Retrieves the join IPs from the Kubernetes cluster for the specified namespace.
+        """
+        logger.info(f"Retrieving join IPs for cluster {clusterName} in namespace {namespace}")
+
+        # Create a container with kubectl configured
+        container = (
+            env
+            .with_exec(["mkdir", "-p", "/.kube"])
+            .with_mounted_secret("/.kube/config", kubeconfig)
+        )
+
+        # Get compute containers for the cluster
+        get_containers_cmd = [
+            "kubectl", "--kubeconfig=/.kube/config", "get", "wekacontainer",
+            "-n", namespace,
+            "-l", f"weka.io/cluster-name={clusterName},weka.io/mode=compute",
+            "-o", "jsonpath={range .items[*]}{.status.managementIPs[0]},{.status.allocations.wekaPort}{\"\\n\"}{end}"
+        ]
+        
+        logger.info(f"Running command: {' '.join(get_containers_cmd)}")
+        result = await container.with_exec(get_containers_cmd).stdout()
+        
+        if not result.strip():
+            raise ValueError(f"No compute containers found for cluster {clusterName} in namespace {namespace}")
+        
+        # Parse the result and build join IPs
+        container_data = []
+        for line in result.strip().split('\n'):
+            if line.strip():
+                parts = line.strip().split(',')
+                if len(parts) < 2:
+                    logger.warning(f"Skipping invalid line in result: {line}")
+                    continue
+                container_data.append({
+                    'managementIP': parts[0],
+                    'wekaPort': parts[1]
+                })
+        
+        if not container_data:
+            raise ValueError(f"No valid compute containers with management IPs and weka ports found for cluster {clusterName}")
+        
+        # Randomly select up to 3 containers
+        selected_containers = random.sample(container_data, min(3, len(container_data)))
+        
+        # Build join IPs in format IP:PORT
+        join_ips = []
+        for container in selected_containers:
+            ip = container['managementIP']
+            port = container['wekaPort']
+            
+            # Handle IPv6 addresses (add brackets if needed)
+            if ':' in ip and not ip.startswith('['):
+                join_ip = f"[{ip}]:{port}"
+            else:
+                join_ip = f"{ip}:{port}"
+            
+            join_ips.append(join_ip)
+            logger.info(f"Selected container with IP {ip} and port {port}, join IP {join_ip}")
+        
+        result_join_ips = ",".join(join_ips)
+        logger.info(f"Final join IPs for cluster {clusterName}: {result_join_ips}")
+        
+        return result_join_ips
+
+    async def copy_k8s_secret_from_one_cluster_to_another(
+        self,
+        env: dagger.Container,
+        source_kubeconfig: dagger.Secret,
+        target_kubeconfig: dagger.Secret,
+        source_secret_name: str,
+        source_namespace: str,
+        target_secret_name: str,
+        target_namespace: str,
+    ) -> None:
+        """
+        Copies a Kubernetes secret from one cluster to another.
+        
+        Args:
+            env: Base container environment
+            source_kubeconfig: Kubeconfig for the source cluster
+            target_kubeconfig: Kubeconfig for the target cluster
+            source_secret_name: Name of the secret in the source cluster
+            source_namespace: Namespace of the secret in the source cluster
+            target_secret_name: Name of the secret to create in the target cluster
+            target_namespace: Namespace where to create the secret in the target cluster
+        """
+        logger.info(f"Copying secret {source_secret_name} from {source_namespace} to {target_secret_name} in {target_namespace}")
+        
+        # Prepare container with kubectl and both kubeconfigs
+        container = (
+            env
+            .with_exec(["mkdir", "-p", "/.kube/source", "/.kube/target"])
+            .with_mounted_secret("/.kube/source/config", source_kubeconfig)
+            .with_mounted_secret("/.kube/target/config", target_kubeconfig)
+        )
+        
+        # Get the secret data and type from source cluster
+        logger.info(f"Extracting secret data from {source_secret_name} in source cluster")
+        
+        # Get the secret data as JSON
+        secret_data = await container.with_exec([
+            "kubectl", "--kubeconfig=/.kube/source/config", "get", "secret", 
+            source_secret_name, "-n", source_namespace, "-o", "jsonpath={.data}"
+        ]).stdout()
+        
+        # Get the secret type
+        secret_type = await container.with_exec([
+            "kubectl", "--kubeconfig=/.kube/source/config", "get", "secret", 
+            source_secret_name, "-n", source_namespace, "-o", "jsonpath={.type}"
+        ]).stdout()
+        
+        logger.info(f"Retrieved secret data and type, creating new secret in target cluster")
+        
+        # Ensure target namespace exists
+        logger.info(f"Ensuring target namespace {target_namespace} exists")
+        await container.with_exec([
+            "sh", "-c", f"kubectl --kubeconfig=/.kube/target/config create namespace {target_namespace} --dry-run=client -o yaml | kubectl --kubeconfig=/.kube/target/config apply -f - || true"
+        ]).stdout()
+        
+        # Create the secret directly using kubectl create secret generic with the data
+        logger.info(f"Creating secret {target_secret_name} in target cluster")
+        
+        # Use kubectl to create the secret from the extracted data
+        create_secret_cmd = [
+            "sh", "-c", 
+            f"""
+            # Delete the secret if it already exists (ignore errors)
+            kubectl --kubeconfig=/.kube/target/config delete secret {target_secret_name} -n {target_namespace} || true
+            
+            # Create a temporary YAML file with the secret
+            cat <<EOF > /tmp/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {target_secret_name}
+  namespace: {target_namespace}
+type: {secret_type.strip() if secret_type.strip() else 'Opaque'}
+data: {secret_data.strip() if secret_data.strip() else '{{}}'}
+EOF
+            
+            # Apply the secret
+            kubectl --kubeconfig=/.kube/target/config apply -f /tmp/secret.yaml
+            """
+        ]
+        
+        await container.with_exec(create_secret_cmd).stdout()
+
+        # Verify the secret was created and get the verification output
+        logger.info(f"Verifying secret {target_secret_name} was created in target cluster")
+        verification_result = await container.with_exec([
+            "kubectl", "--kubeconfig=/.kube/target/config", "get", "secret",
+            target_secret_name, "-n", target_namespace, "--no-headers", "-o", "name"
+        ]).stdout()
+        
+        if not verification_result.strip():
+            raise ValueError(f"Failed to create secret {target_secret_name} in namespace {target_namespace}. Verification output was empty.")
+
+        logger.info(
+            f"Successfully copied secret {source_secret_name} from {source_namespace} to {target_secret_name} in {target_namespace}." 
+            f"Verification output: {verification_result.strip()}"
+        )
+        return None
+        
 
     @function
     async def generate_ai_plan_for_prs(
