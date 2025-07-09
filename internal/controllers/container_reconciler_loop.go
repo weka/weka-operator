@@ -1171,18 +1171,20 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 		return errors.New("Container ID is not set")
 	}
 
-	// if less then 1 minute passed from deactivation - hold on the removal
+	// do not reactivate more then one container per role per minute
 	reset := func() {}
-	if !r.container.IsS3Container() {
-		throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
-		if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
-			return lifecycle.NewWaitErrorWithDuration(
-				errors.New("throttling removal of containers from weka"),
-				time.Second*15,
-			)
-		}
-		reset = func() {
-			throttler.Reset("removeDeactivatedContainers")
+	if config.Config.RemovalThrottlingEnabled {
+		if !r.container.IsS3Container() {
+			throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
+			if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+				return lifecycle.NewWaitErrorWithDuration(
+					errors.New("throttling removal of containers from weka"),
+					time.Second*15,
+				)
+			}
+			reset = func() {
+				throttler.Reset("removeDeactivatedContainers")
+			}
 		}
 	}
 
