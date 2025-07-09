@@ -214,6 +214,8 @@ spec:
               value: "{{ .Values.skipAuxNoScheduleToleration }}"
             - name: EVICT_CONTAINER_ON_DELETION
               value: "{{ .Values.evictContainerOnDeletion }}"
+            - name: REMOVAL_THROTTLING_ENABLED
+              value: "{{ .Values.removalThrottlingEnabled }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
             - name: DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT

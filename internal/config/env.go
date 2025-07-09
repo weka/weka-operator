@@ -123,6 +123,7 @@ var Config struct {
 	CleanupClientsOnNodeSelectorMismatch   bool
 	CleanupContainersOnTolerationsMismatch bool
 	EvictContainerOnDeletion               bool
+	RemovalThrottlingEnabled               bool
 	SkipClientsTolerationValidation        bool
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
@@ -277,6 +278,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CleanupClientsOnNodeSelectorMismatch = getBoolEnvOrDefault("CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH", false)
 	Config.CleanupContainersOnTolerationsMismatch = getBoolEnvOrDefault("CLEANUP_CONTAINERS_ON_TOLERATIONS_MISMATCH", false)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
+	Config.RemovalThrottlingEnabled = getBoolEnvOrDefault("REMOVAL_THROTTLING_ENABLED", false)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
