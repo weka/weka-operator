@@ -47,7 +47,8 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     cpuRequest	<string>
-    csiGroup	<string>
+    csiConfig	<Object>
+      csiGroup	<string>
     driversDistService	<string>
     driversLoaderImage	<string>
     globalPVC	<Object>
@@ -90,6 +91,7 @@ FIELDS:
       requests	<Object>
         cpu	<Object>
         memory	<Object>
+    serviceAccountName	<string>
     targetCluster	<Object>
       name	<string> -required-
       namespace	<string> -required-

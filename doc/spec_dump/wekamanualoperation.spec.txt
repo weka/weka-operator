@@ -78,7 +78,7 @@ FIELDS:
           deviceId	<string> -required-
           vendorId	<string> -required-
         type	<string> -required-
-        enum: aws-all, device-identifiers, device-paths, all-not-root
+        enum: aws-all, gcp-all, device-identifiers, device-paths, ....
     tolerations	<[]Object>
       effect	<string>
       key	<string>
