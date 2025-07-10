@@ -1,6 +1,7 @@
 import re
 import logging
 import random
+import time
 from typing import Dict, List, Annotated, Optional
 
 import dagger
@@ -74,10 +75,41 @@ class OperatorFlows:
             values_file=operator_values,
         )
         return install
+    
+
+    @function
+    async def publish_operator_and_get_versions(
+        self,
+        operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
+        sock: dagger.Socket,
+        gh_token: Optional[dagger.Secret] = None,
+    ) -> List[str]:
+        """
+        Returns the operator image and helm chart versions.
+        """
+        from apps.operator import publish_operator, publish_operator_helm_chart
+
+        # images.scalar.dev.weka.io:5002/weka-operator:v1.5.1-kristina-test@sha256:ed47ec60b6d635f3a03022a1f7c82f2db7203c4ba2a7b13ef22545c3dec6b799
+        operator_image_with_hash = await publish_operator(
+            operator, sock,
+            repository="images.scalar.dev.weka.io:5002/weka-operator",
+            gh_token=gh_token,
+        )
+              
+        # images.scalar.dev.weka.io:5002/helm/weka-operator:v1.5.1-kristina-test
+        operator_helm_image = await publish_operator_helm_chart(
+            operator, sock,
+            repository="images.scalar.dev.weka.io:5002/helm",
+            gh_token=gh_token,
+        )
+
+        operator_image = operator_image_with_hash.split("@")[0]
+
+        return operator_image, operator_helm_image
+
 
     @function
     async def ci_on_merge_queue_env(self,
-                                    operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                                     testing: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
                                         "*/.git",
@@ -91,28 +123,51 @@ class OperatorFlows:
                                     gh_token: Optional[dagger.Secret] = None,
                                     ) -> dagger.Container:
         from containers.builders import _uv_base
-        from apps.operator import publish_operator, publish_operator_helm_chart
 
         wekai = await build_go(wekai, sock, gh_token)
         testing = await build_go(testing, sock, cache_deps=False, gh_token=gh_token)
-        operator_image = await publish_operator(operator, sock,
-                                                repository="images.scalar.dev.weka.io:5002/weka-operator",
-                                                gh_token=gh_token,
-                                                )
-        operator_helm = await publish_operator_helm_chart(operator, sock,
-                                                          repository="images.scalar.dev.weka.io:5002/helm",
-                                                          gh_token=gh_token,
-                                                          )
 
         base_container = await _uv_base()
         base_container = (
             base_container
             .with_file("/wekai", wekai.file("/out-binary"))
             .with_file("/weka-k8s-testing", testing.file("/out-binary"))
-            .with_new_file("/versions", f"{operator_image}\n{operator_helm}")
         )
 
         return base_container
+
+    def with_kubectl(self, container: dagger.Container) -> dagger.Container:
+        """Adds kubectl to the container."""
+        return (
+            container
+            .with_exec(["sh", "-c", "apk add --no-cache curl && curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
+        )
+
+    @function
+    async def testing_env(
+        self,
+        testing: Annotated[dagger.Directory, Ignore([
+            ".aider*",
+            "*/.git",
+        ])],
+        sock: dagger.Socket,
+        gh_token: Optional[dagger.Secret] = None,
+    ) -> dagger.Container:
+        """Returns a base container for testing environment with necessary dependencies."""
+        from containers.builders import _uv_base
+
+        # Build the testing directory
+        testing = await build_go(testing, sock, cache_deps=False, gh_token=gh_token)
+
+        # Create the base container with UV
+        base_container = await _uv_base()
+        container = (
+            base_container
+            .with_file("/weka-k8s-testing", testing.file("/out-binary"))
+        )
+
+        return container
+
 
     def _extract_pr_numbers(self, title: str) -> List[int]:
         """Extracts PR numbers from a title string containing format like '(PRs 1132, 1133,...)'"""
@@ -181,13 +236,15 @@ class OperatorFlows:
         gemini_api_key: dagger.Secret,
         kubeconfig_path: dagger.Secret,
         initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
-        new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
+        new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.129-k8s",
         test_artifacts_dir: Optional[dagger.Directory] = None,
         dry_run: bool = False,
         no_cleanup: bool = False,
         use_gh_token_for_go_deps: bool = False,
-        check_ocp_clients_only: bool = False,
-        ocp_cluster_kubeconfig: Optional[dagger.Secret] = None,
+        cluster_name: str = "upgrade-extended",
+        namespace: str = "test-upgrade-extended",
+        operator_image: Optional[str] = None,
+        operator_helm_image: Optional[str] = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
@@ -197,9 +254,6 @@ class OperatorFlows:
                 logger.error("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
                 raise ValueError("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
             current_gh_token = gh_token
-
-        if check_ocp_clients_only and not ocp_cluster_kubeconfig:
-            raise ValueError("ocp_cluster_kubeconfig must be provided if check_ocp_clients_only is True")
 
         if not test_artifacts_dir:
             test_artifacts_dir = await self.generate_pr_test_artifacts(operator, pr_number, gh_token, openai_api_key)
@@ -211,16 +265,12 @@ class OperatorFlows:
         if not hook_env_dict:
             logger.info("No generated hooks found")
         
-        env = await self.ci_on_merge_queue_env(operator, testing, wekai, sock, current_gh_token)
+        env = await self.ci_on_merge_queue_env(testing, wekai, sock, current_gh_token)
 
         env = (
-            env
+            self.with_kubectl(env)
             .with_exec(["mkdir", "-p", "/.kube"])
             .with_mounted_secret("/.kube/config", kubeconfig_path)
-            # install curl
-            .with_exec(["sh", "-c", "apk add curl"])
-            # install kubectl
-            .with_exec(["sh", "-c", "curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
         )
 
         # Prepare container for running upgrade test
@@ -246,22 +296,14 @@ class OperatorFlows:
             .with_env_variable("KUBECONFIG", "/.kube/config")
         )
 
-        versions = await env.file("/versions").contents()
-        # images.scalar.dev.weka.io:5002/helm/weka-operator:v1.5.1-kristina-test
-        operator_helm_image_with_version = versions.split("\n")[1]
-        operator_version = operator_helm_image_with_version.split(":")[-1]
-        operator_helm_image = operator_helm_image_with_version.removesuffix(f":{operator_version}")
-        # images.scalar.dev.weka.io:5002/weka-operator:v1.5.1-kristina-test@sha256:ed47ec60b6d635f3a03022a1f7c82f2db7203c4ba2a7b13ef22545c3dec6b799
-        operator_full_image = versions.split("\n")[0]
-        operator_image_with_version = operator_full_image.split("@")[0]
-        operator_image = operator_image_with_version.removesuffix(f":{operator_version}")
+        if not operator_image or not operator_helm_image:
+            operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
+                operator, sock, gh_token=current_gh_token
+            )
 
-        cluster_name = "upgrade-extended"
-        namespace = "test-upgrade-extended"
-
-        # client and csi secrets are needed for "clients only" test flow in OpenShift environment
-        client_secret_name = "weka-client-" + cluster_name
-        csi_secret_name = "weka-csi-" + cluster_name
+        operator_version = operator_helm_image.split(":")[-1]
+        operator_helm_image_without_version = operator_helm_image.removesuffix(f":{operator_version}")
+        operator_image_without_version = operator_image.removesuffix(f":{operator_version}")
 
         if not dry_run:
             logger.info("Executing upgrade test.")
@@ -278,8 +320,8 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --initial-version {initial_weka_version} \
     --new-version {new_weka_version} \
     --operator-version {operator_version} \
-    --operator-image {operator_image} \
-    --operator-helm-image {operator_helm_image} \
+    --operator-image {operator_image_without_version} \
+    --operator-helm-image {operator_helm_image_without_version} \
     --node-selector "weka.io/dedicated:upgrade-extended" \
     --namespace {namespace} \
     --cluster-name {cluster_name} \
@@ -287,53 +329,6 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
 """
                 ])
             )
-
-            if check_ocp_clients_only:
-                logger.info("Running OCP clients only test flow.")
-
-                secrets_to_copy = [client_secret_name, csi_secret_name, "quay-io-robot-secret"]
-                for secret_name in secrets_to_copy:
-                    logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
-
-                    await self.copy_k8s_secret_from_one_cluster_to_another(
-                        env=upgrade_test_container,
-                        source_kubeconfig=kubeconfig_path,
-                        target_kubeconfig=ocp_cluster_kubeconfig,
-                        source_secret_name=secret_name,
-                        source_namespace=namespace,
-                        target_secret_name=secret_name,
-                        target_namespace=namespace,
-                    )
-
-                join_ips = await self.get_join_ips(
-                    env=env,
-                    kubeconfig=kubeconfig_path,
-                    clusterName=cluster_name,
-                    namespace=namespace
-                )
-
-                # Mount the OCP kubeconfig and run the clients-only test
-                result = await (
-                    upgrade_test_container
-                    .with_mounted_secret("/.kube/ocp-config", ocp_cluster_kubeconfig)
-                    .with_exec([
-                        "sh", "-c",
-f"""
-unset OTEL_EXPORTER_OTLP_ENDPOINT
-/weka-k8s-testing clients-only \
-    --kubeconfig /.kube/ocp-config \
-    --namespace {namespace} \
-    --operator-version {operator_version} \
-    --operator-image {operator_image} \
-    --operator-helm-image {operator_helm_image} \
-    --weka-secret-ref {client_secret_name} \
-    --csi-secret-name {csi_secret_name} \
-    --is-openshift \
-    --join-ips {join_ips} \
-    --weka-image {new_weka_version}
-"""
-                    ])
-                )
 
             logger.info("Upgrade test completed successfully.")
 
@@ -443,6 +438,7 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
             .with_exec(["mkdir", "-p", "/.kube/source", "/.kube/target"])
             .with_mounted_secret("/.kube/source/config", source_kubeconfig)
             .with_mounted_secret("/.kube/target/config", target_kubeconfig)
+            .with_new_file("/nocache", contents=str(time.time()))
         )
         
         # Get the secret data and type from source cluster
@@ -613,3 +609,103 @@ EOF
             .from_("ubuntu:24.04")
             .with_directory("/operator", operator)
         )
+
+    @function
+    async def run_ocp_clients_only_test(
+        self,
+        testing: Annotated[dagger.Directory, Ignore([
+            ".aider*",
+            "*/.git",
+        ])],
+        sock: dagger.Socket,
+        gh_token: Optional[dagger.Secret],
+        source_kubeconfig: dagger.Secret,
+        target_kubeconfig: dagger.Secret,
+        weka_image: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
+        use_gh_token_for_go_deps: bool = False,
+        cluster_name: str = "upgrade-extended",
+        namespace: str = "test-upgrade-extended",
+        operator: Optional[Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)]] = None,
+        operator_image: Optional[str] = None,
+        operator_helm_image: Optional[str] = None,
+    ) -> None:
+        """Runs the OpenShift clients-only test flow independently."""
+        
+        logger.info("Starting OCP clients-only test flow.")
+        
+        current_gh_token = None
+        if use_gh_token_for_go_deps:
+            if gh_token is None:
+                logger.error("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
+                raise ValueError("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
+            current_gh_token = gh_token
+
+        env = await self.testing_env(testing, sock, current_gh_token)
+
+        env = (
+            self.with_kubectl(env)
+            .with_exec(["mkdir", "-p", "/.kube"])
+            .with_mounted_secret("/.kube/config", source_kubeconfig)
+            .with_env_variable("KUBECONFIG", "/.kube/config")
+        )
+
+        if not operator_image or not operator_helm_image:
+            operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
+                operator, sock, gh_token=current_gh_token
+            )
+
+        operator_version = operator_helm_image.split(":")[-1]
+        operator_helm_image_without_version = operator_helm_image.removesuffix(f":{operator_version}")
+        operator_image_without_version = operator_image.removesuffix(f":{operator_version}")
+
+        # client and csi secrets are needed for "clients only" test flow in OpenShift environment
+        client_secret_name = "weka-client-" + cluster_name
+        csi_secret_name = "weka-csi-" + cluster_name
+
+        logger.info("Running OCP clients only test flow.")
+
+        secrets_to_copy = [client_secret_name, csi_secret_name, "quay-io-robot-secret"]
+        for secret_name in secrets_to_copy:
+            logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
+
+            await self.copy_k8s_secret_from_one_cluster_to_another(
+                env=env,
+                source_kubeconfig=source_kubeconfig,
+                target_kubeconfig=target_kubeconfig,
+                source_secret_name=secret_name,
+                source_namespace=namespace,
+                target_secret_name=secret_name,
+                target_namespace=namespace,
+            )
+
+        join_ips = await self.get_join_ips(
+            env=env,
+            kubeconfig=source_kubeconfig,
+            clusterName=cluster_name,
+            namespace=namespace
+        )
+
+        # Mount the OCP kubeconfig and run the clients-only test
+        await (
+            env
+            .with_mounted_secret("/.kube/ocp-config", target_kubeconfig)
+            .with_exec([
+                "sh", "-c",
+f"""
+unset OTEL_EXPORTER_OTLP_ENDPOINT
+/weka-k8s-testing clients-only \
+    --kubeconfig /.kube/ocp-config \
+    --namespace {namespace} \
+    --operator-version {operator_version} \
+    --operator-image {operator_image_without_version} \
+    --operator-helm-image {operator_helm_image_without_version} \
+    --weka-secret-ref {client_secret_name} \
+    --csi-secret-name {csi_secret_name} \
+    --is-openshift \
+    --join-ips {join_ips} \
+    --weka-image {weka_image}
+"""
+            ])
+        )
+
+        logger.info("OCP clients-only test completed successfully.")

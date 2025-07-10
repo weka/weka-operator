@@ -45,6 +45,9 @@ jobs:
     env:
       GOPRIVATE: github.com/weka
     name: ci_on_merge_queue_plan
+    outputs:
+      operator_image: ${{ steps.set-operator-versions.outputs.operator_image }}
+      operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
     runs-on: scalar-runners
     steps:
       - name: Check Docker
@@ -85,9 +88,7 @@ jobs:
         run: |
           mkdir -p ${{ github.workspace }}/.kube
           echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
-          echo "${{ secrets.OCP_CLUSTER_KUBECONFIG }}" > ${{ github.workspace }}/.kube/ocp-cluster-config
           chmod 600 ${{ github.workspace }}/.kube/config
-          chmod 600 ${{ github.workspace }}/.kube/ocp-cluster-config
 
       - name: Call Generate Test Artifacts
         uses: dagger/dagger-for-github@8.0.0
@@ -106,7 +107,46 @@ jobs:
             --openai-api-key="env://OPENAI_API_KEY"
             export --path ${{ github.workspace }}/test-artifacts
 
-      - name: Call Dagger Function
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: ${{ github.workspace }}/test-artifacts
+          retention-days: 1
+
+      - name: Publish Operator
+        uses: dagger/dagger-for-github@8.0.0
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          version: "latest"
+          workdir: operator/.dagger/src
+          module: operator_flows
+          args: >-
+            publish-operator-and-get-versions 
+            --operator=${{ github.workspace }}/operator
+            --gh-token="env://GH_TOKEN"
+            --sock=/var/run/docker.sock
+            --output ${{ github.workspace }}/versions
+      
+      - name: Set Operator Versions (to output and environment variables)
+        id: set-operator-versions
+        run: |
+          echo "Setting operator versions as environment variables"
+          versions=$(cat ${{ github.workspace }}/versions)
+          operator_image=$(echo "$versions" | head -n 1)
+          operator_helm_image=$(echo "$versions" | tail -n 1)
+
+          echo "Operator Image: $operator_image"
+          echo "Operator Helm Image: $operator_helm_image"
+          
+          echo "operator_image=$operator_image" >> $GITHUB_ENV
+          echo "operator_helm_image=$operator_helm_image" >> $GITHUB_ENV
+
+          echo "operator_image=$operator_image" >> $GITHUB_OUTPUT
+          echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
+
+      - name: ci-on-merge-queue-plan call
         uses: dagger/dagger-for-github@8.0.0
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -131,24 +171,69 @@ jobs:
             --new-weka-version=${{ env.NEW_WEKA_VERSION }}
             --test-artifacts-dir=${{ github.workspace }}/test-artifacts
             --use-gh-token-for-go-deps
-            --check-ocp-clients-only
-            --ocp-cluster-kubeconfig=file://${{ github.workspace }}/.kube/ocp-cluster-config
-
-      - name: Upload test artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
+            --operator-image=${{ env.operator_image }}
+            --operator-helm-image=${{ env.operator_helm_image }}
+  
+  clients_only_test:
+    needs: [optimize_ci, run_condition_check, ci_on_merge_queue_plan]
+    if: needs.run_condition_check.result == 'success' && needs.ci_on_merge_queue_plan.result == 'success'
+    runs-on: scalar-runners
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
         with:
-          name: test-artifacts
-          path: ${{ github.workspace }}/test-artifacts
-          retention-days: 1
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout operator repository
+        uses: actions/checkout@v4
+        with:
+          path: operator
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Checkout testing repository
+        uses: actions/checkout@v4
+        with:
+          repository: weka/weka-k8s-testing
+          token: ${{ steps.app-token.outputs.token }}
+          path: testing
+          submodules: true
+
+      - name: Save Kubeconfig(s)
+        run: |
+          mkdir -p ${{ github.workspace }}/.kube
+          echo "${{ secrets.UPGRADE_TEST_KUBECONFIG }}" > ${{ github.workspace }}/.kube/config
+          echo "${{ secrets.OCP_CLUSTER_KUBECONFIG }}" > ${{ github.workspace }}/.kube/ocp-cluster-config
+          chmod 600 ${{ github.workspace }}/.kube/config
+          chmod 600 ${{ github.workspace }}/.kube/ocp-cluster-config
+
+      - name: Run OCP Clients-Only Test
+        uses: dagger/dagger-for-github@8.0.0
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          version: "latest"
+          workdir: operator/.dagger/src
+          module: operator_flows
+          args: >-
+            run-ocp-clients-only-test
+            --sock=/var/run/docker.sock
+            --gh-token="env://GH_TOKEN"
+            --testing=${{ github.workspace }}/testing
+            --source-kubeconfig=file://${{ github.workspace }}/.kube/config
+            --target-kubeconfig=file://${{ github.workspace }}/.kube/ocp-cluster-config
+            --use-gh-token-for-go-deps
+            --operator-image=${{ needs.ci_on_merge_queue_plan.outputs.operator_image }}
+            --operator-helm-image=${{ needs.ci_on_merge_queue_plan.outputs.operator_helm_image }}
 
   ci_on_merge_queue_required_status:
-    needs: [run_condition_check, ci_on_merge_queue_plan]
+    needs: [run_condition_check, ci_on_merge_queue_plan, clients_only_test]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Validate required workflow
         run: |
           if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
-            [[ "${{ needs.ci_on_merge_queue_plan.result }}" == "success" ]] || exit 1
+            [[ "${{ needs.ci_on_merge_queue_plan.result }}" == "success" && "${{ needs.clients_only_test.result }}" == "success" ]] || exit 1
           fi
