@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -16,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1046,17 +1048,26 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) updateContainersSpec(ctx context.Context) error {
-	return workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
-		typedClientConfigs := weka.TypedClientConfigs{
-			CSIDriverName: c.getCsiDriverName(),
-		}
-		if c.wekaClient.Spec.CsiConfig != nil {
-			typedClientConfigs.CSIControllerLabels = c.wekaClient.Spec.CsiConfig.ControllerLabels
-			typedClientConfigs.CSINodeLabels = c.wekaClient.Spec.CsiConfig.NodeLabels
-			typedClientConfigs.CSIControllerTolerations = c.wekaClient.Spec.CsiConfig.ControllerTolerations
-			typedClientConfigs.CSINodeTolerations = c.wekaClient.Spec.CsiConfig.NodeTolerations
-		}
+	typedClientConfigs := weka.TypedClientConfigs{
+		CSIDriverName: c.getCsiDriverName(),
+	}
 
+	if c.wekaClient.Spec.CsiConfig != nil {
+		typedClientConfigs.CSIControllerLabels = c.wekaClient.Spec.CsiConfig.ControllerLabels
+		typedClientConfigs.CSINodeLabels = c.wekaClient.Spec.CsiConfig.NodeLabels
+		typedClientConfigs.CSIControllerTolerations = c.wekaClient.Spec.CsiConfig.ControllerTolerations
+		typedClientConfigs.CSINodeTolerations = c.wekaClient.Spec.CsiConfig.NodeTolerations
+	}
+
+	patch := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"typedConfigs": map[string]interface{}{
+				"clientCsiConfig": typedClientConfigs,
+			},
+		},
+	}
+
+	return workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
 		if container.Spec.TypedConfigs != nil {
 			hash1, err := util2.HashStruct(*container.Spec.TypedConfigs)
 			if err != nil {
@@ -1076,10 +1087,14 @@ func (c *clientReconcilerLoop) updateContainersSpec(ctx context.Context) error {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersSpec", "container", container.Name)
 		defer end()
 		logger.Info("updating container CSI config", "csiDriverName", c.getCsiDriverName())
-		container.Spec.TypedConfigs = &weka.TypedConfigs{
-			TypedClientConfigs: &typedClientConfigs,
+
+		patchBytes, err := json.Marshal(patch)
+		if err != nil {
+			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
 		}
-		if err := c.Update(ctx, container); err != nil {
+
+		patchObj := client.RawPatch(types.MergePatchType, patchBytes)
+		if err := c.Patch(ctx, container, patchObj); err != nil {
 			return fmt.Errorf("failed to patch container %s with CSI config: %w", container.Name, err)
 		}
 		logger.Info("Container CSI config updated", "csiDriverName", c.getCsiDriverName())
