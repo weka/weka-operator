@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -17,7 +16,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1059,21 +1057,17 @@ func (c *clientReconcilerLoop) updateContainersSpec(ctx context.Context) error {
 		typedClientConfigs.CSINodeTolerations = c.wekaClient.Spec.CsiConfig.NodeTolerations
 	}
 
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"typedConfigs": map[string]interface{}{
-				"clientCsiConfig": typedClientConfigs,
-			},
-		},
+	typeConfigs := &weka.TypedConfigs{
+		TypedClientConfigs: &typedClientConfigs,
 	}
 
 	return workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
 		if container.Spec.TypedConfigs != nil {
-			hash1, err := util2.HashStruct(*container.Spec.TypedConfigs)
+			hash1, err := GetTypedConfigsDetermenisticHash(container.Spec.TypedConfigs)
 			if err != nil {
 				return fmt.Errorf("failed to hash container typed configs: %w", err)
 			}
-			hash2, err := util2.HashStruct(typedClientConfigs)
+			hash2, err := GetTypedConfigsDetermenisticHash(typeConfigs)
 			if err != nil {
 				return fmt.Errorf("failed to hash client CSI config: %w", err)
 			}
@@ -1084,20 +1078,20 @@ func (c *clientReconcilerLoop) updateContainersSpec(ctx context.Context) error {
 			}
 		}
 
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersSpec", "container", container.Name)
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersSpec", "container", container.Name, "csiDriverName", c.getCsiDriverName())
 		defer end()
-		logger.Info("updating container CSI config", "csiDriverName", c.getCsiDriverName())
 
-		patchBytes, err := json.Marshal(patch)
-		if err != nil {
-			return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
-		}
+		logger.Info("updating container CSI config")
 
-		patchObj := client.RawPatch(types.MergePatchType, patchBytes)
-		if err := c.Patch(ctx, container, patchObj); err != nil {
+		patch := client.MergeFrom(container.DeepCopy())
+
+		container.Spec.TypedConfigs = typeConfigs
+
+		if err := c.Patch(ctx, container, patch); err != nil {
 			return fmt.Errorf("failed to patch container %s with CSI config: %w", container.Name, err)
 		}
-		logger.Info("Container CSI config updated", "csiDriverName", c.getCsiDriverName())
+
+		logger.Info("Container CSI config updated")
 		return nil
 	}).AsError()
 }
@@ -1159,4 +1153,42 @@ func (c *clientReconcilerLoop) shouldUpdateCSIController() bool {
 
 func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	return c.Client.Update(ctx, csi.NewCsiControllerDeployment(c.GetCSIGroup(), c.wekaClient))
+}
+
+func getTypedClientConfigsDetermenisticHash(tc *weka.TypedClientConfigs) (string, error) {
+	hm := util2.NewHashableMap(tc.CSIControllerLabels)
+	hm2 := util2.NewHashableMap(tc.CSINodeLabels)
+
+	// Create a struct to hold the data we want to hash
+	dataToHash := struct {
+		CSIDriverName            string
+		CSIControllerLabels      *util2.HashableMap
+		CSINodeLabels            *util2.HashableMap
+		CSIControllerTolerations []v1.Toleration
+		CSINodeTolerations       []v1.Toleration
+	}{
+		CSIDriverName:            tc.CSIDriverName,
+		CSIControllerLabels:      hm,
+		CSINodeLabels:            hm2,
+		CSIControllerTolerations: tc.CSIControllerTolerations,
+		CSINodeTolerations:       tc.CSINodeTolerations,
+	}
+
+	return util2.HashStruct(dataToHash)
+}
+
+func GetTypedConfigsDetermenisticHash(tc *weka.TypedConfigs) (string, error) {
+	typedClientsHash := ""
+	if tc.TypedClientConfigs != nil {
+		var err error
+		typedClientsHash, err = getTypedClientConfigsDetermenisticHash(tc.TypedClientConfigs)
+		if err != nil {
+			return "", fmt.Errorf("failed to get deterministic hash for TypedClientConfigs: %w", err)
+		}
+	}
+	return util2.HashStruct(struct {
+		TypedClientConfigsHash string `json:"typedClientConfigsHash"`
+	}{
+		TypedClientConfigsHash: typedClientsHash,
+	})
 }
