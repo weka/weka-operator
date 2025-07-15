@@ -220,12 +220,9 @@ type FailureDomain struct {
 }
 
 type CsiConfig struct {
-	EndpointsSubnets      []string          `json:"endpointsSubnets,omitempty"`
-	CsiGroup              string            `json:"csiGroup,omitempty"`
-	ControllerLabels      map[string]string `json:"controllerLabels,omitempty"`
-	NodeLabels            map[string]string `json:"nodeLabels,omitempty"`
-	ControllerTolerations []v1.Toleration   `json:"controllerTolerations,omitempty"`
-	NodeTolerations       []v1.Toleration   `json:"nodeTolerations,omitempty"`
+	EndpointsSubnets []string           `json:"endpointsSubnets,omitempty"`
+	CsiGroup         string             `json:"csiGroup,omitempty"`
+	Advanced         *AdvancedCsiConfig `json:"advanced,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
