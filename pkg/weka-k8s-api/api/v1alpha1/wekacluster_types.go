@@ -135,6 +135,32 @@ func (s RoleNodeSelector) ForRole(role string) map[string]string {
 	}
 }
 
+type RoleAnnotations struct {
+	// annotations for compute weka containers
+	Compute map[string]string `json:"compute,omitempty"`
+	// annotations for drive weka containers
+	Drive map[string]string `json:"drive,omitempty"`
+	// annotations for s3 weka containers
+	S3 map[string]string `json:"s3,omitempty"`
+	// annotations for nfs weka containers
+	Nfs map[string]string `json:"nfs,omitempty"`
+}
+
+func (a RoleAnnotations) ForRole(role string) map[string]string {
+	switch role {
+	case "compute":
+		return a.Compute
+	case "drive":
+		return a.Drive
+	case "s3":
+		return a.S3
+	case "nfs":
+		return a.Nfs
+	default:
+		return nil
+	}
+}
+
 type RoleTopologySpreadConstraints struct {
 	Compute []v1.TopologySpreadConstraint `json:"compute,omitempty"`
 	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
@@ -235,6 +261,8 @@ type WekaClusterSpec struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// node selector for the weka containers per role, overrides global nodeSelector
 	RoleNodeSelector RoleNodeSelector `json:"roleNodeSelector,omitempty"`
+	// annotations for the weka containers per role
+	RoleAnnotations RoleAnnotations `json:"roleAnnotations,omitempty"`
 	// failure domain configuration for weka containers
 	FailureDomain *FailureDomain `json:"failureDomain,omitempty"`
 	// advanced pod affinities configuration
