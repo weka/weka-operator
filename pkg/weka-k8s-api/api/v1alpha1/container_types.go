@@ -177,18 +177,6 @@ type Instructions struct {
 	Payload string `json:"payload,omitempty"`
 }
 
-type TypedClientConfigs struct {
-	CSIDriverName            string            `json:"csiDriverName,omitempty"`
-	CSIControllerLabels      map[string]string `json:"csiControllerLabels,omitempty"`
-	CSINodeLabels            map[string]string `json:"csiNodeLabels,omitempty"`
-	CSIControllerTolerations []v1.Toleration   `json:"csiControllerTolerations,omitempty"`
-	CSINodeTolerations       []v1.Toleration   `json:"csiNodeTolerations,omitempty"`
-}
-
-type TypedConfigs struct {
-	TypedClientConfigs *TypedClientConfigs `json:"clientCsiConfig,omitempty"`
-}
-
 type WekaContainerSpec struct {
 	// name of the node where the container should run on
 	NodeAffinity NodeName `json:"nodeAffinity,omitempty"`
@@ -255,8 +243,6 @@ type WekaContainerSpec struct {
 	// resources to be proxied as-is to the pod spec
 	Resources *PodResourcesSpec `json:"resources,omitempty"`
 	PVC       *PVCConfig        `json:"pvc,omitempty"`
-
-	TypedConfigs *TypedConfigs `json:"typedConfigs,omitempty"`
 }
 
 type AWSNetwork struct {
