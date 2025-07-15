@@ -176,7 +176,6 @@ defaultIntervals:
   deleteUnschedulablePodsAfter: 1m
 
 csi:
-  namespace: weka-operator-system
   installationEnabled: false
   storageClassCreationDisabled: false
   image: "quay.io/weka.io/csi-wekafs:v2.7.4"
