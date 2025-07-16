@@ -27,9 +27,13 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	var csiLabels map[string]string
+	var enforceSecureHttps bool
+	var skipGarbageCollection bool
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
 		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
 		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
+		enforceSecureHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceSecureHttps
+		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
 
@@ -105,6 +109,8 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 								"--concurrency.createSnapshot=5",
 								"--concurrency.deleteSnapshot=5",
 								"--nfsprotocolversion=4.1",
+								GetAllowInsecureHttpsFlag(enforceSecureHttps),
+								GetSkipGarbageCollectionFlag(skipGarbageCollection),
 								GetTracingFlag(),
 							},
 							Ports: []corev1.ContainerPort{

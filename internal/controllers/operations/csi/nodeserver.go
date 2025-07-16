@@ -13,7 +13,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func NewCsiNodePod(name, namespace, csiDriverName, nodeName string, labels map[string]string, tolerations []corev1.Toleration) *corev1.Pod {
+func NewCsiNodePod(
+	name,
+	namespace,
+	csiDriverName,
+	nodeName string,
+	labels map[string]string,
+	tolerations []corev1.Toleration,
+	enforceSecureHttps bool,
+) *corev1.Pod {
 	privileged := true
 
 	return &corev1.Pod{
@@ -57,7 +65,7 @@ func NewCsiNodePod(name, namespace, csiDriverName, nodeName string, labels map[s
 						"--concurrency.nodePublishVolume=5",
 						"--concurrency.nodeUnpublishVolume=5",
 						"--nfsprotocolversion=4.1",
-						"--allowinsecurehttps",
+						GetAllowInsecureHttpsFlag(enforceSecureHttps),
 						GetTracingFlag(),
 					},
 					Ports: []corev1.ContainerPort{
