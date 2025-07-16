@@ -245,6 +245,7 @@ class OperatorFlows:
         namespace: str = "test-upgrade-extended",
         operator_image: Optional[str] = None,
         operator_helm_image: Optional[str] = None,
+        embedded_csi: bool = False,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
@@ -325,7 +326,8 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --node-selector "weka.io/dedicated:upgrade-extended" \
     --namespace {namespace} \
     --cluster-name {cluster_name} \
-    --cleanup {"no-cleanup" if no_cleanup else "on-start"}
+    --cleanup {"no-cleanup" if no_cleanup else "on-start"} \
+    {"--embedded-csi" if embedded_csi else ""} 
 """
                 ])
             )
