@@ -1500,7 +1500,6 @@ async def ensure_weka_container():
         ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json
         ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.stable
         ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.staging
-        ln -sf {file_name} /opt/weka/data/{NAME}/weka-resources.{resource_gen}.json
         # at some point weka creates such, basically expecting relative path: 'resources.json.stable -> weka-resources.35fda56d-2ce3-4f98-b77c-a399df0940af.json'
         # stable flow might not even be used, and should be fixed on wekapp side
     """)
