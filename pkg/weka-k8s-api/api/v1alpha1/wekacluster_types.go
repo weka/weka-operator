@@ -161,6 +161,39 @@ func (a RoleAnnotations) ForRole(role string) map[string]string {
 	}
 }
 
+// RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.
+// Each slice contains the core IDs (as visible to the node OS) that should be
+// pinned to every container of the corresponding role. If a slice is empty or
+// omitted, no explicit core pinning will be applied for that role.
+// +kubebuilder:validation:Type=object
+// +kubebuilder:validation:Optional
+type RoleCoreIds struct {
+	// +kubebuilder:validation:Optional
+	Compute []int `json:"compute,omitempty"`
+	// +kubebuilder:validation:Optional
+	Drive []int `json:"drive,omitempty"`
+	// +kubebuilder:validation:Optional
+	S3 []int `json:"s3,omitempty"`
+	// +kubebuilder:validation:Optional
+	Nfs []int `json:"nfs,omitempty"`
+}
+
+// ForRole returns the slice of core IDs for the requested role.
+func (c RoleCoreIds) ForRole(role string) []int {
+	switch role {
+	case "compute":
+		return c.Compute
+	case "drive":
+		return c.Drive
+	case "s3":
+		return c.S3
+	case "nfs":
+		return c.Nfs
+	default:
+		return nil
+	}
+}
+
 type RoleTopologySpreadConstraints struct {
 	Compute []v1.TopologySpreadConstraint `json:"compute,omitempty"`
 	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
@@ -320,6 +353,23 @@ type WekaClusterSpec struct {
 	CsiConfig               CsiConfig                 `json:"csiConfig,omitempty"`
 	GlobalPVC               *PVCConfig                `json:"globalPVC,omitempty"`
 	ServiceAccountName      string                    `json:"serviceAccountName,omitempty"`
+	// RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should
+	// be assigned to containers of the specific role when CpuPolicy is set to
+	// "manual". If the slice for the given role is empty, core ids will not be
+	// set for that role, and the manual policy will fail validation on pod start.
+	//
+	// NOTE: The semantics are the same as for NodeSelector/Annotations structures –
+	// a single list per role which will be copied to every container of that role.
+	// Users are responsible to provide a set that makes sense for their topology.
+	// +kubebuilder:validation:Type=object
+	// Example:
+	//   roleCoreIds:
+	//     compute: [0,1,2,3]
+	//     drive:   [4,5,6,7]
+	//
+	// will result in every compute container getting coreIds [0,1,2,3] and every
+	// drive container getting [4,5,6,7].
+	RoleCoreIds RoleCoreIds `json:"roleCoreIds,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
