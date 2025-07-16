@@ -3,22 +3,19 @@ package services
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/rest"
 	"strings"
-
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
-
-	"github.com/weka/weka-operator/pkg/workers"
-
-	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/internal/services/exec"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
-
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrl "sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/internal/services/exec"
+	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type WekaClusterService interface {
