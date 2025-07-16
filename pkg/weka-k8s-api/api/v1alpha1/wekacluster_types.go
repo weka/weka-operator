@@ -120,21 +120,6 @@ type RoleNodeSelector struct {
 	Nfs *map[string]string `json:"nfs,omitempty"`
 }
 
-func (r RoleNodeSelector) ForRole(role string) *map[string]string {
-	switch role {
-	case "compute":
-		return r.Compute
-	case "drive":
-		return r.Drive
-	case "s3":
-		return r.S3
-	case "nfs":
-		return r.Nfs
-	default:
-		return nil
-	}
-}
-
 type RoleAnnotations struct {
 	// annotations for compute weka containers
 	Compute *map[string]string `json:"compute,omitempty"`
@@ -146,21 +131,6 @@ type RoleAnnotations struct {
 	Nfs *map[string]string `json:"nfs,omitempty"`
 }
 
-func (a RoleAnnotations) ForRole(role string) *map[string]string {
-	switch role {
-	case "compute":
-		return a.Compute
-	case "drive":
-		return a.Drive
-	case "s3":
-		return a.S3
-	case "nfs":
-		return a.Nfs
-	default:
-		return nil
-	}
-}
-
 type RoleNetworkSelector struct {
 	// network selector for compute weka containers
 	Compute *NetworkSelector `json:"compute,omitempty"`
@@ -170,21 +140,6 @@ type RoleNetworkSelector struct {
 	S3 *NetworkSelector `json:"s3,omitempty"`
 	// network selector for nfs weka containers
 	Nfs *NetworkSelector `json:"nfs,omitempty"`
-}
-
-func (r RoleNetworkSelector) ForRole(role string) *NetworkSelector {
-	switch role {
-	case "compute":
-		return r.Compute
-	case "drive":
-		return r.Drive
-	case "s3":
-		return r.S3
-	case "nfs":
-		return r.Nfs
-	default:
-		return nil
-	}
 }
 
 // RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.
@@ -202,22 +157,6 @@ type RoleCoreIds struct {
 	S3 []int `json:"s3,omitempty"`
 	// +kubebuilder:validation:Optional
 	Nfs []int `json:"nfs,omitempty"`
-}
-
-// ForRole returns the slice of core IDs for the requested role.
-func (c RoleCoreIds) ForRole(role string) []int {
-	switch role {
-	case "compute":
-		return c.Compute
-	case "drive":
-		return c.Drive
-	case "s3":
-		return c.S3
-	case "nfs":
-		return c.Nfs
-	default:
-		return nil
-	}
 }
 
 type RoleTopologySpreadConstraints struct {
@@ -247,21 +186,6 @@ type RoleAffinity struct {
 	Drive   *v1.Affinity `json:"drive,omitempty"`
 	S3      *v1.Affinity `json:"s3,omitempty"`
 	Nfs     *v1.Affinity `json:"nfs,omitempty"`
-}
-
-func (a *RoleAffinity) ForRole(role string) *v1.Affinity {
-	switch role {
-	case "compute":
-		return a.Compute
-	case "drive":
-		return a.Drive
-	case "s3":
-		return a.S3
-	case "nfs":
-		return a.Nfs
-	default:
-		return nil
-	}
 }
 
 type PodConfiguration struct {
@@ -587,6 +511,137 @@ func (c *WekaCluster) IsExpand() bool {
 
 func (c *WekaCluster) GetGracefulDestroyDuration() time.Duration {
 	return c.Spec.GracefulDestroyDuration.Duration
+}
+
+// Use role-specific node selector if set, otherwise use cluster node selector
+func (c *WekaCluster) GetNodeSelectorForRole(role string) map[string]string {
+	var roleNodeSelector *map[string]string
+
+	switch role {
+	case "compute":
+		roleNodeSelector = c.Spec.RoleNodeSelector.Compute
+	case "drive":
+		roleNodeSelector = c.Spec.RoleNodeSelector.Drive
+	case "s3":
+		roleNodeSelector = c.Spec.RoleNodeSelector.S3
+	case "nfs":
+		roleNodeSelector = c.Spec.RoleNodeSelector.Nfs
+	}
+
+	if roleNodeSelector != nil {
+		return *roleNodeSelector
+	} else {
+		return c.Spec.NodeSelector
+	}
+}
+
+// Use role-specific annotations if set, otherwise use cluster annotations
+func (c *WekaCluster) GetAnnotationsForRole(role string) map[string]string {
+	var roleAnnotations *map[string]string
+
+	switch role {
+	case "compute":
+		roleAnnotations = c.Spec.RoleAnnotations.Compute
+	case "drive":
+		roleAnnotations = c.Spec.RoleAnnotations.Drive
+	case "s3":
+		roleAnnotations = c.Spec.RoleAnnotations.S3
+	case "nfs":
+		roleAnnotations = c.Spec.RoleAnnotations.Nfs
+	}
+
+	if roleAnnotations != nil {
+		return *roleAnnotations
+	} else {
+		return c.ObjectMeta.GetAnnotations()
+	}
+}
+
+// Use role-specific network selector if set, otherwise use cluster network selector
+func (c *WekaCluster) GetNetworkSelectorForRole(role string) NetworkSelector {
+	var roleNetworkSelector *NetworkSelector
+
+	switch role {
+	case "compute":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.Compute
+	case "drive":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.Drive
+	case "s3":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.S3
+	case "nfs":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.Nfs
+	}
+
+	if roleNetworkSelector != nil {
+		return *roleNetworkSelector
+	} else {
+		return c.Spec.NetworkSelector
+	}
+}
+
+// Return the CPU core IDs for the specified role.
+func (c *WekaCluster) GetCoreIdsForRole(role string) []int {
+	switch role {
+	case "compute":
+		return c.Spec.RoleCoreIds.Compute
+	case "drive":
+		return c.Spec.RoleCoreIds.Drive
+	case "s3":
+		return c.Spec.RoleCoreIds.S3
+	case "nfs":
+		return c.Spec.RoleCoreIds.Nfs
+	default:
+		return nil
+	}
+}
+
+// Use role-specific affinity if set, otherwise use cluster affinity from PodConfig.
+func (c *WekaCluster) GetAffinityForRole(role string) *v1.Affinity {
+	if c.Spec.PodConfig == nil {
+		return nil
+	}
+
+	if c.Spec.PodConfig.RoleAffinity == nil {
+		return c.Spec.PodConfig.Affinity
+	}
+
+	var affinity *v1.Affinity
+
+	switch role {
+	case "compute":
+		affinity = c.Spec.PodConfig.RoleAffinity.Compute
+	case "drive":
+		affinity = c.Spec.PodConfig.RoleAffinity.Drive
+	case "s3":
+		affinity = c.Spec.PodConfig.RoleAffinity.S3
+	case "nfs":
+		affinity = c.Spec.PodConfig.RoleAffinity.Nfs
+	}
+
+	if affinity != nil {
+		return affinity
+	} else {
+		return c.Spec.PodConfig.Affinity
+	}
+}
+
+// Use role-specific topology spread constraints if set, otherwise use cluster topology spread constraints from PodConfig.
+func (c *WekaCluster) GetTopologySpreadConstraintsForRole(role string) []v1.TopologySpreadConstraint {
+	if c.Spec.PodConfig == nil {
+		return nil
+	}
+
+	if c.Spec.PodConfig.RoleTopologySpreadConstraints == nil {
+		return c.Spec.PodConfig.TopologySpreadConstraints
+	}
+
+	topologySpreadConstraints := c.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role)
+
+	if topologySpreadConstraints != nil {
+		return topologySpreadConstraints
+	} else {
+		return c.Spec.PodConfig.TopologySpreadConstraints
+	}
 }
 
 func init() {
