@@ -593,7 +593,9 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		logger.Info("Cluster<>Container spec has changed, updating containers")
 		patch := client.MergeFrom(container.DeepCopy())
 
-		additionalMemory := updatableSpec.AdditionalMemory.GetForMode(container.Spec.Mode)
+		role := container.Spec.Mode
+
+		additionalMemory := updatableSpec.AdditionalMemory.GetForMode(role)
 		if container.Spec.AdditionalMemory != additionalMemory {
 			container.Spec.AdditionalMemory = additionalMemory
 		}
@@ -658,13 +660,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			}
 		}
 
-		// use role-specific network selector if set, otherwise use global network selector
-		var targetNetworkSelector wekav1alpha1.NetworkSelector
-		if roleNetworkSelector := updatableSpec.RoleNetworkSelector.ForRole(container.Spec.Mode); roleNetworkSelector != nil {
-			targetNetworkSelector = *roleNetworkSelector
-		} else {
-			targetNetworkSelector = updatableSpec.NetworkSelector
-		}
+		targetNetworkSelector := cluster.GetNetworkSelectorForRole(role)
 
 		targetNetworkSpec, err := resources.GetContainerNetwork(targetNetworkSelector)
 		if err != nil {
@@ -684,70 +680,25 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		// desired labels = cluster labels + required labels
 		// priority-wise, required labels have the highest priority
-		requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, container.Spec.Mode)
+		requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 		newLabels := util2.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLables)
 		if !util2.NewHashableMap(newLabels).Equals(util2.NewHashableMap(container.Labels)) {
 			container.Labels = newLabels
 		}
 
-		// desired annotations = role-specific annotations if set, otherwise cluster annotations
-		var newAnnotations map[string]string
-		role := container.Spec.Mode
-		var roleAnnotations *util2.HashableMap
-		switch role {
-		case "compute":
-			roleAnnotations = updatableSpec.ComputeAnnotations
-		case "drive":
-			roleAnnotations = updatableSpec.DriveAnnotations
-		case "s3":
-			roleAnnotations = updatableSpec.S3Annotations
-		case "nfs":
-			roleAnnotations = updatableSpec.NfsAnnotations
-		}
-
-		if roleAnnotations != nil {
-			// Convert HashableMap back to regular map
-			newAnnotations = make(map[string]string)
-			for _, entry := range roleAnnotations.Entries {
-				newAnnotations[entry.Key] = entry.Value
-			}
-		} else if cluster.ObjectMeta.GetAnnotations() != nil {
-			newAnnotations = cluster.ObjectMeta.GetAnnotations()
-		}
+		newAnnotations := cluster.GetAnnotationsForRole(role)
 		if !util2.NewHashableMap(newAnnotations).Equals(util2.NewHashableMap(container.Annotations)) {
 			container.Annotations = newAnnotations
 		}
 
 		oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
-		newNodeSelector := map[string]string{}
-		if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
-			newNodeSelector = cluster.Spec.NodeSelector
-			var roleNodeSelector *util2.HashableMap
-			switch role {
-			case "compute":
-				roleNodeSelector = updatableSpec.ComputeNodeSelector
-			case "drive":
-				roleNodeSelector = updatableSpec.DriveNodeSelector
-			case "s3":
-				roleNodeSelector = updatableSpec.S3NodeSelector
-			case "nfs":
-				roleNodeSelector = updatableSpec.NfsNodeSelector
-			}
-
-			if roleNodeSelector != nil {
-				// Convert HashableMap back to regular map
-				newNodeSelector = make(map[string]string)
-				for _, entry := range roleNodeSelector.Entries {
-					newNodeSelector[entry.Key] = entry.Value
-				}
-			}
-		}
+		newNodeSelector := cluster.GetNodeSelectorForRole(role)
 		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
 			container.Spec.NodeSelector = newNodeSelector
 		}
 
 		// propagate core IDs for manual CPU policy if provided at cluster level
-		roleCoreIds := updatableSpec.RoleCoreIds.ForRole(role)
+		roleCoreIds := cluster.GetCoreIdsForRole(role)
 		if !reflect.DeepEqual(container.Spec.CoreIds, roleCoreIds) {
 			container.Spec.CoreIds = roleCoreIds
 		}

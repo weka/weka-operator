@@ -23,13 +23,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
 
-	// use role-specific annotations if set, otherwise use cluster annotations
-	var annotations map[string]string
-	if roleAnnotations := cluster.Spec.RoleAnnotations.ForRole(role); roleAnnotations != nil {
-		annotations = *roleAnnotations
-	} else if cluster.ObjectMeta.GetAnnotations() != nil {
-		annotations = cluster.ObjectMeta.GetAnnotations()
-	}
+	annotations := cluster.GetAnnotationsForRole(role)
 
 	var hugePagesNum int
 	var hugePagesOffset int
@@ -56,13 +50,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
 
-	// use role-specific network selector if set, otherwise use global network selector
-	var networkSelector wekav1alpha1.NetworkSelector
-	if roleNetworkSelector := cluster.Spec.RoleNetworkSelector.ForRole(role); roleNetworkSelector != nil {
-		networkSelector = *roleNetworkSelector
-	} else {
-		networkSelector = cluster.Spec.NetworkSelector
-	}
+	networkSelector := cluster.GetNetworkSelectorForRole(role)
 
 	network, err := resources.GetContainerNetwork(networkSelector)
 	if err != nil {
@@ -109,12 +97,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		}
 	}
 
-	nodeSelector := map[string]string{}
+	nodeSelector := cluster.GetNodeSelectorForRole(role)
 	if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
-		nodeSelector = cluster.Spec.NodeSelector
-		if roleNodeSelector := cluster.Spec.RoleNodeSelector.ForRole(role); roleNodeSelector != nil {
-			nodeSelector = *roleNodeSelector
-		}
+		nodeSelector = map[string]string{}
 	}
 
 	container := &wekav1alpha1.WekaContainer{
@@ -144,7 +129,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			WekaSecretRef:         v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService:    cluster.Spec.DriversDistService,
 			CpuPolicy:             cluster.Spec.CpuPolicy,
-			CoreIds:               cluster.Spec.RoleCoreIds.ForRole(role),
+			CoreIds:               cluster.GetCoreIdsForRole(role),
 			TracesConfiguration:   cluster.Spec.TracesConfiguration,
 			Tolerations:           util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
 			Ipv6:                  cluster.Spec.Ipv6,
@@ -166,15 +151,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	topologySpreadConstraints := preparePodTopologySpreadConstraints(cluster, role)
 	container.Spec.TopologySpreadConstraints = topologySpreadConstraints
 
-	var affinity *v1.Affinity
-
-	if cluster.Spec.PodConfig != nil {
-		affinity = cluster.Spec.PodConfig.Affinity
-		// if role specific affinity is set, we don't need to set general affinity
-		if cluster.Spec.PodConfig.RoleAffinity != nil && cluster.Spec.PodConfig.RoleAffinity.ForRole(role) != nil {
-			affinity = cluster.Spec.PodConfig.RoleAffinity.ForRole(role)
-		}
-	}
+	affinity := cluster.GetAffinityForRole(role)
 
 	if affinity != nil {
 		container.Spec.Affinity = affinity
@@ -192,22 +169,9 @@ func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role
 	podConstraints := make([]v1.TopologySpreadConstraint, 0)
 	podConstraints = append(podConstraints, defaultConstraints.ForRole(role)...)
 
-	if cluster.Spec.PodConfig == nil {
-		return podConstraints
-	}
-
-	if cluster.Spec.PodConfig.RoleTopologySpreadConstraints == nil && cluster.Spec.PodConfig.TopologySpreadConstraints == nil {
-		return podConstraints
-	}
-
-	if cluster.Spec.PodConfig.RoleTopologySpreadConstraints != nil && cluster.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role) != nil {
-		podConstraints = append(podConstraints, cluster.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role)...)
-		// if role specific constraints are set, we don't need to add general constraints
-		return podConstraints
-	}
-
-	if cluster.Spec.PodConfig.TopologySpreadConstraints != nil {
-		podConstraints = append(podConstraints, cluster.Spec.PodConfig.TopologySpreadConstraints...)
+	definedPodConstraints := cluster.GetTopologySpreadConstraintsForRole(role)
+	if definedPodConstraints != nil {
+		podConstraints = append(podConstraints, definedPodConstraints...)
 	}
 
 	return podConstraints
