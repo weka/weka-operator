@@ -527,7 +527,20 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	cluster := r.cluster
 	clusterService := r.clusterService
 
-	err := clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
+	wekaClients, err := discovery.GetWekaClientsForCluster(ctx, r.getClient(), cluster)
+	if err != nil {
+		return err
+	}
+
+	if len(wekaClients) > 0 {
+		err := fmt.Errorf("cannot delete cluster with dependent WekaClients, please delete them first")
+
+		_ = r.RecordEvent(v1.EventTypeWarning, "DependentWekaClients", err.Error())
+
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+	}
+
+	err = clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 	if err != nil {
 		return err
 	}
