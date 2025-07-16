@@ -25,8 +25,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 
 	// use role-specific annotations if set, otherwise use cluster annotations
 	var annotations map[string]string
-	if roleAnnotations := cluster.Spec.RoleAnnotations.ForRole(role); len(roleAnnotations) > 0 {
-		annotations = roleAnnotations
+	if roleAnnotations := cluster.Spec.RoleAnnotations.ForRole(role); roleAnnotations != nil {
+		annotations = *roleAnnotations
 	} else if cluster.ObjectMeta.GetAnnotations() != nil {
 		annotations = cluster.ObjectMeta.GetAnnotations()
 	}
@@ -56,7 +56,15 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
 
-	network, err := resources.GetContainerNetwork(cluster.Spec.NetworkSelector)
+	// use role-specific network selector if set, otherwise use global network selector
+	var networkSelector wekav1alpha1.NetworkSelector
+	if roleNetworkSelector := cluster.Spec.RoleNetworkSelector.ForRole(role); roleNetworkSelector != nil {
+		networkSelector = *roleNetworkSelector
+	} else {
+		networkSelector = cluster.Spec.NetworkSelector
+	}
+
+	network, err := resources.GetContainerNetwork(networkSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -104,8 +112,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	nodeSelector := map[string]string{}
 	if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 		nodeSelector = cluster.Spec.NodeSelector
-		if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
-			nodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+		if roleNodeSelector := cluster.Spec.RoleNodeSelector.ForRole(role); roleNodeSelector != nil {
+			nodeSelector = *roleNodeSelector
 		}
 	}
 
