@@ -979,21 +979,20 @@ func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka
 }
 
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	csiDriverName := c.getCsiDriverName()
-
 	if !config.Config.CsiInstallationEnabled {
 		// if we are here, installation was switched off
 		return c.UndeployCsiPlugin(ctx)
 	}
 
-	if len(c.containers) > 0 && c.containers[0].Spec.TypedConfigs != nil && csiDriverName != c.containers[0].Spec.TypedConfigs.TypedClientConfigs.CSIDriverName {
-		logger.Info("CSI driver name changed, undeploying CSI plugin")
-		// cleanup with old name
-		return c.UndeployCsiPlugin(ctx)
-	}
+	//TODO: check for csi config changes
+	//ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	//defer end()
+	//csiDriverName := c.getCsiDriverName()
+	//if len(c.containers) > 0 && c.containers[0].Spec.TypedConfigs != nil && csiDriverName != c.containers[0].Spec.TypedConfigs.TypedClientConfigs.CSIDriverName {
+	//	logger.Info("CSI driver name changed, undeploying CSI plugin")
+	//	// cleanup with old name
+	//	return c.UndeployCsiPlugin(ctx)
+	//}
 	return nil
 }
 
@@ -1012,12 +1011,6 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 	err := operations.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to deploy CSI plugin")
-		return err
-	}
-
-	err = c.updateContainersSpec(ctx)
-	if err != nil {
-		logger.Error(err, "failed to update containers CSI driver name")
 		return err
 	}
 
@@ -1045,63 +1038,11 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 	return nil
 }
 
-func (c *clientReconcilerLoop) updateContainersSpec(ctx context.Context) error {
-	typedClientConfigs := weka.TypedClientConfigs{
-		CSIDriverName: c.getCsiDriverName(),
-	}
-
-	if c.wekaClient.Spec.CsiConfig != nil {
-		typedClientConfigs.CSIControllerLabels = c.wekaClient.Spec.CsiConfig.ControllerLabels
-		typedClientConfigs.CSINodeLabels = c.wekaClient.Spec.CsiConfig.NodeLabels
-		typedClientConfigs.CSIControllerTolerations = c.wekaClient.Spec.CsiConfig.ControllerTolerations
-		typedClientConfigs.CSINodeTolerations = c.wekaClient.Spec.CsiConfig.NodeTolerations
-	}
-
-	typeConfigs := &weka.TypedConfigs{
-		TypedClientConfigs: &typedClientConfigs,
-	}
-
-	return workers.ProcessConcurrently(ctx, c.containers, len(c.containers), func(ctx context.Context, container *weka.WekaContainer) error {
-		if container.Spec.TypedConfigs != nil {
-			hash1, err := GetTypedConfigsDetermenisticHash(container.Spec.TypedConfigs)
-			if err != nil {
-				return fmt.Errorf("failed to hash container typed configs: %w", err)
-			}
-			hash2, err := GetTypedConfigsDetermenisticHash(typeConfigs)
-			if err != nil {
-				return fmt.Errorf("failed to hash client CSI config: %w", err)
-			}
-
-			if hash1 == hash2 {
-				// No need to update if the hashes are equal
-				return nil
-			}
-		}
-
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateContainersSpec", "container", container.Name, "csiDriverName", c.getCsiDriverName())
-		defer end()
-
-		logger.Info("updating container CSI config")
-
-		patch := client.MergeFrom(container.DeepCopy())
-
-		container.Spec.TypedConfigs = typeConfigs
-
-		if err := c.Patch(ctx, container, patch); err != nil {
-			return fmt.Errorf("failed to patch container %s with CSI config: %w", container.Name, err)
-		}
-
-		logger.Info("Container CSI config updated")
-		return nil
-	}).AsError()
-}
-
 func (c *clientReconcilerLoop) GetCSIGroup() string {
 	if c.targetCluster != nil {
 		return csi.GetGroupFromTargetCluster(c.targetCluster)
 	}
 	return csi.GetGroupFromClient(c.wekaClient)
-
 }
 
 func (c *clientReconcilerLoop) getCsiDriverName() string {
@@ -1121,11 +1062,16 @@ func (c *clientReconcilerLoop) shouldUpdateCSIController() bool {
 	}
 
 	controllerDeploymentName := csi.GetCSIControllerName(c.GetCSIGroup())
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		logger.Error(err, "failed to get pod namespace")
+		return false
+	}
 
 	deployment := &appsv1.Deployment{}
-	err := c.Get(ctx, client.ObjectKey{
+	err = c.Get(ctx, client.ObjectKey{
 		Name:      controllerDeploymentName,
-		Namespace: c.wekaClient.Namespace,
+		Namespace: namespace,
 	}, deployment)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -1153,42 +1099,4 @@ func (c *clientReconcilerLoop) shouldUpdateCSIController() bool {
 
 func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	return c.Client.Update(ctx, csi.NewCsiControllerDeployment(c.GetCSIGroup(), c.wekaClient))
-}
-
-func getTypedClientConfigsDetermenisticHash(tc *weka.TypedClientConfigs) (string, error) {
-	hm := util2.NewHashableMap(tc.CSIControllerLabels)
-	hm2 := util2.NewHashableMap(tc.CSINodeLabels)
-
-	// Create a struct to hold the data we want to hash
-	dataToHash := struct {
-		CSIDriverName            string
-		CSIControllerLabels      *util2.HashableMap
-		CSINodeLabels            *util2.HashableMap
-		CSIControllerTolerations []v1.Toleration
-		CSINodeTolerations       []v1.Toleration
-	}{
-		CSIDriverName:            tc.CSIDriverName,
-		CSIControllerLabels:      hm,
-		CSINodeLabels:            hm2,
-		CSIControllerTolerations: tc.CSIControllerTolerations,
-		CSINodeTolerations:       tc.CSINodeTolerations,
-	}
-
-	return util2.HashStruct(dataToHash)
-}
-
-func GetTypedConfigsDetermenisticHash(tc *weka.TypedConfigs) (string, error) {
-	typedClientsHash := ""
-	if tc.TypedClientConfigs != nil {
-		var err error
-		typedClientsHash, err = getTypedClientConfigsDetermenisticHash(tc.TypedClientConfigs)
-		if err != nil {
-			return "", fmt.Errorf("failed to get deterministic hash for TypedClientConfigs: %w", err)
-		}
-	}
-	return util2.HashStruct(struct {
-		TypedClientConfigsHash string `json:"typedClientConfigsHash"`
-	}{
-		TypedClientConfigsHash: typedClientsHash,
-	})
 }

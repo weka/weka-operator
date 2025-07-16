@@ -128,6 +128,8 @@ type containerReconcilerLoop struct {
 	pod              *v1.Pod
 	nodeAffinityLock LockMap
 	node             *v1.Node
+	wekaClient       *weka.WekaClient
+	targetCluster    *weka.WekaCluster
 	MetricsService   kubernetes.KubeMetricsService
 	// field used in cases when we can assume current container
 	// is in deletion process or its node is not available
@@ -150,6 +152,17 @@ func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.R
 
 	r.container = container
 	return nil
+}
+
+func (r *containerReconcilerLoop) GetCSIGroup() string {
+	if r.targetCluster != nil {
+		return csi.GetGroupFromTargetCluster(r.targetCluster)
+	}
+	return csi.GetGroupFromClient(r.wekaClient)
+}
+
+func (r *containerReconcilerLoop) getCsiDriverName() string {
+	return fmt.Sprintf("%s.weka.io", r.GetCSIGroup())
 }
 
 func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
@@ -184,6 +197,23 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{Run: loop.GetNode},
+			{
+				Run: loop.GetWekaClient,
+				Predicates: lifecycle.Predicates{
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
+				Run: loop.FetchTargetCluster,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return loop.wekaClient != nil && loop.wekaClient.Spec.TargetCluster.Name != ""
+					},
+					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
 			{Run: loop.refreshPod},
 			// if cluster marked container state as deleting, update status and put deletion timestamp
 			{
@@ -754,6 +784,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					container.IsClientContainer,
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+					loop.isWekaClientRunning,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -2099,8 +2130,8 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// deallocate from allocmap
 
 	// remove csi node topology labels
-	if r.container.Spec.TypedConfigs != nil && r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName != "" && r.node != nil {
-		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName)
+	if r.wekaClient != nil && r.node != nil {
+		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.getCsiDriverName())
 	}
 
 	// delete csi node pod
@@ -2259,6 +2290,51 @@ func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 		return err
 	}
 	r.node = node
+	return nil
+}
+
+func (r *containerReconcilerLoop) GetWekaClient(ctx context.Context) error {
+	ownerRefs := r.container.GetOwnerReferences()
+	if len(ownerRefs) == 0 {
+		return nil
+	} else if len(ownerRefs) > 1 {
+		return errors.New("more than one owner reference found")
+	}
+
+	ownerRef := ownerRefs[0]
+	if ownerRef.Kind != "WekaClient" {
+		return nil
+	}
+
+	ownerUid := ownerRef.UID
+
+	// Get wekaClient by UID
+	wekaClientList := &weka.WekaClientList{}
+	err := r.List(ctx, wekaClientList)
+	if err != nil {
+		return errors.Wrap(err, "failed to list weka clients")
+	}
+
+	for i := range wekaClientList.Items {
+		if wekaClientList.Items[i].UID == ownerUid {
+			r.wekaClient = &wekaClientList.Items[i]
+			return nil
+		}
+	}
+
+	return errors.New("weka client not found")
+}
+
+func (r *containerReconcilerLoop) FetchTargetCluster(ctx context.Context) error {
+	wekaCluster := &weka.WekaCluster{}
+	err := r.Get(ctx, client.ObjectKey{
+		Name:      r.wekaClient.Spec.TargetCluster.Name,
+		Namespace: r.wekaClient.Spec.TargetCluster.Namespace,
+	}, wekaCluster)
+	if err != nil {
+		return errors.Wrap(err, "failed to get target cluster")
+	}
+	r.targetCluster = wekaCluster
 	return nil
 }
 
@@ -4608,6 +4684,10 @@ func (r *containerReconcilerLoop) MigratePVC(ctx context.Context) error {
 	return lifecycle.NewExpectedError(errors.New("requeue after successful PVC migration and spec update"))
 }
 
+func (r *containerReconcilerLoop) isWekaClientRunning() bool {
+	return r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
+}
+
 func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeployCsiNodeServerPod")
 	defer end()
@@ -4622,23 +4702,25 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 		return err
 	}
 
-	if r.container.Spec.TypedConfigs == nil {
-		return errors.New("failed to get TypedConfigs from WekaContainer spec")
-	}
-
 	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
 
 	pod := &v1.Pod{}
 	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
-	labels := csi.GetCsiLabels(r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName, csi.CSINode, r.container.Labels, r.container.Spec.TypedConfigs.TypedClientConfigs.CSINodeLabels)
-	tolerations := append(r.container.Spec.Tolerations, r.container.Spec.TypedConfigs.TypedClientConfigs.CSINodeTolerations...)
+	var csiNodeLabels map[string]string
+	var csiNodeTolerations []v1.Toleration
+	if r.wekaClient.Spec.CsiConfig != nil && r.wekaClient.Spec.CsiConfig.Advanced != nil {
+		csiNodeLabels = r.wekaClient.Spec.CsiConfig.Advanced.NodeLabels
+		csiNodeTolerations = r.wekaClient.Spec.CsiConfig.Advanced.NodeTolerations
+	}
+	labels := csi.GetCsiLabels(r.getCsiDriverName(), csi.CSINode, r.container.Labels, csiNodeLabels)
+	tolerations := append(r.container.Spec.Tolerations, csiNodeTolerations...)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating CSI node pod")
 			podSpec := csi.NewCsiNodePod(
 				csiNodeName,
 				namespace,
-				r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName,
+				r.getCsiDriverName(),
 				string(nodeName),
 				labels,
 				tolerations,
@@ -4653,7 +4735,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 			return errors.Wrap(err, "failed to get CSI node pod")
 		}
 	} else {
-		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName, labels, tolerations)
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations)
 	}
 }
 
@@ -4759,7 +4841,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ManageCsiTopologyLabels")
 	defer end()
 
-	csiDriverName := r.container.Spec.TypedConfigs.TypedClientConfigs.CSIDriverName
+	csiDriverName := r.getCsiDriverName()
 	if r.container.Status.Status != weka.Running {
 		err := operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
 		if err != nil {

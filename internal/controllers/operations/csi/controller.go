@@ -27,9 +27,9 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	var csiLabels map[string]string
-	if wekaClient.Spec.CsiConfig != nil {
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.ControllerTolerations...)
-		csiLabels = wekaClient.Spec.CsiConfig.ControllerLabels
+	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
+		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
+		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
 

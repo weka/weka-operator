@@ -85,11 +85,15 @@ func GetCSISpecHash(csiDriverName string, wekaClient *weka.WekaClient, role CSIR
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	switch role {
 	case CSIController:
-		labels = GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, wekaClient.Spec.CsiConfig.ControllerLabels)
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.ControllerTolerations...)
+		if wekaClient.Spec.CsiConfig.Advanced != nil {
+			labels = GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, wekaClient.Spec.CsiConfig.Advanced.ControllerLabels)
+			tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
+		}
 	case CSINode:
-		labels = GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, wekaClient.Spec.CsiConfig.NodeLabels)
-		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.NodeTolerations...)
+		if wekaClient.Spec.CsiConfig.Advanced != nil {
+			labels = GetCsiLabels(csiDriverName, CSINode, wekaClient.Labels, wekaClient.Spec.CsiConfig.Advanced.NodeLabels)
+			tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.NodeTolerations...)
+		}
 	default:
 		return "", fmt.Errorf("unsupported CSI role: %s", role)
 	}
