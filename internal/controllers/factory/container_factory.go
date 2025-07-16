@@ -23,6 +23,14 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
 
+	// use role-specific annotations if set, otherwise use cluster annotations
+	var annotations map[string]string
+	if roleAnnotations := cluster.Spec.RoleAnnotations.ForRole(role); len(roleAnnotations) > 0 {
+		annotations = roleAnnotations
+	} else if cluster.ObjectMeta.GetAnnotations() != nil {
+		annotations = cluster.ObjectMeta.GetAnnotations()
+	}
+
 	var hugePagesNum int
 	var hugePagesOffset int
 	var numCores int
@@ -107,9 +115,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			Kind:       "WekaContainer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", cluster.Name, name),
-			Namespace: cluster.Namespace,
-			Labels:    labels,
+			Name:        fmt.Sprintf("%s-%s", cluster.Name, name),
+			Namespace:   cluster.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: wekav1alpha1.WekaContainerSpec{
 			Image:                 cluster.Spec.Image,
