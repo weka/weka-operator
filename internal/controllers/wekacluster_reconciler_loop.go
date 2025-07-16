@@ -706,6 +706,12 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.NodeSelector = newNodeSelector
 		}
 
+		// propagate core IDs for manual CPU policy if provided at cluster level
+		roleCoreIds := updatableSpec.RoleCoreIds.ForRole(role)
+		if !reflect.DeepEqual(container.Spec.CoreIds, roleCoreIds) {
+			container.Spec.CoreIds = roleCoreIds
+		}
+
 		err = r.getClient().Patch(ctx, container, patch)
 		if err != nil {
 			return err
@@ -2460,6 +2466,7 @@ type UpdatableClusterSpec struct {
 	NetworkSelector           wekav1alpha1.NetworkSelector
 	PvcConfig                 *wekav1alpha1.PVCConfig
 	TracesConfiguration       *wekav1alpha1.TracesConfiguration
+	RoleCoreIds               wekav1alpha1.RoleCoreIds
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -2485,5 +2492,6 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		NetworkSelector:           spec.NetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
+		RoleCoreIds:               spec.RoleCoreIds,
 	}
 }
