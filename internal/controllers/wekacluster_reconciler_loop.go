@@ -692,8 +692,25 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		// desired annotations = role-specific annotations if set, otherwise cluster annotations
 		var newAnnotations map[string]string
-		if roleAnnotations := updatableSpec.RoleAnnotations.ForRole(container.Spec.Mode); roleAnnotations != nil {
-			newAnnotations = *roleAnnotations
+		role := container.Spec.Mode
+		var roleAnnotations *util2.HashableMap
+		switch role {
+		case "compute":
+			roleAnnotations = updatableSpec.ComputeAnnotations
+		case "drive":
+			roleAnnotations = updatableSpec.DriveAnnotations
+		case "s3":
+			roleAnnotations = updatableSpec.S3Annotations
+		case "nfs":
+			roleAnnotations = updatableSpec.NfsAnnotations
+		}
+
+		if roleAnnotations != nil {
+			// Convert HashableMap back to regular map
+			newAnnotations = make(map[string]string)
+			for _, entry := range roleAnnotations.Entries {
+				newAnnotations[entry.Key] = entry.Value
+			}
 		} else if cluster.ObjectMeta.GetAnnotations() != nil {
 			newAnnotations = cluster.ObjectMeta.GetAnnotations()
 		}
@@ -702,12 +719,27 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		}
 
 		oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
-		role := container.Spec.Mode
 		newNodeSelector := map[string]string{}
 		if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 			newNodeSelector = cluster.Spec.NodeSelector
-			if roleNodeSelector := updatableSpec.RoleNodeSelector.ForRole(role); roleNodeSelector != nil {
-				newNodeSelector = *roleNodeSelector
+			var roleNodeSelector *util2.HashableMap
+			switch role {
+			case "compute":
+				roleNodeSelector = updatableSpec.ComputeNodeSelector
+			case "drive":
+				roleNodeSelector = updatableSpec.DriveNodeSelector
+			case "s3":
+				roleNodeSelector = updatableSpec.S3NodeSelector
+			case "nfs":
+				roleNodeSelector = updatableSpec.NfsNodeSelector
+			}
+
+			if roleNodeSelector != nil {
+				// Convert HashableMap back to regular map
+				newNodeSelector = make(map[string]string)
+				for _, entry := range roleNodeSelector.Entries {
+					newNodeSelector[entry.Key] = entry.Value
+				}
 			}
 		}
 		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
@@ -2461,8 +2493,14 @@ type UpdatableClusterSpec struct {
 	Labels                    *util2.HashableMap
 	Annotations               *util2.HashableMap
 	NodeSelector              *util2.HashableMap
-	RoleNodeSelector          wekav1alpha1.RoleNodeSelector
-	RoleAnnotations           wekav1alpha1.RoleAnnotations
+	S3NodeSelector            *util2.HashableMap
+	NfsNodeSelector           *util2.HashableMap
+	ComputeNodeSelector       *util2.HashableMap
+	DriveNodeSelector         *util2.HashableMap
+	S3Annotations             *util2.HashableMap
+	NfsAnnotations            *util2.HashableMap
+	ComputeAnnotations        *util2.HashableMap
+	DriveAnnotations          *util2.HashableMap
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
 	NetworkSelector           wekav1alpha1.NetworkSelector
@@ -2473,6 +2511,14 @@ type UpdatableClusterSpec struct {
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
+	// Helper function to safely convert pointer-to-map to HashableMap
+	safeHashableMap := func(ptr *map[string]string) *util2.HashableMap {
+		if ptr == nil {
+			return nil
+		}
+		return util2.NewHashableMap(*ptr)
+	}
+
 	return &UpdatableClusterSpec{
 		AdditionalMemory:          spec.AdditionalMemory,
 		Tolerations:               spec.Tolerations,
@@ -2482,8 +2528,14 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		Labels:                    util2.NewHashableMap(meta.Labels),
 		Annotations:               util2.NewHashableMap(meta.Annotations),
 		NodeSelector:              util2.NewHashableMap(spec.NodeSelector),
-		RoleNodeSelector:          spec.RoleNodeSelector,
-		RoleAnnotations:           spec.RoleAnnotations,
+		S3NodeSelector:            safeHashableMap(spec.RoleNodeSelector.S3),
+		NfsNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Nfs),
+		ComputeNodeSelector:       safeHashableMap(spec.RoleNodeSelector.Compute),
+		DriveNodeSelector:         safeHashableMap(spec.RoleNodeSelector.Drive),
+		S3Annotations:             safeHashableMap(spec.RoleAnnotations.S3),
+		NfsAnnotations:            safeHashableMap(spec.RoleAnnotations.Nfs),
+		ComputeAnnotations:        safeHashableMap(spec.RoleAnnotations.Compute),
+		DriveAnnotations:          safeHashableMap(spec.RoleAnnotations.Drive),
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
