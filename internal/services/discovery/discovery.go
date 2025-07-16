@@ -444,3 +444,32 @@ func SelectNonDeletedWekaContainers(containers []*weka.WekaContainer) []*weka.We
 	}
 	return nonDeleted
 }
+
+func GetWekaClientsForCluster(ctx context.Context, c client.Client, cluster *weka.WekaCluster) ([]*weka.WekaClient, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetWekaClientsForCluster", "cluster", cluster.Name)
+	defer end()
+
+	clientsList := weka.WekaClientList{}
+	err := c.List(ctx, &clientsList)
+	if err != nil {
+		err = errors.Wrap(err, "Failed to list Weka clients")
+		return nil, err
+	}
+
+	var wekaClients []*weka.WekaClient
+	for i := range clientsList.Items {
+		client := clientsList.Items[i]
+
+		if client.Spec.TargetCluster.Name == cluster.Name && client.Spec.TargetCluster.Namespace == cluster.Namespace {
+			wekaClients = append(wekaClients, &client)
+		}
+	}
+
+	logger.SetValues("numClients", len(wekaClients), "cluster", cluster.Name)
+	if len(wekaClients) == 0 {
+		logger.Info("No Weka clients found for the cluster")
+	} else {
+		logger.Info("Found Weka clients for the cluster")
+	}
+	return wekaClients, nil
+}
