@@ -2,17 +2,80 @@ package csi
 
 import (
 	"fmt"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-k8s-api/util"
-	util2 "github.com/weka/weka-operator/pkg/util"
 	"strings"
 
-	"github.com/weka/weka-operator/internal/config"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/weka/weka-operator/internal/config"
+	util2 "github.com/weka/weka-operator/pkg/util"
 )
+
+// CsiControllerHashableSpec represents the fields from CSI Controller Deployment
+// that are relevant for determining if an update is needed
+type CsiControllerHashableSpec struct {
+	CsiDriverName         string
+	CsiImage              string
+	CsiAttacherImage      string
+	CsiProvisionerImage   string
+	CsiResizerImage       string
+	CsiSnapshotterImage   string
+	CsiLivenessProbeImage string
+	Labels                *util2.HashableMap
+	Tolerations           []corev1.Toleration
+	NodeSelector          *util2.HashableMap
+	EnforceSecureHttps    bool
+	SkipGarbageCollection bool
+}
+
+// GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
+// that includes only the fields that are relevant for updates
+func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaClient) (string, error) {
+	csiDriverName := GetCsiDriverName(csiGroupName)
+	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+
+	var csiLabels map[string]string
+	var enforceSecureHttps bool
+	var skipGarbageCollection bool
+
+	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
+		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
+		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
+		enforceSecureHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceSecureHttps
+		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
+	}
+
+	// Get the complete labels that would be applied to the deployment
+	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
+
+	// Convert maps to HashableMap for consistent hashing
+	labelsHashable := util2.NewHashableMap(labels)
+	var nodeSelectorHashable *util2.HashableMap
+	if wekaClient.Spec.NodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(wekaClient.Spec.NodeSelector)
+	}
+
+	spec := CsiControllerHashableSpec{
+		CsiDriverName:         csiDriverName,
+		CsiImage:              config.Config.CsiImage,
+		CsiAttacherImage:      config.Config.CsiAttacherImage,
+		CsiProvisionerImage:   config.Config.CsiProvisionerImage,
+		CsiResizerImage:       config.Config.CsiResizerImage,
+		CsiSnapshotterImage:   config.Config.CsiSnapshotterImage,
+		CsiLivenessProbeImage: config.Config.CsiLivenessProbeImage,
+		Labels:                labelsHashable,
+		Tolerations:           tolerations,
+		NodeSelector:          nodeSelectorHashable,
+		EnforceSecureHttps:    enforceSecureHttps,
+		SkipGarbageCollection: skipGarbageCollection,
+	}
+
+	return util2.HashStruct(spec)
+}
 
 func GetCSIControllerName(CSIGroupName string) string {
 	return strings.Replace(CSIGroupName, ".", "-", -1) + "-weka-csi-controller"
