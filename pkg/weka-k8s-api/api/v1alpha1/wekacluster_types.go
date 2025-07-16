@@ -110,26 +110,26 @@ type WekaHomeConfig struct {
 }
 
 type RoleNodeSelector struct {
-	// node selector for compute weka containers
-	Compute map[string]string `json:"compute,omitempty"`
-	// node selector for drive weka containers
-	Drive map[string]string `json:"drive,omitempty"`
-	// node selector for s3 weka containers, envoy will be scheduled by affinity to s3 and not explicit node selector
-	S3 map[string]string `json:"s3,omitempty"`
-	// node selector for nfs weka containers
-	Nfs map[string]string `json:"nfs,omitempty"`
+	// nodeSelector for compute weka containers
+	Compute *map[string]string `json:"compute,omitempty"`
+	// nodeSelector for drive weka containers
+	Drive *map[string]string `json:"drive,omitempty"`
+	// nodeSelector for s3 weka containers
+	S3 *map[string]string `json:"s3,omitempty"`
+	// nodeSelector for nfs weka containers
+	Nfs *map[string]string `json:"nfs,omitempty"`
 }
 
-func (s RoleNodeSelector) ForRole(role string) map[string]string {
+func (r RoleNodeSelector) ForRole(role string) *map[string]string {
 	switch role {
 	case "compute":
-		return s.Compute
+		return r.Compute
 	case "drive":
-		return s.Drive
+		return r.Drive
 	case "s3":
-		return s.S3
+		return r.S3
 	case "nfs":
-		return s.Nfs
+		return r.Nfs
 	default:
 		return nil
 	}
@@ -137,16 +137,16 @@ func (s RoleNodeSelector) ForRole(role string) map[string]string {
 
 type RoleAnnotations struct {
 	// annotations for compute weka containers
-	Compute map[string]string `json:"compute,omitempty"`
+	Compute *map[string]string `json:"compute,omitempty"`
 	// annotations for drive weka containers
-	Drive map[string]string `json:"drive,omitempty"`
+	Drive *map[string]string `json:"drive,omitempty"`
 	// annotations for s3 weka containers
-	S3 map[string]string `json:"s3,omitempty"`
+	S3 *map[string]string `json:"s3,omitempty"`
 	// annotations for nfs weka containers
-	Nfs map[string]string `json:"nfs,omitempty"`
+	Nfs *map[string]string `json:"nfs,omitempty"`
 }
 
-func (a RoleAnnotations) ForRole(role string) map[string]string {
+func (a RoleAnnotations) ForRole(role string) *map[string]string {
 	switch role {
 	case "compute":
 		return a.Compute
@@ -156,6 +156,32 @@ func (a RoleAnnotations) ForRole(role string) map[string]string {
 		return a.S3
 	case "nfs":
 		return a.Nfs
+	default:
+		return nil
+	}
+}
+
+type RoleNetworkSelector struct {
+	// network selector for compute weka containers
+	Compute *NetworkSelector `json:"compute,omitempty"`
+	// network selector for drive weka containers
+	Drive *NetworkSelector `json:"drive,omitempty"`
+	// network selector for s3 weka containers
+	S3 *NetworkSelector `json:"s3,omitempty"`
+	// network selector for nfs weka containers
+	Nfs *NetworkSelector `json:"nfs,omitempty"`
+}
+
+func (r RoleNetworkSelector) ForRole(role string) *NetworkSelector {
+	switch role {
+	case "compute":
+		return r.Compute
+	case "drive":
+		return r.Drive
+	case "s3":
+		return r.S3
+	case "nfs":
+		return r.Nfs
 	default:
 		return nil
 	}
@@ -296,11 +322,16 @@ type WekaClusterSpec struct {
 	RoleNodeSelector RoleNodeSelector `json:"roleNodeSelector,omitempty"`
 	// annotations for the weka containers per role
 	RoleAnnotations RoleAnnotations `json:"roleAnnotations,omitempty"`
+	// network selector for the weka containers per role, overrides global network
+	RoleNetworkSelector RoleNetworkSelector `json:"roleNetworkSelector,omitempty"`
 	// failure domain configuration for weka containers
 	FailureDomain *FailureDomain `json:"failureDomain,omitempty"`
 	// advanced pod affinities configuration
 	PodConfig *PodConfiguration `json:"podConfig,omitempty"`
 	// cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto
+	// manual and shared are same, with shared being deprecated
+	// when manual is used - no exclusive cores will be allocaated on k8s/cgroup level, assuming good alignment of cores usage across different applications, like weka and slurm
+	// there is no need to specify siblings in this list, but on the side of other applications like slurm, both weka core and its siblings should be excluded from used cpu set
 	//+kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy CpuPolicy `json:"cpuPolicy,omitempty"`
