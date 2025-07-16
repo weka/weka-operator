@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -77,7 +78,8 @@ func (r *wekaClusterService) EnsureNoContainers(ctx context.Context, mode string
 	}
 
 	if len(containers) > 0 {
-		return lifecycle.NewWaitError(fmt.Errorf("not all containers were fully removed"))
+		err := fmt.Errorf("waiting for %d %s containers to be removed", len(containers), mode)
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	} else {
 		return nil
 	}
@@ -194,12 +196,4 @@ func (r *wekaClusterService) GetOwnedContainers(ctx context.Context, mode string
 	defer end()
 
 	return discovery.GetOwnedContainers(ctx, r.Client, r.Cluster.UID, r.Cluster.Namespace, mode)
-}
-
-func (r *wekaClusterService) EnsureNoS3Containers(ctx context.Context) error {
-	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
-}
-
-func (r *wekaClusterService) EnsureNoNfsContainers(ctx context.Context) error {
-	return r.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfs)
 }

@@ -535,23 +535,32 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	if len(wekaClients) > 0 {
 		err := fmt.Errorf("cannot delete cluster with dependent WekaClients, please delete them first")
 
-		_ = r.RecordEvent(v1.EventTypeWarning, "DependentWekaClients", err.Error())
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DependentWekaClients", err.Error(), time.Second*30)
 
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
 	err = clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeS3)
 	if err != nil {
+		reason := fmt.Sprintf("EnsureNo%sContainersError", wekav1alpha1.WekaContainerModeS3)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+
 		return err
 	}
 
 	err = clusterService.EnsureNoContainers(ctx, wekav1alpha1.WekaContainerModeNfs)
 	if err != nil {
+		reason := fmt.Sprintf("EnsureNo%sContainersError", wekav1alpha1.WekaContainerModeNfs)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+
 		return err
 	}
 
 	err = clusterService.EnsureNoContainers(ctx, "")
 	if err != nil {
+		reason := "EnsureNoContainersError"
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+
 		return err
 	}
 
@@ -561,6 +570,8 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	if err != nil {
 		return err
 	}
+
+	_ = r.RecordEventThrottled(v1.EventTypeNormal, "DeallocatingClusterResources", "Deallocating cluster resources", time.Second*15)
 
 	resourcesAllocator, err := allocator.NewResourcesAllocator(ctx, r.getClient())
 	if err != nil {
@@ -2307,6 +2318,14 @@ func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype string, reason string,
 
 	r.Recorder.Event(r.cluster, eventtype, reason, message)
 	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
+	if !r.Throttler.ShouldRun(eventtype+reason, interval, util2.ThrolltingSettings{EnsureStepSuccess: false}) {
+		return nil
+	}
+
+	return r.RecordEvent(eventtype, reason, message)
 }
 
 func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaCluster, template allocator.ClusterTemplate, existingContainers []*wekav1alpha1.WekaContainer) ([]*wekav1alpha1.WekaContainer, error) {
