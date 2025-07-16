@@ -173,6 +173,7 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
+            --embedded-csi
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, ci_on_merge_queue_plan]
