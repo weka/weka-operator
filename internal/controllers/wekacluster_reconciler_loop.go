@@ -658,7 +658,15 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			}
 		}
 
-		targetNetworkSpec, err := resources.GetContainerNetwork(updatableSpec.NetworkSelector)
+		// use role-specific network selector if set, otherwise use global network selector
+		var targetNetworkSelector wekav1alpha1.NetworkSelector
+		if roleNetworkSelector := updatableSpec.RoleNetworkSelector.ForRole(container.Spec.Mode); roleNetworkSelector != nil {
+			targetNetworkSelector = *roleNetworkSelector
+		} else {
+			targetNetworkSelector = updatableSpec.NetworkSelector
+		}
+
+		targetNetworkSpec, err := resources.GetContainerNetwork(targetNetworkSelector)
 		if err != nil {
 			return err
 		}
@@ -684,8 +692,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		// desired annotations = role-specific annotations if set, otherwise cluster annotations
 		var newAnnotations map[string]string
-		if roleAnnotations := cluster.Spec.RoleAnnotations.ForRole(container.Spec.Mode); len(roleAnnotations) > 0 {
-			newAnnotations = roleAnnotations
+		if roleAnnotations := updatableSpec.RoleAnnotations.ForRole(container.Spec.Mode); roleAnnotations != nil {
+			newAnnotations = *roleAnnotations
 		} else if cluster.ObjectMeta.GetAnnotations() != nil {
 			newAnnotations = cluster.ObjectMeta.GetAnnotations()
 		}
@@ -698,8 +706,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		newNodeSelector := map[string]string{}
 		if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 			newNodeSelector = cluster.Spec.NodeSelector
-			if len(cluster.Spec.RoleNodeSelector.ForRole(role)) != 0 {
-				newNodeSelector = cluster.Spec.RoleNodeSelector.ForRole(role)
+			if roleNodeSelector := updatableSpec.RoleNodeSelector.ForRole(role); roleNodeSelector != nil {
+				newNodeSelector = *roleNodeSelector
 			}
 		}
 		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
@@ -2453,17 +2461,12 @@ type UpdatableClusterSpec struct {
 	Labels                    *util2.HashableMap
 	Annotations               *util2.HashableMap
 	NodeSelector              *util2.HashableMap
-	S3NodeSelector            *util2.HashableMap
-	NfsNodeSelector           *util2.HashableMap
-	ComputeNodeSelector       *util2.HashableMap
-	DriveNodeSelector         *util2.HashableMap
-	S3Annotations             *util2.HashableMap
-	NfsAnnotations            *util2.HashableMap
-	ComputeAnnotations        *util2.HashableMap
-	DriveAnnotations          *util2.HashableMap
+	RoleNodeSelector          wekav1alpha1.RoleNodeSelector
+	RoleAnnotations           wekav1alpha1.RoleAnnotations
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
 	NetworkSelector           wekav1alpha1.NetworkSelector
+	RoleNetworkSelector       wekav1alpha1.RoleNetworkSelector
 	PvcConfig                 *wekav1alpha1.PVCConfig
 	TracesConfiguration       *wekav1alpha1.TracesConfiguration
 	RoleCoreIds               wekav1alpha1.RoleCoreIds
@@ -2479,17 +2482,12 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		Labels:                    util2.NewHashableMap(meta.Labels),
 		Annotations:               util2.NewHashableMap(meta.Annotations),
 		NodeSelector:              util2.NewHashableMap(spec.NodeSelector),
-		S3NodeSelector:            util2.NewHashableMap(spec.RoleNodeSelector.S3),
-		NfsNodeSelector:           util2.NewHashableMap(spec.RoleNodeSelector.Nfs),
-		ComputeNodeSelector:       util2.NewHashableMap(spec.RoleNodeSelector.Compute),
-		DriveNodeSelector:         util2.NewHashableMap(spec.RoleNodeSelector.Drive),
-		S3Annotations:             util2.NewHashableMap(spec.RoleAnnotations.S3),
-		NfsAnnotations:            util2.NewHashableMap(spec.RoleAnnotations.Nfs),
-		ComputeAnnotations:        util2.NewHashableMap(spec.RoleAnnotations.Compute),
-		DriveAnnotations:          util2.NewHashableMap(spec.RoleAnnotations.Drive),
+		RoleNodeSelector:          spec.RoleNodeSelector,
+		RoleAnnotations:           spec.RoleAnnotations,
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		NetworkSelector:           spec.NetworkSelector,
+		RoleNetworkSelector:       spec.RoleNetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
 		RoleCoreIds:               spec.RoleCoreIds,
