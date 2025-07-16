@@ -716,6 +716,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.CoreIds = roleCoreIds
 		}
 
+		if container.Spec.CpuPolicy != updatableSpec.CpuPolicy {
+			container.Spec.CpuPolicy = updatableSpec.CpuPolicy
+		}
+
 		err = r.getClient().Patch(ctx, container, patch)
 		if err != nil {
 			return err
@@ -2472,6 +2476,7 @@ type UpdatableClusterSpec struct {
 	PvcConfig                 *wekav1alpha1.PVCConfig
 	TracesConfiguration       *wekav1alpha1.TracesConfiguration
 	RoleCoreIds               wekav1alpha1.RoleCoreIds
+	CpuPolicy                 wekav1alpha1.CpuPolicy
 }
 
 func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -2507,5 +2512,6 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,
 		RoleCoreIds:               spec.RoleCoreIds,
+		CpuPolicy:                 spec.CpuPolicy,
 	}
 }
