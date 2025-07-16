@@ -379,11 +379,9 @@ func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string,
 		return "", err
 	}
 	imageTag := ""
-	if toolkitMap != nil {
-		if toolkitMap.Data != nil {
-			if toolkitMap.Data[v] != "" {
-				imageTag = toolkitMap.Data[v]
-			}
+	if toolkitMap.Data != nil {
+		if toolkitMap.Data[v] != "" {
+			imageTag = toolkitMap.Data[v]
 		}
 	}
 	if imageTag == "" {

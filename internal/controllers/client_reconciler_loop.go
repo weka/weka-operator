@@ -156,7 +156,10 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.UpdateCsiController,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
-					loop.shouldUpdateCSIController,
+					func() bool { return config.Config.CsiInstallationEnabled },
+					func() bool {
+						return wekaClient.Spec.CsiConfig == nil || !wekaClient.Spec.CsiConfig.DisableControllerCreation
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -464,7 +467,7 @@ func (c *clientReconcilerLoop) getClientContainerName(ctx context.Context, nodeN
 	if err != nil {
 		return "", errors.Wrap(err, "failed to get node")
 	}
-	if nodeObj == nil {
+	if nodeObj.Name == "" {
 		return "", errors.New("node not found")
 	}
 	clientName = fmt.Sprintf("%s-%s", c.wekaClient.ObjectMeta.Name, nodeObj.UID)
@@ -1052,27 +1055,14 @@ func (c *clientReconcilerLoop) GetCSIGroup() string {
 	return csi.GetGroupFromClient(c.wekaClient)
 }
 
-func (c *clientReconcilerLoop) getCsiDriverName() string {
-	return fmt.Sprintf("%s.weka.io", c.GetCSIGroup())
-}
-
-func (c *clientReconcilerLoop) shouldUpdateCSIController() bool {
-	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldUpdateCSIController")
+func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateCsiController")
 	defer end()
-
-	if !config.Config.CsiInstallationEnabled {
-		return false
-	}
-
-	if c.wekaClient.Spec.CsiConfig != nil && c.wekaClient.Spec.CsiConfig.DisableControllerCreation {
-		return false
-	}
 
 	controllerDeploymentName := csi.GetCSIControllerName(c.GetCSIGroup())
 	namespace, err := util2.GetPodNamespace()
 	if err != nil {
-		logger.Error(err, "failed to get pod namespace")
-		return false
+		return errors.Wrap(err, "failed to get pod namespace")
 	}
 
 	deployment := &appsv1.Deployment{}
@@ -1083,27 +1073,118 @@ func (c *clientReconcilerLoop) shouldUpdateCSIController() bool {
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("CSI controller deployment not found, will be created")
-			return false
+			return nil
 		}
-		logger.Error(err, "failed to get CSI controller deployment")
-		return false
+		return errors.Wrap(err, "failed to get CSI controller deployment")
 	}
 
-	targetDeployment := csi.NewCsiControllerDeployment(c.GetCSIGroup(), c.wekaClient)
-	hash1, err := util2.HashStruct(targetDeployment.Spec)
+	// Calculate hash of the desired deployment configuration
+	targetHash, err := csi.GetCsiControllerDeploymentHash(c.GetCSIGroup(), c.wekaClient)
 	if err != nil {
 		logger.Error(err, "failed to hash target deployment spec")
-		return false
-	}
-	hash2, err := util2.HashStruct(deployment.Spec)
-	if err != nil {
-		logger.Error(err, "failed to hash current deployment spec")
-		return false
+		return errors.Wrap(err, "failed to hash target deployment spec")
 	}
 
-	return hash1 != hash2
+	// Calculate hash of the current deployment configuration based on the existing deployment
+	// We need to extract the relevant fields from the existing deployment and calculate the same hash
+	currentHash, err := c.extractCurrentDeploymentHash(deployment)
+	if err != nil {
+		logger.Error(err, "failed to extract hash from current deployment spec")
+		return errors.Wrap(err, "failed to extract hash from current deployment spec")
+	}
+
+	if targetHash != currentHash {
+		logger.Info("CSI controller deployment spec changed, updating deployment",
+			"targetHash", targetHash, "currentHash", currentHash)
+
+		targetDeployment := csi.NewCsiControllerDeployment(c.GetCSIGroup(), c.wekaClient)
+		// Preserve the existing resource version and UID for proper updates
+		targetDeployment.ObjectMeta.ResourceVersion = deployment.ObjectMeta.ResourceVersion
+		targetDeployment.ObjectMeta.UID = deployment.ObjectMeta.UID
+
+		return c.Client.Update(ctx, targetDeployment)
+	}
+
+	logger.Debug("CSI controller deployment is up to date")
+	return nil
 }
 
-func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
-	return c.Client.Update(ctx, csi.NewCsiControllerDeployment(c.GetCSIGroup(), c.wekaClient))
+// extractCurrentDeploymentHash calculates a hash from the current deployment that matches
+// the format used by GetCsiControllerDeploymentHash
+func (c *clientReconcilerLoop) extractCurrentDeploymentHash(deployment *appsv1.Deployment) (string, error) {
+	// Extract the CSI driver name from the deployment environment variables
+	var csiDriverName string
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == "wekafs" {
+			for _, env := range container.Env {
+				if env.Name == "CSI_DRIVER_NAME" {
+					csiDriverName = env.Value
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if csiDriverName == "" {
+		return "", fmt.Errorf("could not extract CSI driver name from deployment")
+	}
+
+	// Extract container images
+	var csiImage, csiAttacherImage, csiProvisionerImage, csiResizerImage, csiSnapshotterImage, csiLivenessProbeImage string
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		switch container.Name {
+		case "wekafs":
+			csiImage = container.Image
+		case "csi-attacher":
+			csiAttacherImage = container.Image
+		case "csi-provisioner":
+			csiProvisionerImage = container.Image
+		case "csi-resizer":
+			csiResizerImage = container.Image
+		case "csi-snapshotter":
+			csiSnapshotterImage = container.Image
+		case "liveness-probe":
+			csiLivenessProbeImage = container.Image
+		}
+	}
+
+	// Extract configuration flags from wekafs container args
+	var enforceSecureHttps, skipGarbageCollection bool
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == "wekafs" {
+			for _, arg := range container.Args {
+				if arg == "--allowinsecurehttps" {
+					enforceSecureHttps = false
+				} else if arg == "--skipgarbagecollection" {
+					skipGarbageCollection = true
+				}
+			}
+			break
+		}
+	}
+
+	// Create the hashable spec using the extracted values
+	labelsHashable := util2.NewHashableMap(deployment.Labels)
+	var nodeSelectorHashable *util2.HashableMap
+	if deployment.Spec.Template.Spec.NodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(deployment.Spec.Template.Spec.NodeSelector)
+	}
+
+	spec := csi.CsiControllerHashableSpec{
+		CsiDriverName:         csiDriverName,
+		CsiImage:              csiImage,
+		CsiAttacherImage:      csiAttacherImage,
+		CsiProvisionerImage:   csiProvisionerImage,
+		CsiResizerImage:       csiResizerImage,
+		CsiSnapshotterImage:   csiSnapshotterImage,
+		CsiLivenessProbeImage: csiLivenessProbeImage,
+		Labels:                labelsHashable,
+		Tolerations:           deployment.Spec.Template.Spec.Tolerations,
+		NodeSelector:          nodeSelectorHashable,
+		EnforceSecureHttps:    enforceSecureHttps,
+		SkipGarbageCollection: skipGarbageCollection,
+	}
+
+	return util2.HashStruct(spec)
 }
