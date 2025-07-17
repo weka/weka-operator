@@ -26,6 +26,6 @@ gemini_pro = OpenAIChatCompletionsModel(
 )
 
 gemini_flash = OpenAIChatCompletionsModel(
-    model="gemini-2.5-flash-preview-04-17",
+    model="gemini-2.5-flash",
     openai_client=gemini_client_agg
 )
