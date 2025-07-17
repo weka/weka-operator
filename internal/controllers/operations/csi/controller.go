@@ -106,6 +106,40 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	privileged := true
 	replicas := int32(2)
 
+	args := []string{
+		"--drivername=$(CSI_DRIVER_NAME)",
+		"--v=5",
+		"--endpoint=$(CSI_ENDPOINT)",
+		"--nodeid=$(KUBE_NODE_NAME)",
+		"--dynamic-path=$(CSI_DYNAMIC_PATH)",
+		"--csimode=$(X_CSI_MODE)",
+		"--newvolumeprefix=csivol-",
+		"--newsnapshotprefix=csisnp-",
+		"--seedsnapshotprefix=csisnp-seed-",
+		"--allowautofscreation",
+		"--allowautofsexpansion",
+		"--enablemetrics",
+		"--metricsport=9090",
+		"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
+		"--mutuallyexclusivemountoptions=sync,async",
+		"--mutuallyexclusivemountoptions=ro,rw",
+		"--grpcrequesttimeoutseconds=30",
+		"--concurrency.createVolume=5",
+		"--concurrency.deleteVolume=5",
+		"--concurrency.expandVolume=5",
+		"--concurrency.createSnapshot=5",
+		"--concurrency.deleteSnapshot=5",
+		"--nfsprotocolversion=4.1",
+		GetTracingFlag(),
+	}
+
+	if !enforceSecureHttps {
+		args = append(args, "--allowinsecurehttps")
+	}
+	if skipGarbageCollection {
+		args = append(args, "--skipgarbagecollection")
+	}
+
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Deployment",
@@ -147,35 +181,7 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 							},
 							Image:           config.Config.CsiImage,
 							ImagePullPolicy: corev1.PullAlways,
-							Args: []string{
-								"--drivername=$(CSI_DRIVER_NAME)",
-								"--v=5",
-								"--endpoint=$(CSI_ENDPOINT)",
-								"--nodeid=$(KUBE_NODE_NAME)",
-								"--dynamic-path=$(CSI_DYNAMIC_PATH)",
-								"--csimode=$(X_CSI_MODE)",
-								"--newvolumeprefix=csivol-",
-								"--newsnapshotprefix=csisnp-",
-								"--seedsnapshotprefix=csisnp-seed-",
-								"--allowautofscreation",
-								"--allowautofsexpansion",
-								"--allowinsecurehttps",
-								"--enablemetrics",
-								"--metricsport=9090",
-								"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
-								"--mutuallyexclusivemountoptions=sync,async",
-								"--mutuallyexclusivemountoptions=ro,rw",
-								"--grpcrequesttimeoutseconds=30",
-								"--concurrency.createVolume=5",
-								"--concurrency.deleteVolume=5",
-								"--concurrency.expandVolume=5",
-								"--concurrency.createSnapshot=5",
-								"--concurrency.deleteSnapshot=5",
-								"--nfsprotocolversion=4.1",
-								GetAllowInsecureHttpsFlag(enforceSecureHttps),
-								GetSkipGarbageCollectionFlag(skipGarbageCollection),
-								GetTracingFlag(),
-							},
+							Args:            args,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 9898,

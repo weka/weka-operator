@@ -49,20 +49,6 @@ func GetTracingFlag() string {
 	return ""
 }
 
-func GetAllowInsecureHttpsFlag(enforceSecureHttps bool) string {
-	if !enforceSecureHttps {
-		return "--allowinsecurehttps"
-	}
-	return ""
-}
-
-func GetSkipGarbageCollectionFlag(skipGarbageCollection bool) string {
-	if skipGarbageCollection {
-		return "--skipgarbagecollection"
-	}
-	return ""
-}
-
 func GetCsiLabels(csiDriverName string, role CSIRole, parentLabels, csiLabels map[string]string) map[string]string {
 	labels := map[string]string{
 		"weka.io/csi-driver-name": csiDriverName,

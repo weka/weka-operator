@@ -4738,7 +4738,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 			return errors.Wrap(err, "failed to get CSI node pod")
 		}
 	} else {
-		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations)
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations, enforceSecureHttps)
 	}
 }
 

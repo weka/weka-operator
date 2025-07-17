@@ -23,7 +23,30 @@ func NewCsiNodePod(
 	enforceSecureHttps bool,
 ) *corev1.Pod {
 	privileged := true
-
+	args := []string{
+		"--v=5",
+		"--drivername=$(CSI_DRIVER_NAME)",
+		"--endpoint=$(CSI_ENDPOINT)",
+		"--nodeid=$(KUBE_NODE_NAME)",
+		"--dynamic-path=$(CSI_DYNAMIC_PATH)",
+		"--csimode=$(X_CSI_MODE)",
+		"--newvolumeprefix=csivol-",
+		"--newsnapshotprefix=csisnp-",
+		"--seedsnapshotprefix=csisnp-seed-",
+		"--enablemetrics",
+		"--metricsport=9094",
+		"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
+		"--mutuallyexclusivemountoptions=sync,async",
+		"--mutuallyexclusivemountoptions=ro,rw",
+		"--grpcrequesttimeoutseconds=30",
+		"--concurrency.nodePublishVolume=5",
+		"--concurrency.nodeUnpublishVolume=5",
+		"--nfsprotocolversion=4.1",
+		GetTracingFlag(),
+	}
+	if !enforceSecureHttps {
+		args = append(args, "--allowinsecurehttps")
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -46,28 +69,7 @@ func NewCsiNodePod(
 					},
 					Image:           config.Config.CsiImage,
 					ImagePullPolicy: corev1.PullAlways,
-					Args: []string{
-						"--v=5",
-						"--drivername=$(CSI_DRIVER_NAME)",
-						"--endpoint=$(CSI_ENDPOINT)",
-						"--nodeid=$(KUBE_NODE_NAME)",
-						"--dynamic-path=$(CSI_DYNAMIC_PATH)",
-						"--csimode=$(X_CSI_MODE)",
-						"--newvolumeprefix=csivol-",
-						"--newsnapshotprefix=csisnp-",
-						"--seedsnapshotprefix=csisnp-seed-",
-						"--enablemetrics",
-						"--metricsport=9094",
-						"--mutuallyexclusivemountoptions=readcache,writecache,coherent,forcedirect",
-						"--mutuallyexclusivemountoptions=sync,async",
-						"--mutuallyexclusivemountoptions=ro,rw",
-						"--grpcrequesttimeoutseconds=30",
-						"--concurrency.nodePublishVolume=5",
-						"--concurrency.nodeUnpublishVolume=5",
-						"--nfsprotocolversion=4.1",
-						GetAllowInsecureHttpsFlag(enforceSecureHttps),
-						GetTracingFlag(),
-					},
+					Args:            args,
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: 9899,
@@ -303,7 +305,15 @@ func NewCsiNodePod(
 	}
 }
 
-func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c client.Client, csiDriverName string, labels map[string]string, tolerations []corev1.Toleration) error {
+func CheckAndDeleteOutdatedCsiNode(
+	ctx context.Context,
+	pod *corev1.Pod,
+	c client.Client,
+	csiDriverName string,
+	labels map[string]string,
+	tolerations []corev1.Toleration,
+	enforceSecureHttps bool,
+) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -319,6 +329,18 @@ func CheckAndDeleteOutdatedCsiNode(ctx context.Context, pod *corev1.Pod, c clien
 			for _, env := range podContainer.Env {
 				if env.Name == "CSI_DRIVER_NAME" {
 					outdated = outdated || (env.Value != csiDriverName)
+				}
+				var allowInsecureHttpsFlagExists bool
+				for _, arg := range podContainer.Args {
+					if arg == "--allowinsecurehttps" {
+						allowInsecureHttpsFlagExists = true
+					}
+				}
+				if allowInsecureHttpsFlagExists && enforceSecureHttps {
+					outdated = true
+				}
+				if !allowInsecureHttpsFlagExists && !enforceSecureHttps {
+					outdated = true
 				}
 			}
 		}
