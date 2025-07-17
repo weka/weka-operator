@@ -98,7 +98,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	}
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
-	if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 		nodeSelector = map[string]string{}
 	}
 
