@@ -3,14 +3,16 @@ package csi
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func NewCsiNodePod(
@@ -42,11 +44,16 @@ func NewCsiNodePod(
 		"--concurrency.nodePublishVolume=5",
 		"--concurrency.nodeUnpublishVolume=5",
 		"--nfsprotocolversion=4.1",
-		GetTracingFlag(),
 	}
 	if !enforceSecureHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
+
+	tracingFlag := GetTracingFlag()
+	if tracingFlag != "" {
+		args = append(args, tracingFlag)
+	}
+
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

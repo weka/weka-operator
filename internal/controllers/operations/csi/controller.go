@@ -130,7 +130,6 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 		"--concurrency.createSnapshot=5",
 		"--concurrency.deleteSnapshot=5",
 		"--nfsprotocolversion=4.1",
-		GetTracingFlag(),
 	}
 
 	if !enforceSecureHttps {
@@ -138,6 +137,11 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	}
 	if skipGarbageCollection {
 		args = append(args, "--skipgarbagecollection")
+	}
+
+	tracingFlag := GetTracingFlag()
+	if tracingFlag != "" {
+		args = append(args, tracingFlag)
 	}
 
 	return &appsv1.Deployment{
