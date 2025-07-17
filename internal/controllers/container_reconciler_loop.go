@@ -705,7 +705,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Predicates: lifecycle.Predicates{
 					container.IsWekaContainer,
 					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
-					loop.IsStatusOvervwritableByLocal,
+					loop.IsStatusOverwritableByLocal,
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setErrorStatus,
@@ -4504,16 +4504,9 @@ func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) err
 	return r.Status().Update(ctx, r.container)
 }
 
-func (r *containerReconcilerLoop) IsStatusOvervwritableByLocal() bool {
+func (r *containerReconcilerLoop) IsStatusOverwritableByLocal() bool {
 	// we do not want to overwrite this statuses, as they proxy some higher-level state
-	if slices.Contains(
-		[]weka.ContainerStatus{
-			weka.Deleting,
-			weka.Destroying,
-			weka.Draining,
-			weka.PodTerminating,
-			weka.Completed,
-		}, r.container.Status.Status) {
+	if r.container.Status.Status == weka.Completed {
 		return false
 	}
 	return true
