@@ -1150,7 +1150,9 @@ func (c *clientReconcilerLoop) extractCurrentDeploymentHash(deployment *appsv1.D
 	}
 
 	// Extract configuration flags from wekafs container args
-	var enforceSecureHttps, skipGarbageCollection bool
+	enforceSecureHttps := true
+	skipGarbageCollection := false
+
 	for _, container := range deployment.Spec.Template.Spec.Containers {
 		if container.Name == "wekafs" {
 			for _, arg := range container.Args {
