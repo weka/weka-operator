@@ -106,7 +106,7 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	privileged := true
 	replicas := int32(2)
 
-	return &appsv1.Deployment{
+	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Deployment",
 			APIVersion: "apps/v1",
@@ -172,9 +172,6 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 								"--concurrency.createSnapshot=5",
 								"--concurrency.deleteSnapshot=5",
 								"--nfsprotocolversion=4.1",
-								GetAllowInsecureHttpsFlag(enforceSecureHttps),
-								GetSkipGarbageCollectionFlag(skipGarbageCollection),
-								GetTracingFlag(),
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -519,6 +516,17 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 			},
 		},
 	}
+	additionalFlags := []string{
+		GetAllowInsecureHttpsFlag(enforceSecureHttps),
+		GetSkipGarbageCollectionFlag(skipGarbageCollection),
+		GetTracingFlag(),
+	}
+	for _, flag := range additionalFlags {
+		if flag != "" {
+			deployment.Spec.Template.Spec.Containers[0].Args = append(deployment.Spec.Template.Spec.Containers[0].Args, flag)
+		}
+	}
+	return deployment
 }
 
 // Helper function to create pointers to primitive types
