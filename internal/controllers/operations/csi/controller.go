@@ -28,7 +28,7 @@ type CsiControllerHashableSpec struct {
 	Labels                *util2.HashableMap
 	Tolerations           []corev1.Toleration
 	NodeSelector          *util2.HashableMap
-	EnforceSecureHttps    bool
+	EnforceTrustedHttps   bool
 	SkipGarbageCollection bool
 }
 
@@ -39,13 +39,13 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 
 	var csiLabels map[string]string
-	var enforceSecureHttps bool
+	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
 		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
 		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
-		enforceSecureHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceSecureHttps
+		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}
 
@@ -70,7 +70,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		Labels:                labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
-		EnforceSecureHttps:    enforceSecureHttps,
+		EnforceTrustedHttps:   enforceTrustedHttps,
 		SkipGarbageCollection: skipGarbageCollection,
 	}
 
@@ -90,12 +90,12 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
 	var csiLabels map[string]string
-	var enforceSecureHttps bool
+	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
 		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
 		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
-		enforceSecureHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceSecureHttps
+		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
@@ -132,7 +132,7 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 		"--nfsprotocolversion=4.1",
 	}
 
-	if !enforceSecureHttps {
+	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
 	if skipGarbageCollection {

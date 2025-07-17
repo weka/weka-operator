@@ -1150,14 +1150,14 @@ func (c *clientReconcilerLoop) extractCurrentDeploymentHash(deployment *appsv1.D
 	}
 
 	// Extract configuration flags from wekafs container args
-	enforceSecureHttps := true
+	enforceTrustedHttps := true
 	skipGarbageCollection := false
 
 	for _, container := range deployment.Spec.Template.Spec.Containers {
 		if container.Name == "wekafs" {
 			for _, arg := range container.Args {
 				if arg == "--allowinsecurehttps" {
-					enforceSecureHttps = false
+					enforceTrustedHttps = false
 				} else if arg == "--skipgarbagecollection" {
 					skipGarbageCollection = true
 				}
@@ -1184,7 +1184,7 @@ func (c *clientReconcilerLoop) extractCurrentDeploymentHash(deployment *appsv1.D
 		Labels:                labelsHashable,
 		Tolerations:           deployment.Spec.Template.Spec.Tolerations,
 		NodeSelector:          nodeSelectorHashable,
-		EnforceSecureHttps:    enforceSecureHttps,
+		EnforceTrustedHttps:   enforceTrustedHttps,
 		SkipGarbageCollection: skipGarbageCollection,
 	}
 

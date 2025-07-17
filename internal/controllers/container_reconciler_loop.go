@@ -4708,11 +4708,11 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
 	var csiNodeLabels map[string]string
 	var csiNodeTolerations []v1.Toleration
-	var enforceSecureHttps bool
+	var enforceTrustedHttps bool
 	if r.wekaClient.Spec.CsiConfig != nil && r.wekaClient.Spec.CsiConfig.Advanced != nil {
 		csiNodeLabels = r.wekaClient.Spec.CsiConfig.Advanced.NodeLabels
 		csiNodeTolerations = r.wekaClient.Spec.CsiConfig.Advanced.NodeTolerations
-		enforceSecureHttps = r.wekaClient.Spec.CsiConfig.Advanced.EnforceSecureHttps
+		enforceTrustedHttps = r.wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 	}
 	labels := csi.GetCsiLabels(r.getCsiDriverName(), csi.CSINode, r.container.Labels, csiNodeLabels)
 	tolerations := append(r.container.Spec.Tolerations, csiNodeTolerations...)
@@ -4726,7 +4726,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 				string(nodeName),
 				labels,
 				tolerations,
-				enforceSecureHttps,
+				enforceTrustedHttps,
 			)
 			if err = r.Create(ctx, podSpec); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
@@ -4738,7 +4738,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 			return errors.Wrap(err, "failed to get CSI node pod")
 		}
 	} else {
-		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations, enforceSecureHttps)
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations, enforceTrustedHttps)
 	}
 }
 

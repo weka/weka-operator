@@ -49,7 +49,7 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 							Effect: corev1.TaintEffectNoExecute,
 						},
 					},
-					EnforceSecureHttps:    true,
+					EnforceTrustedHttps:   true,
 					SkipGarbageCollection: false,
 				},
 			},
@@ -78,7 +78,7 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 
 	// Test hash difference - different input should produce different hash
 	wekaClient2 := wekaClient.DeepCopy()
-	wekaClient2.Spec.CsiConfig.Advanced.EnforceSecureHttps = false
+	wekaClient2.Spec.CsiConfig.Advanced.EnforceTrustedHttps = false
 
 	hash3, err := GetCsiControllerDeploymentHash("test-group", wekaClient2)
 	if err != nil {

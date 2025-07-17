@@ -22,7 +22,7 @@ func NewCsiNodePod(
 	nodeName string,
 	labels map[string]string,
 	tolerations []corev1.Toleration,
-	enforceSecureHttps bool,
+	enforceTrustedHttps bool,
 ) *corev1.Pod {
 	privileged := true
 	args := []string{
@@ -45,7 +45,7 @@ func NewCsiNodePod(
 		"--concurrency.nodeUnpublishVolume=5",
 		"--nfsprotocolversion=4.1",
 	}
-	if !enforceSecureHttps {
+	if !enforceTrustedHttps {
 		args = append(args, "--allowinsecurehttps")
 	}
 
@@ -319,7 +319,7 @@ func CheckAndDeleteOutdatedCsiNode(
 	csiDriverName string,
 	labels map[string]string,
 	tolerations []corev1.Toleration,
-	enforceSecureHttps bool,
+	enforceTrustedHttps bool,
 ) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -343,10 +343,10 @@ func CheckAndDeleteOutdatedCsiNode(
 						allowInsecureHttpsFlagExists = true
 					}
 				}
-				if allowInsecureHttpsFlagExists && enforceSecureHttps {
+				if allowInsecureHttpsFlagExists && enforceTrustedHttps {
 					outdated = true
 				}
-				if !allowInsecureHttpsFlagExists && !enforceSecureHttps {
+				if !allowInsecureHttpsFlagExists && !enforceTrustedHttps {
 					outdated = true
 				}
 			}
