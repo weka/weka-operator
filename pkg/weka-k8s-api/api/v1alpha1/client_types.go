@@ -102,7 +102,7 @@ type ClientCsiConfig struct {
 }
 
 type AdvancedCsiConfig struct {
-	EnforceSecureHttps    bool              `json:"enforceSecureHttps,omitempty"`
+	EnforceTrustedHttps   bool              `json:"enforceTrustedHttps,omitempty"`
 	NodeLabels            map[string]string `json:"nodeLabels,omitempty"`
 	NodeTolerations       []v1.Toleration   `json:"nodeTolerations,omitempty"`
 	ControllerLabels      map[string]string `json:"controllerLabels,omitempty"`
