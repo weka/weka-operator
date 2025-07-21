@@ -945,7 +945,8 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 	// get the number of drives added to the cluster from weka status
 	container := discovery.SelectActiveContainer(r.containers)
 
-	wekaService := services.NewWekaService(r.ExecService, container)
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 	status, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return err
@@ -1100,7 +1101,8 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 
 	container := discovery.SelectActiveContainer(r.containers)
 
-	wekaService := services.NewWekaService(r.ExecService, container)
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 	status, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return err
@@ -1546,7 +1548,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		wekaService := services.NewWekaService(r.ExecService, discovery.SelectActiveContainer(r.containers))
+		timeout := time.Second * 30
+		wekaService := services.NewWekaServiceWithTimeout(r.ExecService, discovery.SelectActiveContainer(r.containers), &timeout)
 		status, err := wekaService.GetWekaStatus(ctx)
 		if err != nil {
 			return err
@@ -1994,7 +1997,8 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 
 	activeContainer := discovery.SelectActiveContainer(r.containers)
 
-	wekaService := services.NewWekaService(r.ExecService, activeContainer)
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, activeContainer, &timeout)
 	wekaStatus, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Failed to get Weka status")
@@ -2246,7 +2250,8 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 
 	container := discovery.SelectActiveContainer(r.containers)
 
-	wekaService := services.NewWekaService(r.ExecService, container)
+	timeout := time.Second * 30
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 	status, err := wekaService.GetWekaStatus(ctx)
 	if err != nil {
 		return err
