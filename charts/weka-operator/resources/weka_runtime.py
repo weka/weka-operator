@@ -1244,11 +1244,7 @@ async def create_container():
 
     global NETWORK_DEVICE
     if not NETWORK_DEVICE and SUBNETS:
-        subnets = SUBNETS.split(",")
-        devices = []
-        for subnet in subnets:
-            d = await autodiscover_network_devices(subnet)
-            devices.extend(d)
+        devices = await get_devices_by_subnets(SUBNETS)
 
         NETWORK_DEVICE = ",".join(devices)
 
@@ -2242,13 +2238,40 @@ async def get_single_device_ip(device_name: str = "default") -> str:
     return ip
 
 
-async def get_devices_by_subnets(subnets):
-    devices = []
-    for subnet in subnets.split(","):
-        for d in await autodiscover_network_devices(subnet):
-            devices.append(d)
-    logging.info("found devices by subnets(%s): %s", subnets, devices)
-    return devices
+async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str], timeout: int = 300) -> List[str]:
+    """Waits for all subnets to have at least one device.
+    Returns a list of devices found in all subnets.
+    Raises an exception if any subnet does not have a device after the timeout.
+    """
+    start_time = time.time()
+    while True:
+        all_devices_found = True
+        devices = []
+        for subnet in subnets:
+            devices_for_subnet = await autodiscover_network_devices(subnet)
+            if not devices_for_subnet:
+                all_devices_found = False
+                logging.info(f"No devices found for subnet {subnet}, waiting...")
+                break
+            else:
+                devices.extend(devices_for_subnet)
+
+        if all_devices_found:
+            logging.info("All subnets have devices. Subnets: %s, Devices: %s", subnets, devices)
+            return devices
+
+        if time.time() - start_time > timeout:
+            raise Exception(f"Timeout: Not all subnets have devices after {timeout} seconds.")
+
+        await asyncio.sleep(5)  # Wait before checking again
+
+
+async def get_devices_by_subnets(subnets_str: str) -> List[str]:
+    subnets = subnets_str.split(",")
+    if not subnets:
+        raise ValueError("No subnets provided or format is incorrect. Expected comma-separated list of subnets.")
+
+    return await get_devices_waiting_for_all_subnets_to_have_device(subnets)
 
 
 async def write_management_ips():
