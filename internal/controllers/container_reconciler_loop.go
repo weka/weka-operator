@@ -4636,7 +4636,9 @@ func (r *containerReconcilerLoop) invokeForceUmountOnHost(ctx context.Context) e
 }
 
 func (r *containerReconcilerLoop) checkTolerations(ctx context.Context) error {
-	notTolerated := !util.CheckTolerations(r.node.Spec.Taints, r.container.Spec.Tolerations)
+	ignoredTaints := config.Config.TolerationsMismatchSettings.GetIgnoredTaints()
+
+	notTolerated := !util.CheckTolerations(r.node.Spec.Taints, r.container.Spec.Tolerations, ignoredTaints)
 
 	if notTolerated == r.container.Status.NotToleratedOnReschedule {
 		return nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -83,6 +84,18 @@ type DNSPolicy struct {
 	HostNetwork string
 }
 
+type TolerationsMismatchSettings struct {
+	EnableIgnoredTaints bool
+	IgnoredTaints       []string
+}
+
+func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
+	if t == nil || !t.EnableIgnoredTaints {
+		return nil
+	}
+	return t.IgnoredTaints
+}
+
 var Config struct {
 	Version                        string
 	OperatorPodUID                 string
@@ -125,6 +138,7 @@ var Config struct {
 	EvictContainerOnDeletion               bool
 	RemovalThrottlingEnabled               bool
 	SkipClientsTolerationValidation        bool
+	TolerationsMismatchSettings            TolerationsMismatchSettings
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
 
@@ -280,6 +294,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 	Config.RemovalThrottlingEnabled = getBoolEnvOrDefault("REMOVAL_THROTTLING_ENABLED", false)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
+	Config.TolerationsMismatchSettings.EnableIgnoredTaints = getBoolEnvOrDefault("TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS", true)
+	Config.TolerationsMismatchSettings.IgnoredTaints = getStringSlice("TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS")
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 
@@ -332,6 +348,26 @@ func getBoolEnv(envKey string) bool {
 		os.Exit(1)
 	}
 	return ival
+}
+
+func getStringSlice(envKey string) []string {
+	val, found := os.LookupEnv(envKey)
+	if !found || val == "" {
+		return nil
+	}
+
+	val = env.GetString(envKey, "")
+
+	slice := make([]string, 0)
+	for c := range strings.SplitSeq(val, ",") {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		slice = append(slice, c)
+	}
+
+	return slice
 }
 
 func getBoolEnvOrDefault(envKey string, defaultVal bool) bool {
