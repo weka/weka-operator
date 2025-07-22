@@ -2664,6 +2664,10 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 		if meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerResourcesWritten) {
 			_, stderr2, err2 := executor.ExecNamed(ctx, "CheckResourcesJson", []string{"bash", "-ce", "cat /opt/weka/k8s-runtime/resources.json"})
 			if err2 != nil {
+				if strings.Contains(err2.Error(), "context deadline exceeded") {
+					return false, lifecycle.NewWaitErrorWithDuration(err2, time.Second*10)
+				}
+
 				err2 = fmt.Errorf("error checking resources.json: %v, %s, original err: %v", err2, stderr2.String(), err)
 
 				logger.Info("resources.json not found, re-writing it", "error", err2)
@@ -3361,7 +3365,8 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		}
 	}
 
-	executor, err := r.ExecService.GetExecutor(ctx, container)
+	timeout := time.Second * 30
+	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, container, &timeout)
 	if err != nil {
 		return err
 	}
