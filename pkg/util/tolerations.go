@@ -2,15 +2,20 @@ package util
 
 import (
 	"fmt"
-	corev1 "k8s.io/api/core/v1"
 	"reflect"
+	"slices"
 	"sort"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // CheckTolerations Check if the given taints can be tolerated by the given tolerations.
-func CheckTolerations(taints []corev1.Taint, tolerations []corev1.Toleration) bool {
+func CheckTolerations(taints []corev1.Taint, tolerations []corev1.Toleration, ignoreTaints []string) bool {
 TAINT:
 	for _, taint := range taints {
+		if ignoreTaints != nil && slices.Contains(ignoreTaints, taint.Key) {
+			continue
+		}
 		for _, toleration := range tolerations {
 			if toleration.ToleratesTaint(&taint) {
 				continue TAINT

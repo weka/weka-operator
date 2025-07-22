@@ -321,7 +321,7 @@ func CheckAndDeleteOutdatedCsiNode(
 	tolerations []corev1.Toleration,
 	enforceTrustedHttps bool,
 ) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CheckAndDeleteOutdatedCsiNode")
 	defer end()
 
 	outdated := false

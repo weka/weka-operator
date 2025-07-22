@@ -700,13 +700,16 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		// account for "expanded" NoSchedule tolerations
 		clientTolerations = resources.ConditionalExpandNoScheduleTolerations(clientTolerations, !config.Config.SkipClientNoScheduleToleration)
 
+		ignoredTaints := config.Config.TolerationsMismatchSettings.GetIgnoredTaints()
+
 		var filteredNodes []v1.Node
 
 		for _, node := range nodes {
 			if node.Spec.Unschedulable {
 				continue
 			}
-			if !util2.CheckTolerations(node.Spec.Taints, clientTolerations) {
+
+			if !util2.CheckTolerations(node.Spec.Taints, clientTolerations, ignoredTaints) {
 				continue
 			}
 			filteredNodes = append(filteredNodes, node)
@@ -874,6 +877,8 @@ func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx contex
 	}
 	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
 	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
+		c.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
+
 		return services.SetContainerStateDeleting(ctx, container, c.Client)
 	}).AsError()
 }
