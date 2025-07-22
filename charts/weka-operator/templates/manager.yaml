@@ -218,6 +218,10 @@ spec:
               value: "{{ .Values.removalThrottlingEnabled }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
+            - name: TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS
+              value: "{{ .Values.tolerationsMismatchSettings.enableIgnoredTaints }}"
+            - name: TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS
+              value: "{{ join "," .Values.tolerationsMismatchSettings.ignoredTaints }}"
             - name: DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT
               value: "{{ .Values.defaultIntervals.deleteEnvoyWithoutS3NeighborTimeout }}"
             - name: DELETE_UNSCHEDULABLE_PODS_AFTER
