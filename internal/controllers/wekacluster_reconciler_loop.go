@@ -1130,11 +1130,15 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		thinProvisionedLimitsDefault = defaultFsSize
 	}
 
+	isEncrypted := r.ShouldConfigureKms()
+
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
 		ThinProvisioningEnabled:   true,
+		IsEncrypted:               isEncrypted,
 	})
+
 	if err != nil {
 		var fsExists *services.FilesystemExists
 		if !errors.As(err, &fsExists) {
@@ -1146,6 +1150,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsDefault, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
+		IsEncrypted:               true,
 	})
 	if err != nil {
 		var fsExists *services.FilesystemExists
@@ -2474,6 +2479,47 @@ func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Contex
 		secret.Data["endpoints"] = endpointsBytes
 		return r.getClient().Update(ctx, secret)
 	}
+}
+
+func (r *wekaClusterReconcilerLoop) ConfigureKms(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureKms")
+	defer end()
+
+	activeContainer, err := discovery.SelectActiveContainerWithRole(ctx, r.containers, wekav1alpha1.WekaContainerModeDrive)
+	if err != nil {
+		return err
+	}
+
+	executor, err := r.ExecService.GetExecutor(ctx, activeContainer)
+	if err != nil {
+		return err
+	}
+
+	cmd := fmt.Sprintf("weka security kms set vault '%s' '%s' --kubernetes-role '%s' --auth-path '%s' --transit-path '%s'",
+		r.cluster.Spec.Encryption.VaultConfig.Address,
+		r.cluster.Spec.Encryption.VaultConfig.KeyName,
+		r.cluster.Spec.Encryption.VaultConfig.Role,
+		r.cluster.Spec.Encryption.VaultConfig.AuthPath,
+		r.cluster.Spec.Encryption.VaultConfig.TransitPath,
+	)
+	stdout, stderr, err := executor.ExecNamed(ctx, "ConfigureKms", []string{"bash", "-ce", cmd})
+	if err != nil {
+		return errors.Wrapf(err, "Failed to configure KMS: %s\n%s", stderr.String(), stdout.String())
+	}
+
+	logger.Info("KMS configured successfully")
+	return nil
+
+}
+
+func (r *wekaClusterReconcilerLoop) ShouldConfigureKms() bool {
+	if r.cluster.Spec.Encryption == nil || r.cluster.Spec.Encryption.VaultConfig == nil {
+		return false
+	}
+	if r.cluster.Spec.Encryption.VaultConfig.Method != "kubernetes" {
+		return false
+	}
+	return true
 }
 
 type UpdatableClusterSpec struct {

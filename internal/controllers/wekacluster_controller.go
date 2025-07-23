@@ -269,6 +269,14 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run:       loop.ConfigureKms,
+				Condition: condition.CondClusterKMSConfigured,
+				Predicates: lifecycle.Predicates{
+					loop.ShouldConfigureKms,
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Condition: condition.CondDefaultFsCreated,
 				Run:       loop.EnsureDefaultFS,
 				Predicates: lifecycle.Predicates{

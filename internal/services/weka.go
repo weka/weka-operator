@@ -158,6 +158,7 @@ type FSParams struct {
 	TotalCapacity             string
 	ThinProvisioningEnabled   bool
 	ThickProvisioningCapacity string
+	IsEncrypted               bool
 }
 
 type S3Params struct {
@@ -889,6 +890,10 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 	if params.ThinProvisioningEnabled {
 		cmd = append(cmd, "--thin-provision-max-ssd", params.TotalCapacity)
 		cmd = append(cmd, "--thin-provision-min-ssd", params.ThickProvisioningCapacity)
+	}
+
+	if params.IsEncrypted {
+		cmd = append(cmd, "--encrypted")
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "CreateFilesystem", cmd)
