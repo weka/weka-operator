@@ -226,9 +226,12 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiController")
 	defer end()
 
-	deploymentSpec := csi.NewCsiControllerDeployment(o.csiGroupName, o.wekaClient)
+	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient)
+	if err != nil {
+		return err
+	}
 
-	err := o.client.Create(ctx, deploymentSpec)
+	err = o.client.Create(ctx, deploymentSpec)
 	if err != nil {
 		return fmt.Errorf("failed to create CSI controller deployment: %w", err)
 	}

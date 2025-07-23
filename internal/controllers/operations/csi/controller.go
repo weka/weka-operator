@@ -1,7 +1,9 @@
 package csi
 
 import (
+	"context"
 	"fmt"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -85,7 +87,10 @@ func GetCsiDriverName(csiGroup string) string {
 	return fmt.Sprintf("%s.weka.io", csiGroup)
 }
 
-func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient) *appsv1.Deployment {
+func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.Deployment, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiControllerDeployment")
+	defer end()
+
 	name := GetCSIControllerName(csiGroupName)
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
@@ -99,6 +104,12 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}
 	labels := GetCsiLabels(csiDriverName, CSIController, wekaClient.Labels, csiLabels)
+
+	targetHash, err := GetCsiControllerDeploymentHash(csiGroupName, wekaClient)
+	if err != nil {
+		logger.Error(err, "Failed to get CSI controller deployment hash")
+		return nil, fmt.Errorf("failed to get CSI controller deployment hash: %w", err)
+	}
 
 	nodeSelector := wekaClient.Spec.NodeSelector
 	namespace, _ := util2.GetPodNamespace()
@@ -169,9 +180,10 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 						"component": name,
 					},
 					Annotations: map[string]string{
-						"prometheus.io/scrape": "true",
-						"prometheus.io/path":   "/metrics",
-						"prometheus.io/port":   "9090,9091,9092,9093,9095",
+						"prometheus.io/scrape":        "true",
+						"prometheus.io/path":          "/metrics",
+						"prometheus.io/port":          "9090,9091,9092,9093,9095",
+						"weka.io/csi-controller-hash": targetHash,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -528,7 +540,7 @@ func NewCsiControllerDeployment(csiGroupName string, wekaClient *weka.WekaClient
 				},
 			},
 		},
-	}
+	}, nil
 }
 
 // Helper function to create pointers to primitive types
