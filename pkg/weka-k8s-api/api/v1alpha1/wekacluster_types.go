@@ -225,6 +225,35 @@ type CsiConfig struct {
 	Advanced         *AdvancedCsiConfig `json:"advanced,omitempty"`
 }
 
+type VaultConfig struct {
+	// Vault address, e.g. "https://vault.example.com:8200".
+	Address string `json:"address"`
+
+	// Role to authenticate as in Vault.
+	Role string `json:"role"`
+
+	// +kubebuilder:default=kubernetes
+	// Path under auth/ that the weka uses for login. defaults to "kubernetes"
+	AuthPath string `json:"authPath,omitempty"`
+
+	// +kubebuilder:default=transit
+	// Transit engine mount path, defaults "transit".
+	TransitPath string `json:"transitPath,omitempty"`
+
+	// +kubebuilder:validation:Enum=kubernetes
+	// +kubebuilder:default=kubernetes
+	// Vault Auth method (only “kubernetes” is supported  on operator side.)
+	Method string `json:"method,omitempty"`
+
+	// +kubebuilder:default=weka-key
+	// Name of the transit key. defaults to "weka-key"
+	KeyName string `json:"keyName,omitempty"`
+}
+
+type EncryptionConfig struct {
+	VaultConfig *VaultConfig `json:"vault,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -321,7 +350,8 @@ type WekaClusterSpec struct {
 	//
 	// will result in every compute container getting coreIds [0,1,2,3] and every
 	// drive container getting [4,5,6,7].
-	RoleCoreIds RoleCoreIds `json:"roleCoreIds,omitempty"`
+	RoleCoreIds RoleCoreIds       `json:"roleCoreIds,omitempty"`
+	Encryption  *EncryptionConfig `json:"encryption,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
