@@ -110,7 +110,7 @@ The operator detects CSI configuration changes through the `CheckCsiConfigChange
 
 The `CheckAndDeleteOutdatedCsiNode` function ensures CSI node servers are up-to-date:
 
-1. Compares CSI driver name and tolerations of existing pod with desired configuration
+1. Compares CSI existing pod annotation hash, with the desired configuration hash
 2. If mismatched, deletes the pod so it can be recreated with updated settings
 3. The container reconciler then recreates it with the correct configuration
 

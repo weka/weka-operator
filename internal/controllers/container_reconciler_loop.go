@@ -805,6 +805,10 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
 				},
 				ContinueOnPredicatesFalse: true,
+				Throttled:                 10 * time.Minute,
+				ThrolltingSettings: util.ThrolltingSettings{
+					EnsureStepSuccess: false, // we do not want to retry this step if it fails
+				},
 			},
 		},
 	}
@@ -4681,8 +4685,32 @@ func (r *containerReconcilerLoop) isWekaClientRunning() bool {
 	return r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
 }
 
+type csiNodeHashableSpec struct {
+	CsiDriverName         string
+	CsiRegisterImage      string
+	CsiLivenessProbeImage string
+	CsiImage              string
+	Labels                *util.HashableMap
+	Tolerations           []v1.Toleration
+	EnforceTrustedHttps   bool
+}
+
+func (r *containerReconcilerLoop) calculateCSINodeHash(enforceTrustedHttps bool, labels map[string]string, tolerations []v1.Toleration) (string, error) {
+	spec := csiNodeHashableSpec{
+		CsiDriverName:         r.getCsiDriverName(),
+		CsiRegisterImage:      config.Config.CsiRegistrarImage,
+		CsiLivenessProbeImage: config.Config.CsiLivenessProbeImage,
+		CsiImage:              config.Config.CsiImage,
+		Labels:                util.NewHashableMap(labels),
+		Tolerations:           tolerations,
+		EnforceTrustedHttps:   enforceTrustedHttps,
+	}
+
+	return util.HashStruct(spec)
+}
+
 func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeployCsiNodeServerPod")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	nodeName := r.container.GetNodeAffinity()
@@ -4697,8 +4725,6 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 
 	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
 
-	pod := &v1.Pod{}
-	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
 	var csiNodeLabels map[string]string
 	var csiNodeTolerations []v1.Toleration
 	var enforceTrustedHttps bool
@@ -4709,6 +4735,14 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 	}
 	labels := csi.GetCsiLabels(r.getCsiDriverName(), csi.CSINode, r.container.Labels, csiNodeLabels)
 	tolerations := append(r.container.Spec.Tolerations, csiNodeTolerations...)
+	targetHash, err := r.calculateCSINodeHash(enforceTrustedHttps, labels, tolerations)
+	if err != nil {
+		return errors.Wrap(err, "failed to calculate CSI node hash")
+	}
+
+	pod := &v1.Pod{}
+	err = r.Get(ctx, client.ObjectKey{Name: csiNodeName, Namespace: namespace}, pod)
+
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating CSI node pod")
@@ -4720,6 +4754,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 				labels,
 				tolerations,
 				enforceTrustedHttps,
+				targetHash,
 			)
 			if err = r.Create(ctx, podSpec); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
@@ -4731,11 +4766,14 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 			return errors.Wrap(err, "failed to get CSI node pod")
 		}
 	} else {
-		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, r.getCsiDriverName(), labels, tolerations, enforceTrustedHttps)
+		return csi.CheckAndDeleteOutdatedCsiNode(ctx, pod, r.Client, targetHash)
 	}
 }
 
 func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CleanupCsiNodeServerPod")
+	defer end()
+
 	namespace, err := util.GetPodNamespace()
 	if err != nil {
 		return err
@@ -4747,7 +4785,9 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 			Namespace: namespace,
 		},
 	}); err != nil {
-		return fmt.Errorf("failed to delete CSI node pod %s: %w", csiNodeName, err)
+		if !apierrors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete CSI node pod", "pod_name", csiNodeName, "namespace", namespace)
+		}
 	}
 	return nil
 }

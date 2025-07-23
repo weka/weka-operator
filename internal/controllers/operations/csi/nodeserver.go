@@ -12,7 +12,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 func NewCsiNodePod(
@@ -23,6 +22,7 @@ func NewCsiNodePod(
 	labels map[string]string,
 	tolerations []corev1.Toleration,
 	enforceTrustedHttps bool,
+	targetHash string,
 ) *corev1.Pod {
 	privileged := true
 	args := []string{
@@ -60,9 +60,10 @@ func NewCsiNodePod(
 			Namespace: namespace,
 			Labels:    labels,
 			Annotations: map[string]string{
-				"prometheus.io/scrape": "true",
-				"prometheus.io/path":   "/metrics",
-				"prometheus.io/port":   "9094",
+				"prometheus.io/scrape":  "true",
+				"prometheus.io/path":    "/metrics",
+				"prometheus.io/port":    "9094",
+				"weka.io/csi-node-hash": targetHash,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -316,46 +317,15 @@ func CheckAndDeleteOutdatedCsiNode(
 	ctx context.Context,
 	pod *corev1.Pod,
 	c client.Client,
-	csiDriverName string,
-	labels map[string]string,
-	tolerations []corev1.Toleration,
-	enforceTrustedHttps bool,
+	targetHash string,
 ) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CheckAndDeleteOutdatedCsiNode")
 	defer end()
 
-	outdated := false
-	for _, podContainer := range pod.Spec.Containers {
-		switch podContainer.Name {
-		case "csi-registrar":
-			outdated = outdated || podContainer.Image != config.Config.CsiRegistrarImage
-		case "liveness-probe":
-			outdated = outdated || podContainer.Image != config.Config.CsiLivenessProbeImage
-		case "wekafs":
-			outdated = outdated || podContainer.Image != config.Config.CsiImage
-			for _, env := range podContainer.Env {
-				if env.Name == "CSI_DRIVER_NAME" {
-					outdated = outdated || (env.Value != csiDriverName)
-				}
-				var allowInsecureHttpsFlagExists bool
-				for _, arg := range podContainer.Args {
-					if arg == "--allowinsecurehttps" {
-						allowInsecureHttpsFlagExists = true
-					}
-				}
-				if allowInsecureHttpsFlagExists && enforceTrustedHttps {
-					outdated = true
-				}
-				if !allowInsecureHttpsFlagExists && !enforceTrustedHttps {
-					outdated = true
-				}
-			}
-		}
-	}
-	outdated = outdated || !util.AreMapsEqual(labels, pod.Labels) || !util.CompareTolerations(pod.Spec.Tolerations, tolerations, true) // ignore unhealthy default tolerations, since they are added by k8s on the pod level
+	currentHash, _ := pod.Annotations["weka.io/csi-node-hash"]
 
-	if outdated {
-		logger.Info("CSI node spec changed, re-deploying")
+	if currentHash != targetHash {
+		logger.Info("CSI node spec changed, re-deploying", "currentHash", currentHash, "targetHash", targetHash)
 		err := c.Delete(ctx, pod)
 		if err != nil {
 			return errors.Wrap(err, "failed to delete CSI node")
