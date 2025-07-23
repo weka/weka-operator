@@ -807,6 +807,8 @@ async def load_drivers():
 
     # load vfio-pci if not loaded and iommu groups are present
     cmd = '[ "$(ls -A /sys/kernel/iommu_groups/)" ] && lsmod | grep -w vfio_pci || modprobe vfio-pci'
+    if is_google_cos():
+        cmd = 'lsmod | grep -w vfio_pci || modprobe vfio-pci'
     _, stderr, ec = await run_command(cmd)
     if ec != 0:
         logging.error(f"Failed to load vfio-pci {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
