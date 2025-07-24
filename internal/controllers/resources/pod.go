@@ -166,6 +166,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
 	serviceAccountName := f.container.Spec.ServiceAccountName
+
+	managementIpStrategy := "auto"
+	if f.container.Spec.Network.ManagementIpStrategy != "" {
+		managementIpStrategy = string(f.container.Spec.Network.ManagementIpStrategy)
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      f.container.Name,
@@ -334,6 +340,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 									FieldPath: "spec.nodeName",
 								},
 							},
+						},
+						{
+							Name:  "MANAGEMENT_IP_STRATEGY",
+							Value: managementIpStrategy,
 						},
 						{
 							Name: "MANAGEMENT_IP",

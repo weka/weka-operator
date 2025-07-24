@@ -2344,6 +2344,10 @@ async def write_management_ips():
 
     ipAddresses = []
 
+    if os.environ.get("MANAGEMENT_IP_STRATEGY", "") == "none":
+        logging.info("Management IP strategy is set to 'none', skipping management IP discovery")
+        return
+
     if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
     elif not NETWORK_DEVICE and NETWORK_SELECTORS:

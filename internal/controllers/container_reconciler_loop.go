@@ -680,6 +680,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
 					},
+					func() bool {
+						return container.Spec.Network.ManagementIpStrategy != weka.ManagementIpStrategyNone
+					},
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setErrorStatus,
@@ -694,6 +697,9 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					},
 					func() bool {
 						return container.IsBackend() || container.IsClientContainer()
+					},
+					func() bool {
+						return container.Spec.Network.ManagementIpStrategy != weka.ManagementIpStrategyNone
 					},
 				},
 				ContinueOnPredicatesFalse: true,
