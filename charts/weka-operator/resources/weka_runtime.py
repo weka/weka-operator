@@ -2850,32 +2850,6 @@ if MODE not in ["adhoc-op"]:
     logrotate_task = loop.create_task(periodic_logrotate())
 
 
-async def sync_service_account():
-    """
-    weka local exec -- mkdir -p /var/run/secrets/kubernetes.io/serviceaccount
-cat /var/run/secrets/kubernetes.io/serviceaccount/token | weka local exec -- bash -c 'cat > /var/run/secrets/kubernetes.io/serviceaccount/token'
-    """
-    if not os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount"):
-        return
-    if not os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount/token"):
-        return
-    while True:
-        if not exiting:
-            try:
-                cmd = "weka local exec -- mkdir -p /var/run/secrets/kubernetes.io/serviceaccount"
-                await run_command(cmd, capture_stdout=False, log_execution=False)
-                cmd = "cat /var/run/secrets/kubernetes.io/serviceaccount/token | weka local exec -- bash -c 'cat > /var/run/secrets/kubernetes.io/serviceaccount/token'"
-                await run_command(cmd, capture_stdout=False, log_execution=False)
-            except Exception as e:
-                logging.error(f"Failed to sync service account token: {e}")
-        await asyncio.sleep(30)
-
-
-
-
-if MODE in ['compute', "drive"]:
-    sync_service_account_task = loop.create_task(sync_service_account())
-
 try:
     try:
         loop.run_until_complete(main_loop)
