@@ -1150,7 +1150,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsDefault, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
-		IsEncrypted:               true,
+		IsEncrypted:               isEncrypted,
 	})
 	if err != nil {
 		var fsExists *services.FilesystemExists

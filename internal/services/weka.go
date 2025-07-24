@@ -901,7 +901,7 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 		if strings.Contains(stderr.String(), "already exists") {
 			return &FilesystemExists{err}
 		}
-		return err
+		return fmt.Errorf("failed to create filesystem %s: %v - %s", name, err, stderr.String())
 	}
 	return nil
 }
