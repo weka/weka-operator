@@ -250,17 +250,6 @@ type AWSNetwork struct {
 	DeviceSlots []int `json:"deviceSlots,omitempty"`
 }
 
-type Network struct {
-	EthDevices []string   `json:"ethDevices,omitempty"`
-	EthDevice  string     `json:"ethDevice,omitempty"`
-	UdpMode    bool       `json:"udpMode,omitempty"`
-	AWS        AWSNetwork `json:"aws,omitempty"`
-	Gateway    string     `json:"gateway,omitempty"`
-	// subnet that is used for devices auto-discovery
-	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
-	DeviceSubnets []string `json:"deviceSubnets,omitempty"`
-}
-
 type ContainerAllocations struct {
 	Drives    []string `json:"drives,omitempty"`
 	EthSlots  []string `json:"ethSlots,omitempty"`

@@ -124,7 +124,7 @@ type WekaClientSpec struct {
 	PortRange          *PortRange        `json:"portRange,omitempty"`
 	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
 	WekaSecretRef      string            `json:"wekaSecretRef,omitempty"`
-	NetworkSelector    NetworkSelector   `json:"network,omitempty"`
+	Network            Network           `json:"network,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
 	DriversLoaderImage string            `json:"driversLoaderImage,omitempty"`
 	JoinIps            []string          `json:"joinIpPorts,omitempty"`

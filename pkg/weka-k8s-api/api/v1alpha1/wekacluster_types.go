@@ -38,15 +38,21 @@ const (
 )
 
 type NetworkSelector struct {
-	EthSlots   []string   `json:"ethSlots,omitempty"`
-	EthDevice  string     `json:"ethDevice,omitempty"`
-	EthDevices []string   `json:"ethDevices,omitempty"`
-	Gateway    string     `json:"gateway,omitempty"`
-	AWS        AWSNetwork `json:"aws,omitempty"`
-	UdpMode    bool       `json:"udpMode,omitempty"`
+	Subnet      string   `json:"subnet,omitempty"`
+	Min         int      `json:"min,omitempty"`
+	Max         int      `json:"max,omitempty"`
+	DeviceNames []string `json:"deviceNames,omitempty"`
+}
+
+type Network struct {
+	EthDevice  string   `json:"ethDevice,omitempty"`
+	EthDevices []string `json:"ethDevices,omitempty"`
+	Gateway    string   `json:"gateway,omitempty"`
+	UdpMode    bool     `json:"udpMode,omitempty"`
 	// subnet that is used for devices auto-discovery
 	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
-	DeviceSubnets []string `json:"deviceSubnets,omitempty"`
+	DeviceSubnets []string          `json:"deviceSubnets,omitempty"`
+	Selectors     []NetworkSelector `json:"selectors,omitempty"`
 }
 
 type AdditionalMemory struct {
@@ -133,13 +139,13 @@ type RoleAnnotations struct {
 
 type RoleNetworkSelector struct {
 	// network selector for compute weka containers
-	Compute *NetworkSelector `json:"compute,omitempty"`
+	Compute *Network `json:"compute,omitempty"`
 	// network selector for drive weka containers
-	Drive *NetworkSelector `json:"drive,omitempty"`
+	Drive *Network `json:"drive,omitempty"`
 	// network selector for s3 weka containers
-	S3 *NetworkSelector `json:"s3,omitempty"`
+	S3 *Network `json:"s3,omitempty"`
 	// network selector for nfs weka containers
-	Nfs *NetworkSelector `json:"nfs,omitempty"`
+	Nfs *Network `json:"nfs,omitempty"`
 }
 
 // RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.
@@ -306,7 +312,7 @@ type WekaClusterSpec struct {
 	// weka cluster topology configuration
 	Dynamic *WekaConfig `json:"dynamicTemplate,omitempty"`
 	// weka cluster network configuration
-	NetworkSelector NetworkSelector `json:"network,omitempty"`
+	Network Network `json:"network,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
 	// See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare
 	// +kubebuilder:default=0
@@ -585,8 +591,8 @@ func (c *WekaCluster) GetAnnotationsForRole(role string) map[string]string {
 }
 
 // Use role-specific network selector if set, otherwise use cluster network selector
-func (c *WekaCluster) GetNetworkSelectorForRole(role string) NetworkSelector {
-	var roleNetworkSelector *NetworkSelector
+func (c *WekaCluster) GetNetworkForRole(role string) Network {
+	var roleNetworkSelector *Network
 
 	switch role {
 	case "compute":
@@ -602,7 +608,7 @@ func (c *WekaCluster) GetNetworkSelectorForRole(role string) NetworkSelector {
 	if roleNetworkSelector != nil {
 		return *roleNetworkSelector
 	} else {
-		return c.Spec.NetworkSelector
+		return c.Spec.Network
 	}
 }
 
