@@ -33,7 +33,10 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 	_, logger, end := instrumentation.GetLogSpan(ctx, "getNetDevices")
 	defer end()
 
-	// if subnet for devices auto-discovery is set, we don't need to set the netDevice
+	// if subnet for devices auto-discovery or network selectors are set, we don't need to set the netDevice
+	if len(container.Spec.Network.Selectors) > 0 {
+		return
+	}
 	if len(container.Spec.Network.DeviceSubnets) > 0 {
 		return
 	}

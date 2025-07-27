@@ -42,6 +42,7 @@ CPU_POLICY = os.environ.get("CPU_POLICY", "auto")
 NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
 SUBNETS = os.environ.get("SUBNETS", "")
+NETWORK_SELECTORS = os.environ.get("NETWORK_SELECTORS", "")
 PORT = os.environ.get("PORT", "")
 AGENT_PORT = os.environ.get("AGENT_PORT", "")
 RESOURCES = {}  # to be populated at later stage
@@ -1245,9 +1246,12 @@ async def create_container():
         join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
 
     global NETWORK_DEVICE
+    if not NETWORK_DEVICE and NETWORK_SELECTORS:
+        devices = await get_devices_by_selectors(NETWORK_SELECTORS)
+        NETWORK_DEVICE = ",".join(devices)
+
     if not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)
-
         NETWORK_DEVICE = ",".join(devices)
 
     if is_managed_k8s():
@@ -1506,6 +1510,8 @@ async def ensure_weka_container():
     cli_changes = False
     if not is_managed_k8s() and not is_udp():
         target_devices = set(NETWORK_DEVICE.split(","))
+        if NETWORK_SELECTORS:
+            target_devices = set(await get_devices_by_selectors(NETWORK_SELECTORS))
         if SUBNETS:
             target_devices = set(await get_devices_by_subnets(SUBNETS))
         current_devices = set(dev['device'] for dev in resources['net_devices'])
@@ -1599,22 +1605,22 @@ async def configure_persistency():
             BOOT_DIR=/host-binds/boot-level/$(cat /proc/sys/kernel/random/boot_id)/cleanup
             mkdir -p $BOOT_DIR
             mkdir -p /opt/weka/external-mounts/cleanup
-            mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup   
+            mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
-        
+
         if [ -d /host-binds/shared ]; then
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
         fi
-        
+
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
             rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
             mkdir -p /opt/weka/k8s-runtime/vars/wh-cacert/
             cp /var/run/secrets/weka-operator/wekahome-cacert/cert.pem /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
             chmod 400 /opt/weka/k8s-runtime/vars/wh-cacert/cert.pem
         fi
-        
+
         if [ -d /host-binds/shared-configs ]; then
             ENVOY_DIR=/opt/weka/envoy
             EXT_ENVOY_DIR=/host-binds/shared-configs/envoy
@@ -1622,7 +1628,7 @@ async def configure_persistency():
             mkdir -p $EXT_ENVOY_DIR
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
         fi
-        
+
         mkdir -p {WEKA_K8S_RUNTIME_DIR}
         touch {PERSISTENCY_CONFIGURED}
     """)
@@ -2268,12 +2274,67 @@ async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str],
         await asyncio.sleep(5)  # Wait before checking again
 
 
+async def filter_out_missing_devices(device_names: List[str]) -> List[str]:
+    """Filter out devices that are not available in the system."""
+    available_devices = []
+    for device_name in device_names:
+        try:
+            ip = await get_single_device_ip(device_name)
+            if ip:
+                available_devices.append(device_name)
+        except Exception as e:
+            logging.warning(f"Device {device_name} is not available: {e}")
+    return available_devices
+
+
 async def get_devices_by_subnets(subnets_str: str) -> List[str]:
     subnets = subnets_str.split(",")
     if not subnets:
         raise ValueError("No subnets provided or format is incorrect. Expected comma-separated list of subnets.")
 
     return await get_devices_waiting_for_all_subnets_to_have_device(subnets)
+
+
+async def get_devices_by_selectors(selectors_str: str) -> List[str]:
+    devices = []
+    selectors = json.loads(selectors_str)
+    for selector in selectors:
+        min_devices = selector.get("min", 0)
+        max_devices = selector.get("max", 0)
+        device_names = selector.get("deviceNames")
+        subnet = selector.get("subnet")
+
+        if device_names:
+            device_names = await filter_out_missing_devices(device_names)
+            if len(device_names) < min_devices:
+                raise Exception(f"Not enough devices found by deviceNames selector. Expected at least {min_devices}, found {len(device_names)}.")
+
+            if max_devices > 0:
+                device_names = device_names[:max_devices]
+
+            for device_name in device_names:
+                if device_name not in devices:
+                    devices.append(device_name)
+
+            continue
+
+        if not subnet:
+            raise Exception("Either 'deviceNames' or 'subnet' must be provided in the selector.")
+
+        subnet_devices = await get_devices_waiting_for_all_subnets_to_have_device([subnet])
+        if len(subnet_devices) < min_devices:
+            raise Exception(f"Not enough devices found in subnet {subnet}. Expected at least {min_devices}, found {len(subnet_devices)}.")
+
+        if max_devices > 0:
+            subnet_devices = subnet_devices[:max_devices]
+
+        for device in subnet_devices:
+            if device not in devices:
+                devices.append(device)
+
+    logging.info(f"Devices found by selectors: {devices}")
+
+    return devices
 
 
 async def write_management_ips():
@@ -2285,6 +2346,11 @@ async def write_management_ips():
 
     if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
+    elif not NETWORK_DEVICE and NETWORK_SELECTORS:
+        devices = await get_devices_by_selectors(NETWORK_SELECTORS)
+        for device in devices:
+            ip = await get_single_device_ip(device)
+            ipAddresses.append(ip)
     elif not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)
         for device in devices:

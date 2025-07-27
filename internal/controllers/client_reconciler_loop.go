@@ -356,11 +356,6 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 
 	wekaClient := c.wekaClient
 
-	network, err := resources.GetContainerNetwork(wekaClient.Spec.NetworkSelector)
-	if err != nil {
-		return nil, err
-	}
-
 	additionalSecrets := map[string]string{}
 
 	whCaCert := ""
@@ -424,7 +419,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			NumCores:            c.getClientCores(),
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,
 			CoreIds:             wekaClient.Spec.CoreIds,
-			Network:             network,
+			Network:             wekaClient.Spec.Network,
 			Hugepages:           c.getClientHugePages(),
 			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",

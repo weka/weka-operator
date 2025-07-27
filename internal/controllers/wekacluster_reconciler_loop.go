@@ -684,22 +684,18 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			}
 		}
 
-		targetNetworkSelector := cluster.GetNetworkSelectorForRole(role)
+		targetNetwork := cluster.GetNetworkForRole(role)
 
-		targetNetworkSpec, err := resources.GetContainerNetwork(targetNetworkSelector)
-		if err != nil {
-			return err
-		}
 		oldNetworkHash, err := util2.HashStruct(container.Spec.Network)
 		if err != nil {
 			return err
 		}
-		targetNetworkHash, err := util2.HashStruct(targetNetworkSpec)
+		targetNetworkHash, err := util2.HashStruct(targetNetwork)
 		if err != nil {
 			return err
 		}
 		if oldNetworkHash != targetNetworkHash {
-			container.Spec.Network = targetNetworkSpec
+			container.Spec.Network = targetNetwork
 		}
 
 		// desired labels = cluster labels + required labels
@@ -755,7 +751,7 @@ func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx conte
 	cluster := r.cluster
 	containers := r.containers
 
-	findSameNetworkConfig := len(cluster.Spec.NetworkSelector.DeviceSubnets) > 0
+	findSameNetworkConfig := len(cluster.Spec.Network.DeviceSubnets) > 0
 	readyContainers := &ReadyForClusterizationContainers{}
 
 	for _, container := range containers {
@@ -771,7 +767,7 @@ func (r *wekaClusterReconcilerLoop) getReadyForClusterCreateContainers(ctx conte
 		}
 		// if deviceSubnets are provided, we should only consider containers that have devices in the provided subnets
 		if findSameNetworkConfig {
-			if !resources.ContainerHasDevicesInSubnets(container, cluster.Spec.NetworkSelector.DeviceSubnets) {
+			if !resources.ContainerHasDevicesInSubnets(container, cluster.Spec.Network.DeviceSubnets) {
 				readyContainers.Ignored = append(readyContainers.Ignored, container)
 			}
 		}
@@ -814,9 +810,9 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 	minDriveContainers := config.Consts.FormClusterMinDriveContainers
 	minComputeContainers := config.Consts.FormClusterMinComputeContainers
 
-	findSameNetworkConfig := len(cluster.Spec.NetworkSelector.DeviceSubnets) > 0
+	findSameNetworkConfig := len(cluster.Spec.Network.DeviceSubnets) > 0
 	if findSameNetworkConfig {
-		msg := fmt.Sprintf("Looking for %d compute and %d drive containers with device subnets %v", minComputeContainers, minDriveContainers, cluster.Spec.NetworkSelector.DeviceSubnets)
+		msg := fmt.Sprintf("Looking for %d compute and %d drive containers with device subnets %v", minComputeContainers, minDriveContainers, cluster.Spec.Network.DeviceSubnets)
 		logger.Debug(msg)
 	} else {
 		msg := fmt.Sprintf("Looking for %d compute and %d drive containers", minComputeContainers, minDriveContainers)
@@ -2541,7 +2537,7 @@ type UpdatableClusterSpec struct {
 	DriveAnnotations          *util2.HashableMap
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
-	NetworkSelector           wekav1alpha1.NetworkSelector
+	Network                   wekav1alpha1.Network
 	RoleNetworkSelector       wekav1alpha1.RoleNetworkSelector
 	PvcConfig                 *wekav1alpha1.PVCConfig
 	TracesConfiguration       *wekav1alpha1.TracesConfiguration
@@ -2577,7 +2573,7 @@ func NewUpdatableClusterSpec(spec *wekav1alpha1.WekaClusterSpec, meta *metav1.Ob
 		DriveAnnotations:          safeHashableMap(spec.RoleAnnotations.Drive),
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
-		NetworkSelector:           spec.NetworkSelector,
+		Network:                   spec.Network,
 		RoleNetworkSelector:       spec.RoleNetworkSelector,
 		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:       spec.TracesConfiguration,

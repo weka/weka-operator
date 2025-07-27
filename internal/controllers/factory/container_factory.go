@@ -50,12 +50,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
 
-	networkSelector := cluster.GetNetworkSelectorForRole(role)
-
-	network, err := resources.GetContainerNetwork(networkSelector)
-	if err != nil {
-		return nil, err
-	}
+	network := cluster.GetNetworkForRole(role)
 
 	secretKey := cluster.GetOperatorSecretName()
 
