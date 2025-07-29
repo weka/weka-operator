@@ -711,10 +711,12 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Annotations = newAnnotations
 		}
 
-		oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
-		newNodeSelector := cluster.GetNodeSelectorForRole(role)
-		if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
-			container.Spec.NodeSelector = newNodeSelector
+		if role != wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+			oldNodeSelector := util2.NewHashableMap(container.Spec.NodeSelector)
+			newNodeSelector := cluster.GetNodeSelectorForRole(role)
+			if !util2.NewHashableMap(newNodeSelector).Equals(oldNodeSelector) {
+				container.Spec.NodeSelector = newNodeSelector
+			}
 		}
 
 		// propagate core IDs for manual CPU policy if provided at cluster level
