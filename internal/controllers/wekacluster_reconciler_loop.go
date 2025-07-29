@@ -614,7 +614,7 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			return err
 		}
 
-		logger.Info("Cluster<>Container spec has changed, updating containers")
+		logger.Debug("Cluster<>Container spec hash has changed", "container", container.Name, "mode", container.Spec.Mode, "lastAppliedSpec", container.Status.LastAppliedSpec, "newSpecHash", specHash)
 		patch := client.MergeFrom(container.DeepCopy())
 
 		role := container.Spec.Mode
@@ -1763,7 +1763,7 @@ wekaauthcli debug jrpc unprepare_leader_for_upgrade
 }
 
 func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	// Fetch all own containers
@@ -1812,6 +1812,7 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 			return err
 		}
 	}
+
 	return nil
 }
 

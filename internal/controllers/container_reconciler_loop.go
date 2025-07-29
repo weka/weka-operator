@@ -974,6 +974,9 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 	}
 
 	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
 	executeInContainer := discovery.SelectActiveContainer(containers)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
@@ -1788,6 +1791,11 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	}
 
 	changed := false
+
+	if r.container.Status.Status == "" {
+		r.container.Status.Status = weka.Init
+		changed = true
+	}
 
 	if r.HasNodeAffinity() && r.container.Status.PrinterColumns.NodeAffinity == "" {
 		r.container.Status.PrinterColumns.NodeAffinity = string(r.container.GetNodeAffinity())
