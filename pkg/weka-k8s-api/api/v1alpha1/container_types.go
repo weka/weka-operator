@@ -125,6 +125,7 @@ const (
 type ContainerStatus string
 
 const (
+	Init           ContainerStatus = "Init"
 	PodNotRunning  ContainerStatus = "PodNotRunning"
 	PodRunning     ContainerStatus = "PodRunning"
 	PodTerminating ContainerStatus = "PodTerminating"
@@ -293,6 +294,7 @@ func (c *ContainerPrinterColumns) SetManagementIps(ips []string) {
 }
 
 type WekaContainerStatus struct {
+	// +kubebuilder:default="Init"
 	Status                   ContainerStatus          `json:"status"`
 	InternalStatus           string                   `json:"internalStatus,omitempty"` // weka local container internal status
 	ManagementIP             string                   `json:"managementIP,omitempty"`
