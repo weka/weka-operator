@@ -39,12 +39,12 @@ jobs:
           echo "Target branch: ${{ github.base_ref }}"
           echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
 
-  ci_on_merge_queue_plan:
+  upgrade_extended_test:
     needs: [optimize_ci, run_condition_check]
     if: needs.optimize_ci.outputs.skip == 'false' && needs.run_condition_check.result == 'success'
     env:
       GOPRIVATE: github.com/weka
-    name: ci_on_merge_queue_plan
+    name: upgrade_extended_test
     outputs:
       operator_image: ${{ steps.set-operator-versions.outputs.operator_image }}
       operator_helm_image: ${{ steps.set-operator-versions.outputs.operator_helm_image }}
@@ -176,8 +176,8 @@ jobs:
             --embedded-csi
   
   clients_only_test:
-    needs: [optimize_ci, run_condition_check, ci_on_merge_queue_plan]
-    if: needs.run_condition_check.result == 'success' && needs.ci_on_merge_queue_plan.result == 'success'
+    needs: [optimize_ci, run_condition_check, upgrade_extended_test]
+    if: needs.run_condition_check.result == 'success' && needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
       - uses: actions/create-github-app-token@v2
@@ -225,16 +225,16 @@ jobs:
             --source-kubeconfig=file://${{ github.workspace }}/.kube/config
             --target-kubeconfig=file://${{ github.workspace }}/.kube/ocp-cluster-config
             --use-gh-token-for-go-deps
-            --operator-image=${{ needs.ci_on_merge_queue_plan.outputs.operator_image }}
-            --operator-helm-image=${{ needs.ci_on_merge_queue_plan.outputs.operator_helm_image }}
+            --operator-image=${{ needs.upgrade_extended_test.outputs.operator_image }}
+            --operator-helm-image=${{ needs.upgrade_extended_test.outputs.operator_helm_image }}
 
   ci_on_merge_queue_required_status:
-    needs: [run_condition_check, ci_on_merge_queue_plan, clients_only_test]
+    needs: [run_condition_check, upgrade_extended_test, clients_only_test]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Validate required workflow
         run: |
           if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
-            [[ "${{ needs.ci_on_merge_queue_plan.result }}" == "success" && "${{ needs.clients_only_test.result }}" == "success" ]] || exit 1
+            [[ "${{ needs.upgrade_extended_test.result }}" == "success" ]] || exit 1
           fi
