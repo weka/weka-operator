@@ -5,6 +5,10 @@ kind: MachineConfig
 metadata:
   labels:
     machineconfiguration.openshift.io/role: {{ .Values.ocpCompatibility.hugepageConfiguration.machineConfigNodeLabel }}
+  {{- if $.Values.ocpCompatibility.retainMachineConfig }}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
   name: worker-hugepages-settings
 spec:
   kernelArguments:

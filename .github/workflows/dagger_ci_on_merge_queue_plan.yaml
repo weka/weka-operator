@@ -236,5 +236,5 @@ jobs:
       - name: Validate required workflow
         run: |
           if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
-            [[ "${{ needs.upgrade_extended_test.result }}" == "success" ]] || exit 1
+            [[ "${{ needs.upgrade_extended_test.result }}" == "success" && "${{ needs.clients_only_test.result }}" == "success" ]] || exit 1
           fi

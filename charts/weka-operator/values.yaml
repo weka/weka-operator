@@ -73,6 +73,15 @@ ocpCompatibility:
     nodeSelector:
       matchLabels:
         - node-role.kubernetes.io/worker: ""
+  # -- If true, the machine configurations will not be removed when uninstalling the operator.
+  #    This is useful for OpenShift Container Platform clusters, to not cause machine config pool update on operator reinstall
+  retainMachineConfig: true
+  csi:
+    # -- Optional setting for OCP platform only, which machineconfig pools to apply the Weka SELinux policy on
+    #    NOTE: by default, the policy will be installed both on workers and control plane nodes
+    machineConfigLabels:
+      - "worker"
+      - "master"
 
 gkeCompatibility:
   gkeServiceAccountSecret: ""
