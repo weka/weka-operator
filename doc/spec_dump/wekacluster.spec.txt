@@ -47,7 +47,7 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     csiConfig	<Object>
-      csiDriverName	<string>
+      csiGroup	<string>
       endpointsSubnets	<[]string>
     driversDistService	<string>
     dynamicTemplate	<Object>
@@ -683,6 +683,7 @@ FIELDS:
       drive	<map[string]string>
       nfs	<map[string]string>
       s3	<map[string]string>
+    serviceAccountName	<string>
     startIoConditions	<Object>
       minNumDrives	<integer>
     stripeWidth	<integer>
