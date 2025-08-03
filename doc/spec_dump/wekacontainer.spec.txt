@@ -142,7 +142,6 @@ FIELDS:
     coreIds	<[]integer>
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
-    csiDriverName	<string>
     driversDistService	<string>
     driversLoaderImage	<string>
     dropAffinityConstraints	<boolean>
@@ -175,12 +174,15 @@ FIELDS:
     enum: drive, compute, client, dist, ....
     name	<string> -required-
     network	<Object>
-      aws	<Object>
-        deviceSlots	<[]integer>
       deviceSubnets	<[]string>
       ethDevice	<string>
       ethDevices	<[]string>
       gateway	<string>
+      selectors	<[]Object>
+        deviceNames	<[]string>
+        max	<integer>
+        min	<integer>
+        subnet	<string>
       udpMode	<boolean>
     nodeAffinity	<string>
     nodeInfoConfigMap	<string>

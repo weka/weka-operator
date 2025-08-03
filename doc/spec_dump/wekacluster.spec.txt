@@ -47,7 +47,24 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     csiConfig	<Object>
-      csiDriverName	<string>
+      advanced	<Object>
+        controllerLabels	<map[string]string>
+        controllerTolerations	<[]Object>
+          effect	<string>
+          key	<string>
+          operator	<string>
+          tolerationSeconds	<integer>
+          value	<string>
+        enforceTrustedHttps	<boolean>
+        nodeLabels	<map[string]string>
+        nodeTolerations	<[]Object>
+          effect	<string>
+          key	<string>
+          operator	<string>
+          tolerationSeconds	<integer>
+          value	<string>
+        skipGarbageCollection	<boolean>
+      csiGroup	<string>
       endpointsSubnets	<[]string>
     driversDistService	<string>
     dynamicTemplate	<Object>
@@ -71,6 +88,15 @@ FIELDS:
       s3ExtraCores	<integer>
       s3FrontendHugepages	<integer>
       s3FrontendHugepagesOffset	<integer>
+    encryption	<Object>
+      vault	<Object>
+        address	<string> -required-
+        authPath	<string>
+        keyName	<string>
+        method	<string>
+        enum: kubernetes
+        role	<string> -required-
+        transitPath	<string>
     expandEndpoints	<[]string>
     failureDomain	<Object>
       compositeLabels	<[]string>
@@ -86,13 +112,15 @@ FIELDS:
     ipv6	<boolean>
     leadershipRaftSize	<integer>
     network	<Object>
-      aws	<Object>
-        deviceSlots	<[]integer>
       deviceSubnets	<[]string>
       ethDevice	<string>
       ethDevices	<[]string>
-      ethSlots	<[]string>
       gateway	<string>
+      selectors	<[]Object>
+        deviceNames	<[]string>
+        max	<integer>
+        min	<integer>
+        subnet	<string>
       udpMode	<boolean>
     nodeSelector	<map[string]string>
     operatorSecretRef	<string>
@@ -678,11 +706,67 @@ FIELDS:
       tolerationSeconds	<integer>
       value	<string>
     redundancyLevel	<integer>
+    roleAnnotations	<Object>
+      compute	<map[string]string>
+      drive	<map[string]string>
+      nfs	<map[string]string>
+      s3	<map[string]string>
+    roleCoreIds	<Object>
+      compute	<[]integer>
+      drive	<[]integer>
+      nfs	<[]integer>
+      s3	<[]integer>
+    roleNetworkSelector	<Object>
+      compute	<Object>
+        deviceSubnets	<[]string>
+        ethDevice	<string>
+        ethDevices	<[]string>
+        gateway	<string>
+        selectors	<[]Object>
+          deviceNames	<[]string>
+          max	<integer>
+          min	<integer>
+          subnet	<string>
+        udpMode	<boolean>
+      drive	<Object>
+        deviceSubnets	<[]string>
+        ethDevice	<string>
+        ethDevices	<[]string>
+        gateway	<string>
+        selectors	<[]Object>
+          deviceNames	<[]string>
+          max	<integer>
+          min	<integer>
+          subnet	<string>
+        udpMode	<boolean>
+      nfs	<Object>
+        deviceSubnets	<[]string>
+        ethDevice	<string>
+        ethDevices	<[]string>
+        gateway	<string>
+        selectors	<[]Object>
+          deviceNames	<[]string>
+          max	<integer>
+          min	<integer>
+          subnet	<string>
+        udpMode	<boolean>
+      s3	<Object>
+        deviceSubnets	<[]string>
+        ethDevice	<string>
+        ethDevices	<[]string>
+        gateway	<string>
+        selectors	<[]Object>
+          deviceNames	<[]string>
+          max	<integer>
+          min	<integer>
+          subnet	<string>
+        udpMode	<boolean>
     roleNodeSelector	<Object>
       compute	<map[string]string>
       drive	<map[string]string>
       nfs	<map[string]string>
       s3	<map[string]string>
+    serviceAccountName	<string>
     startIoConditions	<Object>
       minNumDrives	<integer>
     stripeWidth	<integer>
