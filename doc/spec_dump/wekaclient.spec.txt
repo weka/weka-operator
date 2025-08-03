@@ -47,7 +47,26 @@ FIELDS:
     cpuPolicy	<string>
     enum: auto, shared, dedicated, dedicated_ht, ....
     cpuRequest	<string>
-    csiGroup	<string>
+    csiConfig	<Object>
+      advanced	<Object>
+        controllerLabels	<map[string]string>
+        controllerTolerations	<[]Object>
+          effect	<string>
+          key	<string>
+          operator	<string>
+          tolerationSeconds	<integer>
+          value	<string>
+        enforceTrustedHttps	<boolean>
+        nodeLabels	<map[string]string>
+        nodeTolerations	<[]Object>
+          effect	<string>
+          key	<string>
+          operator	<string>
+          tolerationSeconds	<integer>
+          value	<string>
+        skipGarbageCollection	<boolean>
+      csiGroup	<string>
+      disableControllerCreation	<boolean>
     driversDistService	<string>
     driversLoaderImage	<string>
     globalPVC	<Object>
@@ -59,13 +78,15 @@ FIELDS:
     imagePullSecret	<string>
     joinIpPorts	<[]string>
     network	<Object>
-      aws	<Object>
-        deviceSlots	<[]integer>
       deviceSubnets	<[]string>
       ethDevice	<string>
       ethDevices	<[]string>
-      ethSlots	<[]string>
       gateway	<string>
+      selectors	<[]Object>
+        deviceNames	<[]string>
+        max	<integer>
+        min	<integer>
+        subnet	<string>
       udpMode	<boolean>
     nodeSelector	<map[string]string>
     overrides	<Object>
@@ -90,6 +111,7 @@ FIELDS:
       requests	<Object>
         cpu	<Object>
         memory	<Object>
+    serviceAccountName	<string>
     targetCluster	<Object>
       name	<string> -required-
       namespace	<string> -required-
