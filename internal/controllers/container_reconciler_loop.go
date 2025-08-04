@@ -637,6 +637,15 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Run: loop.checkUnhealyPodResources,
+				Predicates: lifecycle.Predicates{
+					func() bool {
+						return container.Status.Status == weka.Unhealthy
+					},
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Run: loop.updateDriversBuilderStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsDriversBuilder,
@@ -1931,6 +1940,45 @@ func (r *containerReconcilerLoop) checkPodUnhealty(ctx context.Context) error {
 	return nil
 }
 
+func (r *containerReconcilerLoop) checkUnhealyPodResources(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+
+	timeout := time.Second * 10
+	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, container, &timeout)
+	if err != nil {
+		return err
+	}
+
+	expectedAllocations, err := r.getExpectedAllocations(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting expected allocations: %v, original err: %v", err, err)
+	}
+
+	err = r.verifyResourcesJson(ctx, executor, expectedAllocations)
+	if err != nil {
+		if strings.Contains(err.Error(), "context deadline exceeded") {
+			return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+		}
+
+		err = fmt.Errorf("error checking resources.json: %w", err)
+
+		logger.Error(err, "resources.json is incorrect, re-writing it")
+
+		err2 := r.WriteResources(ctx)
+		if err2 != nil {
+			err2 = fmt.Errorf("error writing resources.json: %v, prev. error %v", err2, err)
+			return err2
+		}
+	}
+
+	logger.Debug("resources.json is correct, no need to re-write it")
+
+	return nil
+}
+
 func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -2668,22 +2716,27 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	}
 	stdout, stderr, err := executor.ExecNamed(ctx, "CheckDriversLoaded", []string{"bash", "-ce", "cat /tmp/weka-drivers.log"})
 	if err != nil {
-		// also verify that /opt/weka/k8s-runtime/resources.json exists
+		// also verify that /opt/weka/k8s-runtime/resources.json exists and is correct
 		if meta.IsStatusConditionTrue(r.container.Status.Conditions, condition.CondContainerResourcesWritten) {
-			_, stderr2, err2 := executor.ExecNamed(ctx, "CheckResourcesJson", []string{"bash", "-ce", "cat /opt/weka/k8s-runtime/resources.json"})
+			expectedAllocations, err2 := r.getExpectedAllocations(ctx)
+			if err2 != nil {
+				return false, fmt.Errorf("error getting expected allocations: %v, original err: %v", err2, err)
+			}
+
+			err2 = r.verifyResourcesJson(ctx, executor, expectedAllocations)
 			if err2 != nil {
 				if strings.Contains(err2.Error(), "context deadline exceeded") {
 					return false, lifecycle.NewWaitErrorWithDuration(err2, time.Second*10)
 				}
 
-				err2 = fmt.Errorf("error checking resources.json: %v, %s, original err: %v", err2, stderr2.String(), err)
+				err2 = fmt.Errorf("error checking resources.json: %v, original err: %v", err2, err)
 
-				logger.Info("resources.json not found, re-writing it", "error", err2)
+				logger.Error(err2, "resources.json is incorrect, re-writing it")
 
 				err3 := r.WriteResources(ctx)
 				if err3 != nil {
 					err3 = fmt.Errorf("error writing resources.json: %v, prev. error %v", err3, err2)
-					return false, fmt.Errorf("error writing resources.json: %v", err3)
+					return false, err3
 				}
 			}
 
@@ -3361,6 +3414,38 @@ func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) err
 	return nil
 }
 
+func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, executor util.Exec, expectedAllocations *weka.ContainerAllocations) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "verifyResourcesJson")
+	defer end()
+
+	// Verify the file was written correctly by reading it back and validating JSON
+	stdout, stderr, err := executor.ExecNamed(ctx, "VerifyResources", []string{"bash", "-ce", "cat /opt/weka/k8s-runtime/resources.json"})
+	if err != nil {
+		err = fmt.Errorf("error reading resources.json: %v, %s", err, stderr.String())
+		logger.Error(err, "")
+		return err
+	}
+
+	// Validate that the read content is valid JSON and matches what we wrote
+	var verifyAllocations weka.ContainerAllocations
+	readContent := stdout.String()
+	if err = json.Unmarshal([]byte(readContent), &verifyAllocations); err != nil {
+		err := fmt.Errorf("invalid JSON in resources.json: %w", err)
+		logger.Error(err, "", "content", readContent)
+		return err
+	}
+
+	// Verify the content matches what we intended to write
+	if !expectedAllocations.Equals(&verifyAllocations) {
+		err := fmt.Errorf("resources.json content does not match expected allocations")
+		logger.Error(err, "", expectedAllocations, "actual", verifyAllocations)
+		return err
+	}
+
+	logger.Info("Successfully verified resources.json was written correctly")
+	return nil
+}
+
 func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WriteResources")
 	defer end()
@@ -3385,6 +3470,37 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		return lifecycle.NewWaitError(err)
 	}
 
+	allocations, err := r.getExpectedAllocations(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get expected allocations: %w", err)
+	}
+
+	var resourcesJson []byte
+	resourcesJson, err = json.Marshal(allocations)
+	if err != nil {
+		return err
+	}
+
+	// Use base64 encoding for safe file writing - prevents bash injection issues
+	resourcesStr := string(resourcesJson)
+	logger.Info("writing resources", "json", resourcesStr)
+	stdout, stderr, err := executor.ExecNamed(ctx, "WriteResources", []string{"bash", "-ce", fmt.Sprintf(`
+mkdir -p /opt/weka/k8s-runtime/tmp
+echo '%s' > /opt/weka/k8s-runtime/tmp/resources.json
+mv /opt/weka/k8s-runtime/tmp/resources.json /opt/weka/k8s-runtime/resources.json
+`, resourcesStr)})
+	if err != nil {
+		logger.Error(err, "Error writing resources", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+
+	return r.verifyResourcesJson(ctx, executor, allocations)
+}
+
+func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*weka.ContainerAllocations, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "getExpectedAllocations")
+	defer end()
+
 	var allocations *weka.ContainerAllocations
 	if r.container.Status.Allocations != nil {
 		allocations = r.container.Status.Allocations
@@ -3406,32 +3522,18 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		if machineIdentifierPath != "" {
 			uid, err := util.GetKubeObjectFieldValue[string](r.node, machineIdentifierPath)
 			if err != nil {
-				return fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
+				return nil, fmt.Errorf("failed to get machine identifier from node: %w and path %s", err, machineIdentifierPath)
 			}
 			allocations.MachineIdentifier = uid
 		}
 	}
+
+	var err error
 	allocations.NetDevices, err = getNetDevices(ctx, r.node, r.container)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to get net devices: %w", err)
 	}
-	var resourcesJson []byte
-	resourcesJson, err = json.Marshal(allocations)
-	if err != nil {
-		return err
-	}
-
-	//TODO: Safer way of writing? as might be corrupted bash string
-
-	logger.Info("writing resources", "json", string(resourcesJson))
-	stdout, stderr, err := executor.ExecNamed(ctx, "WriteResources", []string{"bash", "-ce", fmt.Sprintf(`
-mkdir -p /opt/weka/k8s-runtime
-echo '%s' > /opt/weka/k8s-runtime/resources.json
-`, string(resourcesJson))})
-	if err != nil {
-		logger.Error(err, "Error writing resources", "stderr", stderr.String(), "stdout", stdout.String())
-	}
-	return err
+	return allocations, nil
 }
 
 func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error {

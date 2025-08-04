@@ -2186,8 +2186,35 @@ async def wait_for_resources():
             raise Exception("Shutdown requested")
         continue
 
-    with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
-        data = json.load(f)
+    # Read and validate the JSON file
+    data = None
+    max_retries = 10
+    retry_count = 0
+    
+    while data is None and retry_count < max_retries:
+        try:
+            with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
+                content = f.read().strip()
+                if not content:
+                    logging.warning("resources.json is empty, waiting for content...")
+                    await asyncio.sleep(3)
+                    retry_count += 1
+                    continue
+                
+                data = json.loads(content)
+                break
+        except json.JSONDecodeError as e:
+            logging.warning(f"Invalid JSON in resources.json (attempt {retry_count + 1}/{max_retries}): {e}")
+            logging.debug("Content of resources.json:", content)
+            await asyncio.sleep(3)
+            retry_count += 1
+        except Exception as e:
+            logging.error(f"Error reading resources.json: {e}")
+            await asyncio.sleep(3)
+            retry_count += 1
+    
+    if data is None:
+        raise Exception(f"Failed to read valid JSON from resources.json after {max_retries} attempts")
 
     logging.info("found resources.json: %s", data)
     net_devices = ",".join(data.get("netDevices", []))
