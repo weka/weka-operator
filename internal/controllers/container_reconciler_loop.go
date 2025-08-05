@@ -453,10 +453,10 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{Run: loop.ensureFinalizer},
 			{Run: loop.ensureBootConfigMapInTargetNamespace},
 			{
-				Run: loop.updatePodLabelsOnChange,
+				Run: loop.updatePodMetadataOnChange,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsNotFunc(loop.PodNotSet),
-					loop.podLabelsChanged,
+					loop.podMetadataChanged,
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -1891,9 +1891,10 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) updatePodLabelsOnChange(ctx context.Context) error {
+func (r *containerReconcilerLoop) updatePodMetadataOnChange(ctx context.Context) error {
 	pod := r.pod
 	pod.SetLabels(resources.LabelsForWekaPod(r.container))
+	pod.SetAnnotations(r.container.GetAnnotations())
 
 	if err := r.Update(ctx, pod); err != nil {
 		return fmt.Errorf("failed to update pod labels: %w", err)
@@ -1902,11 +1903,18 @@ func (r *containerReconcilerLoop) updatePodLabelsOnChange(ctx context.Context) e
 	return nil
 }
 
-func (r *containerReconcilerLoop) podLabelsChanged() bool {
+func (r *containerReconcilerLoop) podMetadataChanged() bool {
 	oldLabels := r.pod.GetLabels()
 	newLabels := resources.LabelsForWekaPod(r.container)
 
-	return !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(oldLabels))
+	if !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(oldLabels)) {
+		return true
+	}
+
+	oldAnnotations := r.pod.GetAnnotations()
+	newAnnotations := r.container.GetAnnotations()
+
+	return !util.NewHashableMap(newAnnotations).Equals(util.NewHashableMap(oldAnnotations))
 }
 
 func (r *containerReconcilerLoop) checkPodUnhealty(ctx context.Context) error {

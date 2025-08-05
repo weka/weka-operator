@@ -88,6 +88,7 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
 	labels := LabelsForWekaPod(f.container)
+	annotations := f.container.GetAnnotations()
 
 	image := f.container.Spec.Image
 	// if podImage is not nil, use it instead of the image from the container spec
@@ -168,9 +169,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	serviceAccountName := f.container.Spec.ServiceAccountName
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      f.container.Name,
-			Namespace: f.container.Namespace,
-			Labels:    labels,
+			Name:        f.container.Name,
+			Namespace:   f.container.Namespace,
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: corev1.PodSpec{
 			Tolerations:                   tolerations,

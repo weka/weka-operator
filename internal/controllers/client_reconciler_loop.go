@@ -667,6 +667,13 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	newAnnotations := c.wekaClient.GetAnnotations()
+	oldAnnotations := container.GetAnnotations()
+	if !util2.NewHashableMap(newAnnotations).Equals(util2.NewHashableMap(oldAnnotations)) {
+		container.SetAnnotations(newAnnotations)
+		changed = true
+	}
+
 	if changed {
 		err := c.Patch(ctx, container, patch)
 		if err != nil {
@@ -933,6 +940,7 @@ type UpdatableClientSpec struct {
 	Tolerations           []string
 	RawTolerations        []v1.Toleration
 	Labels                *util2.HashableMap
+	Annotations           *util2.HashableMap
 	AutoRemoveTimeout     metav1.Duration
 	ForceDrain            bool
 	SkipActiveMountsCheck bool
@@ -945,6 +953,7 @@ type UpdatableClientSpec struct {
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 	labels := util2.NewHashableMap(factory.BuildClientContainerLabels(client))
 	spec := client.Spec
+	meta := client.ObjectMeta
 
 	return &UpdatableClientSpec{
 		DriversDistService:    spec.DriversDistService,
@@ -961,6 +970,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		Tolerations:           spec.Tolerations,
 		RawTolerations:        spec.RawTolerations,
 		Labels:                labels,
+		Annotations:           util2.NewHashableMap(meta.Annotations),
 		AutoRemoveTimeout:     spec.AutoRemoveTimeout,
 		ForceDrain:            spec.GetOverrides().ForceDrain,
 		SkipActiveMountsCheck: spec.GetOverrides().SkipActiveMountsCheck,
