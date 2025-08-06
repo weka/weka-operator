@@ -1892,9 +1892,16 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) updatePodMetadataOnChange(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updatePodMetadataOnChange")
+	defer end()
+
 	pod := r.pod
-	pod.SetLabels(resources.LabelsForWekaPod(r.container))
-	pod.SetAnnotations(r.container.GetAnnotations())
+	newLabels := resources.LabelsForWekaPod(r.container)
+	newAnnotations := resources.AnnotationsForWekaPod(r.container.GetAnnotations(), r.pod.GetAnnotations())
+	pod.SetLabels(newLabels)
+	pod.SetAnnotations(newAnnotations)
+
+	logger.Info("Updating pod metadata", "new_labels", newLabels, "new_annotations", newAnnotations)
 
 	if err := r.Update(ctx, pod); err != nil {
 		return fmt.Errorf("failed to update pod labels: %w", err)
@@ -1912,7 +1919,7 @@ func (r *containerReconcilerLoop) podMetadataChanged() bool {
 	}
 
 	oldAnnotations := r.pod.GetAnnotations()
-	newAnnotations := r.container.GetAnnotations()
+	newAnnotations := resources.AnnotationsForWekaPod(r.container.GetAnnotations(), oldAnnotations)
 
 	return !util.NewHashableMap(newAnnotations).Equals(util.NewHashableMap(oldAnnotations))
 }

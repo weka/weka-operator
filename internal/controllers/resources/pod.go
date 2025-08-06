@@ -25,6 +25,8 @@ import (
 
 const (
 	inPodHostBinds = "/host-binds"
+	// appliedAnnotationsKey is used to store the annotations that were applied to the pod by the operator.
+	appliedAnnotationsKey = "weka.io/applied-annotations"
 )
 
 // if the container mode is not in the map, the default is 1 year
@@ -88,7 +90,7 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
 	labels := LabelsForWekaPod(f.container)
-	annotations := f.container.GetAnnotations()
+	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 
 	image := f.container.Spec.Image
 	// if podImage is not nil, use it instead of the image from the container spec
@@ -1317,6 +1319,46 @@ func LabelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
 		labels["weka.io/cluster-id"] = container.GetParentClusterId()
 	}
 	return labels
+}
+
+func AnnotationsForWekaPod(containerAnnotations, podAnnotations map[string]string) map[string]string {
+	// initialize a map to keep track of applied annotations
+	appliedAnnotations := make(map[string]struct{}) // to avoid duplicates
+	if podAnnotations != nil {
+		if appliedAnnotationsStr, exists := podAnnotations[appliedAnnotationsKey]; exists {
+			for key := range strings.SplitSeq(appliedAnnotationsStr, ",") {
+				if key != "" {
+					appliedAnnotations[key] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// create a new map for the final annotations
+	finalAnnotations := make(map[string]string)
+	// add existing pod annotations excluding ones that are added by weka-operator
+	for k, v := range podAnnotations {
+		if _, exists := appliedAnnotations[k]; !exists {
+			finalAnnotations[k] = v
+		}
+	}
+	// add all wekacontainer's annotations
+	for k, v := range containerAnnotations {
+		finalAnnotations[k] = v
+		appliedAnnotations[k] = struct{}{} // mark this annotation as applied
+	}
+
+	// update the applied annotations key (if any)
+	if len(appliedAnnotations) == 0 {
+		return finalAnnotations
+	}
+	appliedAnnotationsList := make([]string, 0, len(appliedAnnotations))
+	for k := range appliedAnnotations {
+		appliedAnnotationsList = append(appliedAnnotationsList, k)
+	}
+	finalAnnotations[appliedAnnotationsKey] = strings.Join(appliedAnnotationsList, ",")
+
+	return finalAnnotations
 }
 
 func commaSeparated(ints []int) string {

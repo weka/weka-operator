@@ -335,11 +335,17 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
             logger.info("Upgrade test completed successfully.")
 
             # Return a directory that has both the test artifacts and result
-            return (
-                dag.directory()
-                .with_directory("test_artifacts", test_artifacts_dir)
-                .with_directory("test_result", result.directory("/"))
-            )
+            result_dir = dag.directory().with_directory("test_artifacts", result.directory("/test_artifacts"))
+            
+            # First check if the directory exists by listing the container contents
+            ls_output = await result.with_exec(["ls", "-la", "/"]).stdout()
+            if "persistent_data" in ls_output:
+                result_dir = result_dir.with_directory("persistent_data", result.directory("/persistent_data"))
+                logger.info("Added persistent_data directory to result")
+            else:
+                logger.info("persistent_data directory not found in container root")
+
+            return result_dir
         else:
             # In dry run mode, just return the artifacts directory
             return test_artifacts_dir
