@@ -110,29 +110,34 @@ class OperatorFlows:
 
     @function
     async def ci_on_merge_queue_env(self,
+                                    sock: dagger.Socket,
                                     testing: Annotated[dagger.Directory, Ignore([
                                         ".aider*",
                                         "*/.git",
                                     ])],
-                                    wekai: Annotated[dagger.Directory, Ignore([
+                                    wekai: Optional[Annotated[dagger.Directory, Ignore([
                                         ".aider*",
                                         "*/.git",
                                         ".dagger",
-                                    ])],
-                                    sock: dagger.Socket,
+                                    ])]] = None,
                                     gh_token: Optional[dagger.Secret] = None,
                                     ) -> dagger.Container:
         from containers.builders import _uv_base
 
-        wekai = await build_go(wekai, sock, gh_token)
         testing = await build_go(testing, sock, cache_deps=False, gh_token=gh_token)
 
         base_container = await _uv_base()
         base_container = (
             base_container
-            .with_file("/wekai", wekai.file("/out-binary"))
             .with_file("/weka-k8s-testing", testing.file("/out-binary"))
         )
+        
+        if wekai is not None:
+            wekai = await build_go(wekai, sock, gh_token)
+            base_container = (
+                base_container
+                .with_file("/wekai", wekai.file("/out-binary"))
+            )
 
         return base_container
 
@@ -224,11 +229,6 @@ class OperatorFlows:
             ".aider*",
             "*/.git",
         ])],
-        wekai: Annotated[dagger.Directory, Ignore([
-            ".aider*",
-            "*/.git",
-            ".dagger",
-        ])],
         sock: dagger.Socket,
         pr_number: int,
         gh_token: dagger.Secret,
@@ -237,6 +237,12 @@ class OperatorFlows:
         kubeconfig_path: dagger.Secret,
         initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
         new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.129-k8s",
+        enable_ai_hooks: bool = False,
+        wekai: Optional[Annotated[dagger.Directory, Ignore([
+            ".aider*",
+            "*/.git",
+            ".dagger",
+        ])]] = None,
         test_artifacts_dir: Optional[dagger.Directory] = None,
         dry_run: bool = False,
         no_cleanup: bool = False,
@@ -248,6 +254,10 @@ class OperatorFlows:
         embedded_csi: bool = False,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
+        
+        if enable_ai_hooks and wekai is None:
+            logger.error("wekai directory must be provided if enable_ai_hooks is True for env setup")
+            raise ValueError("wekai directory must be provided if enable_ai_hooks is True for env setup")
 
         current_gh_token = None
         if use_gh_token_for_go_deps:
@@ -256,8 +266,10 @@ class OperatorFlows:
                 raise ValueError("gh_token must be provided if use_gh_token_for_go_deps is True for env setup")
             current_gh_token = gh_token
 
-        if not test_artifacts_dir:
+        if not test_artifacts_dir and enable_ai_hooks:
             test_artifacts_dir = await self.generate_pr_test_artifacts(operator, pr_number, gh_token, openai_api_key)
+        elif not test_artifacts_dir:
+            test_artifacts_dir = dag.directory()
     
         logger.info("Extracting hook environment variables from provided artifacts.")
         hook_env_dict = await self._get_hook_env_vars(test_artifacts_dir)

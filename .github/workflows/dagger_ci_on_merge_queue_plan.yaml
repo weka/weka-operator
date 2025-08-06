@@ -11,6 +11,7 @@ concurrency:
 env:
   INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha"
   NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3"
+  USE_AI_HOOKS: "true"
 
 jobs:
   optimize_ci:
@@ -70,6 +71,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout wekai repository
+        if: env.USE_AI_HOOKS == 'true'
         uses: actions/checkout@v4
         with:
           repository: weka/wekai
@@ -92,6 +94,7 @@ jobs:
 
       - name: Call Generate Test Artifacts
         uses: dagger/dagger-for-github@8.0.0
+        if: env.USE_AI_HOOKS == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -109,6 +112,7 @@ jobs:
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
+        if: env.USE_AI_HOOKS == 'true'
         with:
           name: test-artifacts
           path: ${{ github.workspace }}/test-artifacts
@@ -160,7 +164,8 @@ jobs:
             ci-on-merge-queue-plan
             --operator=${{ github.workspace }}/operator
             --testing=${{ github.workspace }}/testing
-            --wekai=${{ github.workspace }}/wekai
+            ${{ env.USE_AI_HOOKS == 'true' && '--enable-ai-hooks' || '' }}
+            ${{ env.USE_AI_HOOKS == 'true' && format('--wekai={0}/wekai', github.workspace) || '' }}
             --sock=/var/run/docker.sock
             --pr-number=${{ github.event.pull_request.number }}
             --gh-token="env://GH_TOKEN"
