@@ -337,8 +337,8 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
             # Return a directory that has both the test artifacts and result
             return (
                 dag.directory()
-                .with_directory("test_artifacts", test_artifacts_dir)
-                .with_directory("test_result", result.directory("/"))
+                .with_directory("test_artifacts", result.directory("/test_artifacts"))
+                .with_directory("persistent_data", result.directory("/persistent_data"))
             )
         else:
             # In dry run mode, just return the artifacts directory

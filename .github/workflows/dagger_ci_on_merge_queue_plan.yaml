@@ -111,6 +111,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-artifacts
+          if-no-files-found: ignore
           path: ${{ github.workspace }}/test-artifacts
           retention-days: 1
 
@@ -174,6 +175,15 @@ jobs:
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
             --embedded-csi
+            export --path ${{ github.workspace }}/test-results
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          if-no-files-found: ignore
+          path: ${{ github.workspace }}/test-results
+          retention-days: 1
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]
