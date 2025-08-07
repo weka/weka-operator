@@ -113,14 +113,23 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	netDevice := "udp"
 	udpMode := "false"
 	subnets := strings.Join(f.container.Spec.Network.DeviceSubnets, ",")
+	// convert f.container.Spec.Network.ManagementIPsSelectors to json string
+	managementIPsSelectors := ""
+	if len(f.container.Spec.Network.ManagementIPsSelectors) > 0 {
+		managementIPsSelectorsBytes, err := json.Marshal(f.container.Spec.Network.ManagementIPsSelectors)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal management ips selectors: %w", err)
+		}
+		managementIPsSelectors = string(managementIPsSelectorsBytes)
+	}
 	// convert f.container.Spec.Network.Selectors to json string
-	selectors := ""
+	networkSelectors := ""
 	if len(f.container.Spec.Network.Selectors) > 0 {
-		selectorsBytes, err := json.Marshal(f.container.Spec.Network.Selectors)
+		networkSelectorsBytes, err := json.Marshal(f.container.Spec.Network.Selectors)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal network selectors: %w", err)
 		}
-		selectors = string(selectorsBytes)
+		networkSelectors = string(networkSelectorsBytes)
 	}
 	// if subnet for devices auto-discovery or network selectors are set, we don't need to set the netDevice
 	if subnets != "" || len(f.container.Spec.Network.Selectors) > 0 {
@@ -288,7 +297,11 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						},
 						{
 							Name:  "NETWORK_SELECTORS",
-							Value: selectors,
+							Value: networkSelectors,
+						},
+						{
+							Name:  "MANAGEMENT_IPS_SELECTORS",
+							Value: managementIPsSelectors,
 						},
 						{
 							Name:  "NET_GATEWAY",

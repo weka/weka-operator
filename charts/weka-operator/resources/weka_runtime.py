@@ -43,6 +43,7 @@ NAME = os.environ["NAME"]
 NETWORK_DEVICE = os.environ.get("NETWORK_DEVICE", "")
 SUBNETS = os.environ.get("SUBNETS", "")
 NETWORK_SELECTORS = os.environ.get("NETWORK_SELECTORS", "")
+MANAGEMENT_IPS_SELECTORS = os.environ.get("MANAGEMENT_IPS_SELECTORS", "")
 PORT = os.environ.get("PORT", "")
 AGENT_PORT = os.environ.get("AGENT_PORT", "")
 RESOURCES = {}  # to be populated at later stage
@@ -2373,6 +2374,11 @@ async def write_management_ips():
 
     if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
+    elif MANAGEMENT_IPS_SELECTORS:
+        devices = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)
+        for device in devices:
+            ip = await get_single_device_ip(device)
+            ipAddresses.append(ip)
     elif not NETWORK_DEVICE and NETWORK_SELECTORS:
         devices = await get_devices_by_selectors(NETWORK_SELECTORS)
         for device in devices:
