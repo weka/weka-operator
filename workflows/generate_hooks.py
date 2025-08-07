@@ -351,13 +351,18 @@ When plan that you will generate will run it will have following environment var
 <hooks_guidance>
 {hooks_guidance}
 
-## Wekai usage (wekai is a tool that can execute hook plan that you will produce)
-- request-file is the exisintg text plan file (prompt)
-- plan-file is the name of the non-existing json plan file that will be created by Wekai
-- --params=param_name=param_value, you can rely on this when building a plan, specifying within plan that such global parameter is expected, and adding something like `params=cluster_name=$CLUSTER_NAME --params=namespace=$NAMESPACE` to wekai executino within a hook
+## AI bot usage (this is a tool that can execute hook plan that you will produce)
+- request-file is the existing text plan file (prompt)
+- --params=param_name=param_value, you can rely on this when building a plan, specifying within plan that such global parameter is expected, and adding something like `params=cluster_name=$CLUSTER_NAME --params=namespace=$NAMESPACE` to wekai execution within a hook
 - --docs-dir MUST be $DOCS_DIR environment variable
+- --pr-number is the PR number that you are generating hooks for, it will must be $PR_NUMBER environment variable
 ```
-$PATH_TO_WEKAI --mode bot --stderr-logs --docs-dir=$DOCS_DIR --request-file plan.txt --plan-file plan.txt.json --params=cluster_name=$CLUSTER_NAME, --params=namespace=$NAMESPACE...
+$PATH_TO_AI_BOT \
+    --request-file plan.txt \
+    --docs-dir $DOCS_DIR \
+    --params cluster_name=$CLUSTER_NAME \
+    --params namespace=$NAMESPACE \
+    --pr-number $PR_NUMBER
 ```
 </hooks_guidance>
 </environment_description>

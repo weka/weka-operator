@@ -7,13 +7,13 @@ Given the provided context and the details below, make the decision if you are a
 This test is executed on top of existing environment in the middle of other test, details will follow in form of `<context>`, `<environment_details>` and so on
 
 If YES:
-Generate the test-in-the-hook plan text file assuming that you dessribe the steps running in the middle of existing test.
+Generate the test-in-the-hook plan text file assuming that you describe the steps running in the middle of existing test.
    - Rely on available environment variable specified in test description
    - Use the plain text format, describing steps to test new functionality
    - test-in-the-hook plan text should assume and specify that it is running in pre-existing environment, any changes to environment should be reverted in the end of plan
-   - Create a hook script that contains wekai call (via $PATH_TO_WEKAI) with the generated text plan as the request file.
-     - You must use $PATH_TO_WEKAI call in hook, wekai will be executing plan.txt file
-     - hook.sh can be called from any dir, so reference its own directory for plan files in wekai call
+   - Create a hook script that contains AI bot call (via $PATH_TO_AI_BOT) with the generated text plan as the request file.
+     - You must use $PATH_TO_AI_BOT call in hook, this bot will be executing plan.txt file
+     - hook.sh can be called from any dir, so reference its own directory for plan files in AI bot call
    - Both the test plan and the hook script should be placed in the {output_dir}
    - For each hook to be used place them under `{output_dir}/hook_HOOK_NAME/hook.sh and `{output_dir}/hook_HOOK_NAME/plan.txt`
    - You are allowed to break up validation into multiple hooks, each one getting required instructions, they will not be able to exchange information and each such plan should be treat stand-alone. But you can rely on multiple hooks being executed, each should have a test plan and a bash hook entry point

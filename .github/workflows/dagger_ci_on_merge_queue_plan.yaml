@@ -107,10 +107,10 @@ jobs:
             --openai-api-key="env://OPENAI_API_KEY"
             export --path ${{ github.workspace }}/test-artifacts
 
-      - name: Upload test artifacts
+      - name: Upload test artifacts (AI-generated test plan)
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts
+          name: ai-generated-test-plan
           if-no-files-found: ignore
           path: ${{ github.workspace }}/test-artifacts
           retention-days: 1
@@ -165,6 +165,7 @@ jobs:
             --sock=/var/run/docker.sock
             --pr-number=${{ github.event.pull_request.number }}
             --gh-token="env://GH_TOKEN"
+            --gh-sha=${{ github.sha }}
             --openai-api-key="env://OPENAI_API_KEY"
             --gemini-api-key="env://GEMINI_API_KEY"
             --kubeconfig-path=file://${{ github.workspace }}/.kube/config
@@ -175,15 +176,6 @@ jobs:
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
             --embedded-csi
-            export --path ${{ github.workspace }}/test-results
-      
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          if-no-files-found: ignore
-          path: ${{ github.workspace }}/test-results
-          retention-days: 1
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]
