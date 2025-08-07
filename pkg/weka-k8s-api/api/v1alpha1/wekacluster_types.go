@@ -51,8 +51,9 @@ type Network struct {
 	UdpMode    bool     `json:"udpMode,omitempty"`
 	// subnet that is used for devices auto-discovery
 	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
-	DeviceSubnets []string          `json:"deviceSubnets,omitempty"`
-	Selectors     []NetworkSelector `json:"selectors,omitempty"`
+	DeviceSubnets          []string          `json:"deviceSubnets,omitempty"`
+	Selectors              []NetworkSelector `json:"selectors,omitempty"`
+	ManagementIPsSelectors []NetworkSelector `json:"managementIpsSelectors,omitempty"`
 }
 
 type AdditionalMemory struct {
