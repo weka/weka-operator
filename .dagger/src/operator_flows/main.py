@@ -246,6 +246,7 @@ class OperatorFlows:
         operator_image: Optional[str] = None,
         operator_helm_image: Optional[str] = None,
         embedded_csi: bool = False,
+        gh_sha: Optional[str] = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
@@ -279,8 +280,10 @@ class OperatorFlows:
             env
             .with_directory("/doc", operator.directory("doc"))
             .with_directory("/test_artifacts", test_artifacts_dir)
-            # Make hook scripts executable
+            .with_file("/run_wekai_remote.py", operator.file("workflows/run_wekai_remote.py"))
+            # Make hook scripts and run_wekai_remote.py executable
             .with_exec(["sh", "-c", "find /test_artifacts/ -name '*.sh' -exec chmod +x {} \\;"])
+            .with_exec(["chmod", "+x", "/run_wekai_remote.py"])
         )
 
         # Add hook environment variables to the container
@@ -290,12 +293,19 @@ class OperatorFlows:
         # Add wekai to the PATH and set environment variables similar to GitHub workflow
         upgrade_test_container = (
             upgrade_test_container
-            .with_env_variable("PATH_TO_WEKAI", "/wekai")
             .with_env_variable("DOCS_DIR", "/doc")
+            .with_env_variable("PATH_TO_AI_BOT", "uv run --no-project --with requests python /run_wekai_remote.py --wekai-path /wekai")
+            .with_env_variable("PR_NUMBER", str(pr_number))
+            .with_env_variable("CLUSTER_NAME", cluster_name)
+            .with_env_variable("NAMESPACE", namespace)
+            .with_env_variable("GITHUB_REPOSITORY", "weka/weka-operator")
             .with_secret_variable("OPENAI_API_KEY", openai_api_key)
             .with_secret_variable("GEMINI_API_KEY", gemini_api_key)
+            .with_secret_variable("GITHUB_TOKEN", gh_token)
             .with_env_variable("KUBECONFIG", "/.kube/config")
         )
+        if gh_sha:
+            upgrade_test_container = upgrade_test_container.with_env_variable("GITHUB_SHA", gh_sha)
 
         if not operator_image or not operator_helm_image:
             operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
