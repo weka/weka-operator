@@ -58,6 +58,8 @@ type ContainerInfo struct {
 	statsResponseLastPoll        time.Time
 	pendingIOsFromProcfs         int
 	pendingIOsFromProcfsLastPoll time.Time
+	podStatus                    string
+	podStatusStartTime           time.Time
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -84,12 +86,14 @@ type ScrapeTarget struct {
 }
 
 type RegisterContainerPayload struct {
-	ContainerName     string            `json:"container_name"`
-	ContainerId       string            `json:"container_id"`
-	WekaContainerName string            `json:"weka_container_name"`
-	Labels            map[string]string `json:"labels"`
-	Mode              string            `json:"mode"`
-	ScrapeTargets     []ScrapeTarget    `json:"scrape_targets"`
+	ContainerName      string            `json:"container_name"`
+	ContainerId        string            `json:"container_id"`
+	WekaContainerName  string            `json:"weka_container_name"`
+	Labels             map[string]string `json:"labels"`
+	Mode               string            `json:"mode"`
+	ScrapeTargets      []ScrapeTarget    `json:"scrape_targets"`
+	PodStatus          string            `json:"pod_status"`
+	PodStatusStartTime time.Time         `json:"pod_status_start_time"`
 }
 
 type ProcessSummary struct {
@@ -456,12 +460,29 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	a.containersData.lock.Lock()
 	defer a.containersData.lock.Unlock()
 
+	existingContainer, exists := a.containersData.data[payload.ContainerId]
+	var podStatusStartTime time.Time
+	if exists && existingContainer.podStatus == payload.PodStatus {
+		podStatusStartTime = existingContainer.podStatusStartTime
+	} else {
+		podStatusStartTime = payload.PodStatusStartTime
+		if exists {
+			logger.Info("Pod status changed",
+				"container_id", payload.ContainerId,
+				"old_status", existingContainer.podStatus,
+				"new_status", payload.PodStatus,
+				"status_start_time", podStatusStartTime)
+		}
+	}
+
 	a.containersData.data[payload.ContainerId] = &ContainerInfo{
-		labels:            payload.Labels,
-		wekaContainerName: payload.WekaContainerName,
-		containerName:     payload.ContainerName,
-		containerId:       payload.ContainerId,
-		mode:              payload.Mode,
+		labels:             payload.Labels,
+		wekaContainerName:  payload.WekaContainerName,
+		containerName:      payload.ContainerName,
+		containerId:        payload.ContainerId,
+		mode:               payload.Mode,
+		podStatus:          payload.PodStatus,
+		podStatusStartTime: podStatusStartTime,
 		//scrapeTargets:     payload.ScrapeTargets,
 	}
 
@@ -1055,6 +1076,28 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 				return taggedValues
 			},
 			// Aggregate: true, // Not strictly needed for a single value metric with simple tags
+		},
+		{
+			PromMetricName: "weka_pod_in_status_duration_seconds",
+			Help:           "Time in seconds since the pod entered its current status (Running, Pending, Terminating, etc.)",
+			Type:           "gauge",
+			// CategoryStats is nil/empty for this custom metric
+			TagsFunc: func(p processedStat) metrics2.TagMap { return metrics2.TagMap{} }, // Returns empty, base labels are sufficient
+			CustomGetValueAndTagsFunc: func(ctx context.Context, container *ContainerInfo, baseLabels metrics2.TagMap) []metrics2.TaggedValue {
+				var taggedValues []metrics2.TaggedValue
+				if container.podStatus != "" && !container.podStatusStartTime.IsZero() {
+					duration := time.Since(container.podStatusStartTime).Seconds()
+					tagsWithStatus := util.MergeMaps(baseLabels, metrics2.TagMap{
+						"pod_status": container.podStatus,
+					})
+					taggedValues = append(taggedValues, metrics2.TaggedValue{
+						Tags:      tagsWithStatus,
+						Value:     duration,
+						Timestamp: time.Now(),
+					})
+				}
+				return taggedValues
+			},
 		},
 		{
 			PromMetricName: "weka_port_tx_bytes_total",

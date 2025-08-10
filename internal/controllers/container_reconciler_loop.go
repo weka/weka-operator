@@ -283,7 +283,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 							}, container.Spec.Mode)
 					},
 				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
 				ContinueOnPredicatesFalse: true,
 			},
 			{
@@ -4472,7 +4471,86 @@ func (r *containerReconcilerLoop) CanSkipDrivesForceResign() bool {
 	return r.container.Spec.GetOverrides().SkipDrivesForceResign
 }
 
+func (r *containerReconcilerLoop) getPodStatusInfo() (string, time.Time) {
+	if r.pod == nil {
+		return "Unknown", time.Now()
+	}
+
+	pod := r.pod
+	var statusStartTime time.Time
+	currentStatus := string(pod.Status.Phase)
+
+	if pod.DeletionTimestamp != nil {
+		currentStatus = "Terminating"
+		statusStartTime = pod.DeletionTimestamp.Time
+	} else {
+		switch pod.Status.Phase {
+		case v1.PodPending:
+			statusStartTime = pod.CreationTimestamp.Time
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionTrue {
+					if !condition.LastTransitionTime.IsZero() {
+						statusStartTime = condition.LastTransitionTime.Time
+					}
+				}
+			}
+		case v1.PodRunning:
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == v1.PodReady && condition.Status == v1.ConditionTrue {
+					if !condition.LastTransitionTime.IsZero() {
+						statusStartTime = condition.LastTransitionTime.Time
+					} else {
+						statusStartTime = pod.CreationTimestamp.Time
+					}
+					break
+				}
+			}
+			if statusStartTime.IsZero() {
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == v1.ContainersReady && condition.Status == v1.ConditionTrue {
+						if !condition.LastTransitionTime.IsZero() {
+							statusStartTime = condition.LastTransitionTime.Time
+						}
+						break
+					}
+				}
+			}
+			if statusStartTime.IsZero() {
+				statusStartTime = pod.CreationTimestamp.Time
+			}
+		case v1.PodSucceeded, v1.PodFailed:
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == v1.PodReady && condition.Status == v1.ConditionFalse {
+					if !condition.LastTransitionTime.IsZero() {
+						statusStartTime = condition.LastTransitionTime.Time
+					}
+					break
+				}
+			}
+			if statusStartTime.IsZero() {
+				statusStartTime = pod.CreationTimestamp.Time
+			}
+		default:
+			statusStartTime = pod.CreationTimestamp.Time
+		}
+	}
+
+	if statusStartTime.IsZero() {
+		statusStartTime = pod.CreationTimestamp.Time
+	}
+
+	return currentStatus, statusStartTime
+}
+
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
+	podStatus, podStatusStartTime := r.getPodStatusInfo()
+	throttlingKey := fmt.Sprintf("RegisterContainerOnMetrics-%s", podStatus)
+	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
+
+	if !throttler.ShouldRun(throttlingKey, config.Config.Metrics.Containers.PollingRate, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+		return nil
+	}
+
 	scrapeTargets := []node_agent.ScrapeTarget{}
 
 	if r.container.Spec.Mode == weka.WekaContainerModeEnvoy {
@@ -4491,12 +4569,14 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 
 	// find a pod service node metrics
 	payload := node_agent.RegisterContainerPayload{
-		ContainerName:     r.container.Name,
-		ContainerId:       string(r.container.GetUID()),
-		WekaContainerName: r.container.Spec.WekaContainerName,
-		Labels:            r.container.GetLabels(),
-		Mode:              r.container.Spec.Mode,
-		ScrapeTargets:     scrapeTargets,
+		ContainerName:      r.container.Name,
+		ContainerId:        string(r.container.GetUID()),
+		WekaContainerName:  r.container.Spec.WekaContainerName,
+		Labels:             r.container.GetLabels(),
+		Mode:               r.container.Spec.Mode,
+		ScrapeTargets:      scrapeTargets,
+		PodStatus:          podStatus,
+		PodStatusStartTime: podStatusStartTime,
 	}
 	// submit http request to metrics pod
 	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
@@ -4532,6 +4612,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		return errors.New("error sending register request, status: " + resp.Status)
 	}
 
+	throttler.SetNow(throttlingKey)
 	return nil
 }
 
