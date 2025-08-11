@@ -637,8 +637,13 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
-				Run: loop.checkUnhealyPodResources,
+				Name: "checkUnhealyPodResources",
+				Run:  lifecycle.ForceNoError(loop.checkUnhealyPodResources),
 				Predicates: lifecycle.Predicates{
+					lifecycle.Or(
+						container.IsAllocatable,
+						container.IsClientContainer, // nics/machine-identifiers
+					),
 					func() bool {
 						return container.Status.Status == weka.Unhealthy
 					},
