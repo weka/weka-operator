@@ -166,6 +166,8 @@ jobs:
             --pr-number=${{ github.event.pull_request.number }}
             --gh-token="env://GH_TOKEN"
             --gh-sha=${{ github.sha }}
+            --execution-id=GHA-${{ github.run_id }}
+            --execution-temp-dir=/testing_shared/executions/GHA-${{ github.run_id }}
             --openai-api-key="env://OPENAI_API_KEY"
             --gemini-api-key="env://GEMINI_API_KEY"
             --kubeconfig-path=file://${{ github.workspace }}/.kube/config
@@ -176,6 +178,15 @@ jobs:
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
             --embedded-csi
+
+      - name: Upload Wekai execution files
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wekai-execution-files
+          if-no-files-found: ignore
+          path: /testing_shared/executions/GHA-${{ github.run_id }}
+          retention-days: 1
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]

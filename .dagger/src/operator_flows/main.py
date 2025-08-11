@@ -247,6 +247,8 @@ class OperatorFlows:
         operator_helm_image: Optional[str] = None,
         embedded_csi: bool = False,
         gh_sha: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        execution_temp_dir: Optional[str] = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
 
@@ -290,11 +292,17 @@ class OperatorFlows:
         for hook_name, hook_path in hook_env_dict.items():
             upgrade_test_container = upgrade_test_container.with_env_variable(hook_name, hook_path)
 
+        wekai_call = "uv run --no-project --with requests python /run_wekai_remote.py --wekai-path /wekai"
+        if execution_id:
+            wekai_call += f" --execution-id {execution_id}"
+        if execution_temp_dir:
+            wekai_call += f" --execution-tmp-dir {execution_temp_dir}"
+
         # Add wekai to the PATH and set environment variables similar to GitHub workflow
         upgrade_test_container = (
             upgrade_test_container
             .with_env_variable("DOCS_DIR", "/doc")
-            .with_env_variable("PATH_TO_AI_BOT", "uv run --no-project --with requests python /run_wekai_remote.py --wekai-path /wekai")
+            .with_env_variable("PATH_TO_AI_BOT", wekai_call)
             .with_env_variable("PR_NUMBER", str(pr_number))
             .with_env_variable("CLUSTER_NAME", cluster_name)
             .with_env_variable("NAMESPACE", namespace)
