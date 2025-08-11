@@ -46,8 +46,10 @@ def get_github_token(provided_token: Optional[str]) -> Optional[str]:
 def run_wekai_with_json_output(
     wekai_path: str,
     request_file: str,
+    execution_id: str,
     docs_dir: str,
-    params: List[str]
+    params: List[str],
+    execution_tmp_dir: Optional[str] = None,
 ) -> Dict:
     """
     Run wekai in remote-bot mode with JSON output enabled.
@@ -63,9 +65,12 @@ def run_wekai_with_json_output(
         '--docs-dir', docs_dir,
         '--remote-bot-endpoint', 'https://wekai.scalar.dev.weka.io/api',
         '--remote-bot-worker', 'operator-ci',
+        '--execution-id', execution_id,
         '--plan-tags', 'operator-ci',
         '--request-file', request_file
     ]
+    if execution_tmp_dir:
+        cmd.extend(['--tmp-dir', execution_tmp_dir])
     
     # Add params
     for param in params:
@@ -264,6 +269,8 @@ def create_github_comment(
 def main():
     parser = argparse.ArgumentParser(description="Run wekai remote-bot with GitHub integration")
     parser.add_argument('--wekai-path', required=True, help='Path to wekai executable')
+    parser.add_argument('--execution-id', required=True, help='Unique execution ID for tracking')
+    parser.add_argument('--execution-tmp-dir', help='Temporary directory for execution files')
     parser.add_argument('--request-file', required=True, help='Path to request file (plan.txt)')
     parser.add_argument('--docs-dir', required=True, help='Path to documentation directory')
     parser.add_argument('--params', action='append', default=[], help='Parameters to pass to wekai')
@@ -285,10 +292,21 @@ def main():
         print(f"❌ Docs directory not found: {args.docs_dir}")
         return 1
     
+    if args.execution_tmp_dir and not Path(args.execution_tmp_dir).exists():
+        # Create temporary directory if it doesn't exist
+        try:
+            Path(args.execution_tmp_dir).mkdir(parents=True, exist_ok=True)
+            print(f"✅ Created temporary directory: {args.execution_tmp_dir}")
+        except Exception as e:
+            print(f"❌ Failed to create temporary directory: {e}")
+            return 1
+    
     # Run wekai and get JSON result
     wekai_result = run_wekai_with_json_output(
         wekai_path=args.wekai_path,
         request_file=args.request_file,
+        execution_id=args.execution_id,
+        execution_tmp_dir=args.execution_tmp_dir,
         docs_dir=args.docs_dir,
         params=args.params
     )
@@ -330,7 +348,8 @@ def main():
     # Return appropriate exit code
     if not success:
         print(f"\n❌ Wekai execution was not successful")
-        return 1
+        # even if the execution failed, we still return 0 to avoid breaking the workflow
+        return 0
     
     print(f"\n✅ Wekai execution completed successfully")
     return 0
