@@ -157,6 +157,7 @@ nodeAgent:
       memory: 64Mi
   tolerations: []
   nodeSelector: {}
+  affinity: {}
   # default set for generic OSes, can be overridden /root/k8s-weka for openshift, /mnt/stateful_partition/k8s-weka for google container OS
   persistencePaths: /opt/k8s-weka
 
