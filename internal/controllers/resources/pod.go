@@ -675,6 +675,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
+		if f.container.Spec.Instructions.Type == OperationCopyVersionToDriverLoader {
+			f.copyWekaVersionToDriverLoader(pod)
+		}
+
 		if f.nodeInfo.IsCos() {
 			allowCosDisableDriverSigning := config.Config.GkeCompatibility.DisableDriverSigning
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{

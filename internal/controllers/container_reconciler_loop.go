@@ -2714,9 +2714,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	}
 
 	details := r.container.ToOwnerDetails()
-	if r.container.Spec.DriversLoaderImage != "" {
-		details.Image = r.container.Spec.DriversLoaderImage
-	} else if r.IsNotAlignedImage() {
+	if r.container.Spec.DriversLoaderImage == "" && r.IsNotAlignedImage() {
 		// do not create pod with spec image if we know in advance that we cannot upgrade
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
 		if err != nil || !canUpgrade {
@@ -2736,7 +2734,9 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 
 	logger.Info("Loading drivers", "image", details.Image)
 
-	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
+	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details,
+		r.container.Spec.DriversLoaderImage,
+		r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
 	err := operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
@@ -3728,10 +3728,9 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 			}
 
 			details := r.container.ToOwnerDetails()
-			if r.container.Spec.DriversLoaderImage != "" {
-				details.Image = r.container.Spec.DriversLoaderImage
-			}
-			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
+			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details,
+				r.container.Spec.DriversLoaderImage,
+				r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {
 				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
