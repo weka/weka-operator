@@ -41,6 +41,10 @@ spec:
       nodeSelector:
         {{- toYaml .Values.nodeAgent.nodeSelector | nindent 8 }}
       {{- end }}
+      {{- if .Values.nodeAgent.affinity }}
+      affinity:
+        {{- toYaml .Values.nodeAgent.affinity | nindent 8 }}
+      {{- else }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -54,6 +58,7 @@ spec:
                     operator: In
                     values:
                       - linux
+      {{- end }}
       tolerations:
       {{- if .Values.nodeAgent.tolerations }}
         {{- toYaml .Values.nodeAgent.tolerations | nindent 8 }}
