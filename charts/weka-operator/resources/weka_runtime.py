@@ -791,15 +791,20 @@ async def load_drivers():
         # list directory /opt/weka/dist/version
         # assert single json file and take json filename
         version = await get_weka_version()
+        if is_google_cos():
+            kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
+        else:
+            kernelBuildIdArg = ""
+
         download_cmds = [
-            (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version}", "Downloading drivers")
+            (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version} {kernelBuildIdArg}", "Downloading drivers")
         ]
         load_cmds = [
             (f"rmmod wekafsio || echo could not unload old wekafsio driver, still trying to proceed",
              "unloading wekafsio"),
             (f"rmmod wekafsgw || echo could not unload old wekafsgw driver, still trying to proceed",
              "unloading wekafsgw"),
-            (f"weka driver install --without-agent --version {version}", "loading drivers"),
+            (f"weka driver install --without-agent --version {version} {kernelBuildIdArg}", "loading drivers"),
         ]
     if not should_skip_uio_pci_generic():
         load_cmds.append((
