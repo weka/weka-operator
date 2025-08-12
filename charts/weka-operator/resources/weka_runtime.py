@@ -792,6 +792,24 @@ async def load_drivers():
         # list directory /opt/weka/dist/version
         # assert single json file and take json filename
         version = await get_weka_version()
+        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
+
+        if cluster_image_name is not None and cluster_image_name != IMAGE_NAME:
+            # when driversLoaderImage is set, we need to detect the cluster version
+            # and to get the driver files for that version
+            version = cluster_image_name.split(':')[-1]
+            logging.info(f"Should get version: {version}")
+            version_get_cmds = [
+                (f"cp /usr/bin/weka /usr/bin/weka-save && unlink /usr/bin/weka && mv /usr/bin/weka-save /usr/bin/weka", "Use image weka cli"),
+                (f"rm -rf /opt/weka/dist && ln -s /shared-weka-version-data/dist /opt/weka/dist", "Use cluster dist files"),
+            ]
+            for cmd, desc in version_get_cmds:
+                logging.info(f"Driver get step: {desc}")
+                stdout, stderr, ec = await run_command(cmd)
+                if ec != 0:
+                    logging.error(f"Failed to get drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
+                    raise Exception(f"Failed to get drivers: {stderr.decode('utf-8')}")
+
         if is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
         else:
