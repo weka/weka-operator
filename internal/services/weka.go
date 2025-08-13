@@ -12,6 +12,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
@@ -303,7 +304,7 @@ type WekaService interface {
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
 	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
-	EmitCustomEvent(ctx context.Context, msg string) error
+	EmitCustomEvent(ctx context.Context, msg string, k8sVersion string) error
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
@@ -451,7 +452,7 @@ fi
 
 }
 
-func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string) error {
+func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string, k8sVersion string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EmitCustomEvent")
 	defer end()
 
@@ -463,7 +464,8 @@ func (c *CliWekaService) EmitCustomEvent(ctx context.Context, msg string) error 
 		return err
 	}
 
-	cmd := fmt.Sprintf("wekaauthcli events trigger-event \"K8s_Operator: %s\"", msg)
+	operatorVersion := config.Config.Version
+	cmd := fmt.Sprintf("wekaauthcli events trigger-event \"K8s_Operator: %s (operator: %s, k8s: %s)\"", msg, operatorVersion, k8sVersion)
 	_, stderr, err := executor.ExecNamed(ctx, "EmitCustomEvent", []string{"bash", "-ce", cmd})
 	if err != nil {
 		logger.SetError(err, "Failed to emit event", "stderr", stderr.String())

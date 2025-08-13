@@ -394,7 +394,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	if activeContainer != nil {
 		wekaService := services.NewWekaService(r.ExecService, activeContainer)
 		msg := "Destroying Weka cluster"
-		err := wekaService.EmitCustomEvent(ctx, msg)
+		err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(r.Manager))
 		if err != nil {
 			logger.Warn("Failed to emit custom event", "event", msg)
 		}
@@ -1417,7 +1417,7 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return err
 	}
 
-	return wekaService.EmitCustomEvent(ctx, "Weka cluster provisioned successfully")
+	return wekaService.EmitCustomEvent(ctx, "Weka cluster provisioned successfully", GetKubernetesVersion(r.Manager))
 }
 
 type UpgradedCount struct {
@@ -1482,7 +1482,7 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 
 	execService := r.ExecService
 	wekaService := services.NewWekaService(execService, activeContainer)
-	err := wekaService.EmitCustomEvent(ctx, msg)
+	err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(r.Manager))
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
