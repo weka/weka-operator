@@ -20,8 +20,6 @@ enableLeaderElection: true
 # -- custom endpoint to send OTLP traces to (insecure, GRPC).
 # If left empty, traces are sent to stdout in json format.
 otelExporterOtlpEndpoint: ""
-# -- version of weka-operator
-version: ""
 # logging settings
 logging:
   level: 0

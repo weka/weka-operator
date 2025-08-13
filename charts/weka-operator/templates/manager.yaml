@@ -111,7 +111,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"
             - name: VERSION
-              value: "{{ .Values.Version }}"
+              value: "{{ .Chart.Version }}"
             - name: WEKA_OPERATOR_WEKA_HOME_ENDPOINT
               value: "{{ .Values.wekahome.endpoint }}"
             - name: WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET

@@ -101,7 +101,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "{{ .Values.otelExporterOtlpEndpoint }}"
             - name: VERSION
-              value: "{{ .Values.Version }}"
+              value: "{{ .Chart.Version }}"
             - name: OPERATOR_MODE
               value: node-agent
             - name: NODE_AGENT_BIND_ADDRESS

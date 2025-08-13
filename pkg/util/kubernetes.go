@@ -156,15 +156,6 @@ func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []stri
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
 }
 
-func KubernetesClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get clientset")
-	}
-
-	return clientset, nil
-}
-
 func GetPodNamespace() (string, error) {
 	if config.Config.OperatorPodNamespace != "" {
 		return config.Config.OperatorPodNamespace, nil
@@ -230,4 +221,18 @@ func GetKubeObjectFieldValue[T any, K runtime.Object](obj K, fieldPath string) (
 		return zero, err
 	}
 	return GetKubeFieldValue[T](unstr, fieldPath)
+}
+
+func GetKubernetesVersion(config *rest.Config) (string, error) {
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create kubernetes clientset")
+	}
+
+	version, err := clientset.Discovery().ServerVersion()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get server version")
+	}
+
+	return version.String(), nil
 }

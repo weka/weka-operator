@@ -754,7 +754,7 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 
 	msg := fmt.Sprintf("Upgrading clients progress: %d:%d", count, len(c.containers))
 	wekaService := services.NewWekaService(c.ExecService, activeContainer)
-	err := wekaService.EmitCustomEvent(ctx, msg)
+	err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(c.Manager))
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
