@@ -418,7 +418,14 @@ func (w *WekaContainer) IsDistMode() bool {
 }
 
 func (w *WekaContainer) IsDriversLoaderMode() bool {
-	return w.Spec.Mode == WekaContainerModeDriversLoader
+	// Check for legacy drivers-loader mode
+	if w.Spec.Mode == WekaContainerModeDriversLoader {
+		return true
+	}
+	// Check for new adhoc-op-with-container mode with load-drivers instructions
+	return w.Spec.Mode == WekaContainerModeAdhocOpWC &&
+		w.Spec.Instructions != nil &&
+		w.Spec.Instructions.Type == InstructionTypeLoadDrivers
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
