@@ -5143,20 +5143,46 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 	return nil
 }
 
+func (r *containerReconcilerLoop) areAllProcessesActive() bool {
+	processes := r.container.Status.Stats.Processes
+	return processes.Active > 0 && processes.Active == processes.Desired
+}
+
+func (r *containerReconcilerLoop) shouldUnsetCsiTopologyLabels() bool {
+	if r.container.Status.Status != weka.Running {
+		return true
+	}
+
+	if r.container.Status.Stats == nil || r.container.Status.Stats.LastUpdate.IsZero() {
+		return false
+	}
+
+	return !r.areAllProcessesActive() && time.Since(r.container.Status.Stats.LastUpdate.Time) < 10*time.Minute
+}
+
 func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ManageCsiTopologyLabels")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	csiDriverName := r.getCsiDriverName()
-	if r.container.Status.Status != weka.Running {
-		err := operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
+
+	if r.shouldUnsetCsiTopologyLabels() {
+		anyLabelSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName, false)
 		if err != nil {
-			return err
-		} else {
-			logger.Info("Unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
+			return errors.Wrap(err, "failed to check CSI node topology labels")
+		}
+		if anyLabelSet {
+			err = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
+			if err != nil {
+				logger.Error(err, "Failed to unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
+				return nil
+			} else {
+				activeProcesses := fmt.Sprintf("%d/%d", r.container.Status.Stats.Processes.Active, r.container.Status.Stats.Processes.Desired)
+				logger.Info("Unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName, "status", r.container.Status.Status, "activeProcesses", activeProcesses)
+			}
 		}
 	} else {
-		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName)
+		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName, true)
 		if err != nil {
 			return errors.Wrap(err, "failed to check CSI node topology labels")
 		}
