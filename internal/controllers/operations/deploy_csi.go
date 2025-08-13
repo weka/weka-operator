@@ -331,7 +331,7 @@ func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, a
 		fmt.Sprintf("topology.%s/accessible", csiDriverName)
 }
 
-func CheckCsiNodeTopologyLabelsSet(node corev1.Node, csiDriverName string) (bool, error) {
+func CheckCsiNodeTopologyLabelsSet(node corev1.Node, csiDriverName string, all bool) (bool, error) {
 	labels := node.Labels
 	if labels == nil {
 		return false, nil
@@ -342,10 +342,19 @@ func CheckCsiNodeTopologyLabelsSet(node corev1.Node, csiDriverName string) (bool
 	_, hasTransportLabel := labels[transportLabel]
 	_, hasAccessibleLabel := labels[accessibleLabel]
 
-	return hasNodeLabel && hasTransportLabel && hasAccessibleLabel, nil
+	if all {
+		return hasNodeLabel && hasTransportLabel && hasAccessibleLabel, nil
+	}
+
+	return hasNodeLabel || hasTransportLabel || hasAccessibleLabel, nil
 }
 
 func SetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCsiNodeTopologyLabels")
+	defer end()
+
+	logger.Info("Setting CSI node topology labels", "node", node.Name, "csiDriverName", csiDriverName)
+
 	labels := node.Labels
 	if labels == nil {
 		labels = make(map[string]string)
@@ -366,6 +375,11 @@ func SetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node co
 }
 
 func UnsetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnsetCsiNodeTopologyLabels")
+	defer end()
+
+	logger.Info("Unsetting CSI node topology labels", "node", node.Name, "csiDriverName", csiDriverName)
+
 	labels := node.Labels
 	if labels == nil {
 		return nil
