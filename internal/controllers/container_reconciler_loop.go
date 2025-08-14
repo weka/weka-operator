@@ -137,6 +137,7 @@ type containerReconcilerLoop struct {
 	// values shared between steps
 	activeMounts  *int
 	ThrottlingMap *util.ThrottlingSyncMap
+	cluster       *weka.WekaCluster
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {
@@ -2417,12 +2418,21 @@ func (r *containerReconcilerLoop) FetchTargetCluster(ctx context.Context) error 
 	return nil
 }
 
-func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
+func (r *containerReconcilerLoop) IsS3ClusterFormed(ctx context.Context) (bool, error) {
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondS3ClusterCreated), nil
+}
+
+func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaCluster, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getClusterContainers")
 	defer end()
 
-	if r.clusterContainers != nil {
-		return r.clusterContainers, nil
+	if r.cluster != nil {
+		return r.cluster, nil
 	}
 
 	ownerRefs := r.container.GetOwnerReferences()
@@ -2438,6 +2448,22 @@ func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*
 	cluster, err := discovery.GetClusterByUID(ctx, r.Client, ownerUid)
 	if err != nil {
 		return nil, err
+	}
+	r.cluster = cluster
+	return r.cluster, nil
+}
+
+func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getClusterContainers")
+	defer end()
+
+	if r.clusterContainers != nil {
+		return r.clusterContainers, nil
+	}
+
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error getting cluster: %w", err)
 	}
 
 	clusterContainers := discovery.GetClusterContainers(ctx, r.Manager.GetClient(), cluster, "")
@@ -2982,6 +3008,14 @@ func (r *containerReconcilerLoop) isExistingCluster(ctx context.Context, guid st
 }
 
 func (r *containerReconcilerLoop) JoinS3Cluster(ctx context.Context) error {
+	isFormed, err := r.IsS3ClusterFormed(ctx)
+	if err != nil {
+		return fmt.Errorf("error checking if S3 cluster is formed: %w", err)
+	}
+	if !isFormed {
+		return lifecycle.NewWaitError(fmt.Errorf("S3 cluster is not formed yet, waiting for it to be formed"))
+	}
+
 	wekaService := services.NewWekaService(r.ExecService, r.container)
 	return wekaService.JoinS3Cluster(ctx, *r.container.Status.ClusterContainerID)
 }
