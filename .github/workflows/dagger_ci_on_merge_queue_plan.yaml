@@ -147,7 +147,7 @@ jobs:
           echo "operator_image=$operator_image" >> $GITHUB_OUTPUT
           echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
 
-      - name: ci-on-merge-queue-plan call
+      - name: Run Upgrade-extended Test
         uses: dagger/dagger-for-github@8.0.0
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -158,7 +158,7 @@ jobs:
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
-            ci-on-merge-queue-plan
+            run-upgrade-extended-test
             --operator=${{ github.workspace }}/operator
             --testing=${{ github.workspace }}/testing
             --wekai=${{ github.workspace }}/wekai
