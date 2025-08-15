@@ -217,7 +217,7 @@ class OperatorFlows:
         return test_artifacts
 
     @function
-    async def ci_on_merge_queue_plan(
+    async def run_upgrade_extended_test(
         self,
         operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
         testing: Annotated[dagger.Directory, Ignore([
