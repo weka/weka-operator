@@ -31,6 +31,16 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 	}
 
 	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_throughput_bytes_per_second",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
+			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "DEPRECATED: Weka clusters throughput, use weka_cluster_throughput_bytes_per_second instead",
+	})
+
+	metrics = append(metrics, metrics2.PromMetric{
 		Metric: "weka_cluster_throughput_bytes_per_second",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
@@ -38,6 +48,17 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		},
 		Timestamp: cluster.Status.Stats.LastUpdate.Time,
 		Help:      "Weka clusters throughput",
+	})
+
+	metrics = append(metrics, metrics2.PromMetric{
+		Metric: "weka_iops",
+		ValuesByTags: []metrics2.TaggedValue{
+			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Read)},
+			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Write)},
+			{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
+		},
+		Timestamp: cluster.Status.Stats.LastUpdate.Time,
+		Help:      "DEPRECATED: Weka clusters iops, use weka_cluster_iops instead",
 	})
 
 	metrics = append(metrics, metrics2.PromMetric{
