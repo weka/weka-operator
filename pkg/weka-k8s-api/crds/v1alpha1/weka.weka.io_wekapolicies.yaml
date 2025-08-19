@@ -23,8 +23,12 @@ spec:
       jsonPath: .status.status
       name: Status
       type: string
+    - description: Policy-specific progress
+      jsonPath: .status.progress
+      name: Progress
+      type: string
     - description: Last result
-      jsonPath: .status.lastResult
+      jsonPath: .status.result
       name: Result
       priority: 1
       type: string
@@ -75,6 +79,60 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
+                    type: object
+                  driverDistPayload:
+                    description: DriverDistPayload defines the parameters for the
+                      enable-local-drivers-distribution policy
+                    properties:
+                      architectureLabelKey:
+                        description: |-
+                          ArchitectureLabelKey is the custom label key to use for storing the node's architecture.
+                          If not specified, "weka.io/architecture" will be used.
+                        type: string
+                      builderPreRunScript:
+                        description: BuilderPreRunScript is an optional script to
+                          run on builder containers after kernel validation.
+                        type: string
+                      distNodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          DistNodeSelector is the node selector for the drivers distribution (dist) container.
+                          If not specified, the dist container will be scheduled on any available node.
+                        type: object
+                      ensureImages:
+                        description: EnsureImages is a list of Weka images for which
+                          drivers should be proactively built.
+                        items:
+                          type: string
+                        type: array
+                      kernelLabelKey:
+                        description: |-
+                          KernelLabelKey is the custom label key to use for storing the node's kernel version.
+                          If not specified, "weka.io/kernel" will be used.
+                        type: string
+                      nodeSelectors:
+                        description: |-
+                          NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building.
+                          If empty, all nodes in the cluster are considered.
+                        items:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        type: array
+                    type: object
+                  ensureNICsPayload:
+                    properties:
+                      dataNICsNumber:
+                        type: integer
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      type:
+                        type: string
+                    required:
+                    - type
                     type: object
                   interval:
                     default: 5m
@@ -150,6 +208,8 @@ spec:
                       type: string
                     type: array
                 type: object
+              serviceAccountName:
+                type: string
               tolerations:
                 items:
                   description: |-
@@ -200,10 +260,24 @@ spec:
               lastRunTime:
                 format: date-time
                 type: string
+              progress:
+                type: string
               result:
                 type: string
               status:
                 type: string
+              typedStatus:
+                description: TypedPolicyStatus holds status fields specific to a policy
+                  type
+                properties:
+                  distService:
+                    description: DistServiceStatus holds the status for the enable-local-drivers-distribution
+                      policy
+                    properties:
+                      serviceUrl:
+                        type: string
+                    type: object
+                type: object
             required:
             - lastRunTime
             - result

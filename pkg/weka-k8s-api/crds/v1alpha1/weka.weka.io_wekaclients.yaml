@@ -27,11 +27,6 @@ spec:
       jsonPath: .spec.coresNum
       name: Cores
       type: integer
-    - description: IPs of the target cluster
-      jsonPath: .spec.joinIpPorts
-      name: Join IPs
-      priority: 1
-      type: string
     - description: 'Number of client containers: Active/Created/Desired'
       jsonPath: .status.printer.containers
       name: Containers(A/C/D)
@@ -93,10 +88,119 @@ spec:
                 type: string
               cpuRequest:
                 type: string
+              csiConfig:
+                description: 'EXPERIMENTAL, ALPHA STATE, should not be used in production:
+                  if set, allows to reuse the same csi resources for multiple clients'
+                properties:
+                  advanced:
+                    properties:
+                      controllerLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      controllerTolerations:
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        type: array
+                      enforceTrustedHttps:
+                        type: boolean
+                      nodeLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      nodeTolerations:
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        type: array
+                      skipGarbageCollection:
+                        type: boolean
+                    type: object
+                  csiGroup:
+                    type: string
+                  disableControllerCreation:
+                    type: boolean
+                type: object
               driversDistService:
                 type: string
               driversLoaderImage:
                 type: string
+              globalPVC:
+                properties:
+                  name:
+                    type: string
+                  path:
+                    type: string
+                required:
+                - name
+                type: object
               hugepages:
                 description: hugepages, value in megabytes
                 type: integer
@@ -115,15 +219,6 @@ spec:
                 type: array
               network:
                 properties:
-                  aws:
-                    properties:
-                      deviceSlots:
-                        description: should provide list of additional nics indexes
-                          starting from 1, index 0 is reserved for kernel networking
-                        items:
-                          type: integer
-                        type: array
-                    type: object
                   deviceSubnets:
                     description: subnet that is used for devices auto-discovery
                     items:
@@ -136,12 +231,38 @@ spec:
                     items:
                       type: string
                     type: array
-                  ethSlots:
-                    items:
-                      type: string
-                    type: array
                   gateway:
                     type: string
+                  managementIpsSelectors:
+                    items:
+                      properties:
+                        deviceNames:
+                          items:
+                            type: string
+                          type: array
+                        max:
+                          type: integer
+                        min:
+                          type: integer
+                        subnet:
+                          type: string
+                      type: object
+                    type: array
+                  selectors:
+                    items:
+                      properties:
+                        deviceNames:
+                          items:
+                            type: string
+                          type: array
+                        max:
+                          type: integer
+                        min:
+                          type: integer
+                        subnet:
+                          type: string
+                      type: object
+                    type: array
                   udpMode:
                     type: boolean
                 type: object
@@ -262,6 +383,8 @@ spec:
                         x-kubernetes-int-or-string: true
                     type: object
                 type: object
+              serviceAccountName:
+                type: string
               targetCluster:
                 properties:
                   name:
@@ -280,6 +403,14 @@ spec:
                 description: TraceConfiguration defines the configuration for the
                   traces, accepts parameters in gigabytes
                 properties:
+                  dumperConfigMode:
+                    default: auto
+                    enum:
+                    - override
+                    - partial-override
+                    - auto
+                    - cluster
+                    type: string
                   ensureFreeSpace:
                     default: 20
                     type: integer

@@ -45,6 +45,11 @@ spec:
       name: THRPT(R/W)
       priority: 1
       type: string
+    - description: Filesystem Capacity
+      jsonPath: .status.printer.filesystemCapacity
+      name: FS(Capacity)
+      priority: 1
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -88,8 +93,11 @@ spec:
                 type: integer
               cpuPolicy:
                 default: auto
-                description: cpu policy to use for scheduling cores for weka, unless
-                  instructed by weka team, keep default of auto
+                description: |-
+                  cpu policy to use for scheduling cores for weka, unless instructed by weka team, keep default of auto
+                  manual and shared are same, with shared being deprecated
+                  when manual is used - no exclusive cores will be allocaated on k8s/cgroup level, assuming good alignment of cores usage across different applications, like weka and slurm
+                  there is no need to specify siblings in this list, but on the side of other applications like slurm, both weka core and its siblings should be excluded from used cpu set
                 enum:
                 - auto
                 - shared
@@ -99,6 +107,99 @@ spec:
                 type: string
               csiConfig:
                 properties:
+                  advanced:
+                    properties:
+                      controllerLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      controllerTolerations:
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        type: array
+                      enforceTrustedHttps:
+                        type: boolean
+                      nodeLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      nodeTolerations:
+                        items:
+                          description: |-
+                            The pod this Toleration is attached to tolerates any taint that matches
+                            the triple <key,value,effect> using the matching operator <operator>.
+                          properties:
+                            effect:
+                              description: |-
+                                Effect indicates the taint effect to match. Empty means match all taint effects.
+                                When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                              type: string
+                            key:
+                              description: |-
+                                Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                              type: string
+                            operator:
+                              description: |-
+                                Operator represents a key's relationship to the value.
+                                Valid operators are Exists and Equal. Defaults to Equal.
+                                Exists is equivalent to wildcard for value, so that a pod can
+                                tolerate all taints of a particular category.
+                              type: string
+                            tolerationSeconds:
+                              description: |-
+                                TolerationSeconds represents the period of time the toleration (which must be
+                                of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                negative values will be treated as 0 (evict immediately) by the system.
+                              format: int64
+                              type: integer
+                            value:
+                              description: |-
+                                Value is the taint value the toleration matches to.
+                                If the operator is Exists, the value should be empty, otherwise just a regular string.
+                              type: string
+                          type: object
+                        type: array
+                      skipGarbageCollection:
+                        type: boolean
+                    type: object
+                  csiGroup:
+                    type: string
                   endpointsSubnets:
                     items:
                       type: string
@@ -162,6 +263,41 @@ spec:
                   s3FrontendHugepagesOffset:
                     type: integer
                 type: object
+              encryption:
+                properties:
+                  vault:
+                    properties:
+                      address:
+                        description: Vault address, e.g. "https://vault.example.com:8200".
+                        type: string
+                      authPath:
+                        default: kubernetes
+                        description: Path under auth/ that the weka uses for login.
+                          defaults to "kubernetes"
+                        type: string
+                      keyName:
+                        default: weka-key
+                        description: Name of the transit key. defaults to "weka-key"
+                        type: string
+                      method:
+                        default: kubernetes
+                        description: Vault Auth method (only “kubernetes” is supported  on
+                          operator side.)
+                        enum:
+                        - kubernetes
+                        type: string
+                      role:
+                        description: Role to authenticate as in Vault.
+                        type: string
+                      transitPath:
+                        default: transit
+                        description: Transit engine mount path, defaults "transit".
+                        type: string
+                    required:
+                    - address
+                    - role
+                    type: object
+                type: object
               expandEndpoints:
                 description: endpoint of existing weka cluster, containers created
                   for this k8s-driver cluster will join existing weka cluster, used
@@ -191,6 +327,15 @@ spec:
                       skew for the failure domain, if set, the weka containers will be spread with the skew in mind
                       (only applicable if `label` is set)
                     type: integer
+                type: object
+              globalPVC:
+                properties:
+                  name:
+                    type: string
+                  path:
+                    type: string
+                required:
+                - name
                 type: object
               gracefulDestroyDuration:
                 default: 24h
@@ -224,15 +369,6 @@ spec:
               network:
                 description: weka cluster network configuration
                 properties:
-                  aws:
-                    properties:
-                      deviceSlots:
-                        description: should provide list of additional nics indexes
-                          starting from 1, index 0 is reserved for kernel networking
-                        items:
-                          type: integer
-                        type: array
-                    type: object
                   deviceSubnets:
                     description: subnet that is used for devices auto-discovery
                     items:
@@ -245,12 +381,38 @@ spec:
                     items:
                       type: string
                     type: array
-                  ethSlots:
-                    items:
-                      type: string
-                    type: array
                   gateway:
                     type: string
+                  managementIpsSelectors:
+                    items:
+                      properties:
+                        deviceNames:
+                          items:
+                            type: string
+                          type: array
+                        max:
+                          type: integer
+                        min:
+                          type: integer
+                        subnet:
+                          type: string
+                      type: object
+                    type: array
+                  selectors:
+                    items:
+                      properties:
+                        deviceNames:
+                          items:
+                            type: string
+                          type: array
+                        max:
+                          type: integer
+                        min:
+                          type: integer
+                        subnet:
+                          type: string
+                      type: object
+                    type: array
                   udpMode:
                     type: boolean
                 type: object
@@ -5913,6 +6075,270 @@ spec:
                 description: storage capacity dedicated to system protection (2/4).
                   https://docs.weka.io/weka-system-overview/ssd-capacity-management#protection-level
                 type: integer
+              roleAnnotations:
+                description: annotations for the weka containers per role
+                properties:
+                  compute:
+                    additionalProperties:
+                      type: string
+                    description: annotations for compute weka containers
+                    type: object
+                  drive:
+                    additionalProperties:
+                      type: string
+                    description: annotations for drive weka containers
+                    type: object
+                  nfs:
+                    additionalProperties:
+                      type: string
+                    description: annotations for nfs weka containers
+                    type: object
+                  s3:
+                    additionalProperties:
+                      type: string
+                    description: annotations for s3 weka containers
+                    type: object
+                type: object
+              roleCoreIds:
+                description: |-
+                  RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should
+                  be assigned to containers of the specific role when CpuPolicy is set to
+                  "manual". If the slice for the given role is empty, core ids will not be
+                  set for that role, and the manual policy will fail validation on pod start.
+
+                  NOTE: The semantics are the same as for NodeSelector/Annotations structures –
+                  a single list per role which will be copied to every container of that role.
+                  Users are responsible to provide a set that makes sense for their topology.
+                  Example:
+                    roleCoreIds:
+                      compute: [0,1,2,3]
+                      drive:   [4,5,6,7]
+
+                  will result in every compute container getting coreIds [0,1,2,3] and every
+                  drive container getting [4,5,6,7].
+                properties:
+                  compute:
+                    items:
+                      type: integer
+                    type: array
+                  drive:
+                    items:
+                      type: integer
+                    type: array
+                  nfs:
+                    items:
+                      type: integer
+                    type: array
+                  s3:
+                    items:
+                      type: integer
+                    type: array
+                type: object
+              roleNetworkSelector:
+                description: network selector for the weka containers per role, overrides
+                  global network
+                properties:
+                  compute:
+                    description: network selector for compute weka containers
+                    properties:
+                      deviceSubnets:
+                        description: subnet that is used for devices auto-discovery
+                        items:
+                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          type: string
+                        type: array
+                      ethDevice:
+                        type: string
+                      ethDevices:
+                        items:
+                          type: string
+                        type: array
+                      gateway:
+                        type: string
+                      managementIpsSelectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      selectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      udpMode:
+                        type: boolean
+                    type: object
+                  drive:
+                    description: network selector for drive weka containers
+                    properties:
+                      deviceSubnets:
+                        description: subnet that is used for devices auto-discovery
+                        items:
+                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          type: string
+                        type: array
+                      ethDevice:
+                        type: string
+                      ethDevices:
+                        items:
+                          type: string
+                        type: array
+                      gateway:
+                        type: string
+                      managementIpsSelectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      selectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      udpMode:
+                        type: boolean
+                    type: object
+                  nfs:
+                    description: network selector for nfs weka containers
+                    properties:
+                      deviceSubnets:
+                        description: subnet that is used for devices auto-discovery
+                        items:
+                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          type: string
+                        type: array
+                      ethDevice:
+                        type: string
+                      ethDevices:
+                        items:
+                          type: string
+                        type: array
+                      gateway:
+                        type: string
+                      managementIpsSelectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      selectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      udpMode:
+                        type: boolean
+                    type: object
+                  s3:
+                    description: network selector for s3 weka containers
+                    properties:
+                      deviceSubnets:
+                        description: subnet that is used for devices auto-discovery
+                        items:
+                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          type: string
+                        type: array
+                      ethDevice:
+                        type: string
+                      ethDevices:
+                        items:
+                          type: string
+                        type: array
+                      gateway:
+                        type: string
+                      managementIpsSelectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      selectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      udpMode:
+                        type: boolean
+                    type: object
+                type: object
               roleNodeSelector:
                 description: node selector for the weka containers per role, overrides
                   global nodeSelector
@@ -5920,25 +6346,26 @@ spec:
                   compute:
                     additionalProperties:
                       type: string
-                    description: node selector for compute weka containers
+                    description: nodeSelector for compute weka containers
                     type: object
                   drive:
                     additionalProperties:
                       type: string
-                    description: node selector for drive weka containers
+                    description: nodeSelector for drive weka containers
                     type: object
                   nfs:
                     additionalProperties:
                       type: string
-                    description: node selector for nfs weka containers
+                    description: nodeSelector for nfs weka containers
                     type: object
                   s3:
                     additionalProperties:
                       type: string
-                    description: node selector for s3 weka containers, envoy will
-                      be scheduled by affinity to s3 and not explicit node selector
+                    description: nodeSelector for s3 weka containers
                     type: object
                 type: object
+              serviceAccountName:
+                type: string
               startIoConditions:
                 description: conditions that must be met before starting IO
                 properties:
@@ -5966,6 +6393,14 @@ spec:
               tracesConfiguration:
                 description: traces capacities configuration for weka containers
                 properties:
+                  dumperConfigMode:
+                    default: auto
+                    enum:
+                    - override
+                    - partial-override
+                    - auto
+                    - cluster
+                    type: string
                   ensureFreeSpace:
                     default: 20
                     type: integer
@@ -6076,6 +6511,9 @@ spec:
                   driveContainers:
                     type: string
                   drives:
+                    type: string
+                  filesystemCapacity:
+                    description: 'Information about filesystem capacity: Available/Used'
                     type: string
                   iops:
                     type: string
@@ -6248,6 +6686,48 @@ spec:
                               type: string
                           type: object
                         type: array
+                    type: object
+                  filesystem:
+                    description: FilesystemMetrics contains metrics about filesystem
+                      usage
+                    properties:
+                      activeObsBucketCount:
+                        format: int64
+                        type: integer
+                      hasTieredFilesystems:
+                        description: Object Store metrics
+                        type: boolean
+                      obsBucketCount:
+                        format: int64
+                        type: integer
+                      totalAvailableCapacity:
+                        description: TotalAvailableCapacity is the difference between
+                          TotalProvisionedCapacity and TotalUsedCapacity
+                        format: int64
+                        type: integer
+                      totalAvailableSSDCapacity:
+                        format: int64
+                        type: integer
+                      totalObsCapacity:
+                        format: int64
+                        type: integer
+                      totalProvisionedCapacity:
+                        description: TotalProvisionedCapacity is the sum of total_budget
+                          for all filesystems
+                        format: int64
+                        type: integer
+                      totalProvisionedSSDCapacity:
+                        description: SSD-specific metrics
+                        format: int64
+                        type: integer
+                      totalUsedCapacity:
+                        description: TotalUsedCapacity is the sum of used_total for
+                          all filesystems
+                        format: int64
+                        type: integer
+                      totalUsedSSDCapacity:
+                        format: int64
+                        type: integer
                     type: object
                   ioStats:
                     properties:

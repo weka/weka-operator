@@ -236,6 +236,8 @@ spec:
                     - type
                     type: object
                 type: object
+              serviceAccountName:
+                type: string
               tolerations:
                 items:
                   description: |-
