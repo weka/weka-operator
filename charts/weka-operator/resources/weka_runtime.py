@@ -121,6 +121,7 @@ class FeaturesFlags:
     # Bit positions (class-level ints) – will be shadowed by bools on the instance
     traces_override_partial_support: Union[bool, int] = 0
     traces_override_in_slash_traces: Union[bool, int] = 1
+    supports_binding_to_not_all_interfaces: Union[bool, int] = 1
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -1541,6 +1542,9 @@ async def ensure_weka_container():
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
     resources["ips"] = MANAGEMENT_IPS
+    ff = await get_feature_flags()
+    if ff.supports_binding_to_not_all_interfaces:
+        resources["restrict_listen"] = True
 
     # resources["mask_interrupts"] = True
 
