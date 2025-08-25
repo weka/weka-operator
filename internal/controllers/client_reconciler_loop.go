@@ -403,9 +403,10 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Kind:       "WekaContainer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clientName,
-			Namespace: wekaClient.Namespace,
-			Labels:    labels,
+			Name:        clientName,
+			Namespace:   wekaClient.Namespace,
+			Labels:      labels,
+			Annotations: wekaClient.GetAnnotations(),
 		},
 		Spec: weka.WekaContainerSpec{
 			NodeAffinity:        weka.NodeName(nodeName),
