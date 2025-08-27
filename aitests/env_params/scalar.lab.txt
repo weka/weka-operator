@@ -18,9 +18,15 @@ spec:
 - when subnet or network devices are not specified, use 10.200.0.0/16 as a subnet on wekacluster/wekaclient
 - environment has secret-less pull of quay.io weka images, imagePullSecret ref might present, but never validate existence of secret as it does not matter
 - if/when installing operator, always have `otelExporterOtlpEndpoint` value set to  `https://otelcollector.rnd.weka.io:4317`
-- CSI must be installed with following vars, unless instructed otherwise explicitly
+    - If operator is installed, embedded CSI should be used, unless instructed explicitly instructed otherwise. If not asked to install operator - it also should be assumed that stand alone CSI is not needed
+Default helm params for csi:
 ```
-pluginConfig:
-  allowInsecureHttps: true
-  skipGarbageCollection: true
+csi:
+  namespace: weka-operator-system
+  installationEnabled: true
+
+```
+- When creating WekaCluster/WekaClient, always put
+```
+spec.csiConfig.advanced.skipGarbageCollection=true
 ```
