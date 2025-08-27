@@ -1,0 +1,15 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: weka-targeted
+value: 1000000000            # higher = more important
+globalDefault: false
+description: "Re-scheduled weka containers pods"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: weka-initial
+value: 900000000
+globalDefault: false
+description: "Initial weka containers pods"

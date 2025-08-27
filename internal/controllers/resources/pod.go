@@ -178,6 +178,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
 	serviceAccountName := f.container.Spec.ServiceAccountName
+	var priorityClassName string
+	if f.container.GetNodeAffinity() != "" {
+		priorityClassName = "weka-targeted"
+	} else {
+		priorityClassName = "weka-initial"
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        f.container.Name,
@@ -194,6 +200,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			HostNetwork:                   hostNetwork,
 			HostPID:                       f.container.Spec.HostPID,
 			DNSPolicy:                     dnsPolicy,
+			PriorityClassName:             priorityClassName,
 			Containers: []corev1.Container{
 				{
 					Image:           image,
