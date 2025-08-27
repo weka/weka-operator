@@ -288,6 +288,13 @@ func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "status.nodeAffinity", func(rawObj client.Object) []string {
+		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
+		return []string{string(wekaContainer.Status.NodeAffinity)}
+	}); err != nil {
+		return err
+	}
+
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.ownerReferences.uid", func(rawObj client.Object) []string {
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
 		owner := metav1.GetControllerOf(wekaContainer)
