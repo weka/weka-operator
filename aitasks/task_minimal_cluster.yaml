@@ -1,0 +1,6 @@
+Create a minimalistic weka cluster, 6 containers of drive/compute, one drive, named tests-cluster, default namespace
+
+also ensure that drivers policy and drives policy are exist, if not create them
+lookup by type, not by expected name
+
+use 3 stripe width, 2 protection and 0 hot spares

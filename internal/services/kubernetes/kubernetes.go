@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,7 +23,9 @@ type KubeService interface {
 	GetNode(ctx context.Context, nodeName types.NodeName) (*v1.Node, error)
 	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
 	GetPodsSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error)
+	GetWekaContainersSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error)
 	GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error)
+	GetWekaContainers(ctx context.Context, options GetPodsOptions) ([]v1alpha1.WekaContainer, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
 	EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error
 }
@@ -42,6 +45,47 @@ type GetPodsOptions struct {
 	Node      string
 	Labels    map[string]string
 	LabelsIn  map[string][]string
+}
+
+func (s *ApiKubeService) GetWekaContainers(ctx context.Context, options GetPodsOptions) ([]v1alpha1.WekaContainer, error) {
+	wekaContainers := &v1alpha1.WekaContainerList{}
+
+	listOptions := []client.ListOption{}
+
+	// Create a list of options to pass to the List method
+	if options.Namespace != "" {
+		listOptions = []client.ListOption{
+			client.InNamespace(options.Namespace),
+		}
+	}
+
+	if len(options.Labels) != 0 {
+		listOptions = append(listOptions, client.MatchingLabels(options.Labels))
+	}
+
+	// Add node name filtering if the node parameter is not empty
+	if options.Node != "" {
+		listOptions = append(listOptions, client.MatchingFields{"status.nodeAffinity": options.Node})
+	}
+
+	if len(options.LabelsIn) != 0 {
+		selector := labels.NewSelector()
+		for k, v := range options.LabelsIn {
+			req, err := labels.NewRequirement(k, selection.In, v)
+			if err != nil {
+				return nil, err
+			}
+			selector = selector.Add(*req)
+		}
+		listOptions = append(listOptions, client.MatchingLabelsSelector{Selector: selector})
+	}
+
+	// List the pods with the given options
+	err := s.Client.List(ctx, wekaContainers, listOptions...)
+	if err != nil {
+		return []v1alpha1.WekaContainer{}, err
+	}
+	return wekaContainers.Items, nil
 }
 
 func (s *ApiKubeService) GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error) {
@@ -108,6 +152,31 @@ func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace string, no
 		return []v1.Pod{}, err
 	}
 	return pods.Items, nil
+}
+
+func (s *ApiKubeService) GetWekaContainersSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error) {
+	wekaContainers := &v1alpha1.WekaContainerList{}
+
+	// Create a list of options to pass to the List method
+	listOptions := []client.ListOption{
+		client.InNamespace(namespace),
+	}
+
+	if len(labels) != 0 {
+		listOptions = append(listOptions, client.MatchingLabels(labels))
+	}
+
+	// Add node name filtering if the node parameter is not empty
+	if node != "" {
+		listOptions = append(listOptions, client.MatchingFields{"status.nodeAffinity": node})
+	}
+
+	// List the pods with the given options
+	err := s.Client.List(ctx, wekaContainers, listOptions...)
+	if err != nil {
+		return []v1alpha1.WekaContainer{}, err
+	}
+	return wekaContainers.Items, nil
 }
 
 func (s *ApiKubeService) GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error) {

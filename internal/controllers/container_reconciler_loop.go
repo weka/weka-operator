@@ -611,7 +611,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 			{
 				Run: loop.setNodeAffinityStatus,
 				Predicates: lifecycle.Predicates{
-					lifecycle.IsNotFunc(loop.HasNodeAffinity),
+					lifecycle.IsNotFunc(loop.HasStatusNodeAffinity),
 				},
 				ContinueOnPredicatesFalse: true,
 			},
@@ -3601,36 +3601,31 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 		lock.Lock()
 		defer lock.Unlock()
 
-		var pods []v1.Pod
+		var wekaContainers []weka.WekaContainer
 		var err error
 		if !r.container.IsProtocolContainer() {
-			pods, err = r.KubeService.GetPodsSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
+			wekaContainers, err = r.KubeService.GetWekaContainersSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
 			if err != nil {
 				return err
 			}
 		} else {
-			pods, err = r.getFrontendPodsOnNode(ctx, node)
+			wekaContainers, err = r.getFrontendWekaContainerOnNode(ctx, node)
 			if err != nil {
 				return err
 			}
 		}
 
-		for _, pod := range pods {
-			if pod.UID == r.pod.UID {
+		for _, wc := range wekaContainers {
+			if wc.UID == r.container.UID {
 				continue // that's us, skipping
 			}
-			owner := pod.GetOwnerReferences()
-			if len(owner) == 0 {
-				continue // not owned pod, no idea what is it, but bypassing
-			}
 
-			var ownerContainer weka.WekaContainer
-			err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: owner[0].Name}, &ownerContainer)
-			if err != nil {
-				return err
-			}
-			if ownerContainer.Status.NodeAffinity != "" {
+			if wc.Status.NodeAffinity != "" {
 				// evicting for reschedule
+				ctx, logger, end := instrumentation.GetLogSpan(ctx, "enforceNodeAffinity-evict")
+				logger.Info("Another container is already using this node, evicting it", "other_container", wc.Name, "container_name", r.container.Name, "node", node)
+				//goland:noinspection ALL
+				defer end()
 				if err := r.ensureStateDeleting(ctx); err != nil {
 					return err
 				}
@@ -3666,6 +3661,19 @@ func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) err
 
 func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nodeName string) ([]v1.Pod, error) {
 	return r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
+		Node: nodeName,
+		LabelsIn: map[string][]string{
+			// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
+			// There is also a possible gap of deploying clients on top of S3
+			// But since we do want to allow multiple clients to multiple clusters it becomes much complex
+			// So  for now mostly solving case of scheduling of protocol on top of clients, and protocol on top of another protocol
+			domain.WekaLabelMode: domain.ContainerModesWithFrontend,
+		},
+	})
+}
+
+func (r *containerReconcilerLoop) getFrontendWekaContainerOnNode(ctx context.Context, nodeName string) ([]weka.WekaContainer, error) {
+	return r.KubeService.GetWekaContainers(ctx, kubernetes.GetPodsOptions{
 		Node: nodeName,
 		LabelsIn: map[string][]string{
 			// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
@@ -4758,6 +4766,10 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 
 	container.Status.LastAppliedImage = container.Spec.Image
 	return r.Status().Update(ctx, container)
+}
+
+func (r *containerReconcilerLoop) HasStatusNodeAffinity() bool {
+	return r.container.Status.NodeAffinity != ""
 }
 
 func (r *containerReconcilerLoop) HasNodeAffinity() bool {
