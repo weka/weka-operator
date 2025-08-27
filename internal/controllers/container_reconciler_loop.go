@@ -1132,7 +1132,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 
 		err := wekaService.DeactivateContainer(ctx, *containerId)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to deactivate container via %s", execInContainer.Name)
 		}
 
 		return lifecycle.NewWaitErrorWithDuration(
@@ -4712,6 +4712,7 @@ func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Po
 	if err != nil {
 		return nil, err
 	}
+	//TODO: We can replace this call with GetWekaContainerSimple (and remove index for pods nodenames) if we move nodeAgent to be wekacontainer
 	pods, err := r.KubeService.GetPodsSimple(ctx, ns, r.node.Name, map[string]string{
 		"app.kubernetes.io/component": "weka-node-agent",
 	})
