@@ -247,6 +247,18 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				ContinueOnPredicatesFalse: true,
 			},
 			{
+				Name: "ReconcileWekaLocalStatusOnDeletion",
+				Run:  loop.reconcileWekaLocalStatus,
+				Predicates: lifecycle.Predicates{
+					container.IsWekaContainer,
+					loop.ShouldDeactivate,
+					loop.PodIsSet,
+					container.IsMarkedForDeletion,
+					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
+				},
+				ContinueOnPredicatesFalse: true,
+			},
+			{
 				Name: "SetStatusMetrics",
 				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
 				Predicates: lifecycle.Predicates{
@@ -718,8 +730,7 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 				Run:  loop.reconcileWekaLocalStatus,
 				Predicates: lifecycle.Predicates{
 					container.IsWekaContainer,
-					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
-					loop.IsStatusOverwritableByLocal,
+					loop.PodIsSet,
 				},
 				ContinueOnPredicatesFalse: true,
 				OnFail:                    loop.setErrorStatus,
@@ -3344,6 +3355,10 @@ func (r *containerReconcilerLoop) getWekaPodContainer(pod *v1.Pod) (v1.Container
 	return v1.Container{}, errors.New("Weka container not found in pod")
 }
 
+func (r *containerReconcilerLoop) PodIsSet() bool {
+	return r.pod != nil
+}
+
 func (r *containerReconcilerLoop) PodNotSet() bool {
 	return r.pod == nil
 }
@@ -3794,6 +3809,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 	containerStatus := weka.ContainerStatus(status)
 	if container.Status.Status != containerStatus || container.Status.InternalStatus != internalStatus {
 		logger.Debug("Updating status", "old_status", container.Status.Status, "new_status", containerStatus, "old_internal_status", container.Status.InternalStatus, "new_internal_status", internalStatus)
+		r.IsStatusOverwritableByLocal()
 		container.Status.Status = containerStatus
 		container.Status.InternalStatus = internalStatus
 		if err := r.Status().Update(ctx, container); err != nil {
@@ -3813,6 +3829,10 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 
 	reason := fmt.Sprintf("%sError", stepName)
 	r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Minute)
+
+	if !r.IsStatusOverwritableByLocal() {
+		return nil
+	}
 
 	if r.container.Status.Status == weka.Error || r.container.Status.Status == weka.Unhealthy {
 		return nil
@@ -4790,7 +4810,12 @@ func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) err
 
 func (r *containerReconcilerLoop) IsStatusOverwritableByLocal() bool {
 	// we do not want to overwrite this statuses, as they proxy some higher-level state
-	if r.container.Status.Status == weka.Completed {
+	if slices.Contains([]weka.ContainerStatus{
+		weka.Completed,
+		weka.Deleting,
+		weka.Destroying,
+	},
+		r.container.Status.Status) {
 		return false
 	}
 	return true
