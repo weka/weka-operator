@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -34,7 +36,6 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -82,8 +83,8 @@ type wekaClusterReconcilerLoop struct {
 	containers      []*wekav1alpha1.WekaContainer
 	SecretsService  services.SecretsService
 	RestClient      rest.Interface
-	GlobalThrottler *util2.ThrottlingSyncMap
-	Throttler       util2.Throttler
+	GlobalThrottler throttling.Throttler
+	Throttler       throttling.Throttler
 	// internal field used to store data in-memory between steps
 	readyContainers *ReadyForClusterizationContainers
 }
@@ -1466,7 +1467,11 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 
 	count := r.GetUpgradedCount(r.containers)
 	key := fmt.Sprintf("upgrade-%s-%d/%d/%d", r.cluster.Spec.Image, count.UpgradedCompute, count.UpgradedDrive, count.UpgradedS3)
-	if !r.Throttler.ShouldRun(key, 10*time.Minute, util2.ThrolltingSettings{EnsureStepSuccess: true}) {
+	if !r.Throttler.ShouldRun(key, &throttling.ThrottlingSettings{
+		Interval:                    10 * time.Minute,
+		EnsureStepSuccess:           true,
+		DisableRandomPreSetInterval: true,
+	}) {
 		return
 	}
 	r.Throttler.SetNow(key)
@@ -2330,7 +2335,10 @@ func (r *wekaClusterReconcilerLoop) RecordEvent(eventtype string, reason string,
 }
 
 func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
-	if !r.Throttler.ShouldRun(eventtype+reason, interval, util2.ThrolltingSettings{EnsureStepSuccess: false}) {
+	if !r.Throttler.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+		Interval:                    interval,
+		DisableRandomPreSetInterval: true,
+	}) {
 		return nil
 	}
 

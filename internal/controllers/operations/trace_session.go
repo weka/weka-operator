@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -46,7 +46,7 @@ func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payloa
 }
 
 func (o *MaintainTraceSession) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "MaintainTraceSession",
 		Run:  AsRunFunc(o),
 	}
@@ -54,13 +54,13 @@ func (o *MaintainTraceSession) AsStep() lifecycle.Step {
 
 func (o *MaintainTraceSession) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "FetchCluster", Run: o.FetchCluster},
-		{Name: "DeduceWekaHomeUrl", Run: o.DeduceWekaHomeUrl},
-		{Name: "EnsureSecret", Run: o.EnsureSecret},
-		{Name: "EnsureWekaNodeRoutingConfigMap", Run: o.EnsureWekaNodeRoutingConfigMap},
-		{Name: "EnsureK8sContainerRoutingConfigMap", Run: o.EnsureK8sContainerRoutingConfigMap},
-		{Name: "EnsureDeployment", Run: o.EnsureDeployment},
-		{Name: "WaitTillExpiration", Run: o.WaitTillExpiration},
+		&lifecycle.SingleStep{Name: "FetchCluster", Run: o.FetchCluster},
+		&lifecycle.SingleStep{Name: "DeduceWekaHomeUrl", Run: o.DeduceWekaHomeUrl},
+		&lifecycle.SingleStep{Name: "EnsureSecret", Run: o.EnsureSecret},
+		&lifecycle.SingleStep{Name: "EnsureWekaNodeRoutingConfigMap", Run: o.EnsureWekaNodeRoutingConfigMap},
+		&lifecycle.SingleStep{Name: "EnsureK8sContainerRoutingConfigMap", Run: o.EnsureK8sContainerRoutingConfigMap},
+		&lifecycle.SingleStep{Name: "EnsureDeployment", Run: o.EnsureDeployment},
+		&lifecycle.SingleStep{Name: "WaitTillExpiration", Run: o.WaitTillExpiration},
 	}
 }
 

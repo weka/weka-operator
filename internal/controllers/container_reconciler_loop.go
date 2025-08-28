@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -44,7 +46,6 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -136,7 +137,7 @@ type containerReconcilerLoop struct {
 	clusterContainers []*weka.WekaContainer
 	// values shared between steps
 	activeMounts  *int
-	ThrottlingMap *util.ThrottlingSyncMap
+	ThrottlingMap throttling.Throttler
 	cluster       *weka.WekaCluster
 }
 
@@ -166,87 +167,84 @@ func (r *containerReconcilerLoop) getCsiDriverName() string {
 	return fmt.Sprintf("%s.weka.io", r.GetCSIGroup())
 }
 
-func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.ReconciliationSteps {
+func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContainer) lifecycle.StepsEngine {
 	restClient := r.RestClient
 
 	loop := NewContainerReconcileLoop(r, restClient)
 	loop.container = container
 
-	return lifecycle.ReconciliationSteps{
-		Client:       loop.Client,
-		StatusObject: loop.container,
-		Throttler:    r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
-		Conditions:   &loop.container.Status.Conditions,
+	k8sObject := &lifecycle.K8sObject{
+		Client:     loop.Client,
+		Object:     loop.container,
+		Conditions: &loop.container.Status.Conditions,
+	}
+
+	return lifecycle.StepsEngine{
+		Object:    k8sObject,
+		Throttler: r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
 		Steps: []lifecycle.Step{
-			{
+			&lifecycle.SingleStep{
 				Run: loop.migrateEnsurePorts,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						return len(loop.container.Spec.ExposePorts) != 0
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
 			// put self in state "destroying" if container is marked for deletion
-			{
+			&lifecycle.SingleStep{
 				Run: loop.ensureStateDeleting,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotFunc(container.IsDeletingState),
 					lifecycle.IsNotFunc(container.IsDestroyingState),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.GetNode},
-			{
+			&lifecycle.SingleStep{Run: loop.GetNode},
+			&lifecycle.SingleStep{
 				Run: loop.GetWekaClient,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.FetchTargetCluster,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						return loop.wekaClient != nil && loop.wekaClient.Spec.TargetCluster.Name != ""
 					},
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{Run: loop.refreshPod},
+			&lifecycle.SingleStep{Run: loop.refreshPod},
 			// if cluster marked container state as deleting, update status and put deletion timestamp
-			{
+			&lifecycle.SingleStep{
 				Run: loop.handleStateDeleting,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsDeletingState,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
 			// if cluster marked container state as destroying, update status and put deletion timestamp
-			{
+			&lifecycle.SingleStep{
 				Run: loop.handleStateDestroying,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsDestroyingState,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
 			// this will allow go back into deactivate flow if we detected that container joined the cluster
 			// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
-			{
+			&lifecycle.SingleStep{
 				Name: "ensurePodOnDeletion",
 				Run:  lifecycle.ForceNoError(loop.ensurePod),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.PodNotSet,
 					loop.ShouldDeactivate,
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
 					lifecycle.IsNotFunc(container.IsS3Container), // no need to recover S3 container on deactivate
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "ReconcileWekaLocalStatusOnDeletion",
 				Run:  loop.reconcileWekaLocalStatus,
 				Predicates: lifecycle.Predicates{
@@ -256,12 +254,11 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &container.Status.Conditions),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "SetStatusMetrics",
 				Run:  lifecycle.ForceNoError(loop.SetStatusMetrics),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 					lifecycle.IsNotFunc(loop.PodNotSet),
 					func() bool {
@@ -276,13 +273,14 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 							}, container.Spec.Mode)
 					},
 				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
-				ContinueOnPredicatesFalse: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: config.Config.Metrics.Containers.PollingRate,
+				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "RegisterContainerOnMetrics",
 				Run:  lifecycle.ForceNoError(loop.RegisterContainerOnMetrics),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 					func() bool {
 						return slices.Contains(
@@ -296,90 +294,83 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 							}, container.Spec.Mode)
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "ReportOtelMetrics",
 				Run:  lifecycle.ForceNoError(loop.ReportOtelMetrics),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.PodNotSet),
 				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
-				ContinueOnPredicatesFalse: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: config.Config.Metrics.Containers.PollingRate,
+				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:  condition.CondRemovedFromS3Cluster,
 				CondReason: "Deletion",
 				Run:        loop.RemoveFromS3Cluster,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDeactivate,
 					container.IsS3Container,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:  condition.CondRemovedFromNFS,
 				CondReason: "Deletion",
 				Run:        loop.RemoveFromNfs,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDeactivate,
 					container.IsNfsContainer,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
 			//{
 			//	Condition:  condition.CondContainerDrivesDeactivated,
 			//	CondReason: "Deletion",
 			//	Run:        loop.DeactivateDrives,
-			//	Predicates: lifecycle.Predicates{
+			//	Predicates: []lifecycle.PredicateFunc{
 			//		loop.ShouldDeactivate,
 			//		container.IsDriveContainer,
 			//	},
-			//	ContinueOnPredicatesFalse: true,
-			//},
-			{
+			//			//},
+			&lifecycle.SingleStep{
 				Condition:  condition.CondContainerDeactivated,
 				CondReason: "Deletion",
 				Run:        loop.DeactivateWekaContainer,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDeactivate,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run:        loop.RemoveDeactivatedContainersDrives,
 				Condition:  condition.CondContainerDrivesRemoved,
 				CondReason: "Deletion",
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDeactivate,
 					container.IsDriveContainer,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run:        loop.RemoveDeactivatedContainers,
 				Condition:  condition.CondContainerRemoved,
 				CondReason: "Deletion",
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDeactivate,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "reconcileClusterStatusOnDeletion",
 				Run:  lifecycle.ForceNoError(loop.reconcileClusterStatus),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.ShouldJoinCluster,
 					container.IsMarkedForDeletion,
 					func() bool {
 						return container.Status.ClusterContainerID == nil
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.stopForceAndEnsureNoPod, // we want to force stop drives to release
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					lifecycle.Or(
 						loop.ShouldDeactivate, // if we were deactivating - we should also force stop, as we are safe at this point
@@ -391,12 +382,11 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
 					// is it safe to force stop
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.waitForMountsOrDrain,
 				// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					container.IsClientContainer,
 					lifecycle.IsNotFunc(loop.PodNotSet),
@@ -404,78 +394,63 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 						return !container.Spec.GetOverrides().SkipActiveMountsCheck
 					},
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.stopForceAndEnsureNoPod, // we do not rely on graceful stop on clients until we test multiple weka versions with it under various failures
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					container.IsClientContainer,
 					lifecycle.IsNotFunc(loop.PodNotSet),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
+				}},
 			//TODO: Should we wait for mounts to go away on client before stopping on delete?
-			{
+			&lifecycle.SingleStep{
 				Run: loop.stopAndEnsureNoPod,
 				// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					container.IsWekaContainer,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition:  condition.CondContainerDrivesResigned,
 				CondReason: "Deletion",
 				Run:        loop.ResignDrives,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
 					lifecycle.IsNotFunc(loop.CanSkipDrivesForceResign),
 					container.IsDriveContainer,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.HandleDeletion,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsMarkedForDeletion,
-				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				}, FinishOnSuccess: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.handleStatePaused,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsPaused,
-				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				}, FinishOnSuccess: true,
 			},
-			{Run: loop.initState},
-			{Run: loop.deleteIfNoNode},
-			{
+			&lifecycle.SingleStep{Run: loop.initState},
+			&lifecycle.SingleStep{Run: loop.deleteIfNoNode},
+			&lifecycle.SingleStep{
 				Run: loop.checkTolerations,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.NodeNotSet),
 					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{Run: loop.ensureFinalizer},
-			{Run: loop.ensureBootConfigMapInTargetNamespace},
-			{
+				}},
+			&lifecycle.SingleStep{Run: loop.ensureFinalizer},
+			&lifecycle.SingleStep{Run: loop.ensureBootConfigMapInTargetNamespace},
+			&lifecycle.SingleStep{
 				Run: loop.updatePodMetadataOnChange,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.PodNotSet),
 					loop.podMetadataChanged,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
 				Run: loop.dropStopAttemptRecord,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.PodNotSet),
 					func() bool {
 						return container.IsDriveContainer() || container.IsComputeContainer()
@@ -483,175 +458,139 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return loop.pod.DeletionTimestamp == nil
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.handlePodTermination,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.PodNotSet),
 					func() bool {
 						return loop.pod.DeletionTimestamp != nil
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.deleteEnvoyIfNoS3Neighbor,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsEnvoy,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				// let drivers being re-built if node with drivers container is not found
 				Run: loop.clearStatusOnNodeNotFound,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsDriversContainer,
 					// only clear status if we have node affinity set in status, but not in spec
 					func() bool {
 						return container.Spec.NodeAffinity == "" && container.Status.NodeAffinity != ""
 					},
 					loop.NodeNotSet,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.uploadedDriversPeriodicCheck,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.container.IsOneOff,
 					loop.ResultsAreProcessed,
 					loop.container.IsDriversBuilder,
-				},
-				ContinueOnPredicatesFalse: true,
-				Throttled:                 config.Consts.CheckDriversInterval,
-				ThrolltingSettings: util.ThrolltingSettings{
+				}, Throttling: &throttling.ThrottlingSettings{
+					Interval:          config.Consts.CheckDriversInterval,
 					EnsureStepSuccess: true,
 				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.cleanupFinishedOneOff,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.container.IsOneOff,
 					loop.ResultsAreProcessed,
-				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				}, FinishOnSuccess: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:  condition.CondContainerImageUpdated,
 				CondReason: "ImageUpdate",
 				Run:        loop.handleImageUpdate,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						return container.Status.LastAppliedImage != ""
 					},
 					loop.IsNotAlignedImage,
 					lifecycle.IsNotFunc(loop.PodNotSet),
-				},
-				ContinueOnPredicatesFalse: true,
-				SkipOwnConditionCheck:     true,
+				}, SkipOwnConditionCheck: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.EnsureDrivers,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.RequiresDrivers,
 					lifecycle.IsNotFunc(container.IsMarkedForDeletion),
 					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.AllocateNICs,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldAllocateNICs,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition: condition.CondContainerMigratedOutFromPVC,
 				Run:       loop.MigratePVC,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.PodNotSet,
 					func() bool {
 						return loop.container.Spec.PVC != nil && loop.container.Spec.GetOverrides().MigrateOutFromPvc
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.ensurePod,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.PodNotSet,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.deletePodIfUnschedulable,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						// do not delete pod if node affinity is set on wekacontainer's spec
 						return loop.pod.Status.Phase == v1.PodPending && container.Spec.NodeAffinity == ""
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.checkPodUnhealty,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						return container.Status.Status != weka.Unhealthy
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.ensurePodNotRunningState,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.PodNotRunning,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run:       loop.enforceNodeAffinity,
 				Condition: condition.CondContainerAffinitySet,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.container.MustHaveNodeAffinity,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.setNodeAffinityStatus,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.HasStatusNodeAffinity),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.EnsureDrivers, //drivers might be off at this point if we had to wait for node affinity
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.RequiresDrivers,
 					loop.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{Run: loop.HandleNodeNotReady},
-			{Run: loop.WaitForPodRunning},
-			{
+				}},
+			&lifecycle.SingleStep{Run: loop.HandleNodeNotReady},
+			&lifecycle.SingleStep{Run: loop.WaitForPodRunning},
+			&lifecycle.SingleStep{
 				Run:       loop.WriteResources,
 				Condition: condition.CondContainerResourcesWritten,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.Or(
 						container.IsAllocatable,
 						container.IsClientContainer, // nics/machine-identifiers
 					),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Name: "checkUnhealyPodResources",
 				Run:  lifecycle.ForceNoError(loop.checkUnhealyPodResources),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.Or(
 						container.IsAllocatable,
 						container.IsClientContainer, // nics/machine-identifiers
@@ -659,46 +598,36 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.Status.Status == weka.Unhealthy
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.updateDriversBuilderStatus,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsDriversBuilder,
 					lifecycle.IsNotFunc(container.IsDistMode), // TODO: legacy "dist" mode is currently used both for building drivers and for distribution
 					lifecycle.IsNotFunc(loop.ResultsAreProcessed),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.updateAdhocOpStatus,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.Or(container.IsAdhocOpContainer, container.IsDiscoveryContainer),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition: condition.CondResultsReceived,
 				Run:       loop.fetchResults,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.container.IsOneOff,
-				},
-				ContinueOnPredicatesFalse: true,
-				SkipOwnConditionCheck:     false,
+				}, SkipOwnConditionCheck: false,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondResultsProcessed,
 				Run:       loop.processResults,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.container.IsOneOff,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Name: "ReconcileManagementIPs",
 				Run:  loop.reconcileManagementIPs,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						// we don't want to reconcile management IPs for containers that are already Running
 						return len(loop.container.Status.GetManagementIps()) == 0 && container.Status.Status != weka.Running
@@ -706,14 +635,12 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.IsBackend() || container.Spec.Mode == weka.WekaContainerModeClient
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-				OnFail:                    loop.setErrorStatus,
+				}, OnFail: loop.setErrorStatus,
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "PeriodicReconcileManagementIPs",
 				Run:  lifecycle.ForceNoError(loop.reconcileManagementIPs),
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						// we want to periodically reconcile management IPs for containers that are already Running
 						return container.Status.Status == weka.Running
@@ -721,30 +648,25 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.IsBackend() || container.IsClientContainer()
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-				Throttled:                 time.Minute * 3,
+				}, Throttling: &throttling.ThrottlingSettings{Interval: time.Minute * 3},
 			},
-			{
+			&lifecycle.SingleStep{
 				Name: "ReconcileWekaLocalStatus",
 				Run:  loop.reconcileWekaLocalStatus,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsWekaContainer,
 					loop.PodIsSet,
 				},
-				ContinueOnPredicatesFalse: true,
-				OnFail:                    loop.setErrorStatus,
+				OnFail: loop.setErrorStatus,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.applyCurrentImage,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.IsNotAlignedImage,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.setJoinIpsIfStuckInStemMode,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.ShouldJoinCluster,
 					func() bool {
 						return container.Status.ClusterContainerID == nil && len(container.Spec.JoinIps) == 0
@@ -752,21 +674,17 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return container.Status.InternalStatus == "STEM"
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition: condition.CondJoinedCluster,
 				Run:       loop.reconcileClusterStatus,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.ShouldJoinCluster,
-				},
-				ContinueOnPredicatesFalse: true,
-				CondMessage:               "Container joined cluster",
+				}, CondMessage: "Container joined cluster",
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.EnsureDrives,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsDriveContainer,
 					func() bool {
 						return len(loop.container.Status.Allocations.Drives) > 0
@@ -774,64 +692,52 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 					func() bool {
 						return loop.container.Status.InternalStatus == "READY"
 					},
-				},
-				ContinueOnPredicatesFalse: true,
-				OnFail:                    loop.setDrivesErrorStatus,
-				Throttled:                 config.Consts.PeriodicDrivesCheckInterval,
-				ThrolltingSettings: util.ThrolltingSettings{
+				}, OnFail: loop.setDrivesErrorStatus,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval:          config.Consts.PeriodicDrivesCheckInterval,
 					EnsureStepSuccess: true,
 				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:   condition.CondJoinedS3Cluster,
 				Run:         loop.JoinS3Cluster,
 				CondMessage: "Joined s3 cluster",
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsS3Container,
 					container.HasJoinIps,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition:   condition.CondNfsInterfaceGroupsConfigured,
 				Run:         loop.JoinNfsInterfaceGroups,
 				CondMessage: "NFS interface groups configured",
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsNfsContainer,
 					container.HasJoinIps,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Condition:             condition.CondCsiDeployed,
 				SkipOwnConditionCheck: true,
 				Run:                   loop.DeployCsiNodeServerPod,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsClientContainer,
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 					loop.isWekaClientRunning,
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.ManageCsiTopologyLabels,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsClientContainer,
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
-				},
-				ContinueOnPredicatesFalse: true,
-			},
-			{
+				}},
+			&lifecycle.SingleStep{
 				Run: loop.CleanupCsiNodeServerPod,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					container.IsClientContainer,
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
 					lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
-				},
-				ContinueOnPredicatesFalse: true,
-				Throttled:                 10 * time.Minute,
-				ThrolltingSettings: util.ThrolltingSettings{
+				}, Throttling: &throttling.ThrottlingSettings{
+					Interval:          10 * time.Minute,
 					EnsureStepSuccess: false, // we do not want to retry this step if it fails
 				},
 			},
@@ -1239,7 +1145,10 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 	if config.Config.RemovalThrottlingEnabled {
 		if !r.container.IsS3Container() {
 			throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
-			if !throttler.ShouldRun("removeDeactivatedContainers", time.Minute, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+			if !throttler.ShouldRun("removeDeactivatedContainers", &throttling.ThrottlingSettings{
+				Interval:                    time.Minute,
+				DisableRandomPreSetInterval: true,
+			}) {
 				return lifecycle.NewWaitErrorWithDuration(
 					errors.New("throttling removal of containers from weka"),
 					time.Second*15,
@@ -3867,7 +3776,10 @@ func (r *containerReconcilerLoop) RecordEvent(eventtype, reason, message string)
 func (r *containerReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
 	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
 
-	if !throttler.ShouldRun(eventtype+reason, interval, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+	if !throttler.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+		Interval:                    interval,
+		DisableRandomPreSetInterval: true,
+	}) {
 		return nil
 	}
 
@@ -4629,7 +4541,10 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 	throttlingKey := fmt.Sprintf("RegisterContainerOnMetrics-%s", podStatus)
 	throttler := r.ThrottlingMap.WithPartition("container/" + r.container.Name)
 
-	if !throttler.ShouldRun(throttlingKey, config.Config.Metrics.Containers.PollingRate, util.ThrolltingSettings{EnsureStepSuccess: false}) {
+	if !throttler.ShouldRun(throttlingKey, &throttling.ThrottlingSettings{
+		Interval:                    config.Config.Metrics.Containers.PollingRate,
+		DisableRandomPreSetInterval: true,
+	}) {
 		return nil
 	}
 
@@ -4832,12 +4747,11 @@ func (r *containerReconcilerLoop) migrateEnsurePorts(ctx context.Context) error 
 	}
 
 	if len(r.container.Spec.ExposePorts) == 2 {
-		r.container.Spec.ExposedPorts = []v1.ContainerPort{
-			{
-				Name:          "envoy",
-				ContainerPort: int32(r.container.Spec.ExposePorts[0]),
-				HostPort:      int32(r.container.Spec.ExposePorts[0]),
-			},
+		r.container.Spec.ExposedPorts = []v1.ContainerPort{{
+			Name:          "envoy",
+			ContainerPort: int32(r.container.Spec.ExposePorts[0]),
+			HostPort:      int32(r.container.Spec.ExposePorts[0]),
+		},
 			{
 				Name:          "envoy-admin",
 				ContainerPort: int32(r.container.Spec.ExposePorts[1]),

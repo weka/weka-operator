@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
@@ -18,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/pkg/util"
@@ -39,7 +40,7 @@ type WekaClusterReconciler struct {
 	SecretsService services.SecretsService
 
 	DetectedZombies map[util.NamespacedObject]time.Time
-	ThrottlingMap   *util.ThrottlingSyncMap
+	ThrottlingMap   throttling.Throttler
 }
 
 func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *WekaClusterReconciler {
@@ -54,7 +55,7 @@ func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *Weka
 		Manager:        mgr,
 		RestClient:     restClient,
 		SecretsService: services.NewSecretsService(client, scheme, execService),
-		ThrottlingMap:  util.NewSyncMapThrottler(),
+		ThrottlingMap:  throttling.NewSyncMapThrottler(),
 	}
 	return ret
 }
@@ -100,30 +101,34 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 	logger.Info("Reconciling WekaCluster")
 	defer logger.Info("Reconciliation of WekaCluster finished")
 
-	reconSteps := lifecycle.ReconciliationSteps{
-		Client:       r.Client,
-		StatusObject: loop.cluster,
-		Conditions:   &loop.cluster.Status.Conditions,
-		Throttler:    loop.Throttler,
+	k8sObject := &lifecycle.K8sObject{
+		Client:     r.Client,
+		Object:     loop.cluster,
+		Conditions: &loop.cluster.Status.Conditions,
+	}
+	stepsEngine := lifecycle.StepsEngine{
+		Object:    k8sObject,
+		Throttler: r.ThrottlingMap.WithPartition("wekacluster/" + string(loop.cluster.GetUID())),
 		Steps: []lifecycle.Step{
-			{
+			&lifecycle.SingleStep{
 				Run: loop.getCurrentContainers,
 			},
-			{
+			&lifecycle.SingleStep{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
 				Run:  lifecycle.ForceNoError(loop.UpdateContainersCounters),
 				Name: "UpdateContainersCounters", // explicit for throttling
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
 				},
-				Throttled:                 config.Config.Metrics.Containers.PollingRate,
-				ContinueOnPredicatesFalse: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: config.Config.Metrics.Containers.PollingRate,
+				},
 			},
-			{
+			&lifecycle.SingleStep{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
 				Run:  lifecycle.ForceNoError(loop.UpdateWekaStatusMetrics),
 				Name: "UpdateWekaStatusMetrics", // explicit for throttling
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						for _, c := range loop.cluster.Status.Conditions {
 							if c.Type == condition.CondClusterCreated {
@@ -137,123 +142,118 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
 					lifecycle.IsNotFunc(loop.cluster.IsTerminating),
 				},
-				Throttled:                 config.Config.Metrics.Clusters.PollingRate,
-				ContinueOnPredicatesFalse: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: config.Config.Metrics.Clusters.PollingRate,
+				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Run:  lifecycle.ForceNoError(loop.EnsureClusterMonitoringService),
 				Name: "EnsureClusterMonitoringService",
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
 				},
-				Throttled:                 config.Config.Metrics.Clusters.PollingRate,
-				ContinueOnPredicatesFalse: true,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval: config.Config.Metrics.Clusters.PollingRate,
+				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.HandleGracefulDeletion,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ClusterIsInGracefulDeletion,
 				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				FinishOnSuccess: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.HandleDeletion,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.cluster.IsMarkedForDeletion,
 					lifecycle.IsNotFunc(loop.ClusterIsInGracefulDeletion),
 				},
-				ContinueOnPredicatesFalse: true,
-				FinishOnSuccess:           true,
+				FinishOnSuccess: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.InitState,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:   condition.CondClusterSecretsCreated,
 				Run:         loop.EnsureLoginCredentials,
 				CondMessage: "Cluster secrets are created",
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:             condition.CondPodsCreated,
 				Run:                   loop.EnsureWekaContainers,
 				SkipOwnConditionCheck: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.HandleSpecUpdates,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.updateContainersOnNodeSelectorMismatch,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.CleanupBackendsOnNodeSelectorMismatch),
 				},
-				Throttled: config.Consts.SelectorMismatchCleanupInterval,
-				ThrolltingSettings: util.ThrolltingSettings{
+				Throttling: &throttling.ThrottlingSettings{
+					Interval:          config.Consts.SelectorMismatchCleanupInterval,
 					EnsureStepSuccess: true,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.deleteContainersOnTolerationsMismatch,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition:             condition.CondContainerResourcesAllocated,
 				Run:                   loop.AllocateResources,
 				SkipOwnConditionCheck: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondPodsReady,
 				Run:       loop.InitialContainersReady,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterCreated,
 				Run:       loop.FormCluster,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondPostClusterFormedScript,
 				Run:       loop.RunPostFormClusterScript,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.HasPostFormClusterScript,
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.refreshContainersJoinIps,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondJoinedCluster,
 				Run:       loop.WaitForContainersJoin,
 			},
 			//TODO: Also will prevent from partial healthy operatable cluster
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondDrivesAdded,
 				Run:       loop.WaitForDrivesAdd,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondIoStarted,
 				Run:       loop.StartIo,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterSecretsApplied,
 				Run:       loop.ApplyCredentials,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondAdminUserDeleted,
 				Run:       loop.DeleteAdminUser,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						for _, c := range loop.cluster.Status.Conditions {
 							if c.Type == condition.CondClusterSecretsApplied {
@@ -266,86 +266,80 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 					},
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run:       loop.ConfigureKms,
 				Condition: condition.CondClusterKMSConfigured,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldConfigureKms,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondDefaultFsCreated,
 				Run:       loop.EnsureDefaultFS,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.DestroyS3Cluster,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldDestroyS3Cluster,
 				},
-				ContinueOnPredicatesFalse: true,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondS3ClusterCreated,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					loop.HasS3Containers,
 				},
-				Run:                       loop.EnsureS3Cluster,
-				ContinueOnPredicatesFalse: true,
+				Run: loop.EnsureS3Cluster,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.ConfNfsConfigured,
-				Predicates: lifecycle.Predicates{
+				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 					loop.HasNfsContainers,
 				},
-				Run:                       loop.EnsureNfs,
-				ContinueOnPredicatesFalse: true,
+				Run: loop.EnsureNfs,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterClientSecretsCreated,
 				Run:       loop.ensureClientLoginCredentials,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterClientSecretsApplied,
 				Run:       loop.applyClientLoginCredentials,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterCsiSecretsCreated,
 				Run:       loop.EnsureCsiLoginCredentials,
 			},
-			{
-				Run:       loop.EnsureCsiLoginCredentials,
-				Throttled: config.Consts.CsiLoginCredentialsUpdateInterval,
-				ThrolltingSettings: util.ThrolltingSettings{
+			&lifecycle.SingleStep{
+				Run: loop.EnsureCsiLoginCredentials,
+				Throttling: &throttling.ThrottlingSettings{
+					Interval:          config.Consts.CsiLoginCredentialsUpdateInterval,
 					EnsureStepSuccess: true,
 				},
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterCsiSecretsApplied,
 				Run:       loop.applyCsiLoginCredentials,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.WekaHomeConfigured,
 				Run:       loop.configureWekaHome,
 			},
-			{
+			&lifecycle.SingleStep{
 				Condition: condition.CondClusterReady,
 				Run:       loop.MarkAsReady,
 			},
-			{
+			&lifecycle.SingleStep{
 				Run: loop.handleUpgrade,
 			},
 		},
 	}
 
-	return reconSteps.RunAsReconcilerResponse(ctx)
+	return stepsEngine.RunAsReconcilerResponse(ctx)
 }
 
 func (r *WekaClusterReconciler) GetProvisionContext(initContext context.Context, wekaCluster *wekav1alpha1.WekaCluster) (context.Context, error) {

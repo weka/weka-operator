@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,7 +53,7 @@ func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPa
 }
 
 func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "BlockDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -61,39 +61,31 @@ func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *BlockDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{
-			Name:                      "Noop",
-			Run:                       o.Noop,
-			Predicates:                lifecycle.Predicates{o.IsDone},
-			FinishOnSuccess:           true,
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+		&lifecycle.SingleStep{
+			Name:            "Noop",
+			Run:             o.Noop,
+			Predicates:      []lifecycle.PredicateFunc{o.IsDone},
+			FinishOnSuccess: true},
+		&lifecycle.SingleStep{
 			Name: "BlockDrives",
 			Run:  o.BlockDrives,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				func() bool { return !o.unblock },
-			},
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+			}},
+		&lifecycle.SingleStep{
 			Name: "UnblockDrives",
 			Run:  o.UnblockDrives,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				func() bool { return o.unblock },
-			},
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+			}},
+		&lifecycle.SingleStep{
 			Name: "SuccessCallback",
 			Run:  o.SuccessCallback,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				o.OperationSucceeded,
-			},
-			ContinueOnPredicatesFalse: true,
-			FinishOnSuccess:           true,
+			}, FinishOnSuccess: true,
 		},
-		{Name: "FailureCallback", Run: o.FailureCallback},
+		&lifecycle.SingleStep{Name: "FailureCallback", Run: o.FailureCallback},
 	}
 }
 

@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -42,7 +42,7 @@ type EnsureNICsOperation struct {
 }
 
 func (o *EnsureNICsOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "EnsureNICs",
 		Run:  AsRunFunc(o),
 	}
@@ -79,13 +79,13 @@ func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, o
 
 func (o *EnsureNICsOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetContainers", Run: o.GetContainers},
-		{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
-		{Name: "EnsureContainers", Run: o.EnsureContainers},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
+		&lifecycle.SingleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }
 
@@ -277,7 +277,7 @@ func (o *EnsureNICsOperation) IsDone() bool {
 }
 
 func (o *EnsureNICsOperation) Cleanup() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DeleteContainers",
 		Run:  o.DeleteContainers,
 	}

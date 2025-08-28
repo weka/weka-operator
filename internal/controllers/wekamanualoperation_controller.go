@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 )
 
 // WekaManualOperationReconciler reconciles a WekaManualOperation object
@@ -196,7 +196,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	steps := []lifecycle.Step{
-		{
+		&lifecycle.SingleStep{
 			Name: "DeleteSelf",
 			Run: func(ctx context.Context) error {
 				err := r.Delete(ctx, wekaManualOperation)
@@ -205,25 +205,29 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 				}
 				return err
 			},
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				func() bool {
 					return wekaManualOperation.DeletionTimestamp != nil || (wekaManualOperation.Status.Status == "Done" && time.Since(wekaManualOperation.Status.CompletedAt.Time) > 5*time.Minute)
 				},
 			},
-			FinishOnSuccess:           true,
-			ContinueOnPredicatesFalse: true,
+			FinishOnSuccess: true,
 		},
 	}
 
 	steps = append(steps, loop.Op.AsStep())
 
-	reconSteps := lifecycle.ReconciliationSteps{
-		StatusObject: wekaManualOperation,
-		Client:       r.Client,
-		Steps:        steps,
+	k8sObject := &lifecycle.K8sObject{
+		Client:     r.Client,
+		Object:     wekaManualOperation,
+		Conditions: nil, // WekaManualOperation doesn't use conditions
 	}
 
-	return reconSteps.RunAsReconcilerResponse(ctx)
+	stepsEngine := lifecycle.StepsEngine{
+		Object: k8sObject,
+		Steps:  steps,
+	}
+
+	return stepsEngine.RunAsReconcilerResponse(ctx)
 }
 
 // SetupWithManager sets up the controller with the Manager.

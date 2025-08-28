@@ -15,8 +15,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -84,7 +84,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 }
 
 func (o *LoadDrivers) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "LoadDrivers",
 		Run:  AsRunFunc(o),
 	}
@@ -92,15 +92,15 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
-		{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: lifecycle.Predicates{o.imageHasChanged}, ContinueOnPredicatesFalse: true},
-		{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}, ContinueOnPredicatesFalse: true},
-		{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
+		&lifecycle.SingleStep{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
+		&lifecycle.SingleStep{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: []lifecycle.PredicateFunc{o.imageHasChanged}},
+		&lifecycle.SingleStep{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: []lifecycle.PredicateFunc{o.NodeRebooted}},
+		&lifecycle.SingleStep{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsLoaded}, FinishOnSuccess: true},
 		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
-		{Name: "CreateContainer", Run: o.CreateContainer, Predicates: lifecycle.Predicates{o.HasNotContainer}, ContinueOnPredicatesFalse: true},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "DeleteContainers", Run: o.DeleteContainers},
+		&lifecycle.SingleStep{Name: "CreateContainer", Run: o.CreateContainer, Predicates: []lifecycle.PredicateFunc{o.HasNotContainer}},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{Name: "DeleteContainers", Run: o.DeleteContainers},
 	}
 }
 

@@ -56,6 +56,7 @@ jobs:
             ${{ secrets.OPERATOR_DEPLOY_SSH_KEY }}
             ${{ secrets.WEKA_K8S_API_DEPLOY_SSH_KEY }}
             ${{ secrets.GO_WEKA_OBSERVABILITY_DEPLOY_SSH_KEY }}
+            ${{ secrets.GO_STEPS_ENGINE_DEPLOY_SSH_KEY }}
       - name: Setup access for private go modules
         run: |
           git config --global url."ssh://git@github.com/".insteadOf https://github.com/

@@ -2,12 +2,13 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -37,7 +38,7 @@ func NewContainerController(mgr ctrl.Manager, restClient rest.Interface) *Contai
 		ExecService:   execService,
 		Manager:       mgr,
 		RestClient:    restClient,
-		ThrottlingMap: util.NewSyncMapThrottler(),
+		ThrottlingMap: throttling.NewSyncMapThrottler(),
 	}
 }
 
@@ -49,7 +50,7 @@ type ContainerController struct {
 	ExecService   exec.ExecService
 	Manager       ctrl.Manager
 	RestClient    rest.Interface
-	ThrottlingMap *util.ThrottlingSyncMap // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
+	ThrottlingMap throttling.Throttler // TODO: Implement GC, so it will be cleaned up(maybe stored in different place as well) when containers are no more. Low priority as we dont expect lots of rotation
 }
 
 func (c *ContainerController) RunGC(ctx context.Context) {}

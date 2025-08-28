@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/weka/go-weka-observability/instrumentation"
 
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -15,9 +16,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -52,7 +53,7 @@ func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClie
 }
 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DeployCsi",
 		Run:  AsRunFunc(o),
 	}
@@ -60,63 +61,51 @@ func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 
 func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	deploySteps := []lifecycle.Step{
-		{
+		&lifecycle.SingleStep{
 			Name: "DeployCsiDriver",
 			Run:  o.deployCsiDriver,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				o.shouldDeployCSIDriver,
-			},
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+			}},
+		&lifecycle.SingleStep{
 			Name: "DeployStorageClasses",
 			Run:  o.deployStorageClasses,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
 				o.shouldDeployStorageClass,
-			},
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+			}},
+		&lifecycle.SingleStep{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
 				o.shouldDeployCSIController,
-			},
-			ContinueOnPredicatesFalse: true,
-		},
+			}},
 	}
 	undeploySteps := []lifecycle.Step{
-		{
-			Name:                      "UndeployCsiDriver",
-			Run:                       o.undeployCsiDriver,
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+		&lifecycle.SingleStep{
+			Name: "UndeployCsiDriver",
+			Run:  o.undeployCsiDriver},
+		&lifecycle.SingleStep{
 			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
-			},
-			ContinueOnPredicatesFalse: true,
-		},
-		{
+			}},
+		&lifecycle.SingleStep{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
-			},
-			ContinueOnPredicatesFalse: true,
-		},
+			}},
 	}
 	if o.undeploy {
 		return undeploySteps

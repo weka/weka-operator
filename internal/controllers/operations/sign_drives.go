@@ -19,10 +19,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
@@ -50,7 +50,7 @@ type SignDrivesOperation struct {
 }
 
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "SignDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -79,22 +79,21 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 
 func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetContainers", Run: o.GetContainers},
-		{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, ContinueOnPredicatesFalse: true, FinishOnSuccess: true},
-		{Name: "EnsureContainers", Run: o.EnsureContainers},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{
+		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{
 			Name: "FailureUpdate",
 			Run:  o.FailureCallback,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				o.OperationFailed,
 			},
-			ContinueOnPredicatesFalse: true,
-			FinishOnSuccess:           true,
+			FinishOnSuccess: true,
 		},
-		{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		{Name: "DeleteCompletedContainers", Run: o.DeleteContainers},
+		&lifecycle.SingleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
+		&lifecycle.SingleStep{Name: "DeleteCompletedContainers", Run: o.DeleteContainers},
 	}
 }
 

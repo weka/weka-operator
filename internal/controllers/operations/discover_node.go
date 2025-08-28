@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -18,7 +19,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -61,7 +61,7 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 }
 
 func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DiscoverNode",
 		Run:  AsRunFunc(o),
 	}
@@ -69,22 +69,21 @@ func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
 
 func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "GetNode", Run: o.GetNode},
-		{Name: "GetContainers", Run: o.GetContainers},
-		{
+		&lifecycle.SingleStep{Name: "GetNode", Run: o.GetNode},
+		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SingleStep{
 			Name:            "FinishOnExistingInfo",
 			Run:             o.DeleteContainers,
 			FinishOnSuccess: true,
-			Predicates: lifecycle.Predicates{
+			Predicates: []lifecycle.PredicateFunc{
 				o.HasData,
 			},
-			ContinueOnPredicatesFalse: true,
 		},
-		{Name: "EnsureContainers", Run: o.EnsureContainers},
-		{Name: "PollResults", Run: o.PollResults},
-		{Name: "ProcessResult", Run: o.ProcessResult},
-		{Name: "UpdateNodes", Run: o.UpdateNodes},
-		{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SingleStep{Name: "UpdateNodes", Run: o.UpdateNodes},
+		&lifecycle.SingleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }
 
@@ -305,7 +304,7 @@ func (o *DiscoverNodeOperation) GetJsonResult() string {
 }
 
 func (o *DiscoverNodeOperation) Cleanup() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "DeleteContainers",
 		Run:  o.DeleteContainers,
 	}

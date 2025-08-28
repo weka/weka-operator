@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/weka-operator/internal/pkg/lifecycle"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/workers"
@@ -125,14 +125,14 @@ func (o *EnsureDistServiceOperation) GetJsonResult() string {
 
 func (o *EnsureDistServiceOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
-		{Name: "DiscoverImages", Run: o.DiscoverImages},
-		{Name: "EnsureDistService", Run: o.EnsureDistService},
-		{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
-		{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
-		{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
+		&lifecycle.SingleStep{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
+		&lifecycle.SingleStep{Name: "DiscoverImages", Run: o.DiscoverImages},
+		&lifecycle.SingleStep{Name: "EnsureDistService", Run: o.EnsureDistService},
+		&lifecycle.SingleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
+		&lifecycle.SingleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
+		&lifecycle.SingleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
 		//{Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
-		{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
+		&lifecycle.SingleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
 	}
 }
 
@@ -795,7 +795,7 @@ func hashFNV(s string) string {
 }
 
 func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
-	return lifecycle.Step{
+	return &lifecycle.SingleStep{
 		Name: "EnableLocalDriversDistribution",
 		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
 	}
