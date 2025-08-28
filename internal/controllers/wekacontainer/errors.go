@@ -1,4 +1,4 @@
-package controllers
+package wekacontainer
 
 type NoWekaFsDriverFound struct{}
 

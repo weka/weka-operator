@@ -1,4 +1,4 @@
-package controllers
+package wekacontainer
 
 import (
 	"bytes"
@@ -44,6 +44,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations/tempops"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
@@ -881,7 +882,7 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	controllerutil.RemoveFinalizer(r.container, WekaFinalizer)
+	controllerutil.RemoveFinalizer(r.container, resources.WekaFinalizer)
 	err = r.Update(ctx, r.container)
 	if err != nil {
 		logger.Error(err, "Error removing finalizer")
@@ -2089,7 +2090,7 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 
 	container := r.container
 
-	if ok := controllerutil.AddFinalizer(container, WekaFinalizer); !ok {
+	if ok := controllerutil.AddFinalizer(container, resources.WekaFinalizer); !ok {
 		return nil
 	}
 
@@ -3506,7 +3507,7 @@ func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*
 	}
 
 	var err error
-	allocations.NetDevices, err = getNetDevices(ctx, r.node, r.container)
+	allocations.NetDevices, err = utils.GetNetDevices(ctx, r.node, r.container)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get net devices: %w", err)
 	}

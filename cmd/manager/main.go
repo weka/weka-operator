@@ -31,6 +31,9 @@ import (
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers"
+	"github.com/weka/weka-operator/internal/controllers/wekaclient"
+	"github.com/weka/weka-operator/internal/controllers/wekacluster"
+	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -199,9 +202,9 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 	}
 
 	ctrls := []WekaReconciler{
-		controllers.NewClientController(mgr, restClient),
-		controllers.NewContainerController(mgr, restClient),
-		controllers.NewWekaClusterController(mgr, restClient),
+		wekaclient.NewClientController(mgr, restClient),
+		wekacontainer.NewContainerController(mgr, restClient),
+		wekacluster.NewWekaClusterController(mgr, restClient),
 		controllers.NewWekaPolicyController(mgr),
 		controllers.NewWekaManualOperationController(mgr, restClient),
 	}

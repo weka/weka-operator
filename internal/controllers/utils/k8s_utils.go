@@ -1,4 +1,4 @@
-package controllers
+package utils
 
 import (
 	util2 "github.com/weka/weka-operator/pkg/util"

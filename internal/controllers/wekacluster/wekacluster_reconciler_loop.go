@@ -1,4 +1,4 @@
-package controllers
+package wekacluster
 
 import (
 	"context"
@@ -33,6 +33,9 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
+	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/controllers/upgrade"
+	"github.com/weka/weka-operator/internal/controllers/metrics"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -395,7 +398,7 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 	if activeContainer != nil {
 		wekaService := services.NewWekaService(r.ExecService, activeContainer)
 		msg := "Destroying Weka cluster"
-		err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(r.Manager))
+		err := wekaService.EmitCustomEvent(ctx, msg, utils.GetKubernetesVersion(r.Manager))
 		if err != nil {
 			logger.Warn("Failed to emit custom event", "event", msg)
 		}
@@ -1418,7 +1421,7 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 		return err
 	}
 
-	return wekaService.EmitCustomEvent(ctx, "Weka cluster provisioned successfully", GetKubernetesVersion(r.Manager))
+	return wekaService.EmitCustomEvent(ctx, "Weka cluster provisioned successfully", utils.GetKubernetesVersion(r.Manager))
 }
 
 type UpgradedCount struct {
@@ -1487,7 +1490,7 @@ func (r *wekaClusterReconcilerLoop) emitClusterUpgradeCustomEvent(ctx context.Co
 
 	execService := r.ExecService
 	wekaService := services.NewWekaService(execService, activeContainer)
-	err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(r.Manager))
+	err := wekaService.EmitCustomEvent(ctx, msg, utils.GetKubernetesVersion(r.Manager))
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
@@ -1506,7 +1509,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
-		targetVersion := getSoftwareVersion(cluster.Spec.Image)
+		targetVersion := utils.GetSoftwareVersion(cluster.Spec.Image)
 
 		if cluster.Spec.GetOverrides().UpgradePaused {
 			return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
@@ -1592,7 +1595,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 		r.emitClusterUpgradeCustomEvent(ctx)
 
-		uController := NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
+		uController := upgrade.NewUpgradeController(r.getClient(), driveContainers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -1620,7 +1623,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		uController = NewUpgradeController(r.getClient(), computeContainers, cluster.Spec.Image)
+		uController = upgrade.NewUpgradeController(r.getClient(), computeContainers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -1644,7 +1647,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 
-		uController = NewUpgradeController(r.getClient(), s3Containers, cluster.Spec.Image)
+		uController = upgrade.NewUpgradeController(r.getClient(), s3Containers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
@@ -1664,16 +1667,6 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	return nil
 }
 
-// getSoftwareVersion extracts the software version of weka
-func getSoftwareVersion(image string) string {
-	idx := strings.LastIndex(image, ":")
-	if idx == -1 {
-		return ""
-	}
-	tag := image[idx+1:]
-	parts := strings.Split(tag, "-")
-	return parts[0]
-}
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")
@@ -1779,7 +1772,7 @@ func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error
 	// Allocate resources for all containers at once, log-report for failed
 	toAllocate := []*wekav1alpha1.WekaContainer{}
 	for _, container := range r.containers {
-		if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+		if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy {
 			continue
 		}
 		if container.Status.NodeAffinity == "" {
@@ -2266,7 +2259,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		return err
 	}
 
-	data, err := BuildClusterPrometheusMetrics(ctx, r.cluster, status)
+	data, err := metrics.BuildClusterPrometheusMetrics(ctx, r.cluster, status)
 	if err != nil {
 		return err
 	}
@@ -2389,7 +2382,7 @@ func BuildMissingContainers(ctx context.Context, cluster *wekav1alpha1.WekaClust
 
 		currentCount := 0
 		for _, container := range existingContainers {
-			if unhealthy, _, _ := IsUnhealthy(ctx, container); unhealthy {
+			if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy {
 				continue // we don't care why it's unhealthy, but if it is - we do not account for it and replacement will be scheduled
 			}
 			if container.Spec.Mode == role {

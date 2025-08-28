@@ -1,4 +1,4 @@
-package controllers
+package wekaclient
 
 import (
 	"context"
@@ -28,6 +28,8 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/controllers/upgrade"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
@@ -37,6 +39,7 @@ import (
 )
 
 const defaultPortRangeBase = 45000
+const WekaFinalizer = "weka-operator.weka.io/finalizer"
 
 func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 	mgr := r.Manager
@@ -755,14 +758,14 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 
 	msg := fmt.Sprintf("Upgrading clients progress: %d:%d", count, len(c.containers))
 	wekaService := services.NewWekaService(c.ExecService, activeContainer)
-	err := wekaService.EmitCustomEvent(ctx, msg, GetKubernetesVersion(c.Manager))
+	err := wekaService.EmitCustomEvent(ctx, msg, utils.GetKubernetesVersion(c.Manager))
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
 }
 
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
-	uController := NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
+	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
 	if uController.AreUpgraded() {
 		return nil
 	}
@@ -1110,3 +1113,4 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.CsiImage)
 	return nil
 }
+

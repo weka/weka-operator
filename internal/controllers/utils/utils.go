@@ -1,4 +1,4 @@
-package controllers
+package utils
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func getAWSGatewayIP(cidr string) (string, error) {
 	return ip.String(), nil
 }
 
-func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
+func GetNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaContainer) (netDevices []string, err error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "getNetDevices")
 	defer end()
 
@@ -132,4 +132,15 @@ func getNetDevices(ctx context.Context, node *v1.Node, container *weka.WekaConta
 
 	netDevices = []string{"udp"}
 	return
+}
+
+// GetSoftwareVersion extracts the software version of weka
+func GetSoftwareVersion(image string) string {
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 {
+		return ""
+	}
+	tag := image[idx+1:]
+	parts := strings.Split(tag, "-")
+	return parts[0]
 }
