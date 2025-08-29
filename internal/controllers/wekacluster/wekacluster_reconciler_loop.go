@@ -33,11 +33,11 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/controllers/utils"
-	"github.com/weka/weka-operator/internal/controllers/upgrade"
-	"github.com/weka/weka-operator/internal/controllers/metrics"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/metrics"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/controllers/upgrade"
+	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -1666,7 +1666,6 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	return nil
 }
-
 
 func (r *wekaClusterReconcilerLoop) prepareForUpgradeDrives(ctx context.Context, containers []*wekav1alpha1.WekaContainer, targetVersion string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "prepareForUpgradeDrives")

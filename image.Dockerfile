@@ -15,6 +15,8 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 COPY pkg/weka-k8s-api/go.mod pkg/weka-k8s-api/go.mod
 COPY pkg/weka-k8s-api/go.sum pkg/weka-k8s-api/go.sum
+COPY pkg/go-steps-engine/go.mod pkg/go-steps-engine/go.mod 
+COPY pkg/go-steps-engine/go.sum pkg/go-steps-engine/go.sum 
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN --mount=type=ssh --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \

@@ -169,9 +169,11 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			FinishOnSuccess: true,
 		},
 		&lifecycle.SingleStep{
-			Condition:  condition.CondContainerImageUpdated,
-			CondReason: "ImageUpdate",
-			Run:        r.handleImageUpdate,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerImageUpdated,
+				Reason: "ImageUpdate",
+			},
+			Run: r.handleImageUpdate,
 			Predicates: lifecycle.Predicates{
 				func() bool {
 					return r.container.Status.LastAppliedImage != ""
@@ -179,7 +181,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.IsNotAlignedImage,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
-			SkipOwnConditionCheck: true,
+			SkipStepStateCheck: true,
 		},
 		&lifecycle.SingleStep{
 			Run: r.EnsureDrivers,
@@ -196,8 +198,10 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition: condition.CondContainerMigratedOutFromPVC,
-			Run:       r.MigratePVC,
+			State: &lifecycle.State{
+				Name: condition.CondContainerMigratedOutFromPVC,
+			},
+			Run: r.MigratePVC,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 				func() bool {
@@ -235,8 +239,8 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Run:       r.enforceNodeAffinity,
-			Condition: condition.CondContainerAffinitySet,
+			Run:   r.enforceNodeAffinity,
+			State: &lifecycle.State{Name: condition.CondContainerAffinitySet},
 			Predicates: lifecycle.Predicates{
 				r.container.MustHaveNodeAffinity,
 			},
@@ -261,8 +265,8 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.WaitForPodRunning,
 		},
 		&lifecycle.SingleStep{
-			Run:       r.WriteResources,
-			Condition: condition.CondContainerResourcesWritten,
+			State: &lifecycle.State{Name: condition.CondContainerResourcesWritten},
+			Run:   r.WriteResources,
 			Predicates: lifecycle.Predicates{
 				lifecycle.Or(
 					r.container.IsAllocatable,
@@ -298,16 +302,16 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition: condition.CondResultsReceived,
-			Run:       r.fetchResults,
+			State: &lifecycle.State{Name: condition.CondResultsReceived},
+			Run:   r.fetchResults,
 			Predicates: lifecycle.Predicates{
 				r.container.IsOneOff,
 			},
-			SkipOwnConditionCheck: false,
+			SkipStepStateCheck: false,
 		},
 		&lifecycle.SingleStep{
-			Condition: condition.CondResultsProcessed,
-			Run:       r.processResults,
+			State: &lifecycle.State{Name: condition.CondResultsProcessed},
+			Run:   r.processResults,
 			Predicates: lifecycle.Predicates{
 				r.container.IsOneOff,
 			},
@@ -371,12 +375,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition: condition.CondJoinedCluster,
-			Run:       r.reconcileClusterStatus,
+			State: &lifecycle.State{
+				Name:    condition.CondJoinedCluster,
+				Message: "Container joined cluster",
+			},
+			Run: r.reconcileClusterStatus,
 			Predicates: lifecycle.Predicates{
 				r.container.ShouldJoinCluster,
 			},
-			CondMessage: "Container joined cluster",
 		},
 		&lifecycle.SingleStep{
 			Run: r.EnsureDrives,
@@ -397,18 +403,22 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition:   condition.CondJoinedS3Cluster,
-			Run:         r.JoinS3Cluster,
-			CondMessage: "Joined s3 cluster",
+			State: &lifecycle.State{
+				Name:    condition.CondJoinedS3Cluster,
+				Message: "Joined s3 cluster",
+			},
+			Run: r.JoinS3Cluster,
 			Predicates: lifecycle.Predicates{
 				r.container.IsS3Container,
 				r.container.HasJoinIps,
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition:   condition.CondNfsInterfaceGroupsConfigured,
-			Run:         r.JoinNfsInterfaceGroups,
-			CondMessage: "NFS interface groups configured",
+			State: &lifecycle.State{
+				Name:    condition.CondNfsInterfaceGroupsConfigured,
+				Message: "NFS interface groups configured",
+			},
+			Run: r.JoinNfsInterfaceGroups,
 			Predicates: lifecycle.Predicates{
 				r.container.IsNfsContainer,
 				r.container.HasJoinIps,

@@ -107,15 +107,15 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 		Conditions: &loop.cluster.Status.Conditions,
 	}
 	stepsEngine := lifecycle.StepsEngine{
-		Object:    k8sObject,
-		Throttler: r.ThrottlingMap.WithPartition("wekacluster/" + string(loop.cluster.GetUID())),
+		StateKeeper: k8sObject,
+		Throttler:   r.ThrottlingMap.WithPartition("wekacluster/" + string(loop.cluster.GetUID())),
 		Steps: []lifecycle.Step{
 			&lifecycle.SingleStep{
 				Run: loop.getCurrentContainers,
 			},
 			&lifecycle.SingleStep{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
-				Run:  lifecycle.ForceNoError(loop.UpdateContainersCounters),
+				Run:  loop.UpdateContainersCounters,
 				Name: "UpdateContainersCounters", // explicit for throttling
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
@@ -123,10 +123,11 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Throttling: &throttling.ThrottlingSettings{
 					Interval: config.Config.Metrics.Containers.PollingRate,
 				},
+				ContinueOnError: true,
 			},
 			&lifecycle.SingleStep{
 				//TODO: A better place? A new mode to allow continuing to run on failures? Ideally we want to have this async
-				Run:  lifecycle.ForceNoError(loop.UpdateWekaStatusMetrics),
+				Run:  loop.UpdateWekaStatusMetrics,
 				Name: "UpdateWekaStatusMetrics", // explicit for throttling
 				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
@@ -145,9 +146,10 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Throttling: &throttling.ThrottlingSettings{
 					Interval: config.Config.Metrics.Clusters.PollingRate,
 				},
+				ContinueOnError: true,
 			},
 			&lifecycle.SingleStep{
-				Run:  lifecycle.ForceNoError(loop.EnsureClusterMonitoringService),
+				Run:  loop.EnsureClusterMonitoringService,
 				Name: "EnsureClusterMonitoringService",
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
@@ -155,6 +157,7 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Throttling: &throttling.ThrottlingSettings{
 					Interval: config.Config.Metrics.Clusters.PollingRate,
 				},
+				ContinueOnError: true,
 			},
 			&lifecycle.SingleStep{
 				Run: loop.HandleGracefulDeletion,
@@ -175,14 +178,16 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.InitState,
 			},
 			&lifecycle.SingleStep{
-				Condition:   condition.CondClusterSecretsCreated,
-				Run:         loop.EnsureLoginCredentials,
-				CondMessage: "Cluster secrets are created",
+				State: &lifecycle.State{
+					Name:    condition.CondClusterSecretsCreated,
+					Message: "Cluster secrets are created",
+				},
+				Run: loop.EnsureLoginCredentials,
 			},
 			&lifecycle.SingleStep{
-				Condition:             condition.CondPodsCreated,
-				Run:                   loop.EnsureWekaContainers,
-				SkipOwnConditionCheck: true,
+				State:              &lifecycle.State{Name: condition.CondPodsCreated},
+				Run:                loop.EnsureWekaContainers,
+				SkipStepStateCheck: true,
 			},
 			&lifecycle.SingleStep{
 				Run: loop.HandleSpecUpdates,
@@ -204,21 +209,29 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition:             condition.CondContainerResourcesAllocated,
-				Run:                   loop.AllocateResources,
-				SkipOwnConditionCheck: true,
+				State: &lifecycle.State{
+					Name: condition.CondContainerResourcesAllocated,
+				},
+				Run:                loop.AllocateResources,
+				SkipStepStateCheck: true,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondPodsReady,
-				Run:       loop.InitialContainersReady,
+				State: &lifecycle.State{
+					Name: condition.CondPodsReady,
+				},
+				Run: loop.InitialContainersReady,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterCreated,
-				Run:       loop.FormCluster,
+				State: &lifecycle.State{
+					Name: condition.CondClusterCreated,
+				},
+				Run: loop.FormCluster,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondPostClusterFormedScript,
-				Run:       loop.RunPostFormClusterScript,
+				State: &lifecycle.State{
+					Name: condition.CondPostClusterFormedScript,
+				},
+				Run: loop.RunPostFormClusterScript,
 				Predicates: []lifecycle.PredicateFunc{
 					loop.HasPostFormClusterScript,
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
@@ -228,31 +241,41 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.refreshContainersJoinIps,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondJoinedCluster,
-				Run:       loop.WaitForContainersJoin,
+				State: &lifecycle.State{
+					Name: condition.CondJoinedCluster,
+				},
+				Run: loop.WaitForContainersJoin,
 			},
 			//TODO: Also will prevent from partial healthy operatable cluster
 			&lifecycle.SingleStep{
-				Condition: condition.CondDrivesAdded,
-				Run:       loop.WaitForDrivesAdd,
+				State: &lifecycle.State{
+					Name: condition.CondDrivesAdded,
+				},
+				Run: loop.WaitForDrivesAdd,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondIoStarted,
-				Run:       loop.StartIo,
+				State: &lifecycle.State{
+					Name: condition.CondIoStarted,
+				},
+				Run: loop.StartIo,
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterSecretsApplied,
-				Run:       loop.ApplyCredentials,
+				State: &lifecycle.State{
+					Name: condition.CondClusterSecretsApplied,
+				},
+				Run: loop.ApplyCredentials,
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondAdminUserDeleted,
-				Run:       loop.DeleteAdminUser,
+				State: &lifecycle.State{
+					Name: condition.CondAdminUserDeleted,
+				},
+				Run: loop.DeleteAdminUser,
 				Predicates: []lifecycle.PredicateFunc{
 					func() bool {
 						for _, c := range loop.cluster.Status.Conditions {
@@ -268,15 +291,19 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 			},
 			&lifecycle.SingleStep{
-				Run:       loop.ConfigureKms,
-				Condition: condition.CondClusterKMSConfigured,
+				Run: loop.ConfigureKms,
+				State: &lifecycle.State{
+					Name: condition.CondClusterKMSConfigured,
+				},
 				Predicates: []lifecycle.PredicateFunc{
 					loop.ShouldConfigureKms,
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondDefaultFsCreated,
-				Run:       loop.EnsureDefaultFS,
+				State: &lifecycle.State{
+					Name: condition.CondDefaultFsCreated,
+				},
+				Run: loop.EnsureDefaultFS,
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				},
@@ -288,14 +315,18 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondS3ClusterCreated,
+				State: &lifecycle.State{
+					Name: condition.CondS3ClusterCreated,
+				},
 				Predicates: []lifecycle.PredicateFunc{
 					loop.HasS3Containers,
 				},
 				Run: loop.EnsureS3Cluster,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.ConfNfsConfigured,
+				State: &lifecycle.State{
+					Name: condition.ConfNfsConfigured,
+				},
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.IsNotFunc(loop.cluster.IsExpand),
 					loop.HasNfsContainers,
@@ -303,16 +334,22 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				Run: loop.EnsureNfs,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterClientSecretsCreated,
-				Run:       loop.ensureClientLoginCredentials,
+				State: &lifecycle.State{
+					Name: condition.CondClusterClientSecretsCreated,
+				},
+				Run: loop.ensureClientLoginCredentials,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterClientSecretsApplied,
-				Run:       loop.applyClientLoginCredentials,
+				State: &lifecycle.State{
+					Name: condition.CondClusterClientSecretsApplied,
+				},
+				Run: loop.applyClientLoginCredentials,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterCsiSecretsCreated,
-				Run:       loop.EnsureCsiLoginCredentials,
+				State: &lifecycle.State{
+					Name: condition.CondClusterCsiSecretsCreated,
+				},
+				Run: loop.EnsureCsiLoginCredentials,
 			},
 			&lifecycle.SingleStep{
 				Run: loop.EnsureCsiLoginCredentials,
@@ -322,16 +359,22 @@ func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.
 				},
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterCsiSecretsApplied,
-				Run:       loop.applyCsiLoginCredentials,
+				State: &lifecycle.State{
+					Name: condition.CondClusterCsiSecretsApplied,
+				},
+				Run: loop.applyCsiLoginCredentials,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.WekaHomeConfigured,
-				Run:       loop.configureWekaHome,
+				State: &lifecycle.State{
+					Name: condition.WekaHomeConfigured,
+				},
+				Run: loop.configureWekaHome,
 			},
 			&lifecycle.SingleStep{
-				Condition: condition.CondClusterReady,
-				Run:       loop.MarkAsReady,
+				State: &lifecycle.State{
+					Name: condition.CondClusterReady,
+				},
+				Run: loop.MarkAsReady,
 			},
 			&lifecycle.SingleStep{
 				Run: loop.handleUpgrade,

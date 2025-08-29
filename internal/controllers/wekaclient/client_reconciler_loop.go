@@ -83,8 +83,8 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 	}
 
 	return lifecycle.StepsEngine{
-		Object:    k8sObject,
-		Throttler: r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
+		StateKeeper: k8sObject,
+		Throttler:   r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
 		Steps: []lifecycle.Step{
 			&lifecycle.SingleStep{Run: loop.getCurrentContainers},
 			&lifecycle.SingleStep{Run: loop.setApplicableNodes},
@@ -140,9 +140,9 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			},
 			&lifecycle.SingleStep{Run: loop.EnsureClientsWekaContainers},
 			&lifecycle.SingleStep{
-				Condition:             condition.CondCsiDeployed,
-				SkipOwnConditionCheck: true,
-				Run:                   loop.DeployCsiPlugin,
+				State:              &lifecycle.State{Name: condition.CondCsiDeployed},
+				SkipStepStateCheck: true,
+				Run:                loop.DeployCsiPlugin,
 				Predicates: []lifecycle.PredicateFunc{
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
@@ -1113,4 +1113,3 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.CsiImage)
 	return nil
 }
-

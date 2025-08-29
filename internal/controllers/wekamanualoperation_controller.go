@@ -223,8 +223,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	stepsEngine := lifecycle.StepsEngine{
-		Object: k8sObject,
-		Steps:  steps,
+		StateKeeper: k8sObject,
+		Steps:       steps,
 	}
 
 	return stepsEngine.RunAsReconcilerResponse(ctx)

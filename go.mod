@@ -18,7 +18,7 @@ require (
 	github.com/sethvargo/go-password v0.3.1
 	github.com/thessem/zap-prettyconsole v0.5.2
 	github.com/weka/go-steps-engine v0.0.0
-	github.com/weka/go-weka-observability v0.0.0-20240930095930-bd198747926c
+	github.com/weka/go-weka-observability v0.0.0-20250812120309-d53d17a084ad
 	github.com/weka/weka-k8s-api v0.0.0
 	go.opentelemetry.io/otel v1.34.0
 	go.opentelemetry.io/otel/trace v1.34.0

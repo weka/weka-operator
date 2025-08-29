@@ -89,23 +89,20 @@ help: ## Display this help.
 
 ##@ Development
 
-CRD = charts/weka-operator/crds/weka.weka.io_wekaclusters.yaml
 CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/driveclaims_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/container_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekacluster_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekamanualoperation_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekapolicy_types.go
 
-$(CRD): $(CRD_TYPES)
-
 .PHONY: crd
-crd: $(CRD) ## Generate CustomResourceDefinition objects.
+crd: ## Generate CustomResourceDefinition objects.
 	mkdir -p charts/weka-operator/crds/
 	rm -f charts/weka-operator/crds/*
-	$(CONTROLLER_GEN) crd paths="./pkg/..." output:crd:artifacts:config=charts/weka-operator/crds
+	$(CONTROLLER_GEN) crd paths="./pkg/weka-k8s-api/..." output:crd:artifacts:config=charts/weka-operator/crds
 
 RBAC = charts/weka-operator/templates/role.yaml
-$(RBAC): internal/controllers/client_controller.go
+$(RBAC): internal/controllers/*.go internal/controllers/*/*.go
 
 .PHONY: rbac
 rbac: $(RBAC) ## Generate RBAC objects.
@@ -322,7 +319,7 @@ chart: $(CHART_ARCHIVE) ## Build Helm chart.
 	$(HELM) lint $(CHART)
 	$(HELM) package $(CHART) --destination charts --version $(VERSION)
 
-$(CHART_ARCHIVE): $(CRD)
+$(CHART_ARCHIVE): crd
 
 ##@ Build Dependencies
 

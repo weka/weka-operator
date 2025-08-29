@@ -203,8 +203,8 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	stepsEngine := lifecycle.StepsEngine{
-		Object: k8sObject,
-		Steps:  steps,
+		StateKeeper: k8sObject,
+		Steps:       steps,
 	}
 
 	result, err := stepsEngine.RunAsReconcilerResponse(ctx)

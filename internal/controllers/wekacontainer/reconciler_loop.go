@@ -118,8 +118,8 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 	}
 
 	return lifecycle.StepsEngine{
-		Object:    k8sObject,
-		Throttler: r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
-		Steps:     steps,
+		StateKeeper: k8sObject,
+		Throttler:   r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
+		Steps:       steps,
 	}
 }

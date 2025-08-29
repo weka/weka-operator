@@ -35,12 +35,14 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			Steps: []lifecycle.Step{
 				&lifecycle.SingleStep{
-					Condition: condition.CondCsiDeployed,
-					Run:       r.DeployCsiNodeServerPod,
+					State: &lifecycle.State{
+						Name: condition.CondCsiDeployed,
+					},
+					SkipStepStateCheck: true,
+					Run:                r.DeployCsiNodeServerPod,
 					Predicates: lifecycle.Predicates{
 						r.isWekaClientRunning,
 					},
-					SkipOwnConditionCheck: true,
 				},
 				&lifecycle.SingleStep{
 					Run: r.ManageCsiTopologyLabels,

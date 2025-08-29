@@ -60,18 +60,22 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 
 	steps2 := []lifecycle.Step{
 		&lifecycle.SingleStep{
-			Condition:  condition.CondRemovedFromS3Cluster,
-			CondReason: "Deletion",
-			Run:        r.RemoveFromS3Cluster,
+			State: &lifecycle.State{
+				Name:   condition.CondRemovedFromS3Cluster,
+				Reason: "Deletion",
+			},
+			Run: r.RemoveFromS3Cluster,
 			Predicates: lifecycle.Predicates{
 				r.ShouldDeactivate,
 				r.container.IsS3Container,
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition:  condition.CondRemovedFromNFS,
-			CondReason: "Deletion",
-			Run:        r.RemoveFromNfs,
+			State: &lifecycle.State{
+				Name:   condition.CondRemovedFromNFS,
+				Reason: "Deletion",
+			},
+			Run: r.RemoveFromNfs,
 			Predicates: lifecycle.Predicates{
 				r.ShouldDeactivate,
 				r.container.IsNfsContainer,
@@ -88,26 +92,32 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		//  ,
 		//},
 		&lifecycle.SingleStep{
-			Condition:  condition.CondContainerDeactivated,
-			CondReason: "Deletion",
-			Run:        r.DeactivateWekaContainer,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerDeactivated,
+				Reason: "Deletion",
+			},
+			Run: r.DeactivateWekaContainer,
 			Predicates: lifecycle.Predicates{
 				r.ShouldDeactivate,
 			},
 		},
 		&lifecycle.SingleStep{
-			Run:        r.RemoveDeactivatedContainersDrives,
-			Condition:  condition.CondContainerDrivesRemoved,
-			CondReason: "Deletion",
+			Run: r.RemoveDeactivatedContainersDrives,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerDrivesRemoved,
+				Reason: "Deletion",
+			},
 			Predicates: lifecycle.Predicates{
 				r.ShouldDeactivate,
 				r.container.IsDriveContainer,
 			},
 		},
 		&lifecycle.SingleStep{
-			Run:        r.RemoveDeactivatedContainers,
-			Condition:  condition.CondContainerRemoved,
-			CondReason: "Deletion",
+			Run: r.RemoveDeactivatedContainers,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerRemoved,
+				Reason: "Deletion",
+			},
 			Predicates: lifecycle.Predicates{
 				r.ShouldDeactivate,
 			},
@@ -162,9 +172,11 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition:  condition.CondContainerDrivesResigned,
-			CondReason: "Deletion",
-			Run:        r.ResignDrives,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerDrivesResigned,
+				Reason: "Deletion",
+			},
+			Run: r.ResignDrives,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.CanSkipDrivesForceResign),
 				r.container.IsDriveContainer,

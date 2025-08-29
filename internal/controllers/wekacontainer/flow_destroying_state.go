@@ -70,9 +70,12 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SingleStep{
-			Condition:  condition.CondContainerDrivesResigned,
-			CondReason: "Destroying",
-			Run:        r.ResignDrives,
+			State: &lifecycle.State{
+				Name:    condition.CondContainerDrivesResigned,
+				Message: "Drives resigned",
+				Reason:  "Destroying",
+			},
+			Run: r.ResignDrives,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.CanSkipDrivesForceResign),
 				r.container.IsDriveContainer,
