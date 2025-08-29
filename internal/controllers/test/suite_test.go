@@ -23,12 +23,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+	//+kubebuilder:scaffold:imports
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zerologr"
 	"github.com/kr/pretty"
 	"github.com/rs/zerolog"
-
+	"github.com/weka/go-weka-observability/instrumentation"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,10 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/weka/go-weka-observability/instrumentation"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
-	//+kubebuilder:scaffold:imports
+	"github.com/weka/weka-operator/internal/controllers/wekacluster"
+	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -146,13 +147,13 @@ func setupTestEnv(ctx context.Context) (testEnv *TestEnvironment, shutdown func(
 	}
 
 	config.Config.DevMode = true
-	clusterController := NewWekaClusterController(testEnv.Manager, testEnv.RestClient)
+	clusterController := wekacluster.NewWekaClusterController(testEnv.Manager, testEnv.RestClient)
 	err = clusterController.SetupWithManager(testEnv.Manager, clusterController)
 	if err != nil {
 		fmt.Printf("failed to setup WekaCluster controller: %v", err)
 		return
 	}
-	containerController := NewContainerController(testEnv.Manager, testEnv.RestClient)
+	containerController := wekacontainer.NewContainerController(testEnv.Manager, testEnv.RestClient)
 	err = containerController.SetupWithManager(testEnv.Manager, containerController)
 	if err != nil {
 		fmt.Printf("failed to setup Container controller: %v", err)

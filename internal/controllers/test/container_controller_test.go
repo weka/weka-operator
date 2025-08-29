@@ -9,6 +9,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 )
 
 type ContainerTestCase struct {
@@ -113,7 +115,7 @@ func TestNewContainerController(t *testing.T) {
 		return
 	}
 
-	subject := NewContainerController(testEnv.Manager, testEnv.RestClient)
+	subject := wekacontainer.NewContainerController(testEnv.Manager, testEnv.RestClient)
 	if subject == nil {
 		t.Errorf("NewContainerController() returned nil")
 		return
