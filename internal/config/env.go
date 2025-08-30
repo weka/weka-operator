@@ -204,6 +204,8 @@ var Consts struct {
 	MaxContainersDeletedOnSelectorMismatch int
 	// Interval for cleanup of containers on node selector mismatch
 	SelectorMismatchCleanupInterval time.Duration
+	// Interval for cleanup of containers on tolerations mismatch
+	TolerationsMismatchCleanupInterval time.Duration
 }
 
 func init() {
@@ -223,6 +225,7 @@ func init() {
 	Consts.CsiLegacyDriverName = "csi.weka.io"
 	Consts.MaxContainersDeletedOnSelectorMismatch = 4
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
+	Consts.TolerationsMismatchCleanupInterval = 1 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {

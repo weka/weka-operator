@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
