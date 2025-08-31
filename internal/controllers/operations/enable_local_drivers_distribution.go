@@ -24,10 +24,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const (

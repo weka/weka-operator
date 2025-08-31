@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.24.1 as builder
+FROM docker.io/library/golang:1.24.3 as builder
 # right now this image is not in use, might be in future when whole release process runs as docker build
 # and when used probably will be heavily re-done
 

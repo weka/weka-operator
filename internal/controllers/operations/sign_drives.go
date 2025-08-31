@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-lib/pkg/workers"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -19,14 +21,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type SignDrivesOperation struct {

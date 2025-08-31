@@ -13,9 +13,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {

@@ -1,8 +1,8 @@
 module github.com/weka/weka-operator
 
-go 1.24.0
+go 1.24.3
 
-toolchain go1.24.1
+toolchain go1.24.6
 
 require (
 	github.com/ant0ine/go-json-rest v3.3.2+incompatible
@@ -17,6 +17,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-password v0.3.1
 	github.com/thessem/zap-prettyconsole v0.5.2
+	github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a
 	github.com/weka/go-steps-engine v0.0.0
 	github.com/weka/go-weka-observability v0.0.0-20250812120309-d53d17a084ad
 	github.com/weka/weka-k8s-api v0.0.0

@@ -13,10 +13,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 type WekaClusterService interface {

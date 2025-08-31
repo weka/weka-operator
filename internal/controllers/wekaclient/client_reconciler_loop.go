@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -35,7 +36,6 @@ import (
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
-	"github.com/weka/weka-operator/pkg/workers"
 )
 
 const defaultPortRangeBase = 45000

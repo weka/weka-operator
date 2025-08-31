@@ -48,18 +48,22 @@ jobs:
       GOPRIVATE: github.com/weka
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-      - name: Set up SSH  # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#support-for-github-deploy-keys
-        uses: webfactory/ssh-agent@v0.9.0
+        uses: actions/checkout@v4
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
         with:
-          ssh-private-key: |
-            ${{ secrets.OPERATOR_DEPLOY_SSH_KEY }}
-            ${{ secrets.WEKA_K8S_API_DEPLOY_SSH_KEY }}
-            ${{ secrets.GO_WEKA_OBSERVABILITY_DEPLOY_SSH_KEY }}
-            ${{ secrets.GO_STEPS_ENGINE_DEPLOY_SSH_KEY }}
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Setup access for private go modules
         run: |
-          git config --global url."ssh://git@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
+          chmod 600 ~/.netrc
+        
       # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
       - name: Collect Git and SSH config files in a directory that is part of the Docker build context
         run: |
