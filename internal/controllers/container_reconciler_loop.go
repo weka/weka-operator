@@ -2866,7 +2866,20 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	}
 
 	timeout := time.Minute * 2
-	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+
+	// Get random active container to execute list drives command
+	// NOTE: caused by incompatibility between the versions where a CLI from 4.4.7 sends an API with newer params to the version installed
+	containers, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return err
+	}
+
+	execInContainer := discovery.SelectActiveContainer(containers)
+	if execInContainer == nil {
+		return errors.New("No active container found")
+	}
+
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, execInContainer, &timeout)
 
 	driveListoptions := services.DriveListOptions{
 		ContainerId: container.Status.ClusterContainerID,
