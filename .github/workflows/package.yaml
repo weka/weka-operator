@@ -65,11 +65,10 @@ jobs:
           chmod 600 ~/.netrc
         
       # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
-      - name: Collect Git and SSH config files in a directory that is part of the Docker build context
+      - name: Collect Git files in a directory that is part of the Docker build context
         run: |
           mkdir -p dockerfile_files
-          cp -r ~/.gitconfig ~/.ssh dockerfile_files/
-          sed 's|/home/runner|/root|g' -i.bak dockerfile_files/.ssh/config
+          cp -r ~/.gitconfig ~/.netrc dockerfile_files/
       - name: Install submodules
         run: git submodule update --init --recursive
       - name: Cache Go modules
