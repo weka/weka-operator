@@ -61,7 +61,7 @@ func NewDiscoverNodeOperation(mgr ctrl.Manager, restClient rest.Interface, node 
 }
 
 func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "DiscoverNode",
 		Run:  AsRunFunc(o),
 	}
@@ -69,21 +69,21 @@ func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
 
 func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetNode", Run: o.GetNode},
-		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetNode", Run: o.GetNode},
+		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SimpleStep{
 			Name:            "FinishOnExistingInfo",
 			Run:             o.DeleteContainers,
 			FinishOnSuccess: true,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				o.HasData,
 			},
 		},
-		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
-		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
-		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
-		&lifecycle.SingleStep{Name: "UpdateNodes", Run: o.UpdateNodes},
-		&lifecycle.SingleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SimpleStep{Name: "UpdateNodes", Run: o.UpdateNodes},
+		&lifecycle.SimpleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }
 
@@ -304,7 +304,7 @@ func (o *DiscoverNodeOperation) GetJsonResult() string {
 }
 
 func (o *DiscoverNodeOperation) Cleanup() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "DeleteContainers",
 		Run:  o.DeleteContainers,
 	}

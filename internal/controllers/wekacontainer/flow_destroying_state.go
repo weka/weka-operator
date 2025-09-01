@@ -12,14 +12,14 @@ import (
 // DestroyingStateFlow returns the steps for a container in the destroying state
 func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	steps1 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.GetNode,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
 		// if cluster marked container state as destroying, update status and put deletion timestamp
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.handleStateDestroying,
 		},
 	}
@@ -27,7 +27,7 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	metricsSteps := MetricsSteps(r)
 
 	steps2 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "reconcileClusterStatusOnDeletion",
 			Run:  r.reconcileClusterStatus,
 			Predicates: lifecycle.Predicates{
@@ -38,14 +38,14 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopForceAndEnsureNoPod,
 			Predicates: lifecycle.Predicates{
 				r.container.IsBackend,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.waitForMountsOrDrain,
 			Predicates: lifecycle.Predicates{
 				r.container.IsClientContainer,
@@ -55,21 +55,21 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopForceAndEnsureNoPod,
 			Predicates: lifecycle.Predicates{
 				r.container.IsClientContainer,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopAndEnsureNoPod,
 			// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 			Predicates: lifecycle.Predicates{
 				r.container.IsWekaContainer,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondContainerDrivesResigned,
 				Message: "Drives resigned",
@@ -81,7 +81,7 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsDriveContainer,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.HandleDeletion,
 		},
 	}

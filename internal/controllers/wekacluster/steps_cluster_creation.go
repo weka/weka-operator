@@ -37,27 +37,27 @@ import (
 // GetClusterSetupSteps returns the node selection and resource allocation steps
 func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.InitState,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondClusterSecretsCreated,
 				Message: "Cluster secrets are created",
 			},
 			Run: loop.EnsureLoginCredentials,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondPodsCreated,
 			},
 			Run:                loop.EnsureWekaContainers,
 			SkipStepStateCheck: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.HandleSpecUpdates,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.updateContainersOnNodeSelectorMismatch,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.CleanupBackendsOnNodeSelectorMismatch),
@@ -67,7 +67,7 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				EnsureStepSuccess: true,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.deleteContainersOnTolerationsMismatch,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
@@ -77,7 +77,7 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				EnsureStepSuccess: true,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondContainerResourcesAllocated,
 			},
@@ -90,19 +90,19 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 // GetClusterCreationSteps returns the cluster formation steps for the WekaCluster reconciliation
 func GetClusterCreationSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondPodsReady,
 			},
 			Run: loop.InitialContainersReady,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterCreated,
 			},
 			Run: loop.FormCluster,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondPostClusterFormedScript,
 			},
@@ -112,22 +112,22 @@ func GetClusterCreationSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.refreshContainersJoinIps,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondJoinedCluster,
 			},
 			Run: loop.WaitForContainersJoin,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondDrivesAdded,
 			},
 			Run: loop.WaitForDrivesAdd,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondIoStarted,
 			},

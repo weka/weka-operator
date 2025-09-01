@@ -196,15 +196,8 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	steps := loop.Op.GetSteps()
 
-	k8sObject := &lifecycle.K8sObject{
-		Client:     r.Client,
-		Object:     wekaPolicy,
-		Conditions: nil, // WekaPolicy doesn't use conditions
-	}
-
 	stepsEngine := lifecycle.StepsEngine{
-		StateKeeper: k8sObject,
-		Steps:       steps,
+		Steps: steps,
 	}
 
 	result, err := stepsEngine.RunAsReconcilerResponse(ctx)

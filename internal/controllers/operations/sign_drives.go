@@ -50,7 +50,7 @@ type SignDrivesOperation struct {
 }
 
 func (o *SignDrivesOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "SignDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -79,21 +79,21 @@ func NewSignDrivesOperation(mgr ctrl.Manager, payload *weka.SignDrivesPayload, o
 
 func (o *SignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
-		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsDone}, FinishOnSuccess: true},
-		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
-		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
-		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SimpleStep{
 			Name: "FailureUpdate",
 			Run:  o.FailureCallback,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				o.OperationFailed,
 			},
 			FinishOnSuccess: true,
 		},
-		&lifecycle.SingleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		&lifecycle.SingleStep{Name: "DeleteCompletedContainers", Run: o.DeleteContainers},
+		&lifecycle.SimpleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
+		&lifecycle.SimpleStep{Name: "DeleteCompletedContainers", Run: o.DeleteContainers},
 	}
 }
 

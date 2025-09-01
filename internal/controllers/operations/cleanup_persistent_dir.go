@@ -58,7 +58,7 @@ func NewCleanupPersistentDirOperation(mgr ctrl.Manager, payload *CleanupPersiste
 }
 
 func (o *CleanupPersistentDirOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "CleanupPersistentDir",
 		Run:  AsRunFunc(o),
 	}
@@ -66,14 +66,14 @@ func (o *CleanupPersistentDirOperation) AsStep() lifecycle.Step {
 
 func (o *CleanupPersistentDirOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetJob", Run: o.GetJob},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetJob", Run: o.GetJob},
+		&lifecycle.SimpleStep{
 			Name:       "EnsureJob",
 			Run:        o.EnsureJob,
-			Predicates: []lifecycle.PredicateFunc{o.HasNoJob},
+			Predicates: lifecycle.Predicates{o.HasNoJob},
 		},
-		&lifecycle.SingleStep{Name: "PollStatus", Run: o.PollStatus},
-		&lifecycle.SingleStep{Name: "DeleteJob", Run: o.DeleteJob},
+		&lifecycle.SimpleStep{Name: "PollStatus", Run: o.PollStatus},
+		&lifecycle.SimpleStep{Name: "DeleteJob", Run: o.DeleteJob},
 	}
 }
 

@@ -84,7 +84,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 }
 
 func (o *LoadDrivers) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "LoadDrivers",
 		Run:  AsRunFunc(o),
 	}
@@ -92,15 +92,15 @@ func (o *LoadDrivers) AsStep() lifecycle.Step {
 
 func (o *LoadDrivers) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
-		&lifecycle.SingleStep{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: []lifecycle.PredicateFunc{o.imageHasChanged}},
-		&lifecycle.SingleStep{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: []lifecycle.PredicateFunc{o.NodeRebooted}},
-		&lifecycle.SingleStep{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsLoaded}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "GetCurrentContainer", Run: o.GetCurrentContainer},
+		&lifecycle.SimpleStep{Name: "UpdateContainerImage", Run: o.UpdateContainerImage, Predicates: lifecycle.Predicates{o.imageHasChanged}},
+		&lifecycle.SimpleStep{Name: "HandleNodeReboot", Run: o.HandleNodeReboot, Predicates: lifecycle.Predicates{o.NodeRebooted}},
+		&lifecycle.SimpleStep{Name: "CleanupIfLoaded", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsLoaded}, FinishOnSuccess: true},
 		//TODO: We might be deleting container created by client here, IsLoaded would be true on mismatch. Just timing wise, this is unlikely to happen, as backends supposed to be upgraded
-		&lifecycle.SingleStep{Name: "CreateContainer", Run: o.CreateContainer, Predicates: []lifecycle.PredicateFunc{o.HasNotContainer}},
-		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
-		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
-		&lifecycle.SingleStep{Name: "DeleteContainers", Run: o.DeleteContainers},
+		&lifecycle.SimpleStep{Name: "CreateContainer", Run: o.CreateContainer, Predicates: lifecycle.Predicates{o.HasNotContainer}},
+		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SimpleStep{Name: "DeleteContainers", Run: o.DeleteContainers},
 	}
 }
 

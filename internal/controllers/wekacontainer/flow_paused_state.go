@@ -14,13 +14,13 @@ func PausedStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	metricsSteps := MetricsSteps(r)
 
 	steps := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.deleteEnvoyIfNoS3Neighbor,
 			Predicates: lifecycle.Predicates{
 				r.container.IsEnvoy,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.handleStatePaused,
 		},
 	}

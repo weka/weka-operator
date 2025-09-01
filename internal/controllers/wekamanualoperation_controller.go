@@ -196,7 +196,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	steps := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "DeleteSelf",
 			Run: func(ctx context.Context) error {
 				err := r.Delete(ctx, wekaManualOperation)
@@ -205,7 +205,7 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 				}
 				return err
 			},
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				func() bool {
 					return wekaManualOperation.DeletionTimestamp != nil || (wekaManualOperation.Status.Status == "Done" && time.Since(wekaManualOperation.Status.CompletedAt.Time) > 5*time.Minute)
 				},
@@ -216,15 +216,8 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	steps = append(steps, loop.Op.AsStep())
 
-	k8sObject := &lifecycle.K8sObject{
-		Client:     r.Client,
-		Object:     wekaManualOperation,
-		Conditions: nil, // WekaManualOperation doesn't use conditions
-	}
-
 	stepsEngine := lifecycle.StepsEngine{
-		StateKeeper: k8sObject,
-		Steps:       steps,
+		Steps: steps,
 	}
 
 	return stepsEngine.RunAsReconcilerResponse(ctx)

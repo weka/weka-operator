@@ -44,7 +44,7 @@ func NewUmountOperation(mgr ctrl.Manager, targetContainer *weka.WekaContainer) *
 }
 
 func (o *UmountOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "Umount",
 		Run:  operations.AsRunFunc(o),
 	}
@@ -52,12 +52,12 @@ func (o *UmountOperation) AsStep() lifecycle.Step {
 
 func (o *UmountOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetContainer", Run: o.GetContainer},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetContainer", Run: o.GetContainer},
+		&lifecycle.SimpleStep{
 			Name: "EnsureContainer",
 			Run:  o.EnsureContainer,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "WaitResults",
 			Run:  o.WaitResults,
 		},

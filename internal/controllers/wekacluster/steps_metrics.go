@@ -33,7 +33,7 @@ import (
 // GetThrottledMetricsSteps returns the metrics steps with appropriate throttling settings
 func GetThrottledMetricsSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run:  loop.UpdateContainersCounters,
 			Name: "UpdateContainersCounters",
 			Predicates: lifecycle.Predicates{
@@ -50,7 +50,7 @@ func GetThrottledMetricsSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step 
 				lifecycle.BoolValue(config.Config.Metrics.Clusters.Enabled),
 			},
 			Steps: []lifecycle.Step{
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					Run:  loop.UpdateWekaStatusMetrics,
 					Name: "UpdateWekaStatusMetrics",
 					Predicates: lifecycle.Predicates{
@@ -71,7 +71,7 @@ func GetThrottledMetricsSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step 
 					},
 					ContinueOnError: true,
 				},
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					Run:  loop.EnsureClusterMonitoringService,
 					Name: "EnsureClusterMonitoringService",
 					Throttling: &throttling.ThrottlingSettings{

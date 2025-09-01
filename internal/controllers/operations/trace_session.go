@@ -46,7 +46,7 @@ func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payloa
 }
 
 func (o *MaintainTraceSession) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "MaintainTraceSession",
 		Run:  AsRunFunc(o),
 	}
@@ -54,13 +54,13 @@ func (o *MaintainTraceSession) AsStep() lifecycle.Step {
 
 func (o *MaintainTraceSession) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "FetchCluster", Run: o.FetchCluster},
-		&lifecycle.SingleStep{Name: "DeduceWekaHomeUrl", Run: o.DeduceWekaHomeUrl},
-		&lifecycle.SingleStep{Name: "EnsureSecret", Run: o.EnsureSecret},
-		&lifecycle.SingleStep{Name: "EnsureWekaNodeRoutingConfigMap", Run: o.EnsureWekaNodeRoutingConfigMap},
-		&lifecycle.SingleStep{Name: "EnsureK8sContainerRoutingConfigMap", Run: o.EnsureK8sContainerRoutingConfigMap},
-		&lifecycle.SingleStep{Name: "EnsureDeployment", Run: o.EnsureDeployment},
-		&lifecycle.SingleStep{Name: "WaitTillExpiration", Run: o.WaitTillExpiration},
+		&lifecycle.SimpleStep{Name: "FetchCluster", Run: o.FetchCluster},
+		&lifecycle.SimpleStep{Name: "DeduceWekaHomeUrl", Run: o.DeduceWekaHomeUrl},
+		&lifecycle.SimpleStep{Name: "EnsureSecret", Run: o.EnsureSecret},
+		&lifecycle.SimpleStep{Name: "EnsureWekaNodeRoutingConfigMap", Run: o.EnsureWekaNodeRoutingConfigMap},
+		&lifecycle.SimpleStep{Name: "EnsureK8sContainerRoutingConfigMap", Run: o.EnsureK8sContainerRoutingConfigMap},
+		&lifecycle.SimpleStep{Name: "EnsureDeployment", Run: o.EnsureDeployment},
+		&lifecycle.SimpleStep{Name: "WaitTillExpiration", Run: o.WaitTillExpiration},
 	}
 }
 

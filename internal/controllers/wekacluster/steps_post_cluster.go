@@ -27,22 +27,22 @@ func GetCredentialSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.GroupedSteps{
 			Name: "ApplyClusterCredentialsSteps",
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 			},
 			Steps: []lifecycle.Step{
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					State: &lifecycle.State{
 						Name: condition.CondClusterSecretsApplied,
 					},
 					Run: loop.ApplyCredentials,
 				},
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					State: &lifecycle.State{
 						Name: condition.CondAdminUserDeleted,
 					},
 					Run: loop.DeleteAdminUser,
-					Predicates: []lifecycle.PredicateFunc{
+					Predicates: lifecycle.Predicates{
 						func() bool {
 							for _, c := range loop.cluster.Status.Conditions {
 								if c.Type == condition.CondClusterSecretsApplied {
@@ -57,32 +57,32 @@ func GetCredentialSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterClientSecretsCreated,
 			},
 			Run: loop.ensureClientLoginCredentials,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterClientSecretsApplied,
 			},
 			Run: loop.applyClientLoginCredentials,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterCsiSecretsCreated,
 			},
 			Run: loop.EnsureCsiLoginCredentials,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.EnsureCsiLoginCredentials,
 			Throttling: &throttling.ThrottlingSettings{
 				Interval:          config.Consts.CsiLoginCredentialsUpdateInterval,
 				EnsureStepSuccess: true,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterCsiSecretsApplied,
 			},
@@ -94,17 +94,17 @@ func GetCredentialSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 // GetPostClusterSteps returns the post-cluster configuration steps
 func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.ConfigureKms,
 			State: &lifecycle.State{
 				Name: condition.CondClusterKMSConfigured,
 			},
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				loop.ShouldConfigureKms,
 			},
 		},
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 			},
 			State: &lifecycle.State{
@@ -112,14 +112,14 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			},
 			Run: loop.EnsureDefaultFS,
 		},
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				loop.ShouldDestroyS3Cluster,
 			},
 			Run: loop.DestroyS3Cluster,
 		},
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				loop.HasS3Containers,
 			},
 			State: &lifecycle.State{
@@ -127,8 +127,8 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			},
 			Run: loop.EnsureS3Cluster,
 		},
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
 				loop.HasNfsContainers,
 			},
@@ -137,19 +137,19 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			},
 			Run: loop.EnsureNfs,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.WekaHomeConfigured,
 			},
 			Run: loop.configureWekaHome,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondClusterReady,
 			},
 			Run: loop.MarkAsReady,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: loop.handleUpgrade,
 		},
 	}

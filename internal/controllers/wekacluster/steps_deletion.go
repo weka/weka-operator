@@ -27,14 +27,14 @@ import (
 // GetDeletionSteps returns the deletion and cleanup steps for the WekaCluster reconciliation
 func GetDeletionSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				loop.ClusterIsInGracefulDeletion,
 			},
 			Run: loop.HandleGracefulDeletion,
 		},
-		&lifecycle.SingleStep{
-			Predicates: []lifecycle.PredicateFunc{
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.ClusterIsInGracefulDeletion),
 			},
 			Run: loop.HandleDeletion,

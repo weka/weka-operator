@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -59,7 +59,7 @@ func NewPvcMigrateOperation(mgr ctrl.Manager, container *weka.WekaContainer) *Pv
 }
 
 func (o *PvcMigrateOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "PvcMigrate",
 		Run:  operations.AsRunFunc(o),
 	}
@@ -67,13 +67,13 @@ func (o *PvcMigrateOperation) AsStep() lifecycle.Step {
 
 func (o *PvcMigrateOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetJob", Run: o.GetJob},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetJob", Run: o.GetJob},
+		&lifecycle.SimpleStep{
 			Name:       "EnsureJob",
 			Run:        o.EnsureJob,
-			Predicates: []lifecycle.PredicateFunc{o.HasNoJob},
+			Predicates: lifecycle.Predicates{o.HasNoJob},
 		},
-		&lifecycle.SingleStep{Name: "PollStatus", Run: o.PollStatus},
+		&lifecycle.SimpleStep{Name: "PollStatus", Run: o.PollStatus},
 		// No DeleteJob step, relying on TTLSecondsAfterFinished
 	}
 }

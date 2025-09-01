@@ -35,7 +35,7 @@ import (
 func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	// 1. First part of the flow
 	steps1 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			// TODO: check if this is still needed
 			Run: r.migrateEnsurePorts,
 			Predicates: lifecycle.Predicates{
@@ -45,7 +45,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		// put self in state "deleting" if container is marked for deletion
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.ensureStateDeleting,
 			Predicates: lifecycle.Predicates{
 				r.container.IsMarkedForDeletion,
@@ -53,26 +53,26 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.container.IsDestroyingState),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.GetNode,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				r.container.IsClientContainer,
 				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.FetchTargetCluster,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				func() bool {
 					return r.wekaClient != nil && r.wekaClient.Spec.TargetCluster.Name != ""
 				},
 				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
 	}
@@ -82,33 +82,33 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 
 	// 3. Second part of the flow
 	steps2 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.initState,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.deleteIfNoNode,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.checkTolerations,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.NodeNotSet),
 				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.ensureFinalizer,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.ensureBootConfigMapInTargetNamespace,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.updatePodMetadataOnChange,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.PodNotSet),
 				r.podMetadataChanged,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
 			Run: r.dropStopAttemptRecord,
 			Predicates: lifecycle.Predicates{
@@ -121,7 +121,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.handlePodTermination,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.PodNotSet),
@@ -130,13 +130,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.deleteEnvoyIfNoS3Neighbor,
 			Predicates: lifecycle.Predicates{
 				r.container.IsEnvoy,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			// let drivers being re-built if node with drivers container is not found
 			Run: r.clearStatusOnNodeNotFound,
 			Predicates: lifecycle.Predicates{
@@ -148,7 +148,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.NodeNotSet,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.uploadedDriversPeriodicCheck,
 			Predicates: lifecycle.Predicates{
 				r.container.IsOneOff,
@@ -160,7 +160,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				EnsureStepSuccess: true,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.cleanupFinishedOneOff,
 			Predicates: lifecycle.Predicates{
 				r.container.IsOneOff,
@@ -168,7 +168,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			FinishOnSuccess: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondContainerImageUpdated,
 				Reason: "ImageUpdate",
@@ -183,7 +183,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			SkipStepStateCheck: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers,
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,
@@ -191,13 +191,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.AllocateNICs,
 			Predicates: lifecycle.Predicates{
 				r.ShouldAllocateNICs,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondContainerMigratedOutFromPVC,
 			},
@@ -209,13 +209,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.deletePodIfUnschedulable,
 			Predicates: lifecycle.Predicates{
 				func() bool {
@@ -224,7 +224,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.checkPodUnhealty,
 			Predicates: lifecycle.Predicates{
 				func() bool {
@@ -232,39 +232,39 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.ensurePodNotRunningState,
 			Predicates: lifecycle.Predicates{
 				r.PodNotRunning,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run:   r.enforceNodeAffinity,
 			State: &lifecycle.State{Name: condition.CondContainerAffinitySet},
 			Predicates: lifecycle.Predicates{
 				r.container.MustHaveNodeAffinity,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.setNodeAffinityStatus,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.HasStatusNodeAffinity),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers, // drivers might be off at this point if we had to wait for node affinity
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,
 				r.HasNodeAffinity, // if we dont have node set yet we can't load drivers, but we do want to load before creating pod if we have affinity
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.HandleNodeNotReady,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{Name: condition.CondContainerResourcesWritten},
 			Run:   r.WriteResources,
 			Predicates: lifecycle.Predicates{
@@ -274,7 +274,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.checkUnhealyPodResources,
 			Predicates: lifecycle.Predicates{
 				lifecycle.Or(
@@ -287,7 +287,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.updateDriversBuilderStatus,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriversBuilder,
@@ -295,13 +295,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.ResultsAreProcessed),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.updateAdhocOpStatus,
 			Predicates: lifecycle.Predicates{
 				lifecycle.Or(r.container.IsAdhocOpContainer, r.container.IsDiscoveryContainer),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{Name: condition.CondResultsReceived},
 			Run:   r.fetchResults,
 			Predicates: lifecycle.Predicates{
@@ -309,14 +309,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			SkipStepStateCheck: false,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{Name: condition.CondResultsProcessed},
 			Run:   r.processResults,
 			Predicates: lifecycle.Predicates{
 				r.container.IsOneOff,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "ReconcileManagementIPs",
 			Run:  r.reconcileManagementIPs,
 			Predicates: lifecycle.Predicates{
@@ -330,7 +330,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			OnFail: r.setErrorStatus,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "PeriodicReconcileManagementIPs",
 			Run:  r.reconcileManagementIPs,
 			Predicates: lifecycle.Predicates{
@@ -347,7 +347,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "ReconcileWekaLocalStatus",
 			Run:  r.reconcileWekaLocalStatus,
 			Predicates: lifecycle.Predicates{
@@ -356,13 +356,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			OnFail: r.setErrorStatus,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.applyCurrentImage,
 			Predicates: lifecycle.Predicates{
 				r.IsNotAlignedImage,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.setJoinIpsIfStuckInStemMode,
 			Predicates: lifecycle.Predicates{
 				r.container.ShouldJoinCluster,
@@ -374,7 +374,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondJoinedCluster,
 				Message: "Container joined cluster",
@@ -384,7 +384,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.ShouldJoinCluster,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrives,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
@@ -402,7 +402,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				EnsureStepSuccess:           true,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondJoinedS3Cluster,
 				Message: "Joined s3 cluster",
@@ -413,7 +413,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.HasJoinIps,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondNfsInterfaceGroupsConfigured,
 				Message: "NFS interface groups configured",

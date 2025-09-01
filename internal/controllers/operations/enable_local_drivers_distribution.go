@@ -125,14 +125,14 @@ func (o *EnsureDistServiceOperation) GetJsonResult() string {
 
 func (o *EnsureDistServiceOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
-		&lifecycle.SingleStep{Name: "DiscoverImages", Run: o.DiscoverImages},
-		&lifecycle.SingleStep{Name: "EnsureDistService", Run: o.EnsureDistService},
-		&lifecycle.SingleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
-		&lifecycle.SingleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
-		&lifecycle.SingleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
+		&lifecycle.SimpleStep{Name: "DiscoverNodesAndLabel", Run: o.DiscoverNodesAndLabel},
+		&lifecycle.SimpleStep{Name: "DiscoverImages", Run: o.DiscoverImages},
+		&lifecycle.SimpleStep{Name: "EnsureDistService", Run: o.EnsureDistService},
+		&lifecycle.SimpleStep{Name: "EnsureDistContainer", Run: o.EnsureDistContainer},
+		&lifecycle.SimpleStep{Name: "EnsureBuilderContainers", Run: o.EnsureBuilderContainers},
+		&lifecycle.SimpleStep{Name: "PollBuilderContainersStatus", Run: o.PollBuilderContainersStatus},
 		//{Name: "CleanupOldBuilderContainers", Run: o.CleanupOldBuilderContainers}, // Optional: remove builders for stale image/kernel/arch
-		&lifecycle.SingleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
+		&lifecycle.SimpleStep{Name: "UpdatePolicyStatusAndCallback", Run: o.UpdatePolicyStatusAndCallback},
 	}
 }
 
@@ -795,7 +795,7 @@ func hashFNV(s string) string {
 }
 
 func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "EnableLocalDriversDistribution",
 		Run:  AsRunFunc(o), // Assuming AsRunFunc helper exists
 	}

@@ -68,7 +68,7 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 	var steps []lifecycle.Step
 
 	// Initial container state - should always be first
-	steps = append(steps, &lifecycle.SingleStep{
+	steps = append(steps, &lifecycle.SimpleStep{
 		Run: loop.getCurrentContainers,
 	})
 
@@ -78,7 +78,7 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 	// Deletion/creation paths are mutually exclusive
 	steps = append(steps, &lifecycle.GroupedSteps{
 		Name: "DeletionPath",
-		Predicates: []lifecycle.PredicateFunc{
+		Predicates: lifecycle.Predicates{
 			loop.cluster.IsMarkedForDeletion,
 		},
 		Steps:           GetDeletionSteps(loop),

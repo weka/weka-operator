@@ -86,17 +86,17 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 		StateKeeper: k8sObject,
 		Throttler:   r.ThrottlingMap.WithPartition(string("client/" + loop.wekaClient.GetUID())),
 		Steps: []lifecycle.Step{
-			&lifecycle.SingleStep{Run: loop.getCurrentContainers},
-			&lifecycle.SingleStep{Run: loop.setApplicableNodes},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{Run: loop.getCurrentContainers},
+			&lifecycle.SimpleStep{Run: loop.setApplicableNodes},
+			&lifecycle.SimpleStep{
 				Run: loop.updateMetrics,
 				Throttling: &throttling.ThrottlingSettings{
 					Interval: time.Minute,
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.FetchTargetCluster,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					func() bool {
 						emptyRef := weka.ObjectReference{}
 						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
@@ -104,59 +104,59 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.HandleDeletion,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					wekaClient.IsMarkedForDeletion,
 				},
 				FinishOnSuccess: true,
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.ensureFinalizer,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					func() bool { return wekaClient.GetFinalizers() == nil },
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.deleteContainersOnNodeSelectorMismatch,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CleanupClientsOnNodeSelectorMismatch),
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.deleteContainersOnTolerationsMismatch,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.FetchTargetCluster,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					func() bool {
 						emptyRef := weka.ObjectReference{}
 						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != "" && loop.targetCluster == nil
 					},
 				},
 			},
-			&lifecycle.SingleStep{Run: loop.EnsureClientsWekaContainers},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
+			&lifecycle.SimpleStep{
 				State:              &lifecycle.State{Name: condition.CondCsiDeployed},
 				SkipStepStateCheck: true,
 				Run:                loop.DeployCsiPlugin,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.CheckCsiConfigChanged,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
 				},
 			},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{
 				Run: loop.UpdateCsiController,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
 					func() bool { return config.Config.CsiInstallationEnabled },
 					func() bool {
@@ -164,11 +164,11 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					},
 				},
 			},
-			&lifecycle.SingleStep{Run: loop.HandleSpecUpdates},
-			&lifecycle.SingleStep{Run: loop.HandleUpgrade},
-			&lifecycle.SingleStep{
+			&lifecycle.SimpleStep{Run: loop.HandleSpecUpdates},
+			&lifecycle.SimpleStep{Run: loop.HandleUpgrade},
+			&lifecycle.SimpleStep{
 				Run: loop.setStatusRunning,
-				Predicates: []lifecycle.PredicateFunc{
+				Predicates: lifecycle.Predicates{
 					// upgrade step migth not fail (with ExpectedError) so check if upgrade is in progress
 					func() bool {
 						return !loop.upgradeInProgress && wekaClient.Status.Status != weka.WekaClientStatusRunning

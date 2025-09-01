@@ -21,19 +21,19 @@ import (
 // DeletingStateFlow returns the steps for a container in the deleting state
 func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	steps1 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.GetNode,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
 		// if cluster marked container state as deleting, update status and put deletion timestamp
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.handleStateDeleting,
 		},
 		// this will allow go back into deactivate flow if we detected that container joined the cluster
 		// at this point we would be stuck on weka local stop if container just-joined cluster, while we decided to delete it
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "ensurePodOnDeletion",
 			Run:  r.ensurePod,
 			Predicates: lifecycle.Predicates{
@@ -44,7 +44,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "ReconcileWekaLocalStatusOnDeletion",
 			Run:  r.reconcileWekaLocalStatus,
 			Predicates: lifecycle.Predicates{
@@ -59,7 +59,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	metricsSteps := MetricsSteps(r)
 
 	steps2 := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondRemovedFromS3Cluster,
 				Reason: "Deletion",
@@ -70,7 +70,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsS3Container,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondRemovedFromNFS,
 				Reason: "Deletion",
@@ -91,7 +91,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		//  },
 		//  ,
 		//},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondContainerDeactivated,
 				Reason: "Deletion",
@@ -101,7 +101,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.ShouldDeactivate,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.RemoveDeactivatedContainersDrives,
 			State: &lifecycle.State{
 				Name:   condition.CondContainerDrivesRemoved,
@@ -112,7 +112,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsDriveContainer,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.RemoveDeactivatedContainers,
 			State: &lifecycle.State{
 				Name:   condition.CondContainerRemoved,
@@ -122,7 +122,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.ShouldDeactivate,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "reconcileClusterStatusOnDeletion",
 			Run:  r.reconcileClusterStatus,
 			Predicates: lifecycle.Predicates{
@@ -133,7 +133,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopForceAndEnsureNoPod, // we want to force stop drives to release
 			Predicates: lifecycle.Predicates{
 				lifecycle.Or(
@@ -146,7 +146,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				// is it safe to force stop
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.waitForMountsOrDrain,
 			// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 			Predicates: lifecycle.Predicates{
@@ -157,21 +157,21 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopForceAndEnsureNoPod, // we do not rely on graceful stop on clients until we test multiple weka versions with it under various failures
 			Predicates: lifecycle.Predicates{
 				r.container.IsClientContainer,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.stopAndEnsureNoPod,
 			// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 			Predicates: lifecycle.Predicates{
 				r.container.IsWekaContainer,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondContainerDrivesResigned,
 				Reason: "Deletion",
@@ -182,7 +182,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsDriveContainer,
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.HandleDeletion,
 		},
 	}

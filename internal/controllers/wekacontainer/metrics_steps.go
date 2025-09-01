@@ -30,7 +30,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 	container := loop.container
 
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "SetStatusMetrics",
 			Run:  loop.SetStatusMetrics,
 			Predicates: lifecycle.Predicates{
@@ -53,7 +53,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "RegisterContainerOnMetrics",
 			Run:  loop.RegisterContainerOnMetrics,
 			Predicates: lifecycle.Predicates{
@@ -72,7 +72,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 			},
 			ContinueOnError: true,
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "ReportOtelMetrics",
 			Run:  loop.ReportOtelMetrics,
 			Predicates: lifecycle.Predicates{

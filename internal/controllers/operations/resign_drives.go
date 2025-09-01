@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -17,7 +18,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -69,7 +69,7 @@ func NewResignDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.ForceResignDri
 }
 
 func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "ResignDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -77,26 +77,26 @@ func (o *ResignDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *ResignDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetNamespace", Run: o.GetNamespace},
-		&lifecycle.SingleStep{Name: "GetContainer", Run: o.GetContainer},
-		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainer, Predicates: []lifecycle.PredicateFunc{o.IsDone}, FinishOnSuccess: true},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "GetNamespace", Run: o.GetNamespace},
+		&lifecycle.SimpleStep{Name: "GetContainer", Run: o.GetContainer},
+		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainer, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{
 			Name:       "EnsureContainer",
 			Run:        o.EnsureContainer,
-			Predicates: []lifecycle.PredicateFunc{o.HasNoContainer},
+			Predicates: lifecycle.Predicates{o.HasNoContainer},
 		},
-		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
-		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SimpleStep{
 			Name: "FailureUpdate",
 			Run:  o.FailureCallback,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				o.OperationFailed,
 			},
 			FinishOnSuccess: true,
 		},
-		&lifecycle.SingleStep{Name: "SuccessCallback", Run: o.SuccessCallback},
-		&lifecycle.SingleStep{Name: "DeleteContainer", Run: o.DeleteContainer},
+		&lifecycle.SimpleStep{Name: "SuccessCallback", Run: o.SuccessCallback},
+		&lifecycle.SimpleStep{Name: "DeleteContainer", Run: o.DeleteContainer},
 	}
 }
 

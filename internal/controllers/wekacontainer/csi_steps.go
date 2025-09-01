@@ -34,7 +34,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
 			},
 			Steps: []lifecycle.Step{
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					State: &lifecycle.State{
 						Name: condition.CondCsiDeployed,
 					},
@@ -44,7 +44,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 						r.isWekaClientRunning,
 					},
 				},
-				&lifecycle.SingleStep{
+				&lifecycle.SimpleStep{
 					Run: r.ManageCsiTopologyLabels,
 					Predicates: lifecycle.Predicates{
 						lifecycle.IsTrueCondition(condition.CondCsiDeployed, &container.Status.Conditions),
@@ -52,7 +52,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 				},
 			},
 		},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Run: r.CleanupCsiNodeServerPod,
 			Predicates: lifecycle.Predicates{
 				container.IsClientContainer,

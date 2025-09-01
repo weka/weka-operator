@@ -86,7 +86,7 @@ func NewDiscoverDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.DiscoverDriv
 }
 
 func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "DiscoverDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -94,13 +94,13 @@ func (o *DiscoverDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *DiscoverDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{Name: "GetContainers", Run: o.GetContainers},
-		&lifecycle.SingleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: []lifecycle.PredicateFunc{o.IsDone}, FinishOnSuccess: true},
-		&lifecycle.SingleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
-		&lifecycle.SingleStep{Name: "PollResults", Run: o.PollResults},
-		&lifecycle.SingleStep{Name: "ProcessResult", Run: o.ProcessResult},
-		&lifecycle.SingleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
-		&lifecycle.SingleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
+		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SimpleStep{Name: "DeleteOnDone", Run: o.DeleteContainers, Predicates: lifecycle.Predicates{o.IsDone}, FinishOnSuccess: true},
+		&lifecycle.SimpleStep{Name: "EnsureContainers", Run: o.EnsureContainers},
+		&lifecycle.SimpleStep{Name: "PollResults", Run: o.PollResults},
+		&lifecycle.SimpleStep{Name: "ProcessResult", Run: o.ProcessResult},
+		&lifecycle.SimpleStep{Name: "SuccessUpdate", Run: o.SuccessUpdate},
+		&lifecycle.SimpleStep{Name: "DeleteOnFinish", Run: o.DeleteContainers},
 	}
 }
 

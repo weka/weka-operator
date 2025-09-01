@@ -53,7 +53,7 @@ func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPa
 }
 
 func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "BlockDrives",
 		Run:  AsRunFunc(o),
 	}
@@ -61,31 +61,31 @@ func (o *BlockDrivesOperation) AsStep() lifecycle.Step {
 
 func (o *BlockDrivesOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name:            "Noop",
 			Run:             o.Noop,
-			Predicates:      []lifecycle.PredicateFunc{o.IsDone},
+			Predicates:      lifecycle.Predicates{o.IsDone},
 			FinishOnSuccess: true},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "BlockDrives",
 			Run:  o.BlockDrives,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				func() bool { return !o.unblock },
 			}},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "UnblockDrives",
 			Run:  o.UnblockDrives,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				func() bool { return o.unblock },
 			}},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "SuccessCallback",
 			Run:  o.SuccessCallback,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				o.OperationSucceeded,
 			}, FinishOnSuccess: true,
 		},
-		&lifecycle.SingleStep{Name: "FailureCallback", Run: o.FailureCallback},
+		&lifecycle.SimpleStep{Name: "FailureCallback", Run: o.FailureCallback},
 	}
 }
 

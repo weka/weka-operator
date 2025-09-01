@@ -53,7 +53,7 @@ func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClie
 }
 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {
-	return &lifecycle.SingleStep{
+	return &lifecycle.SimpleStep{
 		Name: "DeployCsi",
 		Run:  AsRunFunc(o),
 	}
@@ -61,16 +61,16 @@ func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 
 func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	deploySteps := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "DeployCsiDriver",
 			Run:  o.deployCsiDriver,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				o.shouldDeployCSIDriver,
 			}},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "DeployStorageClasses",
 			Run:  o.deployStorageClasses,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
@@ -78,32 +78,32 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 				},
 				o.shouldDeployStorageClass,
 			}},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
 				o.shouldDeployCSIController,
 			}},
 	}
 	undeploySteps := []lifecycle.Step{
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "UndeployCsiDriver",
 			Run:  o.undeployCsiDriver},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
 			}},
-		&lifecycle.SingleStep{
+		&lifecycle.SimpleStep{
 			Name: "UndeployCsiController",
 			Run:  o.undeployCsiController,
-			Predicates: []lifecycle.PredicateFunc{
+			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
 			}},
 	}
