@@ -683,6 +683,8 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
 		if f.nodeInfo.IsCos() {
+			// in COS we can't load it in the drivers-loader pod because of /lib/modules override
+			addUIOLoaderInitContainer(pod)
 			allowCosDisableDriverSigning := config.Config.GkeCompatibility.DisableDriverSigning
 			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 				Name:      "weka-boot-scripts",
