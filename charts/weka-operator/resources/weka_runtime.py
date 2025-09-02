@@ -16,7 +16,7 @@ from dataclasses import dataclass, asdict, fields
 from functools import lru_cache, partial
 from os.path import exists
 from textwrap import dedent
-from typing import List, Optional, Tuple, Set, Union
+from typing import Any, Dict, List, Optional, Tuple, Set, Union
 
 
 @dataclass
@@ -1226,6 +1226,9 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
+    if MODE not in ["compute", "drive", "client", "s3", "nfs"]:
+        raise NotImplementedError(f"Unsupported mode: {MODE}")
+
     full_cores = find_full_cores(NUM_CORES)
     mode_part = ""
     if MODE == "compute":
@@ -1430,16 +1433,83 @@ def convert_to_bytes(memory: str) -> int:
     return size * multipliers[unit]
 
 
+async def check_resources_json(resources_dir: str):
+    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in  
+    #   resources_dir ("/opt/weka/data/{NAME}/container/")
+    # If resources.json.stable pointing to an empty file:
+    #   look for older weka-resources*.json files in the same directory
+    #   - if found, link resources.json, resources.json.stable and resources.json.staging to the latest non-empty file
+    #   - if not found, remove and recreate container
+    resources_file = os.path.join(resources_dir, "resources.json")
+    if not os.path.exists(resources_file):
+        raise Exception(f"Resources file {resources_file} does not exist")
+    
+    if os.path.getsize(resources_file) > 0:
+        logging.info(f"Resources file {resources_file} is not empty, nothing to do")
+        return
+    
+    logging.info(f"Resources file {resources_file} is empty, looking for older resources files")
+    files = os.listdir(resources_dir)
+    resource_files = [f for f in files if f.startswith("weka-resources.") and f.endswith(".json")]
+    resource_files = [f for f in resource_files if os.path.getsize(os.path.join(resources_dir, f)) > 0]
+    if not resource_files:
+        # delete and recreate container
+        logging.info(f"No older non-empty resources files found, removing and recreating container")
+        await run_command("weka local stop --force", capture_stdout=False)
+        await run_command(f"weka local rm --all --force", capture_stdout=False)
+        await create_container()
+        return
+    
+    resource_files.sort(key=lambda f: os.path.getmtime(os.path.join(resources_dir, f)), reverse=True)
+    latest_file = resource_files[0]
+    logging.info(f"Linking resources.json, resources.json.stable and resources.json.staging to {latest_file}")
+    await link_resources_file(latest_file, resources_dir)
+
+
+async def handle_existing_container(container: Dict[str, Any], resources_dir: str):
+    if container.get('isRunning', False):
+        logging.info("Container is already running, nothing to do")
+        return
+
+    if container.get('runStatus', '') == "Unknown":
+        logging.info("Container is in Unknown state, checking resources file")
+        await check_resources_json(resources_dir)
+
+
+async def link_resources_file(file_name, resources_dir: str):
+     # reconfigure containers
+    _, stderr, ec = await run_command(f"""
+        ln -sf {file_name} {resources_dir}/resources.json
+        ln -sf {file_name} {resources_dir}/resources.json.stable
+        ln -sf {file_name} {resources_dir}/resources.json.staging
+        # at some point weka creates such, basically expecting relative path: 'resources.json.stable -> weka-resources.35fda56d-2ce3-4f98-b77c-a399df0940af.json'
+        # stable flow might not even be used, and should be fixed on wekapp side
+    """)
+    if ec != 0:
+        raise Exception(f"Failed to link resources file: {stderr}")
+
+
 async def ensure_weka_container():
+    resources_dir = f"/opt/weka/data/{NAME}/container"
+    os.makedirs(resources_dir, exist_ok=True)
+
     current_containers = await get_containers()
 
     if len(current_containers) == 0:
         logging.info("no pre-existing containers, creating")
-        # create container
-        if MODE in ["compute", "drive", "client", "s3", "nfs"]:
-            await create_container()
-        else:
-            raise NotImplementedError(f"Unsupported mode: {MODE}")
+        await create_container()
+    else:
+        logging.info(f"Found {len(current_containers)} existing containers")
+        container = None
+        for c in current_containers:
+            if c['name'] == NAME:
+                container = c
+                break
+
+        if not container:
+            raise Exception(f"Container with name {NAME} already exists but with different name(s): {[c['name'] for c in current_containers]}")
+
+        await handle_existing_container(container, resources_dir)
 
     full_cores = find_full_cores(NUM_CORES)
 
@@ -1496,21 +1566,13 @@ async def ensure_weka_container():
             resources['net_devices'][0]['gateway'] = NET_GATEWAY
 
     # save resources
-    resources_dir = f"/opt/weka/data/{NAME}/container/"
-    os.makedirs(resources_dir, exist_ok=True)
     resource_gen = str(uuid.uuid4())
     file_name = f"weka-resources.{resource_gen}.json"
     resource_file = os.path.join(resources_dir, file_name)
     with open(resource_file, "w") as f:
         json.dump(resources, f)
-    # reconfigure containers
-    stdout, stderr, ec = await run_command(f"""
-        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json
-        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.stable
-        ln -sf {file_name} /opt/weka/data/{NAME}/container/resources.json.staging
-        # at some point weka creates such, basically expecting relative path: 'resources.json.stable -> weka-resources.35fda56d-2ce3-4f98-b77c-a399df0940af.json'
-        # stable flow might not even be used, and should be fixed on wekapp side
-    """)
+    
+    await link_resources_file(file_name, resources_dir)
 
     # cli-based changes
     cli_changes = False
@@ -1539,9 +1601,8 @@ async def ensure_weka_container():
             ln -sf `readlink /opt/weka/data/{NAME}/container/resources.json.staging` /opt/weka/data/{NAME}/container/resources.json.stable
             ln -sf `readlink /opt/weka/data/{NAME}/container/resources.json.staging` /opt/weka/data/{NAME}/container/resources.json
         """)
-
-    if ec != 0:
-        raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
+        if ec != 0:
+            raise Exception(f"Failed to import resources: {stderr} \n {stdout}")
 
 
 def get_boot_id():
