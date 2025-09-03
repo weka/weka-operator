@@ -11,8 +11,8 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/pkg/util"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -627,7 +627,7 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func DeallocateNamespacedObject(ctx context.Context, namespacedObject util.NamespacedObject, store AllocationsStore) error {
+func DeallocateNamespacedObject(ctx context.Context, namespacedObject types.NamespacedName, store AllocationsStore) error {
 	allocations, err := store.GetAllocations(ctx)
 	if err != nil {
 		return err
@@ -637,19 +637,19 @@ func DeallocateNamespacedObject(ctx context.Context, namespacedObject util.Names
 
 	for _, nodeAlloc := range allocations.NodeMap {
 		for owner, _ := range nodeAlloc.AllocatedRanges {
-			if owner.ToNamespacedObject() == namespacedObject {
+			if owner.ToNamespacedName() == namespacedObject {
 				ownersToDelete = append(ownersToDelete, owner)
 			}
 		}
 
 		for owner, _ := range nodeAlloc.EthSlots {
-			if owner.ToNamespacedObject() == namespacedObject {
+			if owner.ToNamespacedName() == namespacedObject {
 				ownersToDelete = append(ownersToDelete, owner)
 			}
 		}
 
 		for owner, _ := range nodeAlloc.Drives {
-			if owner.ToNamespacedObject() == namespacedObject {
+			if owner.ToNamespacedName() == namespacedObject {
 				ownersToDelete = append(ownersToDelete, owner)
 			}
 		}
@@ -685,7 +685,7 @@ func DeallocateContainer(ctx context.Context, container *weka.WekaContainer, cli
 		return err
 	}
 
-	namespacedObject := util.NamespacedObject{
+	namespacedObject := types.NamespacedName{
 		Namespace: container.Namespace,
 		Name:      container.Name,
 	}

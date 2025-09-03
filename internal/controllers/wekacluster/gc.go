@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 func (r *WekaClusterReconciler) GC(ctx context.Context) error {
@@ -35,23 +35,23 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		return err
 	}
 
-	misses := make(map[util.NamespacedObject]bool)
+	misses := make(map[types.NamespacedName]bool)
 	for _, nodeAlloc := range allocations.NodeMap {
 		for owner, _ := range nodeAlloc.AllocatedRanges {
 			if existingContainers[owner.Namespace] == nil || existingContainers[owner.Namespace][owner.Container] == false {
-				misses[owner.ToNamespacedObject()] = true
+				misses[owner.ToNamespacedName()] = true
 			}
 		}
 
 		for owner, _ := range nodeAlloc.EthSlots {
 			if existingContainers[owner.Namespace] == nil || existingContainers[owner.Namespace][owner.Container] == false {
-				misses[owner.ToNamespacedObject()] = true
+				misses[owner.ToNamespacedName()] = true
 			}
 		}
 
 		for owner, _ := range nodeAlloc.Drives {
 			if existingContainers[owner.Namespace] == nil || existingContainers[owner.Namespace][owner.Container] == false {
-				misses[owner.ToNamespacedObject()] = true
+				misses[owner.ToNamespacedName()] = true
 			}
 		}
 	}
@@ -59,7 +59,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	detectZombiesTime := config.Config.WekaAllocZombieDeleteAfter
 
 	if r.DetectedZombies == nil {
-		r.DetectedZombies = make(map[util.NamespacedObject]time.Time)
+		r.DetectedZombies = make(map[types.NamespacedName]time.Time)
 	}
 
 	for owner, _ := range misses {

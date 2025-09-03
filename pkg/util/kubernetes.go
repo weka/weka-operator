@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"os"
 	"reflect"
 	"strings"
@@ -13,14 +11,18 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/internal/config"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 type Exec interface {
@@ -32,9 +34,11 @@ type Exec interface {
 type PodExec struct {
 	RestClient    rest.Interface
 	RestConfig    *rest.Config
-	Pod           NamespacedObject
+	Pod           types.NamespacedName
 	timeout       *time.Duration
 	ContainerName string
+	// node name is provided for debugging purposes only, it is not used for anything else
+	NodeName string
 }
 
 type ConfigurationError struct {
@@ -46,7 +50,7 @@ func (e *ConfigurationError) Error() string {
 	return fmt.Sprintf("configuration error: %s, %v", e.Message, e.Err)
 }
 
-func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod NamespacedObject, timeout *time.Duration, containerName string) (Exec, error) {
+func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod types.NamespacedName, timeout *time.Duration, containerName, nodeName string) (Exec, error) {
 	if timeout == nil {
 		defaultTimeout := config.Config.Timeouts.KubeExecTimeout
 		timeout = &defaultTimeout
@@ -58,6 +62,7 @@ func NewExecWithConfig(client rest.Interface, cfg *rest.Config, pod NamespacedOb
 		ContainerName: containerName,
 		RestConfig:    cfg,
 		timeout:       timeout,
+		NodeName:      nodeName,
 	}, nil
 }
 
@@ -66,20 +71,20 @@ func NewExecInPod(client rest.Interface, cfg *rest.Config, pod *v1.Pod) (Exec, e
 }
 
 func NewExecInPodWithTimeout(client rest.Interface, cfg *rest.Config, pod *v1.Pod, timeout *time.Duration) (Exec, error) {
-	namespacedObject := NamespacedObject{
+	namespacedObject := types.NamespacedName{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
-	return NewExecWithConfig(client, cfg, namespacedObject, timeout, "weka-container")
+	return NewExecWithConfig(client, cfg, namespacedObject, timeout, "weka-container", pod.Spec.NodeName)
 }
 
 func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string) (Exec, error) {
-	namespacedObject := NamespacedObject{
+	namespacedObject := types.NamespacedName{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(client, cfg, namespacedObject, nil, containerName)
+	return NewExecWithConfig(client, cfg, namespacedObject, nil, containerName, pod.Spec.NodeName)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
@@ -92,6 +97,7 @@ func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command
 	// TODO: hide sensitive data
 	logger.SetValues(
 		"pod", e.Pod.Name,
+		"node", e.NodeName,
 	)
 
 	if !sensitive {

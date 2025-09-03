@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -21,7 +22,6 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/exec"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 // WekaClusterReconciler reconciles a WekaCluster object
@@ -33,7 +33,7 @@ type WekaClusterReconciler struct {
 
 	SecretsService services.SecretsService
 
-	DetectedZombies map[util.NamespacedObject]time.Time
+	DetectedZombies map[types.NamespacedName]time.Time
 	ThrottlingMap   throttling.Throttler
 }
 

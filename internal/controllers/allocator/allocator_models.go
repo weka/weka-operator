@@ -2,7 +2,7 @@ package allocator
 
 import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/pkg/util"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const StartingPort = 35000
@@ -107,8 +107,8 @@ func (n *NodeAllocations) HasDifferentContainerSameClusterRole(owner Owner) bool
 	return false
 }
 
-func (o Owner) ToNamespacedObject() util.NamespacedObject {
-	return util.NamespacedObject{
+func (o Owner) ToNamespacedName() types.NamespacedName {
+	return types.NamespacedName{
 		Namespace: o.Namespace,
 		Name:      o.Container,
 	}
