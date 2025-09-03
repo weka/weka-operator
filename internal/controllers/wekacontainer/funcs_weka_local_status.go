@@ -41,10 +41,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 			}
 
 			details := r.container.ToOwnerDetails()
-			if r.container.Spec.DriversLoaderImage != "" {
-				details.Image = r.container.Spec.DriversLoaderImage
-			}
-			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
+			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
+				r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {
 				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)
