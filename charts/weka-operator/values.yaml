@@ -17,9 +17,14 @@ deployController: true
 enableClusterApi: false
 # -- enable leader election for controller manager. Enabling this will ensure there is only one active controller manager.
 enableLeaderElection: true
-# -- custom endpoint to send OTLP traces to (insecure, GRPC).
-# If left empty, traces are sent to stdout in json format.
+# -- custom endpoint to send OTLP traces and logs to (insecure, GRPC).
+# If left empty, traces are sent to stdout in json format, and logs use standard Python logging.
 otelExporterOtlpEndpoint: ""
+# -- image used for installing OpenTelemetry packages in init container
+# When set, enables OTEL logging with init container. Leave empty to disable OTEL logging.
+# Default is python:3.10-slim for glibc compatibility (for weka-container image)
+# otelPackagesInstallerImage: "python:3.10-slim"
+
 # logging settings
 logging:
   level: 0

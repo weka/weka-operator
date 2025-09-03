@@ -56,6 +56,8 @@ DISCOVERY_SCHEMA = 1
 INSTRUCTIONS = os.environ.get("INSTRUCTIONS", "")
 NODE_NAME = os.environ["NODE_NAME"]
 POD_ID = os.environ.get("POD_ID", "")
+POD_NAME = os.environ.get("POD_NAME", "")
+POD_NAMESPACE = os.environ.get("POD_NAMESPACE", "")
 FAILURE_DOMAIN = os.environ.get("FAILURE_DOMAIN", None)
 MACHINE_IDENTIFIER = os.environ.get("MACHINE_IDENTIFIER", None)
 NET_GATEWAY = os.environ.get("NET_GATEWAY", None)
@@ -63,6 +65,16 @@ IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
+
+# OpenTelemetry configuration
+OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
+OTEL_EXPORTER_OTLP_HEADERS = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+OTEL_EXPORTER_OTLP_LOGS_HEADERS = os.environ.get("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "")
+OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "weka-operator-runtime")
+OTEL_SERVICE_VERSION = os.environ.get("OTEL_SERVICE_VERSION", "1.0.0")
+OTEL_LOGS_ENABLED = os.environ.get("OTEL_LOGS_ENABLED", "true").lower() == "true"
+OTEL_AVAILABLE = False  # Will be set to True if OTEL packages are available
 
 KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
@@ -100,21 +112,145 @@ MAX_PORT = 65535
 # Define global variables
 exiting = 0
 
-# Formatter with channel name
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Define handlers for stdout and stderr
-stdout_handler = logging.StreamHandler(sys.stdout)
-stdout_handler.setLevel(logging.DEBUG)
-stderr_handler = logging.StreamHandler(sys.stderr)
-stderr_handler.setLevel(logging.WARNING)
+def setup_otel_logging():
+    """Setup OpenTelemetry logging with OTLP exporter."""
+    
+    # Check if init container successfully installed OTEL packages
+    otel_packages_dir = "/shared-python-packages"
+    success_marker = os.path.join(otel_packages_dir, ".otel-packages-installed")
+    failure_marker = os.path.join(otel_packages_dir, ".otel-packages-failed")
+    
+    if os.path.exists(success_marker):
+        print("OTEL packages were successfully installed by init container")
+        # Add the shared packages directory to Python path if not already there
+        if otel_packages_dir not in sys.path:
+            sys.path.insert(0, otel_packages_dir)
+        
+        # Try to import OTEL packages that should now be available
+        try:
+            global OTEL_AVAILABLE
+            from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+            from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.semconv.resource import ResourceAttributes
+            OTEL_AVAILABLE = True
+            print("Successfully imported OTEL packages from init container installation")
+        except ImportError as e:
+            print(f"Warning: Failed to import OTEL packages even after init container installation: {e}")
+            OTEL_AVAILABLE = False
+    elif os.path.exists(failure_marker):
+        print("Init container failed to install OTEL packages. Falling back to standard logging.")
+        OTEL_AVAILABLE = False
+    else:
+        print("No OTEL package installation markers found. Checking for pre-installed packages...")
+    
+    if not OTEL_AVAILABLE or not OTEL_LOGS_ENABLED:
+        return setup_standard_logging()
+    
+    try:
+        # Determine the OTLP endpoint for logs
+        logs_endpoint = OTEL_EXPORTER_OTLP_LOGS_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
+        if not logs_endpoint:
+            print("Warning: No OTEL endpoint configured. Falling back to standard logging.")
+            return setup_standard_logging()
+        
+        # Parse headers for logs
+        headers = {}
+        headers_str = OTEL_EXPORTER_OTLP_LOGS_HEADERS or OTEL_EXPORTER_OTLP_HEADERS
+        if headers_str:
+            for header in headers_str.split(','):
+                if '=' in header:
+                    key, value = header.strip().split('=', 1)
+                    headers[key] = value
+        
+        # Create resource with service information
+        resource = Resource.create({
+            ResourceAttributes.SERVICE_NAME: OTEL_SERVICE_NAME,
+            ResourceAttributes.SERVICE_VERSION: OTEL_SERVICE_VERSION,
+            ResourceAttributes.SERVICE_INSTANCE_ID: POD_ID or NODE_NAME,
+            "k8s.node.name": NODE_NAME,
+            "k8s.pod.uid": POD_ID,
+            "k8s.pod.name": POD_NAME,
+            "k8s.namespace.name": POD_NAMESPACE,
+        })
+        
+        # Create OTLP log exporter
+        otlp_exporter = OTLPLogExporter(
+            endpoint=logs_endpoint,
+            headers=headers,
+        )
+        
+        # Create logger provider
+        logger_provider = LoggerProvider(resource=resource)
+        
+        # Add batch processor
+        logger_provider.add_log_record_processor(
+            BatchLogRecordProcessor(otlp_exporter)
+        )
+        
+        # Create OTEL logging handler
+        otel_handler = LoggingHandler(
+            level=logging.DEBUG,
+            logger_provider=logger_provider,
+        )
+        
+        # Create standard handlers for local logging
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setLevel(logging.DEBUG)
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(logging.WARNING)
+        
+        # Formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        stdout_handler.setFormatter(formatter)
+        stderr_handler.setFormatter(formatter)
+        
+        # Configure root logger with both OTEL and standard handlers
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.addHandler(otel_handler)
+        root_logger.addHandler(stdout_handler)
+        root_logger.addHandler(stderr_handler)
+        
+        print(f"OTEL logging configured successfully. Endpoint: {logs_endpoint}")
+        return True
+        
+    except Exception as e:
+        print(f"Failed to setup OTEL logging: {e}. Falling back to standard logging.")
+        return setup_standard_logging()
 
-# Basic configuration
-logging.basicConfig(
-    level=logging.DEBUG,  # Global minimum logging level
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
-    handlers=[stdout_handler, stderr_handler]
-)
+
+def setup_standard_logging():
+    """Setup standard logging as fallback."""
+    # Formatter with channel name
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Define handlers for stdout and stderr
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+
+    stdout_handler.setFormatter(formatter)
+    stderr_handler.setFormatter(formatter)
+    
+    # Basic configuration
+    logging.basicConfig(
+        level=logging.DEBUG,  # Global minimum logging level
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
+        handlers=[stdout_handler, stderr_handler]
+    )
+    return False
+
+
+# Initialize logging
+otel_enabled = setup_otel_logging()
+if otel_enabled:
+    logging.info("OpenTelemetry logging initialized successfully")
+else:
+    logging.info("Using standard logging configuration")
 
 def use_go_syslog() -> bool:
     syslog_package = os.environ.get("SYSLOG_PACKAGE", "auto")

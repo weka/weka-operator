@@ -130,6 +130,10 @@ spec:
               value: "{{ .Values.maintenanceImage | default "quay.io/weka.io/busybox" }}"
             - name: WEKA_MAINTENANCE_IMAGE_PULL_SECRET
               value: "{{ .Values.maintenanceImagePullSecret | default "" }}"
+            {{- if .Values.otelPackagesInstallerImage }}
+            - name: WEKA_OTEL_PACKAGES_INSTALLER_IMAGE
+              value: "{{ .Values.otelPackagesInstallerImage }}"
+            {{- end }}
             - name: WEKA_OCP_PULL_SECRET
               value: "{{ .Values.ocpCompatibility.driverToolkitSecretName }}"
             - name: WEKA_OCP_TOOLKIT_IMAGE_BASE_URL

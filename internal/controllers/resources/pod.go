@@ -380,6 +380,22 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							},
 						},
 						{
+							Name: "POD_NAME",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "metadata.name",
+								},
+							},
+						},
+						{
+							Name: "POD_NAMESPACE",
+							ValueFrom: &corev1.EnvVarSource{
+								FieldRef: &corev1.ObjectFieldSelector{
+									FieldPath: "metadata.namespace",
+								},
+							},
+						},
+						{
 							Name:  "AUTO_REMOVE_TIMEOUT",
 							Value: strconv.Itoa(int(f.container.Spec.AutoRemoveTimeout.Seconds())),
 						},
@@ -390,6 +406,23 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "SYSLOG_PACKAGE",
 							Value: config.Config.SyslogPackage,
+						},
+						// OpenTelemetry configuration
+						{
+							Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
+							Value: config.Config.Otel.ExporterOtlpEndpoint,
+						},
+						{
+							Name:  "OTEL_SERVICE_NAME",
+							Value: "weka-operator-runtime",
+						},
+						{
+							Name:  "OTEL_SERVICE_VERSION",
+							Value: config.Config.Version,
+						},
+						{
+							Name:  "OTEL_LOGS_ENABLED",
+							Value: "true",
 						},
 					},
 				},
@@ -838,6 +871,75 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			SecurityContext: pod.Spec.Containers[0].SecurityContext,
 		}
 		pod.Spec.InitContainers = append(pod.Spec.InitContainers, buildkitContainer)
+	}
+
+	// Add OTEL packages installation init container only if explicitly configured
+	if config.Config.Otel.PythonPackagesInstallerImage != "" {
+		otelInitContainer := corev1.Container{
+			Name:            "otel-packages-installer",
+			Image:           config.Config.Otel.PythonPackagesInstallerImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command: []string{
+				"sh", "-c",
+				`echo "=== OTEL Packages Installation ==="
+echo "Using installer image: $(python3 --version)"
+echo "Pip version: $(pip3 --version)"
+
+# Create Python packages directory that will be shared with main container
+mkdir -p /shared-python-packages
+
+echo "Installing OpenTelemetry packages..."
+if pip3 install --target /shared-python-packages --no-cache-dir \
+    opentelemetry-api>=1.36.0 \
+    opentelemetry-sdk>=1.36.0 \
+    opentelemetry-exporter-otlp-proto-grpc>=1.36.0 \
+    opentelemetry-semantic-conventions>=0.57b0; then
+    
+    echo "SUCCESS: OTEL packages installed successfully"
+    echo "Installed packages:"
+    ls -la /shared-python-packages/ | head -20
+    
+    # Create a marker file to indicate successful installation
+    touch /shared-python-packages/.otel-packages-installed
+    echo "Created success marker file"
+else
+    echo "ERROR: Failed to install OTEL packages"
+    echo "Main container will fall back to standard logging"
+    # Create a marker file to indicate installation failure
+    touch /shared-python-packages/.otel-packages-failed
+    echo "Created failure marker file"
+fi
+
+echo "=== OTEL Init Container Completed ==="`,
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "otel-packages",
+					MountPath: "/shared-python-packages",
+				},
+			},
+		}
+		pod.Spec.InitContainers = append(pod.Spec.InitContainers, otelInitContainer)
+
+		// Add volume for sharing Python packages between init container and main container
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: "otel-packages",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+
+		// Add volume mount to main container so it can access the installed packages
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "otel-packages",
+			MountPath: "/shared-python-packages",
+		})
+
+		// Add PYTHONPATH environment variable to main container
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "PYTHONPATH",
+			Value: "/shared-python-packages:$PYTHONPATH",
+		})
 	}
 
 	err = f.setAffinities(ctx, pod)
