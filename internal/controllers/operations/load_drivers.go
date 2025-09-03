@@ -58,6 +58,7 @@ type LoadDrivers struct {
 	kubeService         kubernetes.KubeService
 	scheme              *runtime.Scheme
 	containerDetails    weka.WekaOwnerDetails
+	driversLoaderImage  string
 	node                *v1.Node
 	distServiceEndpoint string
 	container           *weka.WekaContainer
@@ -66,7 +67,9 @@ type LoadDrivers struct {
 	force               bool // ignores existing node annotation
 }
 
-func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails, distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
+func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails,
+	DriversLoaderImage string,
+	distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace()
 	return &LoadDrivers{
@@ -75,6 +78,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 		kubeService:         kubernetes.NewKubeService(kclient),
 		scheme:              mgr.GetScheme(),
 		containerDetails:    ownerDetails,
+		driversLoaderImage:  DriversLoaderImage,
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
@@ -212,6 +216,16 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	}
 	labels = util.MergeMaps(o.containerDetails.Labels, labels)
 
+	containerImage := o.containerDetails.Image
+	var instructions *weka.Instructions
+	if o.driversLoaderImage != "" {
+		containerImage = o.driversLoaderImage
+		instructions = &weka.Instructions{
+			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+			Payload: o.containerDetails.Image,
+		}
+	}
+
 	loaderContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -219,12 +233,14 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Image:               o.containerDetails.Image,
+			Image:               containerImage,
+			Instructions:        instructions,
 			Mode:                weka.WekaContainerModeDriversLoader,
 			ImagePullSecret:     o.containerDetails.ImagePullSecret,
 			Hugepages:           0,
 			NodeAffinity:        weka.NodeName(o.node.Name),
 			DriversDistService:  o.distServiceEndpoint,
+			DriversLoaderImage:  o.driversLoaderImage,
 			TracesConfiguration: weka.GetDefaultTracesConfiguration(),
 			Tolerations:         o.containerDetails.Tolerations,
 			ServiceAccountName:  serviceAccountName,
