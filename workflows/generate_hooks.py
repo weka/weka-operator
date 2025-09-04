@@ -84,6 +84,25 @@ class LogHooks():
         """Called after a tool is invoked."""
         logger.info(f"tool end {tool.name} with context {context} and result {result}")
 
+    async def on_llm_start(
+            self,
+            context: RunContextWrapper[TContext],
+            agent: Agent[TContext],
+            system_prompt: str | None,
+            input_items: List[Any],
+    ) -> None:
+        """Called before an LLM is invoked."""
+        logger.info(f"llm start for agent {agent.name} with context {context}")
+
+    async def on_llm_end(
+            self,
+            context: RunContextWrapper[TContext],
+            agent: Agent[TContext],
+            response: Any,
+    ) -> None:
+        """Called after an LLM responds."""
+        logger.info(f"llm end for agent {agent.name} with context {context}")
+
 def is_path_allowed(file_path):
     return True
 

@@ -93,12 +93,8 @@ async def build_go(
 
 
 async def _uv_base() -> Container:
-    return await (
+    # The ghcr.io/astral-sh/uv:alpine image already contains Python and uv
+    return (
         dag.container()
         .from_("ghcr.io/astral-sh/uv:alpine")
-        .with_exec(["apk", "add", "--no-cache",
-                    "python3",
-                    "py3-pip",
-                    "bash"]
-                   )
     )
