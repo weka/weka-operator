@@ -76,7 +76,7 @@ func NewCsiNodePod(
 						Privileged: &privileged,
 					},
 					Image:           config.Config.CsiImage,
-					ImagePullPolicy: corev1.PullAlways,
+					ImagePullPolicy: corev1.PullIfNotPresent,
 					Args:            args,
 					Ports: []corev1.ContainerPort{
 						{

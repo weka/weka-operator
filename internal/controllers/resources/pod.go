@@ -205,7 +205,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 				{
 					Image:           image,
 					Name:            "weka-container",
-					ImagePullPolicy: corev1.PullAlways,
+					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command:         []string{"python3", "/opt/weka_runtime.py"},
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &[]bool{true}[0],
