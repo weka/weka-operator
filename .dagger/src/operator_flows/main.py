@@ -570,9 +570,11 @@ EOF
         # Convert PR numbers to space-separated string
         pr_ids_str = " ".join(str(pr_num) for pr_num in pr_numbers)
 
-        # Explicitly run the script with python instead of relying on the shebang
-        container = container.with_exec(["uv", "run", "--no-project", "--with", "openai-agents", "python",
-                                         "workflows/script_process_pr_hooks.py"] + pr_ids_str.split())
+        # Explicitly run the script with python and install missing dependencies
+        container = container.with_exec(["uv", "run", "--no-project", 
+                                         "--with", "openai-agents", 
+                                         "--with", "requests",
+                                         "python", "workflows/script_process_pr_hooks.py"] + pr_ids_str.split())
 
         # Return the directory with generated artifacts
         return container.directory("/operator/test_artifacts")
