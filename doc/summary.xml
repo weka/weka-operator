@@ -63,4 +63,20 @@
         <tags>documentation structure, guidelines, file naming, content organization, maintenance</tags>
         <summary>Guidelines for maintaining and extending the Weka Operator documentation, including directory structure, file naming conventions, content structure, and procedures for adding or updating documentation.</summary>
     </file>
+    <file relpath="operator/deployment/cluster-oci-oke.md">
+        <tags>OCI, OKE, bliss, provisioning, subnet, security groups, compartment, availability domain, image, SSH key, template, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, cleanup, ensure nics, sign drives</tags>
+        <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE) and the bliss tool. Covers OKE setup requirements, bliss commands, template files for node groups, VNIC configuration, required secrets management, port configuration, and cleanup procedures.</summary>
+    </file>
+    <file relpath="operator/deployment/embedded-csi.md">
+        <tags>embedded CSI, CSI deployment, CSI driver, StorageClass, CSI controller, CSI node server, targetCluster, csiConfig, lifecycle management, migration</tags>
+        <summary>Comprehensive guide for the operator-embedded CSI deployment capabilities, covering CSI driver naming conventions, StorageClass creation, controller and node server deployment, configuration options, update flows, and migration from separate CSI to embedded CSI.</summary>
+    </file>
+    <file relpath="operator/concepts/cpu-policy.md">
+        <tags>cpuPolicy, auto, manual, coreIds, hyperthreading, core allocation, DPDK processes, management processes</tags>
+        <summary>Explains CPU policy configuration options for WekaCluster and WekaClient resources, including automatic hyperthreading detection, manual core assignment, and core allocation best practices for DPDK and management processes.</summary>
+    </file>
+    <file relpath="operator/operations/drive-signing.md">
+        <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
+        <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
+    </file>
 </documentation>
