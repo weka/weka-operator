@@ -14,3 +14,6 @@ spec:
     signDrivesPayload:
       type: "all-not-root"
 ```
+It is also possible to sign drives using WekaManualOperation with signDrivesPayload
+In both cases, manual operation and policy,  - spec.image should not be specified as this is not same image as weka containers
+The only cases when spec.image might be specified - is when there is specific need to use different signing image, like local distribution or hotfix-version, in such cases it will be instructed specifically
