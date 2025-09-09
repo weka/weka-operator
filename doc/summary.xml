@@ -79,4 +79,24 @@
         <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
         <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
     </file>
+    <file relpath="api_dump/wekaclient.md">
+        <tags>WekaClient API, custom resource, client specification, networking, port allocation, CSI configuration, pod resources, upgrade policy, affinity</tags>
+        <summary>Complete API reference for WekaClient custom resource including all spec fields, status structures, networking configuration, resource allocation, CSI integration options, and client container management parameters.</summary>
+    </file>
+    <file relpath="api_dump/wekacluster.md">
+        <tags>WekaCluster API, cluster specification, dynamic template, redundancy, stripe width, networking, CSI config, container roles, failure domains</tags>
+        <summary>Comprehensive API reference for WekaCluster custom resource covering cluster provisioning parameters, networking configuration, role-specific settings, CSI integration, redundancy configuration, and cluster lifecycle management options.</summary>
+    </file>
+    <file relpath="api_dump/wekacontainer.md">
+        <tags>WekaContainer API, container specification, node affinity, port configuration, resource allocation, CPU policy, drive management, upgrade handling</tags>
+        <summary>Detailed API reference for WekaContainer custom resource defining individual container specifications, scheduling constraints, resource allocation, network configuration, and container lifecycle management parameters.</summary>
+    </file>
+    <file relpath="api_dump/wekamanualoperation.md">
+        <tags>WekaManualOperation API, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces</tags>
+        <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing, discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
+    </file>
+    <file relpath="api_dump/wekapolicy.md">
+        <tags>WekaPolicy API, policy automation, scheduled operations, drive signing policy, driver distribution, NIC policies, scheduling config, interval execution</tags>
+        <summary>API reference for WekaPolicy custom resource providing automated policy execution including scheduled drive operations, driver distribution management, NIC configuration policies, and recurring operational tasks with interval-based scheduling.</summary>
+    </file>
 </documentation>
