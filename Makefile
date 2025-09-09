@@ -112,6 +112,11 @@ rbac: $(RBAC) ## Generate RBAC objects.
 .PHONY: manifests
 manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 
+api-docs: ## Generate API reference documentation from source files
+	@echo "Generating API documentation..."
+	@mkdir -p doc/api_dump
+	@go run scripts/gen-api-docs.go
+
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="" paths="./pkg/weka-k8s-api/..."
