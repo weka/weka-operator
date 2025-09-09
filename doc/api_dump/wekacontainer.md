@@ -1,0 +1,298 @@
+# WekaContainer
+
+## API Types
+
+- [WekaContainer](#wekacontainer)
+- [WekaContainerSpec](#wekacontainerspec)
+- [WekaContainerStatus](#wekacontainerstatus)
+- [WekaContainerList](#wekacontainerlist)
+- [FailureDomain](#failuredomain)
+- [PortRange](#portrange)
+- [Network](#network)
+- [TracesConfiguration](#tracesconfiguration)
+- [Instructions](#instructions)
+- [WekaContainerSpecOverrides](#wekacontainerspecoverrides)
+- [PodResourcesSpec](#podresourcesspec)
+- [PVCConfig](#pvcconfig)
+- [ContainerAllocations](#containerallocations)
+- [WekaContainerMetrics](#wekacontainermetrics)
+- [ContainerPrinterColumns](#containerprintercolumns)
+- [NetworkSelector](#networkselector)
+- [PodResources](#podresources)
+- [EntityStatefulNum](#entitystatefulnum)
+- [DriveMetrics](#drivemetrics)
+- [DriveFailures](#drivefailures)
+
+---
+
+## WekaContainer
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| spec | WekaContainerSpec |  |
+| status | WekaContainerStatus |  |
+
+---
+
+## WekaContainerSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| nodeAffinity | NodeName | name of the node where the container should run on |
+| failureDomain | *FailureDomain | name of the node where the container should run on |
+| topologySpreadConstraints | []v1.TopologySpreadConstraint | failure domain configuration |
+| affinity | *v1.Affinity | controls the distribution of weka containers across the failure domains |
+| nodeSelector | map[string]string | advanced scheduling constraints |
+| port | int | advanced scheduling constraints |
+| exposePorts | []int | deprecated, use ExposedPorts instead |
+| exposedPorts | []v1.ContainerPort | deprecated, use ExposedPorts instead |
+| agentPort | int | deprecated, use ExposedPorts instead |
+| portRange | *PortRange | ports to be exposed on the container, proxied to pod |
+| image | string |  |
+| imagePullSecret | string |  |
+| name | string |  |
+| mode | string |  |
+| numCores | int | numCores is weka-specific cores |
+| extraCores | int | extraCores is temporary solution for S3 containers, cores allocation on top of weka cores |
+| coreIds | []int | numCores is weka-specific cores |
+| cpuPolicy | CpuPolicy | extraCores is temporary solution for S3 containers, cores allocation on top of weka cores |
+| network | Network |  |
+| hugepages | int |  |
+| hugepagesOffset | int |  |
+| hugepagesSize | string |  |
+| hugepagesSizeOverride | string |  |
+| numDrives | int |  |
+| driversDistService | string |  |
+| driversLoaderImage | string |  |
+| wekaSecretRef | v1.EnvVarSource |  |
+| joinIpPorts | []string |  |
+| tracesConfiguration | *TracesConfiguration |  |
+| tolerations | []v1.Toleration |  |
+| nodeInfoConfigMap | string |  |
+| ipv6 | bool |  |
+| additionalMemory | int |  |
+| group | string |  |
+| serviceAccountName | string |  |
+| additionalSecrets | map[string]string |  |
+| instructions | *Instructions |  |
+| dropAffinityConstraints | bool |  |
+| uploadResultsTo | string |  |
+| upgradePolicyType | UpgradePolicyType |  |
+| state | ContainerState |  |
+| allowHotUpgrade | bool |  |
+| autoRemoveTimeout | metav1.Duration | sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config |
+| overrides | *WekaContainerSpecOverrides |  |
+| hostPID | bool |  |
+| resources | *PodResourcesSpec | resources to be proxied as-is to the pod spec |
+| pvc | *PVCConfig | resources to be proxied as-is to the pod spec |
+
+---
+
+## WekaContainerStatus
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| status | ContainerStatus |  |
+| internalStatus | string | weka local container internal status |
+| managementIP | string | weka local container internal status |
+| managementIPs | []string | weka local container internal status |
+| containerID | *int | weka local container internal status |
+| clusterID | string |  |
+| conditions | []metav1.Condition |  |
+| lastAppliedImage | string | Explicit field for upgrade tracking, more generic lastAppliedSpec might be introduced later |
+| lastAppliedSpec | string | set by weka cluster or client or other higher level controller, to track if higher level spec was propagated |
+| nodeAffinity | NodeName | active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity |
+| result | *string | active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity |
+| allocations | *ContainerAllocations | active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity |
+| stats | *WekaContainerMetrics | active nodeAffinity, copied from spec and populated if nodeSelector was used instead of direct nodeAffinity |
+| printer | *ContainerPrinterColumns |  |
+| timestamps | map[string]metav1.Time |  |
+| notToleratedOnReschedule | bool |  |
+
+---
+
+## WekaContainerList
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| items | []WekaContainer |  |
+
+---
+
+## FailureDomain
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| label | *string | label used for spreading the weka containers across different failure domains (if set) |
+| skew | *int | nodes that have the same value for the label will be considered as a single failure domain |
+| compositeLabels | []string | If `compositeLabels` is set, `label` and `skew` will be ignored. |
+
+---
+
+## PortRange
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| basePort | int |  |
+| portRange | int | number of ports to check for availability |
+
+---
+
+## Network
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| ethDevice | string |  |
+| ethDevices | []string |  |
+| gateway | string |  |
+| udpMode | bool |  |
+| deviceSubnets | []string | subnet that is used for devices auto-discovery |
+| selectors | []NetworkSelector | subnet that is used for devices auto-discovery |
+| managementIpsSelectors | []NetworkSelector |  |
+
+---
+
+## TracesConfiguration
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| maxCapacityPerIoNode | int | TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes |
+| ensureFreeSpace | int | TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes |
+| dumperConfigMode | DumperConfigMode |  |
+
+---
+
+## Instructions
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| type | string | MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod |
+| payload | string | MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod |
+
+---
+
+## WekaContainerSpecOverrides
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| skipDeactivate | bool | skips deactivation of container, this is unsafe operation that should be used only when this container will never be back into cluster |
+| skipDrivesForceResign | bool | skips resign of drives, if we did not resign drives on removal of drive container we will not be able to reuse them, and manual operation with force resign will be required |
+| skipCleanupPersistentDir | bool | skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions) |
+| upgradeForceReplace | bool | unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel |
+| upgradePreventEviction | bool | unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel |
+| podDeleteForceReplace | bool | unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel |
+| machineIdentifierNodeRef | string |  |
+| preRunScript | string | script to be executed post initial persistency(if needed) configuration, before running actual workload |
+| forceDrain | bool | unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner |
+| skipActiveMountsCheck | bool | unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner |
+| umountOnHost | bool | option to skip active mounts check before deleting client containers |
+| debugSleepOnTerminate | int | unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host |
+| migrateOutFromPvc | bool | MigrateOutFromPvc specifies that the container should be migrated out from PVC into local storage, this will be done prior to starting pod |
+
+---
+
+## PodResourcesSpec
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| requests | PodResources |  |
+| limits | PodResources |  |
+
+---
+
+## PVCConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| name | string |  |
+| path | string |  |
+
+---
+
+## ContainerAllocations
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| drives | []string | should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking |
+| ethSlots | []string | should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking |
+| lbPort | int | should provide list of additional nics indexes starting from 1, index 0 is reserved for kernel networking |
+| wekaPort | int |  |
+| agentPort | int |  |
+| failureDomain | *string | value of the failure domain label of the node where the container is running |
+| machineIdentifier | string | value of the failure domain label of the node where the container is running |
+| netDevices | []string | value of the failure domain label of the node where the container is running |
+
+---
+
+## WekaContainerMetrics
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| processes | EntityStatefulNum |  |
+| cpuUtilization | FloatMetric |  |
+| drives | DriveMetrics |  |
+| activeMounts | IntMetric |  |
+| lastUpdate | metav1.Time |  |
+
+---
+
+## ContainerPrinterColumns
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| processes | StringMetric |  |
+| drives | StringMetric |  |
+| activeMounts | StringMetric |  |
+| managementIPs | string | pretty-printed management IPs |
+| nodeAffinity | string | pretty-printed management IPs |
+
+---
+
+## NetworkSelector
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| subnet | string |  |
+| min | int |  |
+| max | int |  |
+| deviceNames | []string |  |
+
+---
+
+## PodResources
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| cpu | resource.Quantity | number of ports to check for availability |
+| memory | resource.Quantity | number of ports to check for availability |
+
+---
+
+## EntityStatefulNum
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| active | IntMetric |  |
+| created | IntMetric |  |
+| desired | IntMetric |  |
+
+---
+
+## DriveMetrics
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| counters | EntityStatefulNum |  |
+| failures | []DriveFailures |  |
+
+---
+
+## DriveFailures
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| serialId | string |  |
+| wekaDriveId | string |  |
+
+---
+
