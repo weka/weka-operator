@@ -19,14 +19,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/weka/weka-operator/internal/node_agent"
 
-	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
@@ -310,18 +308,4 @@ func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
 	}
 
 	return nil
-}
-
-type SpecificLevelWriter struct {
-	io.Writer
-	Levels []zerolog.Level
-}
-
-func (w SpecificLevelWriter) WriteLevel(level zerolog.Level, p []byte) (int, error) {
-	for _, l := range w.Levels {
-		if l == level {
-			return w.Write(p)
-		}
-	}
-	return len(p), nil
 }
