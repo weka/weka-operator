@@ -116,6 +116,7 @@ logging.basicConfig(
     handlers=[stdout_handler, stderr_handler]
 )
 
+syslog_ng_installed = os.path.exists("/usr/sbin/syslog-ng")
 
 class FeaturesFlags:
     # Bit positions (class-level ints) – will be shadowed by bools on the instance
@@ -531,18 +532,6 @@ def is_google_cos():
 
 def is_rhcos():
     return OS_DISTRO == OS_NAME_REDHAT_COREOS
-
-
-def wait_for_syslog():
-    while not os.path.isfile('/var/run/syslog-ng.pid'):
-        time.sleep(0.1)
-        print("Waiting for syslog-ng to start")
-
-
-def wait_for_agent():
-    while not os.path.isfile('/var/run/weka-agent.pid'):
-        time.sleep(1)
-        print("Waiting for weka-agent to start")
 
 
 async def ensure_drivers():
@@ -1103,25 +1092,35 @@ async def run_logrotate():
 
 
 async def write_logrotate_config():
+    if syslog_ng_installed:
+        reload_cmd = """
+                  if [ -f /var/run/syslog-ng.pid ]; then
+                    kill -HUP $(cat /var/run/syslog-ng.pid)
+                  else
+                    echo "syslog-ng.pid not found, skipping reload" >&2
+                  fi"""
+    else:  # syslogd
+        reload_cmd = """
+                  pid=$(pidof syslogd)
+                  if [ -n "$pid" ]; then
+                    kill -HUP $pid
+                  else
+                    echo "syslogd not running, skipping reload" >&2
+                  fi"""
+
     with open("/etc/logrotate.conf", "w") as f:
-        f.write(dedent("""
-            /var/log/syslog /var/log/errors {
+        f.write(dedent(f"""
+            /var/log/syslog /var/log/errors {{
                 size 1M
                 rotate 10
                 missingok
                 notifempty
                 compress
                 delaycompress
-                postrotate
-                  if [ -f /var/run/syslog-ng.pid ]; then
-                    kill -HUP $(cat /var/run/syslog-ng.pid)
-                  else
-                    echo "syslog-ng.pid not found, skipping reload" >&2
-                  fi
+                postrotate{reload_cmd}
                 endscript
-            }
+            }}
 """))
-
 
 async def periodic_logrotate():
     while not exiting:
@@ -1434,7 +1433,7 @@ def convert_to_bytes(memory: str) -> int:
 
 
 async def check_resources_json(resources_dir: str):
-    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in  
+    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in
     #   resources_dir ("/opt/weka/data/{NAME}/container/")
     # If resources.json.stable pointing to an empty file:
     #   look for older weka-resources*.json files in the same directory
@@ -1443,11 +1442,11 @@ async def check_resources_json(resources_dir: str):
     resources_file = os.path.join(resources_dir, "resources.json")
     if not os.path.exists(resources_file):
         raise Exception(f"Resources file {resources_file} does not exist")
-    
+
     if os.path.getsize(resources_file) > 0:
         logging.info(f"Resources file {resources_file} is not empty, nothing to do")
         return
-    
+
     logging.info(f"Resources file {resources_file} is empty, looking for older resources files")
     files = os.listdir(resources_dir)
     resource_files = [f for f in files if f.startswith("weka-resources.") and f.endswith(".json")]
@@ -1459,7 +1458,7 @@ async def check_resources_json(resources_dir: str):
         await run_command(f"weka local rm --all --force", capture_stdout=False)
         await create_container()
         return
-    
+
     resource_files.sort(key=lambda f: os.path.getmtime(os.path.join(resources_dir, f)), reverse=True)
     latest_file = resource_files[0]
     logging.info(f"Linking resources.json, resources.json.stable and resources.json.staging to {latest_file}")
@@ -1571,7 +1570,7 @@ async def ensure_weka_container():
     resource_file = os.path.join(resources_dir, file_name)
     with open(resource_file, "w") as f:
         json.dump(resources, f)
-    
+
     await link_resources_file(file_name, resources_dir)
 
     # cli-based changes
@@ -2257,7 +2256,7 @@ async def wait_for_resources():
     data = None
     max_retries = 10
     retry_count = 0
-    
+
     while data is None and retry_count < max_retries:
         try:
             with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
@@ -2267,7 +2266,7 @@ async def wait_for_resources():
                     await asyncio.sleep(3)
                     retry_count += 1
                     continue
-                
+
                 data = json.loads(content)
                 break
         except json.JSONDecodeError as e:
@@ -2279,7 +2278,7 @@ async def wait_for_resources():
             logging.error(f"Error reading resources.json: {e}")
             await asyncio.sleep(3)
             retry_count += 1
-    
+
     if data is None:
         raise Exception(f"Failed to read valid JSON from resources.json after {max_retries} attempts")
 
@@ -2589,6 +2588,18 @@ async def umount_drivers():
     ))
 
 
+async def start_syslog():
+    if syslog_ng_installed:
+        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
+                                "syslog")
+    else:
+        # Remove broken symlink and let syslogd create its own socket
+        await run_command("rm -f /dev/log", log_execution=False)
+        syslog = Daemon("/usr/sbin/syslogd -n -O /var/log/syslog", "syslog")
+
+    return await syslog.start()
+
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -2650,9 +2661,7 @@ async def main():
 
     if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
-        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
-                        "syslog")
-        await syslog.start()
+        await start_syslog()
 
     await override_dependencies_flag()
     if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
