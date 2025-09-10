@@ -89,6 +89,12 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 }
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
+	// Check if this is a node-agent container and delegate to NodeAgentPodFactory
+	if f.container.IsNodeAgentContainer() {
+		nodeAgentFactory := NewNodeAgentPodFactory(f.container, f.nodeInfo)
+		return nodeAgentFactory.Create(ctx)
+	}
+
 	labels := LabelsForWekaPod(f.container)
 	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 
@@ -950,6 +956,66 @@ echo "=== OTEL Init Container Completed ==="`,
 	return pod, nil
 }
 
+func getUnhealthyTolerations() []corev1.Toleration {
+	return []corev1.Toleration{
+		{
+			Key:      "node.kubernetes.io/not-ready",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/unreachable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/network-unavailable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/unschedulable",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+	}
+}
+
+func getPressureTolerations() []corev1.Toleration {
+	return []corev1.Toleration{
+		{
+			Key:      "node.kubernetes.io/disk-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/disk-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/cpu-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/cpu-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+		{
+			Key:      "node.kubernetes.io/memory-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+		{
+			Key:      "node.kubernetes.io/memory-pressure",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoExecute,
+		},
+	}
+}
+
 func (f *PodFactory) getTolerations() []corev1.Toleration {
 	tolerations := []corev1.Toleration{
 		{
@@ -960,63 +1026,10 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 	}
 
 	if !config.Config.SkipUnhealthyToleration {
-		unhealthyTolerations := []corev1.Toleration{
-			{
-				Key:      "node.kubernetes.io/not-ready",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoExecute,
-			},
-			{
-				Key:      "node.kubernetes.io/unreachable",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoExecute,
-			},
-			{
-				Key:      "node.kubernetes.io/network-unavailable",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoExecute,
-			},
-			{
-				Key:      "node.kubernetes.io/unschedulable",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoExecute,
-			},
-		}
-		tolerations = append(tolerations, unhealthyTolerations...)
+		tolerations = append(tolerations, getUnhealthyTolerations()...)
 	}
 
-	pressureTolerations := []corev1.Toleration{
-		{
-			Key:      "node.kubernetes.io/disk-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		},
-		{
-			Key:      "node.kubernetes.io/disk-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-		{
-			Key:      "node.kubernetes.io/cpu-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		},
-		{
-			Key:      "node.kubernetes.io/cpu-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-		{
-			Key:      "node.kubernetes.io/memory-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		},
-		{
-			Key:      "node.kubernetes.io/memory-pressure",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoExecute,
-		},
-	}
+	pressureTolerations := getPressureTolerations()
 	tolerations = append(tolerations, pressureTolerations...)
 
 	if !config.Config.SkipClientNoScheduleToleration && f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {

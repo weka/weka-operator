@@ -60,6 +60,12 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeAgent,
+			Predicates: lifecycle.Predicates{
+				r.HasNodeAffinity,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Name: "ReconcileWekaLocalStatusOnDeletion",
 			Run:  r.reconcileWekaLocalStatus,
 			Predicates: lifecycle.Predicates{

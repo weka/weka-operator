@@ -3,6 +3,7 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -261,6 +262,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeAgent,
+			Predicates: lifecycle.Predicates{
+				r.HasNodeAffinity,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers, // drivers might be off at this point if we had to wait for node affinity
 			Predicates: lifecycle.Predicates{
 				r.container.RequiresDrivers,
@@ -322,9 +329,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.updateAdhocOpStatus,
+			Run: r.setPodRunningStatus,
 			Predicates: lifecycle.Predicates{
 				lifecycle.Or(r.container.IsAdhocOpContainer, r.container.IsDiscoveryContainer),
+				func() bool {
+					return r.container.Status.Status != weka.PodRunning
+				},
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -691,7 +701,7 @@ func (r *containerReconcilerLoop) ensurePodNotRunningState(ctx context.Context) 
 	return r.updateContainerStatusIfNotEquals(ctx, weka.PodNotRunning)
 }
 
-func (r *containerReconcilerLoop) updateAdhocOpStatus(ctx context.Context) error {
+func (r *containerReconcilerLoop) setPodRunningStatus(ctx context.Context) error {
 	if r.pod.Status.Phase == v1.PodRunning {
 		return r.updateContainerStatusIfNotEquals(ctx, weka.PodRunning)
 	}
@@ -705,11 +715,21 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	pod := r.pod
 	container := r.container
 
-	wekaContainer, err := resources.GetWekaPodContainer(pod)
+	var podContainer v1.Container
+	var err error
+
+	switch container.Spec.Mode {
+	case weka.WekaContainerModeNodeAgent:
+		podContainer, err = r.getNodeAgentPodContainer(pod)
+	default:
+		podContainer, err = resources.GetWekaPodContainer(pod)
+	}
 	if err != nil {
 		return err
 	}
-	if wekaContainer.Image != container.Spec.Image {
+
+	if podContainer.Image != container.Spec.Image {
+		logger.Info("Current image does not match spec", "pod_image", podContainer.Image, "spec_image", container.Spec.Image)
 		return nil
 	}
 
@@ -718,10 +738,15 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return errors.New("Pod is not running yet")
 	}
 
-	if container.Status.Status != weka.Running {
+	if !slices.Contains(
+		[]weka.ContainerStatus{weka.Running, weka.PodRunning},
+		container.Status.Status,
+	) {
 		logger.Info("Container is not running yet")
 		return errors.New("Container is not running yet")
 	}
+
+	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 
 	container.Status.LastAppliedImage = container.Spec.Image
 	return r.Status().Update(ctx, container)

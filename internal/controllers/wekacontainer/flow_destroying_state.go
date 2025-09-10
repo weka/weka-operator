@@ -56,6 +56,12 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeAgent,
+			Predicates: lifecycle.Predicates{
+				r.HasNodeAffinity,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.stopForceAndEnsureNoPod,
 			Predicates: lifecycle.Predicates{
 				r.container.IsBackend,
