@@ -23,6 +23,10 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+func (r *containerReconcilerLoop) WekaContainerManagesCsi() bool {
+	return r.container.IsClientContainer() && config.Config.CsiInstallationEnabled
+}
+
 func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 	container := r.container
 
@@ -30,8 +34,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.GroupedSteps{
 			Name: "CsiInstallation",
 			Predicates: lifecycle.Predicates{
-				r.container.IsClientContainer,
-				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				r.WekaContainerManagesCsi,
 			},
 			Steps: []lifecycle.Step{
 				&lifecycle.SimpleStep{

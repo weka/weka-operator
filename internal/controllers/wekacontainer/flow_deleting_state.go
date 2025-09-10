@@ -27,6 +27,21 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
+		&lifecycle.SimpleStep{
+			Run: r.GetWekaClient,
+			Predicates: lifecycle.Predicates{
+				r.WekaContainerManagesCsi,
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.FetchTargetCluster,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return r.wekaClient != nil && r.wekaClient.Spec.TargetCluster.Name != ""
+				},
+				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+			},
+		},
 		// if cluster marked container state as deleting, update status and put deletion timestamp
 		&lifecycle.SimpleStep{
 			Run: r.handleStateDeleting,

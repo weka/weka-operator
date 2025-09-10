@@ -127,7 +127,8 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// deallocate from allocmap
 
 	// remove csi node topology labels
-	if r.wekaClient != nil && r.node != nil {
+	// NOTE: wekaClient is needed for getCsiDriverName
+	if r.wekaClient != nil && r.node != nil && r.WekaContainerManagesCsi() {
 		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.getCsiDriverName())
 	}
 

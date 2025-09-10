@@ -7,6 +7,8 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+
+	"github.com/weka/weka-operator/internal/config"
 )
 
 // DestroyingStateFlow returns the steps for a container in the destroying state
@@ -17,6 +19,21 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
+		},
+		&lifecycle.SimpleStep{
+			Run: r.GetWekaClient,
+			Predicates: lifecycle.Predicates{
+				r.WekaContainerManagesCsi,
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.FetchTargetCluster,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return r.wekaClient != nil && r.wekaClient.Spec.TargetCluster.Name != ""
+				},
+				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+			},
 		},
 		// if cluster marked container state as destroying, update status and put deletion timestamp
 		&lifecycle.SimpleStep{

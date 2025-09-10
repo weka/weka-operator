@@ -48,8 +48,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{
-				r.container.IsClientContainer,
-				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				r.WekaContainerManagesCsi,
 			},
 		},
 		&lifecycle.SimpleStep{
