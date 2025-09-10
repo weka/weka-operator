@@ -1434,7 +1434,7 @@ def convert_to_bytes(memory: str) -> int:
 
 
 async def check_resources_json(resources_dir: str):
-    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in  
+    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in
     #   resources_dir ("/opt/weka/data/{NAME}/container/")
     # If resources.json.stable pointing to an empty file:
     #   look for older weka-resources*.json files in the same directory
@@ -1443,11 +1443,11 @@ async def check_resources_json(resources_dir: str):
     resources_file = os.path.join(resources_dir, "resources.json")
     if not os.path.exists(resources_file):
         raise Exception(f"Resources file {resources_file} does not exist")
-    
+
     if os.path.getsize(resources_file) > 0:
         logging.info(f"Resources file {resources_file} is not empty, nothing to do")
         return
-    
+
     logging.info(f"Resources file {resources_file} is empty, looking for older resources files")
     files = os.listdir(resources_dir)
     resource_files = [f for f in files if f.startswith("weka-resources.") and f.endswith(".json")]
@@ -1459,7 +1459,7 @@ async def check_resources_json(resources_dir: str):
         await run_command(f"weka local rm --all --force", capture_stdout=False)
         await create_container()
         return
-    
+
     resource_files.sort(key=lambda f: os.path.getmtime(os.path.join(resources_dir, f)), reverse=True)
     latest_file = resource_files[0]
     logging.info(f"Linking resources.json, resources.json.stable and resources.json.staging to {latest_file}")
@@ -1571,7 +1571,7 @@ async def ensure_weka_container():
     resource_file = os.path.join(resources_dir, file_name)
     with open(resource_file, "w") as f:
         json.dump(resources, f)
-    
+
     await link_resources_file(file_name, resources_dir)
 
     # cli-based changes
@@ -2116,19 +2116,48 @@ def write_file(path, content):
         f.write(content)
 
 
-async def is_port_free(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(('localhost', port))
-            return True
-        except OSError as e:
-            if e.errno == 98:  # Address already in use
-                logging.debug(f"Port {port} is already in use")
-                return False
+def is_port_free(port: int) -> bool:
+    proc_files = [
+        "/proc/net/tcp",
+        "/proc/net/tcp6",
+        "/proc/net/udp",
+        "/proc/net/udp6",
+    ]
 
-            logging.error(f"Failed to bind to port {port}: {e}")
-            return False
+    for path in proc_files:
+        if not os.path.exists(path):
+            continue
 
+        with open(path, "r") as f:
+            next(f)  # skip header
+            for line in f:
+                cols = line.split()
+                if len(cols) < 10:
+                    continue
+                local_addr = cols[1]         # e.g. "0100007F:0016"
+                state_hex  = cols[3]         # e.g. "0A" for TCP LISTEN
+                ip_hex, port_hex = local_addr.split(':')
+
+                try:
+                    used_port = int(port_hex, 16)
+                except ValueError:
+                    continue
+                if used_port == 0:
+                    continue
+
+                if "tcp" in path:
+                    # Only count TCP ports in LISTEN state (0A)
+                    if state_hex.upper() == "0A":
+                        if used_port == port:
+                            logging.debug(f"Port {port} is already in use")
+                            return False
+                else:
+                    # UDP: treat any bound socket as "used"
+                    if used_port == port:
+                        logging.debug(f"Port {port} is already in use")
+                        return False
+
+    return True
 
 async def get_free_subrange_in_port_range(
         base_port: int,
@@ -2158,7 +2187,7 @@ async def get_free_subrange_in_port_range(
                 elif check_port in not_free_ports:
                     break
                 else:
-                    if await is_port_free(check_port):
+                    if is_port_free(check_port):
                         free_ports.add(check_port)
                         consecutive_free_count += 1
                     else:
@@ -2175,12 +2204,12 @@ async def get_free_subrange_in_port_range(
     raise RuntimeError(f"Could not find a subrange of {subrange_size} free ports in the specified range.")
 
 
-async def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[List[int]] = None) -> int:
+def get_free_port(base_port: int, max_port: int, exclude_ports: Optional[List[int]] = None) -> int:
     for port in range(base_port, max_port):
         if exclude_ports and port in exclude_ports:
             continue
 
-        if await is_port_free(port):
+        if is_port_free(port):
             logging.info(f"Found free port: {port}")
             return port
 
@@ -2202,7 +2231,7 @@ async def ensure_client_ports():
 
     try:
         if not parse_port(AGENT_PORT):
-            p = await get_free_port(base_port, max_port)
+            p = get_free_port(base_port, max_port)
             AGENT_PORT = f'{p}'
         if not parse_port(PORT):
             p1, _ = await get_free_subrange_in_port_range(base_port, max_port, WEKA_CONTAINER_PORT_SUBRANGE,
@@ -2257,7 +2286,7 @@ async def wait_for_resources():
     data = None
     max_retries = 10
     retry_count = 0
-    
+
     while data is None and retry_count < max_retries:
         try:
             with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
@@ -2267,7 +2296,7 @@ async def wait_for_resources():
                     await asyncio.sleep(3)
                     retry_count += 1
                     continue
-                
+
                 data = json.loads(content)
                 break
         except json.JSONDecodeError as e:
@@ -2279,7 +2308,7 @@ async def wait_for_resources():
             logging.error(f"Error reading resources.json: {e}")
             await asyncio.sleep(3)
             retry_count += 1
-    
+
     if data is None:
         raise Exception(f"Failed to read valid JSON from resources.json after {max_retries} attempts")
 
