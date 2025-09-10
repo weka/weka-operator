@@ -1434,7 +1434,7 @@ def convert_to_bytes(memory: str) -> int:
 
 
 async def check_resources_json(resources_dir: str):
-    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in  
+    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in
     #   resources_dir ("/opt/weka/data/{NAME}/container/")
     # If resources.json.stable pointing to an empty file:
     #   look for older weka-resources*.json files in the same directory
@@ -1443,11 +1443,11 @@ async def check_resources_json(resources_dir: str):
     resources_file = os.path.join(resources_dir, "resources.json")
     if not os.path.exists(resources_file):
         raise Exception(f"Resources file {resources_file} does not exist")
-    
+
     if os.path.getsize(resources_file) > 0:
         logging.info(f"Resources file {resources_file} is not empty, nothing to do")
         return
-    
+
     logging.info(f"Resources file {resources_file} is empty, looking for older resources files")
     files = os.listdir(resources_dir)
     resource_files = [f for f in files if f.startswith("weka-resources.") and f.endswith(".json")]
@@ -1459,7 +1459,7 @@ async def check_resources_json(resources_dir: str):
         await run_command(f"weka local rm --all --force", capture_stdout=False)
         await create_container()
         return
-    
+
     resource_files.sort(key=lambda f: os.path.getmtime(os.path.join(resources_dir, f)), reverse=True)
     latest_file = resource_files[0]
     logging.info(f"Linking resources.json, resources.json.stable and resources.json.staging to {latest_file}")
@@ -1571,7 +1571,7 @@ async def ensure_weka_container():
     resource_file = os.path.join(resources_dir, file_name)
     with open(resource_file, "w") as f:
         json.dump(resources, f)
-    
+
     await link_resources_file(file_name, resources_dir)
 
     # cli-based changes
@@ -2257,7 +2257,7 @@ async def wait_for_resources():
     data = None
     max_retries = 10
     retry_count = 0
-    
+
     while data is None and retry_count < max_retries:
         try:
             with open("/opt/weka/k8s-runtime/resources.json", "r") as f:
@@ -2267,7 +2267,7 @@ async def wait_for_resources():
                     await asyncio.sleep(3)
                     retry_count += 1
                     continue
-                
+
                 data = json.loads(content)
                 break
         except json.JSONDecodeError as e:
@@ -2279,7 +2279,7 @@ async def wait_for_resources():
             logging.error(f"Error reading resources.json: {e}")
             await asyncio.sleep(3)
             retry_count += 1
-    
+
     if data is None:
         raise Exception(f"Failed to read valid JSON from resources.json after {max_retries} attempts")
 
@@ -2589,6 +2589,76 @@ async def umount_drivers():
     ))
 
 
+async def check_hugepages_configuration():
+    """Check if hugepages are properly configured for the pod"""
+    try:
+        # Check /proc/meminfo for hugepages
+        with open("/proc/meminfo", "r") as f:
+            meminfo = f.read()
+
+        hugepage_total = None
+        hugepage_size = None
+
+        for line in meminfo.split('\n'):
+            if line.startswith('HugePages_Total:'):
+                hugepage_total = int(line.split()[1])
+            elif line.startswith('Hugepagesize:'):
+                hugepage_size = int(line.split()[1])  # in KB
+
+        if hugepage_total is None or hugepage_size is None:
+            logging.warning("Could not determine hugepages configuration from /proc/meminfo")
+            return False
+
+        if hugepage_total == 0:
+            logging.error(f"HUGEPAGES NOT CONFIGURED: HugePages_Total={hugepage_total}. "
+                         f"Pod deployment requires hugepages to be allocated on the node. "
+                         f"Please configure hugepages on the host system.")
+            return False
+
+        total_hugepage_memory_mb = (hugepage_total * hugepage_size) // 1024
+        logging.info(f"Hugepages configured: {hugepage_total} pages of {hugepage_size}KB "
+                    f"({total_hugepage_memory_mb}MB total)")
+
+        # Optional: Check if hugepages are actually available to this container
+        try:
+            with open("/proc/self/status", "r") as f:
+                status = f.read()
+            for line in status.split('\n'):
+                if line.startswith('VmHWM:') or line.startswith('VmPeak:'):
+                    logging.debug(f"Memory usage info: {line.strip()}")
+        except Exception as e:
+            logging.debug(f"Could not read memory status: {e}")
+
+        return True
+
+    except Exception as e:
+        logging.error(f"Failed to check hugepages configuration: {e}")
+        return False
+
+
+async def check_hugepages_mount():
+    """Check if hugepages filesystem is mounted"""
+    try:
+        with open("/proc/mounts", "r") as f:
+            mounts = f.read()
+
+        hugepage_mounts = [line for line in mounts.split('\n')
+                          if 'hugetlbfs' in line or 'hugepages' in line]
+
+        if hugepage_mounts:
+            for mount in hugepage_mounts:
+                logging.info(f"Hugepages mount found: {mount.strip()}")
+            return True
+        else:
+            logging.warning("No hugepages filesystem mounts found. "
+                          "This may indicate hugepages are not properly configured.")
+            return False
+
+    except Exception as e:
+        logging.error(f"Failed to check hugepages mounts: {e}")
+        return False
+
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -2601,6 +2671,15 @@ async def main():
         raise Exception("OS_BUILD_ID is not set")
     if is_google_cos():
         logging.info(f'OS_BUILD_ID={OS_BUILD_ID}')
+
+    # Check hugepages configuration early in startup
+    hugepages_ok = await check_hugepages_configuration()
+    await check_hugepages_mount()
+
+    if not hugepages_ok:
+        logging.error("DEPLOYMENT ISSUE: Hugepages not properly configured. "
+                     "Pod may fail to allocate required memory. "
+                     "Please ensure hugepages are configured on the host node.")
 
     if MODE == "discovery":
         # self signal to exit
