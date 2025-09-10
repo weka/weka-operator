@@ -5,6 +5,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 )
 
 func NewCsiStorageClass(secret client.ObjectKey, driverName, storageClassName, fileSystemName string, mountOptions ...string) *storagev1.StorageClass {
@@ -28,8 +29,8 @@ func NewCsiStorageClass(secret client.ObjectKey, driverName, storageClassName, f
 			"csi.storage.k8s.io/provisioner-secret-namespace":        secret.Namespace,
 			"filesystemName": fileSystemName,
 			"volumeType":     "dir/v1",
+			"mountOptions":   strings.Join(mountOptions, ","),
 		},
-		MountOptions:         mountOptions,
 		ReclaimPolicy:        func() *corev1.PersistentVolumeReclaimPolicy { p := corev1.PersistentVolumeReclaimDelete; return &p }(),
 		AllowVolumeExpansion: func() *bool { b := true; return &b }(),
 		VolumeBindingMode:    func() *storagev1.VolumeBindingMode { m := storagev1.VolumeBindingImmediate; return &m }(),
