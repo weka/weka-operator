@@ -36,6 +36,6 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	}
 
 	logger.SetStatus(codes.Ok, "NFS ensured")
-	
+
 	return nil
 }

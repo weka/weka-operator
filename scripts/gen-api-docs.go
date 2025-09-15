@@ -44,7 +44,7 @@ func main() {
 						pos := fset.Position(comment.Pos())
 						// Mark lines around the comment as potential CRD locations
 						for i := -3; i <= 10; i++ {
-							commentMap[pos.Line + i] = true
+							commentMap[pos.Line+i] = true
 						}
 						// Debug: fmt.Printf("Found kubebuilder annotation at line %d\n", pos.Line)
 					}
@@ -59,7 +59,7 @@ func main() {
 						// Check a wider range around the type position
 						isCRDType := false
 						for i := -15; i <= 5; i++ {
-							if commentMap[typePos.Line + i] {
+							if commentMap[typePos.Line+i] {
 								isCRDType = true
 								break
 							}
@@ -68,7 +68,7 @@ func main() {
 						// if strings.Contains(node.Name.Name, "WekaCluster") || strings.Contains(node.Name.Name, "WekaContainer") {
 						//     fmt.Printf("Checking %s at line %d, isCRD: %v\n", node.Name.Name, typePos.Line, isCRDType)
 						// }
-						
+
 						typeInfo := &TypeInfo{
 							Name:     node.Name.Name,
 							TypeSpec: node,
@@ -77,8 +77,8 @@ func main() {
 							IsCRD:    isCRDType,
 						}
 						allTypes[typeInfo.Name] = typeInfo
-						
-						// Only consider types ending with base resource name (not List types) 
+
+						// Only consider types ending with base resource name (not List types)
 						// and filter out non-main resource types
 						if typeInfo.IsCRD && !strings.HasSuffix(typeInfo.Name, "List") && isMainResourceType(typeInfo.Name) {
 							mainCRDs = append(mainCRDs, typeInfo.Name)
@@ -93,12 +93,12 @@ func main() {
 
 	// Sort main CRDs
 	sort.Strings(mainCRDs)
-	
+
 	// Generate one file per main CRD with all related types
 	for _, crdName := range mainCRDs {
 		generateCRDMarkdown(crdName, allTypes, outputDir, fset)
 	}
-	
+
 	fmt.Printf("Generated %d CRD documentation files in %s\n", len(mainCRDs), outputDir)
 }
 
@@ -120,7 +120,7 @@ func isCRD(typeSpec *ast.TypeSpec, file *ast.File) bool {
 			}
 		}
 	}
-	
+
 	// Also check doc comments (comments before the type)
 	if typeSpec.Doc != nil {
 		for _, comment := range typeSpec.Doc.List {
@@ -130,7 +130,7 @@ func isCRD(typeSpec *ast.TypeSpec, file *ast.File) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -139,13 +139,13 @@ func isMainResourceType(typeName string) bool {
 	if typeName == "DriveClaim" {
 		return false
 	}
-	
+
 	// Only include main CRD types, exclude helper/payload types
 	mainTypes := map[string]bool{
-		"WekaCluster": true,
-		"WekaPolicy": true, 
-		"WekaContainer": true,
-		"WekaClient": true,
+		"WekaCluster":         true,
+		"WekaPolicy":          true,
+		"WekaContainer":       true,
+		"WekaClient":          true,
 		"WekaManualOperation": true,
 	}
 	return mainTypes[typeName]
@@ -153,7 +153,7 @@ func isMainResourceType(typeName string) bool {
 
 func generateCRDMarkdown(crdName string, allTypes map[string]*TypeInfo, outputDir string, fset *token.FileSet) {
 	filename := filepath.Join(outputDir, strings.ToLower(crdName)+".md")
-	
+
 	f, err := os.Create(filename)
 	if err != nil {
 		fmt.Printf("Error creating file %s: %v\n", filename, err)
@@ -163,55 +163,55 @@ func generateCRDMarkdown(crdName string, allTypes map[string]*TypeInfo, outputDi
 
 	// Write header
 	fmt.Fprintf(f, "# %s\n\n", crdName)
-	
+
 	// Find related types
 	relatedTypes := findRelatedTypes(crdName, allTypes)
-	
+
 	// Write table of contents
 	fmt.Fprintf(f, "## API Types\n\n")
 	for _, typeName := range relatedTypes {
 		fmt.Fprintf(f, "- [%s](#%s)\n", typeName, strings.ToLower(typeName))
 	}
 	fmt.Fprintf(f, "\n---\n\n")
-	
+
 	// Generate documentation for each related type
 	for _, typeName := range relatedTypes {
 		if typeInfo, exists := allTypes[typeName]; exists {
 			generateTypeSection(f, typeInfo)
 		}
 	}
-	
+
 	fmt.Printf("Generated: %s\n", filename)
 }
 
 func findRelatedTypes(crdName string, allTypes map[string]*TypeInfo) []string {
 	var related []string
 	visited := make(map[string]bool)
-	
+
 	// Add the main CRD first
 	related = append(related, crdName)
 	visited[crdName] = true
-	
+
 	// Add spec, status, and list types
 	candidates := []string{
 		crdName + "Spec",
-		crdName + "Status", 
+		crdName + "Status",
 		crdName + "List",
 	}
-	
+
 	for _, candidate := range candidates {
 		if _, exists := allTypes[candidate]; exists && !visited[candidate] {
 			related = append(related, candidate)
 			visited[candidate] = true
 		}
 	}
-	
+
 	// Find types referenced by spec and status
 	queue := []string{crdName + "Spec", crdName + "Status"}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		
+
 		if typeInfo, exists := allTypes[current]; exists {
 			referencedTypes := getReferencedTypes(typeInfo.Struct)
 			for _, refType := range referencedTypes {
@@ -223,24 +223,24 @@ func findRelatedTypes(crdName string, allTypes map[string]*TypeInfo) []string {
 			}
 		}
 	}
-	
+
 	return related
 }
 
 func getReferencedTypes(structType *ast.StructType) []string {
 	var types []string
-	
+
 	for _, field := range structType.Fields.List {
 		fieldTypes := extractFieldTypes(field.Type)
 		types = append(types, fieldTypes...)
 	}
-	
+
 	return types
 }
 
 func extractFieldTypes(expr ast.Expr) []string {
 	var types []string
-	
+
 	switch t := expr.(type) {
 	case *ast.Ident:
 		if !isBasicType(t.Name) {
@@ -257,7 +257,7 @@ func extractFieldTypes(expr ast.Expr) []string {
 		// Skip external types like v1.Pod, metav1.Time, etc.
 		return types
 	}
-	
+
 	return types
 }
 
@@ -282,10 +282,10 @@ func isKubernetesType(typeName string) bool {
 
 func generateTypeSection(f *os.File, typeInfo *TypeInfo) {
 	typeName := typeInfo.Name
-	
+
 	// Write type header
 	fmt.Fprintf(f, "## %s\n\n", typeName)
-	
+
 	// Write type description from comments
 	if typeInfo.TypeSpec.Comment != nil {
 		hasDescription := false
@@ -322,7 +322,7 @@ func generateTypeSection(f *os.File, typeInfo *TypeInfo) {
 		}
 		fmt.Fprintf(f, "\n")
 	}
-	
+
 	fmt.Fprintf(f, "---\n\n")
 }
 
@@ -360,7 +360,7 @@ func getJSONFieldName(field *ast.Field) string {
 			}
 		}
 	}
-	
+
 	// If no json tag, return field name in camelCase
 	if len(field.Names) > 0 {
 		return toCamelCase(field.Names[0].Name)
@@ -387,7 +387,7 @@ func getFieldDescription(field *ast.Field, file *ast.File) string {
 			}
 		}
 	}
-	
+
 	// Check for comments above the field by looking at file comments
 	fieldPos := field.Pos()
 	for _, commentGroup := range file.Comments {
@@ -403,6 +403,6 @@ func getFieldDescription(field *ast.Field, file *ast.File) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
