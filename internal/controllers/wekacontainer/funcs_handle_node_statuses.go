@@ -45,15 +45,6 @@ func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error 
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	// if node is unschedulable, just send the event
-	if NodeIsUnschedulable(node) {
-		msg := fmt.Sprintf("node %s is unschedulable", node.Name)
-
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
-
-		return nil
-	}
-
 	return nil
 }
 

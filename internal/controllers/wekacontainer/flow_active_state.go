@@ -198,10 +198,23 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Name: "ReportNodeUnschedulable",
+			Run: func(ctx context.Context) error {
+				msg := fmt.Sprintf("node %s is unschedulable", r.node.Name)
+
+				return r.RecordEventThrottled(v1.EventTypeWarning, "NodeUnschedulable", msg, time.Minute)
+			},
+			Predicates: lifecycle.Predicates{
+				func() bool { return NodeIsUnschedulable(r.node) },
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
 			},
+			OnFail: r.setErrorStatus,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.deletePodIfUnschedulable,
