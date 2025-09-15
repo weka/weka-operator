@@ -141,7 +141,8 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			State: &lifecycle.State{
 				Name: condition.WekaHomeConfigured,
 			},
-			Run: loop.configureWekaHome,
+			Run:             loop.configureWekaHome,
+			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{

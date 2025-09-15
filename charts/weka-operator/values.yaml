@@ -134,6 +134,7 @@ cleanupContainersOnTolerationsMismatch: false
 evictContainerOnDeletion: false
 # -- if true, container removal from weka will be throttled
 removalThrottlingEnabled: true
+# -- this validation is only relevant for new client containers creation
 skipClientsTolerationValidation: true
 
 tolerationsMismatchSettings:

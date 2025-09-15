@@ -56,14 +56,15 @@ func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 
 type clientReconcilerLoop struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	KubeService   kubernetes.KubeService
-	Manager       ctrl.Manager
-	Recorder      record.EventRecorder
-	containers    []*weka.WekaContainer
-	wekaClient    *weka.WekaClient
-	ThrottlingMap throttling.Throttler
-	nodes         []v1.Node
+	Scheme         *runtime.Scheme
+	KubeService    kubernetes.KubeService
+	Manager        ctrl.Manager
+	Recorder       record.EventRecorder
+	containers     []*weka.WekaContainer
+	wekaClient     *weka.WekaClient
+	ThrottlingMap  throttling.Throttler
+	nodes          []v1.Node
+	toleratedNodes map[string]struct{}
 	// keep in state for future steps referencing
 	upgradeInProgress bool
 	ExecService       exec.ExecService
@@ -87,6 +88,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 		Steps: []lifecycle.Step{
 			&lifecycle.SimpleStep{Run: loop.getCurrentContainers},
 			&lifecycle.SimpleStep{Run: loop.setApplicableNodes},
+			&lifecycle.SimpleStep{Run: loop.setToleratedNodes},
 			&lifecycle.SimpleStep{
 				Run: loop.updateMetrics,
 				Throttling: &throttling.ThrottlingSettings{
@@ -285,6 +287,11 @@ func (c *clientReconcilerLoop) EnsureClientsWekaContainers(ctx context.Context) 
 
 	toUpdate := []*weka.WekaContainer{}
 	for _, node := range c.nodes {
+		// skip nodes that do not tolerate client tolerations
+		if _, ok := c.toleratedNodes[node.Name]; !ok {
+			continue
+		}
+		// skip nodes that already have a container
 		if _, ok := nodeToContainer[node.Name]; ok {
 			continue
 		} else {
@@ -692,33 +699,48 @@ func (c *clientReconcilerLoop) getApplicableNodes(ctx context.Context) ([]v1.Nod
 		return nil, errors.Wrap(err, "failed to get applicable nodes by labels")
 	}
 
-	if config.Config.SkipClientsTolerationValidation {
-		logger.Info("Got nodes by labels", "nodes", len(nodes))
+	logger.Info("Nodes matching selector", "selector", c.wekaClient.Spec.NodeSelector, "nodes", len(nodes))
+	return nodes, nil
+}
 
-		return nodes, nil
+func (c *clientReconcilerLoop) setToleratedNodes(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "setToleratedNodes")
+	defer end()
+
+	nodes := c.nodes
+
+	if c.toleratedNodes == nil {
+		c.toleratedNodes = make(map[string]struct{})
+	}
+
+	if config.Config.SkipClientsTolerationValidation {
+		logger.Debug("Skipping node taints and client tolerations check")
+
+		// all nodes are tolerated
+		for _, node := range nodes {
+			c.toleratedNodes[node.Name] = struct{}{}
+		}
 	} else {
 		clientTolerations := util.ExpandTolerations([]v1.Toleration{}, c.wekaClient.Spec.Tolerations, c.wekaClient.Spec.RawTolerations)
 		// account for "expanded" NoSchedule tolerations
 		clientTolerations = resources.ConditionalExpandNoScheduleTolerations(clientTolerations, !config.Config.SkipClientNoScheduleToleration)
 
-		ignoredTaints := config.Config.TolerationsMismatchSettings.GetIgnoredTaints()
-
-		var filteredNodes []v1.Node
-
 		for _, node := range nodes {
 			if node.Spec.Unschedulable {
 				continue
 			}
-
-			if !util2.CheckTolerations(node.Spec.Taints, clientTolerations, ignoredTaints) {
+			// NOTE: we do not account for ignored taints here as we don't want to create new client containers
+			// on any "unhealthy" nodes, even if the client tolerates the taint
+			if !util2.CheckTolerations(node.Spec.Taints, clientTolerations, nil) {
 				continue
 			}
-			filteredNodes = append(filteredNodes, node)
+			c.toleratedNodes[node.Name] = struct{}{}
 		}
-		logger.Info("Got nodes by labels", "nodes", len(nodes), "filteredNodes", len(filteredNodes))
 
-		return filteredNodes, nil
+		logger.Info("Nodes after taints/tolerations check", "nodes", len(c.toleratedNodes), "allNodes", len(nodes))
 	}
+
+	return nil
 }
 
 func (c *clientReconcilerLoop) GetUpgradedCount() int {
