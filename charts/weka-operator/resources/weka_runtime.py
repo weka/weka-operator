@@ -116,6 +116,20 @@ logging.basicConfig(
     handlers=[stdout_handler, stderr_handler]
 )
 
+def use_go_syslog() -> bool:
+    syslog_package = os.environ.get("SYSLOG_PACKAGE", "auto")
+    if syslog_package == "auto":
+        return os.path.exists("/usr/sbin/go-syslog")
+
+    if syslog_package == "go-syslog":
+        return True
+
+    if syslog_package == "syslog-ng":
+        return False
+
+    raise ValueError(f"Invalid SYSLOG_PACKAGE value: {syslog_package}. Expected 'auto', 'go-syslog', or 'syslog-ng'.")
+
+
 
 class FeaturesFlags:
     # Bit positions (class-level ints) – will be shadowed by bools on the instance
@@ -532,18 +546,6 @@ def is_google_cos():
 
 def is_rhcos():
     return OS_DISTRO == OS_NAME_REDHAT_COREOS
-
-
-def wait_for_syslog():
-    while not os.path.isfile('/var/run/syslog-ng.pid'):
-        time.sleep(0.1)
-        print("Waiting for syslog-ng to start")
-
-
-def wait_for_agent():
-    while not os.path.isfile('/var/run/weka-agent.pid'):
-        time.sleep(1)
-        print("Waiting for weka-agent to start")
 
 
 async def ensure_drivers():
@@ -2622,6 +2624,16 @@ async def umount_drivers():
     ))
 
 
+async def start_syslog():
+    if use_go_syslog():
+        syslog = Daemon("/usr/sbin/go-syslog", "go-syslog")
+    else:
+        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
+                        "syslog")
+
+    return await syslog.start()
+
+
 async def main():
     host_info = get_host_info()
     global OS_DISTRO, OS_BUILD_ID
@@ -2683,9 +2695,7 @@ async def main():
 
     if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
-        syslog = Daemon("/usr/sbin/syslog-ng -F -f /etc/syslog-ng/syslog-ng.conf --pidfile /var/run/syslog-ng.pid",
-                        "syslog")
-        await syslog.start()
+        await start_syslog()
 
     await override_dependencies_flag()
     if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
@@ -3044,7 +3054,7 @@ shutdown_task = loop.create_task(shutdown())
 takeover_shutdown_task = loop.create_task(takeover_shutdown())
 
 main_loop = loop.create_task(main())
-if MODE not in ["adhoc-op"]:
+if MODE not in ["adhoc-op"] and not use_go_syslog():
     logrotate_task = loop.create_task(periodic_logrotate())
 
 
