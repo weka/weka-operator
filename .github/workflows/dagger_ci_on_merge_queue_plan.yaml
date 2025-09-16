@@ -147,6 +147,12 @@ jobs:
           echo "operator_image=$operator_image" >> $GITHUB_OUTPUT
           echo "operator_helm_image=$operator_helm_image" >> $GITHUB_OUTPUT
 
+      - name: Debug test artifacts directory
+        run: |
+          echo "Checking test-artifacts directory:"
+          ls -la ${{ github.workspace }}/test-artifacts || echo "Directory not found"
+          find ${{ github.workspace }}/test-artifacts -type f -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
+
       - name: Run Upgrade-extended Test
         uses: dagger/dagger-for-github@8.0.0
         env:

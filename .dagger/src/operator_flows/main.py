@@ -283,9 +283,13 @@ class OperatorFlows:
             .with_directory("/doc", operator.directory("doc"))
             .with_directory("/test_artifacts", test_artifacts_dir)
             .with_file("/run_wekai_remote.py", operator.file("workflows/run_wekai_remote.py"))
+            # Debug: Check test_artifacts directory contents and permissions
+            .with_exec(["sh", "-c", "echo 'Checking test_artifacts directory:' && ls -la /test_artifacts/ && find /test_artifacts/ -type f"])
             # Make hook scripts and run_wekai_remote.py executable
             .with_exec(["sh", "-c", "find /test_artifacts/ -name '*.sh' -exec chmod +x {} \\;"])
             .with_exec(["chmod", "+x", "/run_wekai_remote.py"])
+            # Debug: Verify permissions after chmod
+            .with_exec(["sh", "-c", "echo 'After chmod:' && find /test_artifacts/ -name '*.sh' -exec ls -la {} \\;"])
         )
 
         # Add hook environment variables to the container
