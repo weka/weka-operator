@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -23,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -39,7 +39,6 @@ import (
 )
 
 const defaultPortRangeBase = 45000
-const WekaFinalizer = "weka-operator.weka.io/finalizer"
 
 func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 	mgr := r.Manager
@@ -183,7 +182,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	if !controllerutil.ContainsFinalizer(c.wekaClient, WekaFinalizer) {
+	if !controllerutil.ContainsFinalizer(c.wekaClient, resources.WekaFinalizer) {
 		return nil
 	}
 
@@ -195,7 +194,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 
-	controllerutil.RemoveFinalizer(c.wekaClient, WekaFinalizer)
+	controllerutil.RemoveFinalizer(c.wekaClient, resources.WekaFinalizer)
 	if err := c.Update(ctx, c.wekaClient); err != nil {
 		logger.Error(err, "Error removing finalizer")
 		return errors.Wrap(err, "failed to update wekaClient")
@@ -223,7 +222,7 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	defer end()
 
 	logger.Info("Adding Finalizer for weka client")
-	if ok := controllerutil.AddFinalizer(c.wekaClient, WekaFinalizer); !ok {
+	if ok := controllerutil.AddFinalizer(c.wekaClient, resources.WekaFinalizer); !ok {
 		return nil
 	}
 
