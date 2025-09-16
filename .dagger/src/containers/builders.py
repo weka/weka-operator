@@ -97,4 +97,5 @@ async def _uv_base() -> Container:
     return (
         dag.container()
         .from_("ghcr.io/astral-sh/uv:alpine")
+        .with_exec(["apk", "add", "--no-cache", "bash"])  # Add bash for script execution
     )
