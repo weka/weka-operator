@@ -1020,6 +1020,11 @@ func (in *PolicyPayload) DeepCopyInto(out *PolicyPayload) {
 		*out = new(DriverDistPayload)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.RemoteTracesSession != nil {
+		in, out := &in.RemoteTracesSession, &out.RemoteTracesSession
+		*out = new(RemoteTracesSessionConfig)
+		(*in).DeepCopyInto(*out)
+	}
 	out.Interval = in.Interval
 	if in.WaitForPolicies != nil {
 		in, out := &in.WaitForPolicies, &out.WaitForPolicies
@@ -2320,6 +2325,11 @@ func (in *WekaManualOperationSpec) DeepCopyInto(out *WekaManualOperationSpec) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.DeletionDelay != nil {
+		in, out := &in.DeletionDelay, &out.DeletionDelay
+		*out = new(metav1.Duration)
+		**out = **in
 	}
 }
 

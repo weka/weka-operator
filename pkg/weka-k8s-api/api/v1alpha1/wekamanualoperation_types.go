@@ -14,6 +14,12 @@ type WekaManualOperationSpec struct {
 	ImagePullSecret    *string               `json:"imagePullSecret,omitempty"`
 	Tolerations        []v1.Toleration       `json:"tolerations,omitempty"`
 	ServiceAccountName string                `json:"serviceAccountName,omitempty"`
+	// DeletionDelay specifies how long to wait after completion before deleting the resource.
+	// Defaults to 5m if not specified.
+	// +kubebuilder:default="5m"
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(s|m|h))+)$"
+	DeletionDelay *metav1.Duration `json:"deletionDelay,omitempty"`
 }
 
 // WekaManualOperationStatus defines the observed state of WekaManualOperation
@@ -124,13 +130,18 @@ type DiscoverDrivesPayload struct {
 }
 
 type RemoteTracesSessionConfig struct {
-	Cluster                       ObjectReference   `json:"cluster,omitempty"`
-	NodeSelector                  map[string]string `json:"nodeSelector,omitempty"`
-	Duration                      metav1.Duration   `json:"duration,omitempty"`
-	WekahomeEndpointOverride      string            `json:"wekahomeEndpointOverride,omitempty"`
-	AllowHttpWekahomeEndpoint     bool              `json:"allowHttpWekahomeEndpoint,omitempty"`
-	AllowInsecureWekahomeEndpoint bool              `json:"allowInsecureWekahomeEndpoint,omitempty"`
-	WekahomeCaSecret              string            `json:"wekahomeCaSecret,omitempty"`
+	Cluster      ObjectReference   `json:"cluster,omitempty"`
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	HostNetwork  bool              `json:"hostNetwork,omitempty"`
+	// Duration specifies how long the trace session should run.
+	// WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.
+	// WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.
+	// Examples: "30m", "2h", "7d", "168h"
+	Duration                      metav1.Duration `json:"duration,omitempty"`
+	WekahomeEndpointOverride      string          `json:"wekahomeEndpointOverride,omitempty"`
+	AllowHttpWekahomeEndpoint     bool            `json:"allowHttpWekahomeEndpoint,omitempty"`
+	AllowInsecureWekahomeEndpoint bool            `json:"allowInsecureWekahomeEndpoint,omitempty"`
+	WekahomeCaSecret              string          `json:"wekahomeCaSecret,omitempty"`
 }
 
 func init() {
