@@ -203,7 +203,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		wekaclient.NewClientController(mgr, restClient),
 		wekacontainer.NewContainerController(mgr, restClient),
 		wekacluster.NewWekaClusterController(mgr, restClient),
-		controllers.NewWekaPolicyController(mgr),
+		controllers.NewWekaPolicyController(mgr, restClient),
 		controllers.NewWekaManualOperationController(mgr, restClient),
 	}
 

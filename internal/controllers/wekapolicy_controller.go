@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -12,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -24,15 +26,17 @@ import (
 // WekaPolicyReconciler reconciles a WekaPolicy object
 type WekaPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Mgr    ctrl.Manager
+	Scheme     *runtime.Scheme
+	Mgr        ctrl.Manager
+	RestClient rest.Interface
 }
 
-func NewWekaPolicyController(mgr ctrl.Manager) *WekaPolicyReconciler {
+func NewWekaPolicyController(mgr ctrl.Manager, restClient rest.Interface) *WekaPolicyReconciler {
 	return &WekaPolicyReconciler{
-		Mgr:    mgr,
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Mgr:        mgr,
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		RestClient: restClient,
 	}
 }
 
@@ -47,6 +51,9 @@ func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
 func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaPolicyReconcile", "namespace", req.Namespace, "object_name", req.Name)
@@ -92,9 +99,21 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	onSuccess := func(ctx context.Context) error {
-		wekaPolicy.Status.LastResult = loop.Op.GetJsonResult()
+		result := loop.Op.GetJsonResult()
+
+		var resultMap map[string]interface{}
+		if err := json.Unmarshal([]byte(result), &resultMap); err == nil {
+			if reason, ok := resultMap["InProgress"].(bool); ok && reason == false {
+				wekaPolicy.Status.Status = "Expired"
+			} else {
+				wekaPolicy.Status.Status = "Done"
+			}
+		} else {
+			wekaPolicy.Status.Status = "Done"
+		}
+
+		wekaPolicy.Status.LastResult = result
 		wekaPolicy.Status.LastRunTime = metav1.Now()
-		wekaPolicy.Status.Status = "Done"
 		return r.Status().Update(ctx, wekaPolicy)
 	}
 
@@ -190,6 +209,29 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			onFailure,
 		)
 		loop.Op = enableLocalDriversDistOp
+	case "remote-traces-session":
+		if wekaPolicy.Spec.Payload.RemoteTracesSession == nil {
+			return ctrl.Result{}, fmt.Errorf("remoteTracesSessionPayload is not defined for policy type: %s", wekaPolicy.Spec.Type)
+		}
+
+		isExpired := wekaPolicy.Status.Status == "Expired"
+		remoteTracesSessionOp := operations.NewMaintainTraceSession(
+			r.Mgr,
+			r.RestClient,
+			wekaPolicy.Spec.Payload.RemoteTracesSession,
+			wekaPolicy,
+			weka.WekaOwnerDetails{
+				Image:           image,
+				ImagePullSecret: imagePullSecret,
+				Tolerations:     wekaPolicy.Spec.Tolerations,
+				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+			},
+			nil,
+			onSuccess,
+			onFailure,
+			isExpired,
+		)
+		loop.Op = remoteTracesSessionOp
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown policy type: %s", wekaPolicy.Spec.Type)
 	}

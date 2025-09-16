@@ -71,11 +71,24 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		Client:    r.Client,
 	}
 
+	onRunning := func(ctx context.Context) error {
+		if wekaManualOperation.Status.Status == "" {
+			wekaManualOperation.Status.Status = "Running"
+			wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
+			wekaManualOperation.Status.CompletedAt = metav1.Now()
+			return r.Status().Update(ctx, wekaManualOperation)
+		}
+		return nil
+	}
+
 	onSuccess := func(ctx context.Context) error {
-		wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
-		wekaManualOperation.Status.CompletedAt = metav1.Now()
-		wekaManualOperation.Status.Status = "Done"
-		return r.Status().Update(ctx, wekaManualOperation)
+		if wekaManualOperation.Status.Status != "Done" {
+			wekaManualOperation.Status.Result = loop.Op.GetJsonResult()
+			wekaManualOperation.Status.CompletedAt = metav1.Now()
+			wekaManualOperation.Status.Status = "Done"
+			return r.Status().Update(ctx, wekaManualOperation)
+		}
+		return nil
 	}
 
 	onFailure := func(ctx context.Context) error {
@@ -163,10 +176,19 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		)
 		loop.Op = discoverDrivesOp
 	case "remote-traces-session":
+		// Apply default duration of 1 week for manual operations if not specified
+		payload := wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig
+		if payload != nil && payload.Duration.Duration == 0 {
+			// Create a copy to avoid modifying the original spec
+			payloadCopy := *payload
+			payloadCopy.Duration = metav1.Duration{Duration: 7 * 24 * time.Hour} // 1 week
+			payload = &payloadCopy
+		}
+
 		remoteTracesOp := operations.NewMaintainTraceSession(
 			r.Mgr,
 			r.RestClient,
-			wekaManualOperation.Spec.Payload.RemoteTracesSessionConfig,
+			payload,
 			wekaManualOperation,
 			weka.WekaOwnerDetails{
 				Image:           image,
@@ -174,6 +196,10 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 				Tolerations:     wekaManualOperation.Spec.Tolerations,
 				Labels:          wekaManualOperation.ObjectMeta.GetLabels(),
 			},
+			onRunning,
+			onSuccess,
+			onFailure,
+			false,
 		)
 		loop.Op = remoteTracesOp
 	case "ensure-nics":
@@ -195,6 +221,9 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, fmt.Errorf("unknown operation type: %s", wekaManualOperation.Spec.Action)
 	}
 
+	// defaults to 5m
+	deletionDelay := wekaManualOperation.Spec.DeletionDelay.Duration
+
 	steps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
 			Name: "DeleteSelf",
@@ -207,7 +236,11 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 			},
 			Predicates: lifecycle.Predicates{
 				func() bool {
-					return wekaManualOperation.DeletionTimestamp != nil || (wekaManualOperation.Status.Status == "Done" && time.Since(wekaManualOperation.Status.CompletedAt.Time) > 5*time.Minute)
+					isMarkedForDeletion := wekaManualOperation.DeletionTimestamp != nil
+					isCompleted := wekaManualOperation.Status.Status == "Done"
+					timeSinceCompletion := time.Since(wekaManualOperation.Status.CompletedAt.Time)
+
+					return isMarkedForDeletion || (isCompleted && timeSinceCompletion > deletionDelay)
 				},
 			},
 			FinishOnSuccess: true,

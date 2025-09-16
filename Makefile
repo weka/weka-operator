@@ -41,7 +41,7 @@ CLEANUP_BACKENDS_ON_NODE_SELECTOR_MISMATCH ?= false
 CLEANUP_CLIENTS_ON_NODE_SELECTOR_MISMATCH ?= false
 CLEANUP_CONTAINERS_ON_TOLERATIONS_MISMATCH ?= false
 
-SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:v0.1.1-pciutils
+SIGN_DRIVES_IMAGE ?= quay.io/weka.io/weka-sign-tool:b1fa0a139479f2489d176a6f1235c36beb179410_x86_64
 
 # Optional environment variable to specify custom values.yaml for Helm
 VALUES_YAML ?= charts/weka-operator/values.yaml

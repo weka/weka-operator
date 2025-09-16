@@ -204,6 +204,8 @@ spec:
               value: "{{ .Values.dnsPolicy.hostNetwork }}"
             - name: SIGN_DRIVES_IMAGE
               value: "{{ .Values.signDrivesImage }}"
+            - name: TASKMON_DEFAULT_IMAGE
+              value: "{{ .Values.taskmon.defaultImage }}"
             - name: UPGRADE_COMPUTE_THRESHOLD_PERCENT
               value: "{{ .Values.upgrade.computeThresholdPercent }}"
             - name: UPGRADE_DRIVE_THRESHOLD_PERCENT

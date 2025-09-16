@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -33,15 +35,33 @@ type MaintainTraceSession struct {
 	deployment       *apps.Deployment
 	containers       []*weka.WekaContainer
 	restClient       rest.Interface
+	runningCallback  lifecycle.StepFunc
+	successCallback  lifecycle.StepFunc
+	failureCallback  lifecycle.StepFunc
+	isExpired        bool
 }
 
-func NewMaintainTraceSession(mgr ctrl.Manager, restClient rest.Interface, payload *weka.RemoteTracesSessionConfig, ownerRef client.Object, containerDetails weka.WekaOwnerDetails) *MaintainTraceSession {
+func NewMaintainTraceSession(
+	mgr ctrl.Manager,
+	restClient rest.Interface,
+	payload *weka.RemoteTracesSessionConfig,
+	ownerRef client.Object,
+	containerDetails weka.WekaOwnerDetails,
+	runningCallback lifecycle.StepFunc,
+	successCallback lifecycle.StepFunc,
+	failureCallback lifecycle.StepFunc,
+	isExpired bool,
+) *MaintainTraceSession {
 	return &MaintainTraceSession{
 		payload:          payload,
 		mgr:              mgr,
 		restClient:       restClient,
 		ownerRef:         ownerRef,
 		containerDetails: containerDetails,
+		runningCallback:  runningCallback,
+		successCallback:  successCallback,
+		failureCallback:  failureCallback,
+		isExpired:        isExpired,
 	}
 }
 
@@ -53,20 +73,61 @@ func (o *MaintainTraceSession) AsStep() lifecycle.Step {
 }
 
 func (o *MaintainTraceSession) GetSteps() []lifecycle.Step {
-	return []lifecycle.Step{
+	if o.isExpired {
+		return []lifecycle.Step{
+			&lifecycle.SimpleStep{Name: "CleanupResources", Run: o.CleanupResources},
+		}
+	}
+	steps := []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "FetchCluster", Run: o.FetchCluster},
 		&lifecycle.SimpleStep{Name: "DeduceWekaHomeUrl", Run: o.DeduceWekaHomeUrl},
 		&lifecycle.SimpleStep{Name: "EnsureSecret", Run: o.EnsureSecret},
 		&lifecycle.SimpleStep{Name: "EnsureWekaNodeRoutingConfigMap", Run: o.EnsureWekaNodeRoutingConfigMap},
 		&lifecycle.SimpleStep{Name: "EnsureK8sContainerRoutingConfigMap", Run: o.EnsureK8sContainerRoutingConfigMap},
 		&lifecycle.SimpleStep{Name: "EnsureDeployment", Run: o.EnsureDeployment},
+		&lifecycle.SimpleStep{
+			Name:       "UpdateStatusToRunning",
+			Run:        o.runningCallback,
+			Predicates: lifecycle.Predicates{func() bool { return o.runningCallback != nil }},
+		},
 		&lifecycle.SimpleStep{Name: "WaitTillExpiration", Run: o.WaitTillExpiration},
+		&lifecycle.SimpleStep{
+			Name:       "SuccessUpdate",
+			Run:        o.successCallback,
+			Predicates: lifecycle.Predicates{func() bool { return o.successCallback != nil }},
+		},
 	}
+
+	return steps
+}
+
+type TraceSessionResult struct {
+	Deployment string
+	Cluster    string
+	InProgress bool
 }
 
 func (o *MaintainTraceSession) GetJsonResult() string {
-	//TODO implement me
-	panic("implement me")
+	result := TraceSessionResult{}
+
+	if o.deployment != nil {
+		result.Deployment = o.deployment.Name
+	}
+	if o.cluster != nil {
+		result.Cluster = o.cluster.Name
+	}
+
+	// Check if expired
+	startTime := o.ownerRef.GetCreationTimestamp()
+	expirationTime := startTime.Add(o.payload.Duration.Duration)
+	if meta.Now().After(expirationTime) {
+		result.InProgress = false
+	} else {
+		result.InProgress = true
+	}
+
+	resultJson, _ := json.Marshal(result)
+	return string(resultJson)
 }
 
 func (o *MaintainTraceSession) FetchCluster(ctx context.Context) error {
@@ -81,22 +142,64 @@ func (o *MaintainTraceSession) FetchCluster(ctx context.Context) error {
 }
 
 func (o *MaintainTraceSession) DeduceWekaHomeUrl(ctx context.Context) error {
-	whEndpoint := "https://api.home.weka.io"
+	wekaHomeEndpoint := config.Config.WekaHome.Endpoint
 	defer func() {
-		o.wekaHomeEndpoint = whEndpoint
+		o.wekaHomeEndpoint = wekaHomeEndpoint
 	}()
+
 	if o.payload.WekahomeEndpointOverride != "" {
-		whEndpoint = o.payload.WekahomeEndpointOverride
+		wekaHomeEndpoint = o.payload.WekahomeEndpointOverride
 		return nil
 	}
-	// TODO: Attempt to fetch from cluster itself(!)
+
+	wekaService, err := o.getWekaService(ctx)
+	if err == nil {
+		status, err := wekaService.GetWekaStatus(ctx)
+		if err == nil {
+			if status.Cloud.Url != "" {
+				wekaHomeEndpoint = status.Cloud.Url
+				return nil
+			}
+		}
+	}
+
 	if o.cluster.Spec.WekaHome != nil {
 		if o.cluster.Spec.WekaHome.Endpoint != "" {
-			whEndpoint = o.cluster.Spec.WekaHome.Endpoint
+			wekaHomeEndpoint = o.cluster.Spec.WekaHome.Endpoint
 			return nil
 		}
 	}
 	return nil
+}
+
+func (o *MaintainTraceSession) DeduceTaskmonUrl(wekaHomeUrl string) string {
+	url := strings.TrimPrefix(wekaHomeUrl, "http://")
+	url = strings.TrimPrefix(url, "https://")
+
+	if strings.HasPrefix(url, "api.") {
+		url = "taskmon." + strings.TrimPrefix(url, "api.")
+	} else {
+		url = "taskmon." + url
+	}
+
+	return url
+}
+
+func (o *MaintainTraceSession) DeduceTaskmonImage() string {
+	if o.containerDetails.Image != "" {
+		return o.containerDetails.Image
+	}
+	return config.Config.TaskmonDefaultImage
+}
+
+func (o *MaintainTraceSession) DeduceHostNetworkSettings() (bool, v1.DNSPolicy) {
+	hostNetwork := false
+	dnsPolicy := v1.DNSPolicy(config.Config.DNSPolicy.K8sNetwork)
+	if o.payload.HostNetwork {
+		hostNetwork = true
+		dnsPolicy = v1.DNSPolicy(config.Config.DNSPolicy.HostNetwork)
+	}
+	return hostNetwork, dnsPolicy
 }
 
 func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
@@ -109,11 +212,18 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 	labels["app"] = "weka-trace-session"
 	labels["weka.io/cluster-id"] = string(o.cluster.GetUID())
 
+	annotations := o.ownerRef.GetAnnotations()
+	if len(annotations) == 0 {
+		annotations = map[string]string{}
+	}
+
+	hostNetwork, dnsPolicy := o.DeduceHostNetworkSettings()
 	deployment := apps.Deployment{
 		ObjectMeta: ctrl.ObjectMeta{
-			Name:      "trace-session-" + o.ownerRef.GetName(),
-			Namespace: o.ownerRef.GetNamespace(),
-			Labels:    labels,
+			Name:        "trace-session-" + o.ownerRef.GetName(),
+			Namespace:   o.ownerRef.GetNamespace(),
+			Labels:      labels,
+			Annotations: annotations,
 		},
 		Spec: apps.DeploymentSpec{
 			Replicas: util.Int32Ref(1),
@@ -125,7 +235,8 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 			},
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: ctrl.ObjectMeta{
-					Labels: labels,
+					Labels:      labels,
+					Annotations: annotations,
 				},
 				Spec: v1.PodSpec{
 					ImagePullSecrets: []v1.LocalObjectReference{
@@ -133,15 +244,29 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 					},
 					Tolerations:  o.containerDetails.Tolerations,
 					NodeSelector: o.payload.NodeSelector,
+					HostNetwork:  hostNetwork,
+					DNSPolicy:    dnsPolicy,
 					Containers: []v1.Container{
 						{
 							Name:    "weka-trace-session",
-							Image:   o.containerDetails.Image,
+							Image:   o.DeduceTaskmonImage(),
 							Command: []string{"/entrypoint.sh"},
 							Env: []v1.EnvVar{
 								{
-									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_ADDRESS",
-									Value: o.wekaHomeEndpoint,
+									Name:  "TASKMON_TRACE_STREAMER_CONFIGS_SOURCE",
+									Value: "hardcoded",
+								},
+								{
+									Name:  "TASKMON_TRACE_STREAMER_CONFIGS_HARDCODED_CONFIGS_ADDRESS",
+									Value: o.DeduceTaskmonUrl(o.wekaHomeEndpoint),
+								},
+								{
+									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_VERIFY_TLS",
+									Value: util.BoolToShellString(!o.payload.AllowInsecureWekahomeEndpoint),
+								},
+								{
+									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_TLS",
+									Value: util.BoolToShellString(!o.payload.AllowHttpWekahomeEndpoint),
 								},
 								{
 									Name:  "TASKMON_TRACE_SERVER_VERIFY_TLS",
@@ -158,14 +283,6 @@ func (o *MaintainTraceSession) EnsureDeployment(ctx context.Context) error {
 								{
 									Name:  "TASKMON_SESSION_TOKEN_LOADER_PATH",
 									Value: "/var/run/secrets/weka-operator/trace-session/token",
-								},
-								{
-									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_VERIFY_TLS",
-									Value: util.BoolToShellString(!o.payload.AllowInsecureWekahomeEndpoint),
-								},
-								{
-									Name:  "TASKMON_WEKA_HOME_TRACE_STREAMER_TLS",
-									Value: util.BoolToShellString(!o.payload.AllowHttpWekahomeEndpoint),
 								},
 								{
 									Name:  "TASKMON_NODE_AND_CONTAINER_SERVER_DISCOVERY_TYPE",
@@ -261,9 +378,10 @@ func (o *MaintainTraceSession) EnsureSecret(ctx context.Context) error {
 	// generate token and store it in secret
 	secret := v1.Secret{
 		ObjectMeta: ctrl.ObjectMeta{
-			Name:      o.getSecretName(),
-			Namespace: o.ownerRef.GetNamespace(),
-			Labels:    o.ownerRef.GetLabels(),
+			Name:        o.getSecretName(),
+			Namespace:   o.ownerRef.GetNamespace(),
+			Labels:      o.ownerRef.GetLabels(),
+			Annotations: o.ownerRef.GetAnnotations(),
 		},
 		StringData: map[string]string{
 			"token": util.GeneratePassword(128),
@@ -321,14 +439,11 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 	// this config map serves as simplified discovery mechanism, this one contains map of weka node id to weka container id
 	// in addition to that it contains map of container id to container name + base port + trace server port
 	// this way trace viewer proxy can discover trace server for given container
-	execService := exec.NewExecService(o.restClient, o.mgr.GetConfig())
-	// fetch all processes
-	err := o.ensureClusterContainers(ctx)
+	wekaService, err := o.getWekaService(ctx)
 	if err != nil {
 		return err
 	}
-	container, err := resources.SelectActiveContainerWithRole(ctx, o.containers, "compute")
-	wekaService := services.NewWekaService(execService, container)
+
 	processes, err := wekaService.ListProcesses(ctx, services.ProcessListOptions{})
 	if err != nil {
 		return err
@@ -367,8 +482,10 @@ func (o *MaintainTraceSession) EnsureWekaNodeRoutingConfigMap(ctx context.Contex
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: ctrl.ObjectMeta{
-			Name:      o.getWekaRoutingKeyName(),
-			Namespace: o.ownerRef.GetNamespace(),
+			Name:        o.getWekaRoutingKeyName(),
+			Namespace:   o.ownerRef.GetNamespace(),
+			Labels:      o.ownerRef.GetLabels(),
+			Annotations: o.ownerRef.GetAnnotations(),
 		},
 		BinaryData: map[string][]byte{
 			"trace-routing.json": jsonBytes,
@@ -438,9 +555,10 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: ctrl.ObjectMeta{
-			Name:      o.getK8sRoutingKeyName(),
-			Namespace: o.ownerRef.GetNamespace(),
-			Labels:    o.ownerRef.GetLabels(),
+			Name:        o.getK8sRoutingKeyName(),
+			Namespace:   o.ownerRef.GetNamespace(),
+			Labels:      o.ownerRef.GetLabels(),
+			Annotations: o.ownerRef.GetAnnotations(),
 		},
 		BinaryData: map[string][]byte{
 			"k8s-routing.json": jsonBytes,
@@ -482,7 +600,14 @@ func (o *MaintainTraceSession) ensureClusterContainers(ctx context.Context) erro
 }
 
 func (o *MaintainTraceSession) WaitTillExpiration(ctx context.Context) error {
-	// wait till expiration of trace session
+	// If duration is 0 or omitted, keep waiting
+	if o.payload.Duration.Duration == 0 {
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("continuous trace session - keeping status Running"),
+			5*time.Minute,
+		)
+	}
+
 	startTime := o.ownerRef.GetCreationTimestamp()
 	expirationTime := startTime.Add(o.payload.Duration.Duration)
 	if meta.Now().After(expirationTime) {
@@ -494,4 +619,60 @@ func (o *MaintainTraceSession) WaitTillExpiration(ctx context.Context) error {
 		sleepFor = expirationTime.Sub(time.Now())
 	}
 	return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for session expiration"), sleepFor)
+}
+
+func (o *MaintainTraceSession) CleanupResources(ctx context.Context) error {
+	namespace := o.ownerRef.GetNamespace()
+
+	// Resources to delete
+	resourcesToDelete := []client.Object{
+		&apps.Deployment{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      "trace-session-" + o.ownerRef.GetName(),
+				Namespace: namespace,
+			},
+		},
+		&v1.Secret{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      o.getSecretName(),
+				Namespace: namespace,
+			},
+		},
+		&v1.ConfigMap{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      o.getWekaRoutingKeyName(),
+				Namespace: namespace,
+			},
+		},
+		&v1.ConfigMap{
+			ObjectMeta: meta.ObjectMeta{
+				Name:      o.getK8sRoutingKeyName(),
+				Namespace: namespace,
+			},
+		},
+	}
+
+	// Delete each resource, ignoring all errors
+	for _, res := range resourcesToDelete {
+		if err := o.mgr.GetClient().Delete(ctx, res); err != nil && client.IgnoreNotFound(err) != nil {
+			fmt.Printf("Failed to delete %s: %v\n", res.GetName(), err)
+		}
+	}
+
+	return nil
+}
+
+func (o *MaintainTraceSession) getWekaService(ctx context.Context) (services.WekaService, error) {
+	err := o.ensureClusterContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	container, err := resources.SelectActiveContainerWithRole(ctx, o.containers, weka.WekaContainerModeCompute)
+	if err != nil {
+		return nil, err
+	}
+
+	execService := exec.NewExecService(o.restClient, o.mgr.GetConfig())
+	return services.NewWekaService(execService, container), nil
 }
