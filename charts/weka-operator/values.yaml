@@ -190,6 +190,13 @@ defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
   deleteUnschedulablePodsAfter: 1m
 
+# Syslog package choice
+# Supported values: "auto", "go-syslog", "syslog-ng"
+# - "auto": automatically choose go-syslog if available, otherwise use syslog-ng (default behavior)
+# - "go-syslog": explicitly use go-syslog
+# - "syslog-ng": explicitly use syslog-ng
+syslogPackage: "auto"
+
 csi:
   installationEnabled: false
   storageClassCreationDisabled: false
