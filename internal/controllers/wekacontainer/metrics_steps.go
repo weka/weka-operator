@@ -94,7 +94,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	defer end()
 
 	// submit http request to metrics pod
-	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		PodStatusStartTime: podStatusStartTime,
 	}
 	// submit http request to metrics pod
-	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return err
 	}

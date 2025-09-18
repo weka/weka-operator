@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
@@ -43,18 +44,25 @@ func (r *containerReconcilerLoop) upgradeConditionsPass(ctx context.Context) (bo
 
 	nodeName := r.container.GetNodeAffinity()
 	// get all frontend pods on same node
-	pods, err := r.getFrontendPodsOnNode(ctx, string(nodeName))
+	wekaContainers, err := r.getFrontendWekaContainerOnNode(ctx, string(nodeName))
 	if err != nil {
 		return false, err
 	}
 
 	// check if all pods have same image
-	for _, pod := range pods {
+	for _, wekaContainer := range wekaContainers {
+		if wekaContainer.UID == r.container.UID {
+			// skip self
+			continue
+		}
+
+		pod := &v1.Pod{}
+		err := r.Get(ctx, client.ObjectKeyFromObject(&wekaContainer), pod)
+		if err != nil {
+			return false, errors.Wrap(err, "failed to get pod for weka container "+wekaContainer.Name)
+		}
+
 		for _, podContainer := range pod.Spec.Containers {
-			if r.pod != nil && pod.UID == r.pod.UID {
-				// skip self
-				continue
-			}
 			if podContainer.Name == "weka-container" {
 				if podContainer.Image != r.container.Spec.Image {
 					err := fmt.Errorf("pod %s on same node %s has different image %s", pod.Name, nodeName, podContainer.Image)

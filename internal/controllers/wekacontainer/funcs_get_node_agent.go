@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/pkg/util"
@@ -33,76 +34,36 @@ func (r *containerReconcilerLoop) getCurrentPodNodeName() (string, error) {
 	return "", errors.New("Pod node name is not set")
 }
 
-func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
-	var nodeName string
-	var err error
-
-	if r.node == nil {
-		// try to get node name from pod
-		nodeName, err = r.getCurrentPodNodeName()
-		if err != nil {
-			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		}
-	} else {
-		if !NodeIsReady(r.node) {
-			err := errors.New("Node is not ready")
-			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		}
-		nodeName = r.node.Name
-	}
-
-	ns, err := util.GetPodNamespace()
-	if err != nil {
-		return nil, err
-	}
-	//TODO: We can replace this call with GetWekaContainerSimple (and remove index for pods nodenames) if we move nodeAgent to be wekacontainer
-	pods, err := r.KubeService.GetPodsSimple(ctx, ns, nodeName, map[string]string{
-		"app.kubernetes.io/component": "weka-node-agent",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return pods, nil
-}
-
-func (r *containerReconcilerLoop) findAdjacentNodeAgent(ctx context.Context, pod *v1.Pod) (*v1.Pod, error) {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "findAdjacentNodeAgent", "node", r.container.GetNodeAffinity())
+func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName weka.NodeName) (*v1.Pod, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "GetNodeAgentPod", "node", nodeName)
 	defer end()
 
-	agentPods, err := r.getNodeAgentPods(ctx)
-	var waitErr *lifecycle.WaitError
-	if err != nil && errors.As(err, &waitErr) {
-		return nil, err
+	if nodeName == "" {
+		return nil, errors.New("node name is empty")
 	}
+
+	nodeAgentName := GetNodeAgentName(nodeName)
+	nodeAgentNamespace, err := util.GetPodNamespace()
 	if err != nil {
-		err = fmt.Errorf("failed to get node agent pods: %w", err)
-		return nil, err
-	}
-	if len(agentPods) == 0 {
-		return nil, errors.New("There are no agent pods on node")
+		return nil, errors.Wrap(err, "failed to get operator namespace")
 	}
 
-	var targetNodeName string
-	if r.container.GetNodeAffinity() != "" {
-		targetNodeName = string(r.container.GetNodeAffinity())
-	} else {
-		if r.pod == nil {
-			return nil, errors.New("Pod is nil and no affinity on container")
-		}
-		targetNodeName = pod.Spec.NodeName
+	nodeAgentPod := &v1.Pod{}
+
+	err = r.Get(ctx, client.ObjectKey{
+		Name:      nodeAgentName,
+		Namespace: nodeAgentNamespace,
+	}, nodeAgentPod)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get node agent pod")
 	}
 
-	for _, agentPod := range agentPods {
-		if agentPod.Spec.NodeName == targetNodeName {
-			if agentPod.Status.Phase == v1.PodRunning {
-				return &agentPod, nil
-			}
-			return nil, &NodeAgentPodNotRunning{}
-		}
+	if nodeAgentPod.Status.Phase == v1.PodRunning {
+		return nodeAgentPod, nil
 	}
 
-	return nil, errors.New("No agent pod found on the same node")
+	return nil, &NodeAgentPodNotRunning{}
 }
 
 // a hack putting this global, but also not a harmful one

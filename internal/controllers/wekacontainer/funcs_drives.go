@@ -330,7 +330,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Conte
 	defer end()
 
 	// Find node-agent pod on the same node as this container
-	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node-agent pod: %w", err)
 	}

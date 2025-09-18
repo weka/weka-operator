@@ -31,6 +31,7 @@ func NodeAgentFlow(r *containerReconcilerLoop) []lifecycle.Step {
 					return r.container.DeletionTimestamp != nil
 				},
 			},
+			FinishOnSuccess: true,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.initState,

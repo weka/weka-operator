@@ -254,7 +254,7 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "sendStopInstructionsViaAgent", "force", instructions.AllowForceStop, "instructions", instructions)
 	defer end()
 
-	agentPod, err := r.findAdjacentNodeAgent(ctx, pod)
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return err
 	}

@@ -343,19 +343,6 @@ func (r *containerReconcilerLoop) pickMatchingNode(ctx context.Context) (*v1.Nod
 	return nil, errors.New("no matching nodes found")
 }
 
-func (r *containerReconcilerLoop) getFrontendPodsOnNode(ctx context.Context, nodeName string) ([]v1.Pod, error) {
-	return r.KubeService.GetPods(ctx, kubernetes.GetPodsOptions{
-		Node: nodeName,
-		LabelsIn: map[string][]string{
-			// NOTE: Clients will not have affinity set, it's a small gap of race of s3 schedule on top of client
-			// There is also a possible gap of deploying clients on top of S3
-			// But since we do want to allow multiple clients to multiple clusters it becomes much complex
-			// So  for now mostly solving case of scheduling of protocol on top of clients, and protocol on top of another protocol
-			domain.WekaLabelMode: domain.ContainerModesWithFrontend,
-		},
-	})
-}
-
 func (r *containerReconcilerLoop) getFrontendWekaContainerOnNode(ctx context.Context, nodeName string) ([]weka.WekaContainer, error) {
 	return r.KubeService.GetWekaContainers(ctx, kubernetes.GetPodsOptions{
 		Node: nodeName,

@@ -27,6 +27,13 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.refreshPod,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeAgent,
+			Predicates: lifecycle.Predicates{
+				r.HasNodeAffinity,
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,
@@ -58,12 +65,6 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.container.IsS3Container), // no need to recover S3 container on deactivate
 			},
 			ContinueOnError: true,
-		},
-		&lifecycle.SimpleStep{
-			Run: r.EnsureNodeAgent,
-			Predicates: lifecycle.Predicates{
-				r.HasNodeAffinity,
-			},
 		},
 		&lifecycle.SimpleStep{
 			Name: "ReconcileWekaLocalStatusOnDeletion",

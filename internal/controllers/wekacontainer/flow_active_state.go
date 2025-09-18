@@ -65,6 +65,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
+		&lifecycle.SimpleStep{
+			Run: r.EnsureNodeAgent,
+			Predicates: lifecycle.Predicates{
+				r.HasNodeAffinity,
+			},
+			ContinueOnError: true,
+		},
 	}
 
 	metricsSteps := MetricsSteps(r)
@@ -259,12 +266,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.setNodeAffinityStatus,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.HasStatusNodeAffinity),
-			},
-		},
-		&lifecycle.SimpleStep{
-			Run: r.EnsureNodeAgent,
-			Predicates: lifecycle.Predicates{
-				r.HasNodeAffinity,
 			},
 		},
 		&lifecycle.SimpleStep{

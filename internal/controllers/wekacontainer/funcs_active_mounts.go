@@ -33,7 +33,7 @@ func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*i
 }
 
 func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
-	pod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, er
 		return nil, err
 	}
 
-	url := "http://" + pod.Status.PodIP + ":8090/getActiveMounts"
+	url := "http://" + agentPod.Status.PodIP + ":8090/getActiveMounts"
 
 	resp, err := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
 	if err != nil {

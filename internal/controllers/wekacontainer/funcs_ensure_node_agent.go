@@ -17,6 +17,10 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+func GetNodeAgentName(nodeName weka.NodeName) string {
+	return fmt.Sprintf("%s-node-agent-%s", config.Config.OperatorPrefix, nodeName)
+}
+
 func (r *containerReconcilerLoop) EnsureNodeAgent(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -33,7 +37,7 @@ func (r *containerReconcilerLoop) EnsureNodeAgent(ctx context.Context) error {
 	}
 
 	// Check if node-agent WekaContainer already exists on this node
-	nodeAgentName := fmt.Sprintf("%s-node-agent-%s", config.Config.OperatorPrefix, nodeName)
+	nodeAgentName := GetNodeAgentName(nodeName)
 	nodeAgentNamespace, err := util.GetPodNamespace()
 	if err != nil {
 		return errors.Wrap(err, "failed to get operator namespace")
