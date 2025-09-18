@@ -163,6 +163,7 @@ var Config struct {
 	OperatorPrefix                 string
 	OperatorImage                  string
 	OperatorPodUID                 string
+	OperatorPodName                string
 	OperatorPodNamespace           string
 	OperatorDeploymentName         string
 	BindAddress                    BindAddress
@@ -297,6 +298,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.OperatorPrefix = getEnvOrDefault("OPERATOR_PREFIX", "weka-operator")
 	Config.OperatorImage = os.Getenv("OPERATOR_IMAGE")
 	Config.OperatorPodUID = os.Getenv("POD_UID")
+	Config.OperatorPodName = os.Getenv("POD_NAME")
 	Config.OperatorPodNamespace = os.Getenv("POD_NAMESPACE")
 	Config.OperatorDeploymentName = os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if Config.Mode == OperatorModeManager {

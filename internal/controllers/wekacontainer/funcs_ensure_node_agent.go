@@ -65,6 +65,14 @@ func (r *containerReconcilerLoop) EnsureNodeAgent(ctx context.Context) error {
 
 	labels := factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeNodeAgent)
 
+	operatorPod, err := util.GetOperatorPod(ctx, r.Client)
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator pod")
+	}
+
+	// node agent has the same tolerations as the operator pod
+	tolerations := operatorPod.Spec.Tolerations
+
 	// Create node-agent WekaContainer
 	nodeAgent := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
@@ -88,6 +96,7 @@ func (r *containerReconcilerLoop) EnsureNodeAgent(ctx context.Context) error {
 					Memory: resource.MustParse(config.Config.NodeAgent.Resources.Requests.Memory),
 				},
 			},
+			Tolerations: tolerations,
 		},
 	}
 

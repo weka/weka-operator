@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -164,20 +165,6 @@ func (e *PodExec) ExecSensitive(ctx context.Context, name string, command []stri
 	return e.exec(ctx, fmt.Sprintf("Exec.%s", name), true, command)
 }
 
-func GetPodNamespace() (string, error) {
-	if config.Config.OperatorPodNamespace != "" {
-		return config.Config.OperatorPodNamespace, nil
-	}
-	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err != nil {
-		if os.IsNotExist(err) && config.Config.DevMode {
-			return config.Consts.DevModeNamespace, nil
-		}
-		return "", err
-	}
-	return string(namespace), nil
-}
-
 func GetOperatorDeployment(ctx context.Context, k8sClient crclient.Client) (*appsv1.Deployment, error) {
 	if config.Config.OperatorDeploymentName == "" {
 		return nil, &ConfigurationError{Message: "Operator deployment name is not set"}
@@ -198,6 +185,55 @@ func GetOperatorDeployment(ctx context.Context, k8sClient crclient.Client) (*app
 	}
 
 	return &deployment, nil
+}
+
+func GetPodNamespace() (string, error) {
+	if config.Config.OperatorPodNamespace != "" {
+		return config.Config.OperatorPodNamespace, nil
+	}
+	namespace, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		if os.IsNotExist(err) && config.Config.DevMode {
+			return config.Consts.DevModeNamespace, nil
+		}
+		return "", err
+	}
+	return string(namespace), nil
+}
+
+func GetOperatorPodName() (string, error) {
+	if config.Config.OperatorPodName != "" {
+		return config.Config.OperatorPodName, nil
+	}
+
+	name := os.Getenv("HOSTNAME")
+	if name == "" {
+		return "", errors.New("environment variable HOSTNAME is not set")
+	}
+	return name, nil
+}
+
+func GetOperatorPod(ctx context.Context, client client.Client) (*v1.Pod, error) {
+	namespace, err := GetPodNamespace()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get operator namespace")
+	}
+
+	name, err := GetOperatorPodName()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get operator pod name")
+	}
+
+	pod := &v1.Pod{}
+	err = client.Get(ctx, types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}, pod)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get operator pod")
+	}
+
+	return pod, nil
 }
 
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
