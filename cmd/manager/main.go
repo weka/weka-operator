@@ -130,6 +130,10 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 	go func() {
 		<-ctx.Done()
 		logger.Info("Received interrupt signal, shutting down")
+
+		// Shutdown the node agent first to clean up resources
+		agent.Shutdown()
+
 		if err := httpServer.Shutdown(ctx); err != nil {
 			logger.Error(err, "Failed to shutdown http server")
 			os.Exit(1)

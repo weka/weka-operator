@@ -42,6 +42,7 @@ type NodeAgent struct {
 	containersData containersData
 	token          string
 	lastTokenPull  time.Time
+	jsonrpcService *WekaJSONRPCService
 }
 
 type ContainerInfo struct {
@@ -143,6 +144,7 @@ func NewNodeAgent(logger logr.Logger) *NodeAgent {
 			lock: sync.RWMutex{},
 			data: make(map[string]*ContainerInfo),
 		},
+		jsonrpcService: NewWekaJSONRPCService(),
 	}
 }
 
@@ -235,13 +237,26 @@ func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		name := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
-		ctx, logger := instrumentation.GetLoggerForContext(r.Context(), &a.logger, name)
+		_, logger := instrumentation.GetLoggerForContext(r.Context(), nil, name)
 
 		logger.V(0).Info("", "status", status, "size", size, "duration", duration)
-
-		// put the logger back into the request context for use in handlers
-		r = r.WithContext(ctx)
 	})(next)
+}
+
+func (a *NodeAgent) LoggerInjectionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create logger context and inject it into the request
+		ctx, _ := instrumentation.GetLoggerForContext(r.Context(), &a.logger, "")
+
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "http", "method", r.Method, "path", r.URL.Path, "node", config.Config.MetricsServerEnv.NodeName)
+		defer end()
+
+		// Put the enhanced logger context into the request for use in handlers
+		r = r.WithContext(ctx)
+
+		// Continue with the next handler
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, error) {
@@ -250,6 +265,7 @@ func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, erro
 	mux.HandleFunc("/getContainerInfo", a.getContainerInfo)
 	mux.HandleFunc("/getActiveMounts", a.getActiveMounts)
 	mux.HandleFunc("/register", a.registerHandler)
+	mux.HandleFunc("/deregister", a.deregisterHandler)
 	mux.HandleFunc("/findDrives", a.findDrivesHandler)
 
 	// IMPORTANT: Add OpenTelemetry HTTP middleware FIRST to extract trace context from incoming requests
@@ -257,7 +273,8 @@ func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, erro
 	otelMux := otelhttp.NewHandler(mux, "node-agent-server")
 
 	// Then add custom middleware inside the OpenTelemetry wrapper
-	wrappedMux := a.PanicRecovery(a.LoggingMiddleware(otelMux))
+	// LoggerInjectionMiddleware must run before LoggingMiddleware to ensure logger is in context
+	wrappedMux := a.PanicRecovery(a.LoggerInjectionMiddleware(a.LoggingMiddleware(otelMux)))
 
 	bindTo := config.Config.BindAddress.NodeAgent
 	a.logger.Info("Server is binding to " + bindTo)
@@ -274,6 +291,20 @@ func (a *NodeAgent) Run(ctx context.Context, server *http.Server) error {
 		return err
 	}
 	return nil
+}
+
+// Shutdown gracefully shuts down the node agent and cleans up resources
+func (a *NodeAgent) Shutdown() {
+	a.jsonrpcService.Close()
+}
+
+// RemoveContainer removes a container from tracking and cleans up its HTTP client
+func (a *NodeAgent) RemoveContainer(containerId string) {
+	a.containersData.lock.Lock()
+	defer a.containersData.lock.Unlock()
+
+	delete(a.containersData.data, containerId)
+	a.jsonrpcService.RemoveContainer(containerId)
 }
 
 func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Request) {
@@ -525,6 +556,42 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
+type DeregisterContainerPayload struct {
+	ContainerId string `json:"container_id"`
+}
+
+func (a *NodeAgent) deregisterHandler(w http.ResponseWriter, r *http.Request) {
+	_, logger, end := instrumentation.GetLogSpan(r.Context(), "deregister.container")
+	defer end()
+
+	if a.validateAuth(w, r, logger) {
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload DeregisterContainerPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// Add payload information to the span for better observability
+	logger.SetValues("container_id", payload.ContainerId)
+
+	a.RemoveContainer(payload.ContainerId)
+
+	logger.Info("Container deregistered", "container_id", payload.ContainerId)
+
+	response := map[string]string{"message": "Container deregistered successfully"}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger *instrumentation.SpanLogger) bool {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != fmt.Sprintf("Token %s", a.getCurrentToken()) {
@@ -535,13 +602,40 @@ func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger 
 	return false
 }
 
-func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
-	// TODO: Wrap as a service struct initialized separately from use
+// WekaJSONRPCService handles JSONRPC communication with Weka containers via Unix sockets
+type WekaJSONRPCService struct {
+	clients map[string]*http.Client // Map of containerId -> HTTP client for connection reuse
+	mu      sync.RWMutex
+}
+
+// NewWekaJSONRPCService creates a new JSONRPC service
+func NewWekaJSONRPCService() *WekaJSONRPCService {
+	return &WekaJSONRPCService{
+		clients: make(map[string]*http.Client),
+	}
+}
+
+// getOrCreateClient gets or creates an HTTP client for the specified container
+func (s *WekaJSONRPCService) getOrCreateClient(container *ContainerInfo) (*http.Client, error) {
+	s.mu.RLock()
+	if client, exists := s.clients[container.containerId]; exists {
+		s.mu.RUnlock()
+		return client, nil
+	}
+	s.mu.RUnlock()
+
+	// Create new client
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if client, exists := s.clients[container.containerId]; exists {
+		return client, nil
+	}
 
 	socketPath := fmt.Sprintf("/host-binds/shared/containers/%s/local-sockets/%s/container.sock", container.containerId, container.wekaContainerName)
-	// check if socket exists
 	if !util.FileExists(socketPath) {
-		return errors.New("socket not found")
+		return nil, errors.New("socket not found")
 	}
 
 	// create symlink for a socket within tmp
@@ -549,53 +643,121 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 	if !util.FileExists(targetSocketPath) {
 		err := os.Symlink(socketPath, targetSocketPath)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	// Create HTTP client with OpenTelemetry instrumentation for trace propagation
+	transport := otelhttp.NewTransport(&http.Transport{
+		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+			return net.Dial("unix", targetSocketPath)
+		},
+	}, otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+		// Extract method from request body if possible, fallback to operation
+		return "weka.jsonrpc.http"
+	}))
+
 	client := &http.Client{
-		Transport: otelhttp.NewTransport(&http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", targetSocketPath)
-			},
-		}),
+		Transport: transport,
+		Timeout:   30 * time.Second,
 	}
 
-	payload := map[string]interface{}{
-		"id":      rand.Uint64(),
+	s.clients[container.containerId] = client
+	return client, nil
+}
+
+// Call makes a JSONRPC call to the specified container
+func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
+	// Create a descriptive span for the JSONRPC call
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "weka.jsonrpc_call",
+		"jsonrpc.method", method,
+		"container.name", container.containerName,
+		"container.id", container.containerId,
+		"container.mode", container.mode,
+		"weka.container_name", container.wekaContainerName,
+	)
+	defer end()
+
+	client, err := s.getOrCreateClient(container)
+	if err != nil {
+		logger.SetError(err, "Failed to get HTTP client for container")
+		return err
+	}
+
+	requestId := rand.Uint64()
+	payload := map[string]any{
+		"id":      requestId,
 		"jsonrpc": "2.0",
 		"method":  method,
-		"params":  map[string]interface{}{},
+		"params":  map[string]any{},
 	}
 
 	// Marshal payload to JSON
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
+		logger.SetError(err, "Failed to marshal JSONRPC payload")
 		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1", bytes.NewReader(payloadBytes))
 	if err != nil {
+		logger.SetError(err, "Failed to create HTTP request")
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// Add additional attributes to the span
+	logger.SetValues(
+		"http.method", "POST",
+		"http.url", "http://localhost/api/v1",
+		"jsonrpc.request_id", requestId,
+	)
+
 	resp, err := client.Do(req)
 	if err != nil {
+		logger.SetError(err, "JSONRPC HTTP request failed")
 		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("status code: " + resp.Status)
-	}
+	// Log response details
+	logger.SetValues("http.status_code", resp.StatusCode)
 
-	if err := json.NewDecoder(resp.Body).Decode(data); err != nil {
+	if resp.StatusCode != http.StatusOK {
+		err := errors.New("status code: " + resp.Status)
+		logger.SetError(err, "JSONRPC request returned non-200 status")
 		return err
 	}
 
+	if err := json.NewDecoder(resp.Body).Decode(data); err != nil {
+		logger.SetError(err, "Failed to decode JSONRPC response")
+		return err
+	}
+
+	logger.Debug("jsonrpc call succeeded")
 	return nil
+}
+
+// Close closes all HTTP clients and cleans up resources
+func (s *WekaJSONRPCService) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Simply clear the map - the HTTP clients will be garbage collected
+	// and connections will be closed when the clients are finalized
+	s.clients = make(map[string]*http.Client)
+}
+
+// RemoveContainer removes the HTTP client for a specific container (when container is deleted)
+func (s *WekaJSONRPCService) RemoveContainer(containerId string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.clients, containerId)
+}
+
+func (a *NodeAgent) jrpcCall(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
+	return a.jsonrpcService.Call(ctx, container, method, data)
 }
 
 // createInstrumentedHTTPClient creates an HTTP client with OpenTelemetry instrumentation
@@ -639,7 +801,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 
 	if container.mode != weka.WekaContainerModeEnvoy {
 		var response LocalConfigStateResponse
-		err := jrpcCall(ctx, container, "get_local_config_summary", &response)
+		err := a.jrpcCall(ctx, container, "get_local_config_summary", &response)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
@@ -650,7 +812,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 
 		var cpuResponse LocalCpuUtilizationResponse
-		err = jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
+		err = a.jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local realtime cpu usage, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
@@ -660,7 +822,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 
 		var statsResponse StatsResponse
-		err = jrpcCall(ctx, container, "fetch_local_stats", &statsResponse)
+		err = a.jrpcCall(ctx, container, "fetch_local_stats", &statsResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch stats")
 		} else {

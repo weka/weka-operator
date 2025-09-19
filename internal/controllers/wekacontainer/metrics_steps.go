@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -388,4 +389,62 @@ func (r *containerReconcilerLoop) getPodStatusInfo() (string, time.Time) {
 	}
 
 	return currentStatus, statusStartTime
+}
+
+func (r *containerReconcilerLoop) DeregisterContainerFromMetrics(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeregisterContainerFromMetrics")
+	defer end()
+
+	// Get the node agent pod
+	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
+	if err != nil {
+		// If node agent pod not found, the container is already cleaned up
+		if strings.Contains(err.Error(), "not found") {
+			logger.Info("Node agent pod not found, container already cleaned up")
+			return nil
+		}
+		return err
+	}
+
+	// Read the node agent token
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Create payload for deregistration
+	payload := node_agent.DeregisterContainerPayload{
+		ContainerId: string(r.container.UID),
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	// Send deregistration request to node agent
+	url := "http://" + agentPod.Status.PodIP + ":8090/deregister"
+	timeout := config.Config.Metrics.Containers.RequestsTimeouts.Register // Reuse register timeout
+
+	logger.Info("Deregistering container from metrics", "container_id", payload.ContainerId, "node_agent_url", url)
+
+	// Create context with timeout for the request
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := util.SendJsonRequest(reqCtx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		// Don't fail if deregistration fails - it's cleanup, not critical
+		logger.Warn("Failed to deregister container from metrics", "error", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("Node agent returned non-200 status for deregistration", "status", resp.StatusCode)
+		return nil
+	}
+
+	logger.Info("Container successfully deregistered from metrics")
+	return nil
 }

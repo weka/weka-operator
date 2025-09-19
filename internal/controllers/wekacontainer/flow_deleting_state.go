@@ -3,6 +3,7 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -84,6 +85,25 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 	metricsSteps := MetricsSteps(r)
 
 	steps2 := []lifecycle.Step{
+		// Add deregistration step for containers that were registered with metrics
+		&lifecycle.SimpleStep{
+			Run: r.DeregisterContainerFromMetrics,
+			Predicates: lifecycle.Predicates{
+				lifecycle.BoolValue(config.Config.Metrics.Containers.Enabled),
+				func() bool {
+					return slices.Contains(
+						[]string{
+							weka.WekaContainerModeCompute,
+							weka.WekaContainerModeClient,
+							weka.WekaContainerModeS3,
+							weka.WekaContainerModeNfs,
+							weka.WekaContainerModeDrive,
+							weka.WekaContainerModeEnvoy,
+						}, r.container.Spec.Mode)
+				},
+			},
+			ContinueOnError: true,
+		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondRemovedFromS3Cluster,
