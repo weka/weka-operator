@@ -23,6 +23,7 @@ import (
 	"github.com/rs/zerolog/hlog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/exp/rand"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -234,9 +235,12 @@ func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		name := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
-		_, logger := instrumentation.GetLoggerForContext(r.Context(), &a.logger, name)
+		ctx, logger := instrumentation.GetLoggerForContext(r.Context(), &a.logger, name)
 
 		logger.V(0).Info("", "status", status, "size", size, "duration", duration)
+
+		// put the logger back into the request context for use in handlers
+		r = r.WithContext(ctx)
 	})(next)
 }
 
@@ -248,8 +252,12 @@ func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, erro
 	mux.HandleFunc("/register", a.registerHandler)
 	mux.HandleFunc("/findDrives", a.findDrivesHandler)
 
-	// Use custom middleware to log requests and recover from panics
-	wrappedMux := a.PanicRecovery(a.LoggingMiddleware(mux))
+	// IMPORTANT: Add OpenTelemetry HTTP middleware FIRST to extract trace context from incoming requests
+	// This must be the outermost wrapper to ensure trace context is available to all inner middleware
+	otelMux := otelhttp.NewHandler(mux, "node-agent-server")
+
+	// Then add custom middleware inside the OpenTelemetry wrapper
+	wrappedMux := a.PanicRecovery(a.LoggingMiddleware(otelMux))
 
 	bindTo := config.Config.BindAddress.NodeAgent
 	a.logger.Info("Server is binding to " + bindTo)
@@ -269,31 +277,45 @@ func (a *NodeAgent) Run(ctx context.Context, server *http.Server) error {
 }
 
 func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(request.Context(), "Metrics")
+	ctx, logger, end := instrumentation.GetLogSpan(request.Context(), "metrics.handler")
 	defer end()
+
+	// Create a span for the metrics collection phase
+	collectCtx, collectLogger, endCollect := instrumentation.GetLogSpan(ctx, "metrics.collect_container_data")
+
 	a.containersData.lock.RLock()
 	wg := sync.WaitGroup{}
 	wg.Add(len(a.containersData.data))
+
+	collectLogger.Info("Starting metrics collection for containers", "container_count", len(a.containersData.data))
 
 	//TODO: Throttle actual fetch? it should be very lightweight, just to prevent DoS(Accidental including) against management
 	for _, container := range a.containersData.data {
 		go func(container *ContainerInfo) {
 			defer wg.Done()
-			deadlineCtx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Second))
+			// Create a deadline context that preserves the trace context from the collect span
+			deadlineCtx, cancel := context.WithDeadline(collectCtx, time.Now().Add(5*time.Second))
 			defer cancel()
 			err := a.fetchAndPopulateMetrics(deadlineCtx, container)
 			if err != nil {
-				logger.Error(err, "Failed to fetch and populate metrics", "container_name", container.containerName)
+				collectLogger.Error(err, "Failed to fetch and populate metrics", "container_name", container.containerName)
 			}
 		}(container)
 	}
 	a.containersData.lock.RUnlock() // Don't forget to unlock
 	wg.Wait()
+	endCollect()
+
+	// Create a span for the metrics processing/response generation phase
+	_, processLogger, endProcess := instrumentation.GetLogSpan(ctx, "metrics.process_response")
+	defer endProcess()
 
 	promResponse := metrics2.NewPromResponse()
 
 	a.containersData.lock.RLock()
 	defer a.containersData.lock.RUnlock()
+
+	processLogger.Info("Processing metrics response", "container_count", len(a.containersData.data))
 
 	for _, container := range a.containersData.data {
 		defaultLabels := make(map[string]string)
@@ -442,7 +464,7 @@ func (a *NodeAgent) getCurrentToken() string {
 
 func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	//TODO: Add secret-based token auth, i.e secret created by operator and shared with node agent
-	_, logger, end := instrumentation.GetLogSpan(r.Context(), "RegisterHandler")
+	_, logger, end := instrumentation.GetLogSpan(r.Context(), "register.container")
 	defer end()
 
 	if a.validateAuth(w, r, logger) {
@@ -459,6 +481,15 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
+
+	// Add payload information to the span for better observability
+	logger.SetValues(
+		"container_name", payload.ContainerName,
+		"container_id", payload.ContainerId,
+		"weka_container_name", payload.WekaContainerName,
+		"mode", payload.Mode,
+		"pod_status", payload.PodStatus,
+	)
 
 	a.containersData.lock.Lock()
 	defer a.containersData.lock.Unlock()
@@ -522,12 +553,13 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 		}
 	}
 
+	// Create HTTP client with OpenTelemetry instrumentation for trace propagation
 	client := &http.Client{
-		Transport: &http.Transport{
+		Transport: otelhttp.NewTransport(&http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return net.Dial("unix", targetSocketPath)
 			},
-		},
+		}),
 	}
 
 	payload := map[string]interface{}{
@@ -566,6 +598,15 @@ func jrpcCall(ctx context.Context, container *ContainerInfo, method string, data
 	return nil
 }
 
+// createInstrumentedHTTPClient creates an HTTP client with OpenTelemetry instrumentation
+// for automatic trace propagation to downstream services
+func createInstrumentedHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+}
+
 type LocalCpuUtilizationResponse struct {
 	Result map[string]struct {
 		Value *float64 `json:"value"`
@@ -593,7 +634,7 @@ type StatsResponse struct {
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
 	// WARNING: no lock here, while calling in parallel from multiple places
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "fetchAndPopulateMetrics")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "metrics.fetch_container_data", "container_name", container.containerName, "container_mode", container.mode)
 	defer end()
 
 	if container.mode != weka.WekaContainerModeEnvoy {
@@ -640,14 +681,25 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 	}
 
+	// Create instrumented HTTP client for scrape targets to enable trace propagation
+	httpClient := createInstrumentedHTTPClient()
+
 	for _, target := range container.scrapeTargets {
-		// regular http call to localhost:port/path
+		// regular http call to localhost:port/path with trace propagation
 		// parse response and add to container.scrappedData
 		endpoint := target.Endpoint
 		if endpoint == "" {
 			endpoint = "localhost"
 		}
-		resp, err := http.Get(fmt.Sprintf("http://%s:%d%s", endpoint, target.Port, target.Path))
+
+		url := fmt.Sprintf("http://%s:%d%s", endpoint, target.Port, target.Path)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			logger.Error(err, "Failed to create request for metrics scraping", "target", target)
+			continue
+		}
+
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			logger.Error(err, "Failed to fetch metrics", "target", target)
 			continue
@@ -682,7 +734,7 @@ type FindDrivesResponse struct {
 }
 
 func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "getContainerInfo")
+	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "container.get_info")
 	defer end()
 
 	if a.validateAuth(w, r, logger) {
@@ -701,6 +753,9 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
+
+	// Add container ID to span for better observability
+	logger.SetValues("container_id", containerInfoRequest.ContainerId)
 
 	a.containersData.lock.RLock() // TODO: Replace with syncmap
 	container, ok := a.containersData.data[containerInfoRequest.ContainerId]
@@ -770,12 +825,14 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
-	_, logger, end := instrumentation.GetLogSpan(r.Context(), "GetActiveMounts")
+	_, logger, end := instrumentation.GetLogSpan(r.Context(), "mounts.get_active")
 	defer end()
 
 	if a.validateAuth(w, r, logger) {
 		return
 	}
+
+	logger.Info("Checking active mounts from /proc/wekafs/interface")
 
 	// path to driver interface file
 	filePath := "/proc/wekafs/interface"
