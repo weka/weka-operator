@@ -91,12 +91,11 @@ func main() {
 	fmt.Println("Using " + deploymentIdentifier + " as deployment identifier")
 
 	ctx, logger := instrumentation.GetLoggerForContext(ctx, &logr, "", "deployment_identifier", deploymentIdentifier)
-	// HACK: Need to expand go observability lib to support keyvaluelist  on SetupOTEL level
-	ctx = context.WithValue(ctx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
+
 	ctrl.SetLogger(logger)
 	klog.SetLogger(logger)
 
-	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger)
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "weka-operator", config.Config.Version, logger, "deployment_identifier", deploymentIdentifier)
 	if err != nil {
 		logger.Error(err, "Failed to set up OTel SDK")
 		os.Exit(1)
@@ -109,7 +108,7 @@ func main() {
 
 	switch config.Config.Mode {
 	case config.OperatorModeManager:
-		startAsManager(ctx, logger, deploymentIdentifier)
+		startAsManager(ctx, logger)
 	case config.OperatorModeNodeAgent:
 		startAsNodeAgent(ctx, logger)
 	default:
@@ -144,7 +143,7 @@ func startAsNodeAgent(ctx context.Context, logger logr.Logger) {
 	}
 }
 
-func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifier string) {
+func startAsManager(ctx context.Context, logger logr.Logger) {
 	metricsAddr := config.Config.BindAddress.Metrics
 	probeAddr := config.Config.BindAddress.HealthProbe
 	enableLeaderElection := config.Config.EnableLeaderElection
@@ -210,8 +209,6 @@ func startAsManager(ctx context.Context, logger logr.Logger, deploymentIdentifie
 	setupContextMiddleware := func(next WekaReconciler) reconcile.Reconciler {
 		return reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 			localCtx, _ := instrumentation.GetLoggerForContext(ctx, &logger, "")
-			// HACK: Need to expand go observability lib to support keyvaluelist  on SetupOTEL level
-			localCtx = context.WithValue(localCtx, instrumentation.ContextValuesKey{}, []any{"deployment_identifier", deploymentIdentifier})
 			return next.Reconcile(localCtx, req)
 		})
 	}
