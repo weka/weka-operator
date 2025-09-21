@@ -152,6 +152,7 @@ var Config struct {
 	CsiSnapshotterImage             string
 	CsiRegistrarImage               string
 	SyslogPackage                   string
+	Proxy                           string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -317,6 +318,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CsiSnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
 	Config.CsiRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
+	Config.Proxy = getEnvOrDefault("PROXY", "")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }
