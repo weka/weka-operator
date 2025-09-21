@@ -602,6 +602,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader && config.Config.Proxy != "" {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "HTTPS_PROXY",
+			Value: config.Config.Proxy,
+		})
+	}
+
 	if serviceAccountName != "" {
 		pod.Spec.ServiceAccountName = serviceAccountName
 	}

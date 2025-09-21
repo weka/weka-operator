@@ -402,7 +402,7 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 	return drives, nil
 }
 
-func (c *CliWekaService) SetWekaHome(ctx context.Context, config v1alpha1.WekaHomeConfig) error {
+func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig v1alpha1.WekaHomeConfig) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
 	defer end()
 
@@ -412,7 +412,7 @@ func (c *CliWekaService) SetWekaHome(ctx context.Context, config v1alpha1.WekaHo
 		return err
 	}
 	statsStr := "--cloud-stats off"
-	if *config.EnableStats == true {
+	if *wekaHomeConfig.EnableStats == true {
 		statsStr = "--cloud-stats on"
 	}
 
@@ -423,7 +423,7 @@ fi
 `
 
 	cmds := []string{}
-	if config.AllowInsecure {
+	if wekaHomeConfig.AllowInsecure {
 		cmds = append(cmds, enableInsecure)
 	}
 
@@ -432,13 +432,19 @@ if ! wekaauthcli debug override list | grep weka_cloud_ca_cert_path; then
 	weka debug override add --key weka_cloud_ca_cert_path --value \"%s\" || weka debug override add --key weka_cloud_ca_cert_path --value \"%s\" --force || true
 fi
 `
-	if config.CacertSecret != "" {
+	if wekaHomeConfig.CacertSecret != "" {
 		path := "/opt/weka/k8s-runtime/vars/wh-cacert/cert.pem"
 		customCaCertConfig = fmt.Sprintf(customCaCertConfig, path, path)
 		cmds = append(cmds, customCaCertConfig)
 	}
 
-	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s %s", config.Endpoint, statsStr)
+	// Add proxy configuration if proxy is set
+	if config.Config.Proxy != "" {
+		proxyCmd := fmt.Sprintf("wekaauthcli cloud proxy --set %s", config.Config.Proxy)
+		cmds = append(cmds, proxyCmd)
+	}
+
+	cmd := fmt.Sprintf("wekaauthcli cloud enable --cloud-url %s %s", wekaHomeConfig.Endpoint, statsStr)
 	cmds = append(cmds, cmd)
 
 	fullCmd := strings.Join(cmds, "\n")

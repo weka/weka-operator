@@ -198,6 +198,9 @@ defaultIntervals:
 # - "syslog-ng": explicitly use syslog-ng
 syslogPackage: "auto"
 
+# Proxy configuration for drivers loader pod and weka home
+proxy: ""
+
 csi:
   installationEnabled: false
   storageClassCreationDisabled: false
