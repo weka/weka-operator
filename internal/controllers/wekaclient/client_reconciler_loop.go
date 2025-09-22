@@ -821,8 +821,8 @@ func (c *clientReconcilerLoop) updateMetrics(ctx context.Context) error {
 	changed := false
 
 	stats := c.wekaClient.Status.Stats
-	if int64(stats.Containers.Desired) != int64(len(c.nodes)) {
-		stats.Containers.Desired = weka.IntMetric(len(c.nodes))
+	if int64(stats.Containers.Desired) != int64(len(c.toleratedNodes)) {
+		stats.Containers.Desired = weka.IntMetric(len(c.toleratedNodes))
 		changed = true
 	}
 
