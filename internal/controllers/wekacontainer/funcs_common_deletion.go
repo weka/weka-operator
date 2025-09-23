@@ -254,7 +254,8 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 		return err
 	}
 
-	executor, err := util.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent")
+	timeout := 1 * time.Minute
+	executor, err := util.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent", &timeout)
 	if err != nil {
 		return err
 	}

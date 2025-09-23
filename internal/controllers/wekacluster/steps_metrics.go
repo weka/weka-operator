@@ -442,7 +442,8 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 		return lifecycle.NewWaitError(errors.New("No running monitoring pod found"))
 	}
 
-	exec, err := util2.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), pod, "weka-cluster-metrics")
+	podExecTimeout := time.Minute
+	exec, err := util2.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), pod, "weka-cluster-metrics", &podExecTimeout)
 	if err != nil {
 		return err
 	}

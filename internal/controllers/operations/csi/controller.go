@@ -67,7 +67,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 	spec := CsiControllerHashableSpec{
 		CsiDriverName:         csiDriverName,
 		CsiImage:              config.Config.Csi.WekafsImage,
-		CsiAttacherImage:      config.Config.Csi.ProvisionerImage,
+		CsiAttacherImage:      config.Config.Csi.AttacherImage,
+		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
 		CsiResizerImage:       config.Config.Csi.ResizerImage,
 		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
 		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,

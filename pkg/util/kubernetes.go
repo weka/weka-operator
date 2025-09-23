@@ -80,13 +80,13 @@ func NewExecInPodWithTimeout(client rest.Interface, cfg *rest.Config, pod *v1.Po
 	return NewExecWithConfig(client, cfg, namespacedObject, timeout, "weka-container", pod.Spec.NodeName)
 }
 
-func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string) (Exec, error) {
+func NewExecInPodByName(client rest.Interface, cfg *rest.Config, pod *v1.Pod, containerName string, timeout *time.Duration) (Exec, error) {
 	namespacedObject := types.NamespacedName{
 		Namespace: pod.Namespace,
 		Name:      pod.Name,
 	}
 
-	return NewExecWithConfig(client, cfg, namespacedObject, nil, containerName, pod.Spec.NodeName)
+	return NewExecWithConfig(client, cfg, namespacedObject, timeout, containerName, pod.Spec.NodeName)
 }
 
 func (e *PodExec) exec(ctx context.Context, name string, sensitive bool, command []string) (stdout bytes.Buffer, stderr bytes.Buffer, err error) {
