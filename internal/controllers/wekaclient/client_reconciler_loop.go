@@ -1045,15 +1045,18 @@ func (c *clientReconcilerLoop) DeployCsiPlugin(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	op := operations.NewDeployCsiOperation(
+	op, err := operations.NewDeployCsiOperation(
 		c.Manager.GetClient(),
 		c.wekaClient,
 		c.GetCSIGroup(),
 		c.nodes,
 		false,
 	)
+	if err != nil {
+		return err
+	}
 
-	err := operations.ExecuteOperation(ctx, op)
+	err = operations.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to deploy CSI plugin")
 		return err
@@ -1067,14 +1070,17 @@ func (c *clientReconcilerLoop) UndeployCsiPlugin(ctx context.Context) error {
 	defer end()
 
 	logger.Info("Undeploying CSI plugin")
-	op := operations.NewDeployCsiOperation(
+	op, err := operations.NewDeployCsiOperation(
 		c.Manager.GetClient(),
 		c.wekaClient,
 		c.GetCSIGroup(),
 		c.nodes,
 		true,
 	)
-	err := operations.ExecuteOperation(ctx, op)
+	if err != nil {
+		return err
+	}
+	err = operations.ExecuteOperation(ctx, op)
 	if err != nil {
 		logger.Error(err, "failed to undeploy CSI plugin")
 		return err

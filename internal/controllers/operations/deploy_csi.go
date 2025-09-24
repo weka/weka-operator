@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -38,8 +37,11 @@ type DeployCsiResult struct {
 	Result string `json:"result"`
 }
 
-func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClient, csiGroupName string, nodes []corev1.Node, undeploy bool) *DeployCsiOperation {
-	namespace, _ := util2.GetPodNamespace()
+func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClient, csiGroupName string, nodes []corev1.Node, undeploy bool) (*DeployCsiOperation, error) {
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return nil, err
+	}
 
 	return &DeployCsiOperation{
 		client:        client,
@@ -49,7 +51,7 @@ func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClie
 		namespace:     namespace,
 		undeploy:      undeploy,
 		nodes:         nodes,
-	}
+	}, nil
 }
 
 func (o *DeployCsiOperation) AsStep() lifecycle.Step {

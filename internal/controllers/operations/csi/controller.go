@@ -3,9 +3,9 @@ package csi
 import (
 	"context"
 	"fmt"
-	"github.com/weka/go-weka-observability/instrumentation"
 	"strings"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"

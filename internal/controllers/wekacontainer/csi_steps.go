@@ -3,6 +3,7 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -35,7 +37,6 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 			Name: "CsiInstallation",
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,
-				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 			Steps: []lifecycle.Step{
 				&lifecycle.SimpleStep{
@@ -46,6 +47,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 					Run:                r.DeployCsiNodeServerPod,
 					Predicates: lifecycle.Predicates{
 						r.isWekaClientRunning,
+						lifecycle.IsNotFunc(r.PodNotSet),
 					},
 				},
 				&lifecycle.SimpleStep{
@@ -108,6 +110,11 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 	}
 	labels := csi.GetCsiLabels(r.getCsiDriverName(), csi.CSINode, r.container.Labels, csiNodeLabels)
 	tolerations := append(r.container.Spec.Tolerations, csiNodeTolerations...)
+	// tolerate all NoSchedule taints for the CSI node pod
+	tolerations = resources.ExpandNoScheduleTolerations(tolerations)
+	// add NoExecute tolerations for common node taints
+	tolerations = expandCsiNoExecuteTolerations(tolerations)
+
 	targetHash, err := r.calculateCSINodeHash(enforceTrustedHttps, labels, tolerations)
 	if err != nil {
 		return errors.Wrap(err, "failed to calculate CSI node hash")
@@ -247,4 +254,32 @@ func (r *containerReconcilerLoop) calculateCSINodeHash(enforceTrustedHttps bool,
 	}
 
 	return util.HashStruct(spec)
+}
+
+func expandCsiNoExecuteTolerations(tolerations []corev1.Toleration) []corev1.Toleration {
+	noExecuteTolerations := []string{
+		"node.kubernetes.io/disk-pressure",
+		"node.kubernetes.io/memory-pressure",
+		"node.kubernetes.io/network-unavailable",
+		"node.kubernetes.io/cpu-pressure",
+		"node.kubernetes.io/unschedulable",
+		"node.kubernetes.io/not-ready",
+		"node.kubernetes.io/unreachable",
+	}
+	existingNoExecuteTolerations := map[string]struct{}{}
+	for _, t := range tolerations {
+		if t.Effect == corev1.TaintEffectNoExecute && slices.Contains(noExecuteTolerations, t.Key) {
+			existingNoExecuteTolerations[t.Key] = struct{}{}
+		}
+	}
+	for _, key := range noExecuteTolerations {
+		if _, exists := existingNoExecuteTolerations[key]; !exists {
+			tolerations = append(tolerations, corev1.Toleration{
+				Key:      key,
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			})
+		}
+	}
+	return tolerations
 }
