@@ -35,6 +35,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 			Name: "CsiInstallation",
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,
+				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 			Steps: []lifecycle.Step{
 				&lifecycle.SimpleStep{
@@ -204,7 +205,7 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 }
 
 func (r *containerReconcilerLoop) shouldUnsetCsiTopologyLabels() bool {
-	if r.container.Status.Status != weka.Running {
+	if r.container.Status.Status != weka.Running && r.container.Status.Status != weka.Draining {
 		return true
 	}
 

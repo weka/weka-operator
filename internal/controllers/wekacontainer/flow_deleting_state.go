@@ -71,6 +71,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
+	csiSteps := CsiSteps(r)
 	metricsSteps := MetricsSteps(r)
 
 	steps2 := []lifecycle.Step{
@@ -202,7 +203,10 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
-	return append(steps1, append(metricsSteps, steps2...)...)
+	steps := append(steps1, csiSteps...)
+	steps = append(steps, metricsSteps...)
+	steps = append(steps, steps2...)
+	return steps
 }
 
 func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error {
