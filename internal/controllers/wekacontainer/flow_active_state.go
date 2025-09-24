@@ -22,7 +22,7 @@ import (
 
 // ActiveStateFlow returns the steps for a container in the active state
 func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
-	// 1. First part of the flow
+	// First part of the flow
 	steps1 := []lifecycle.Step{
 		&lifecycle.SimpleStep{
 			// TODO: check if this is still needed
@@ -65,10 +65,11 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
-	// 2. Metrics steps
 	metricsSteps := MetricsSteps(r)
 
-	// 3. Second part of the flow
+	csiSteps := CsiSteps(r)
+
+	// Second part of the flow
 	steps2 := []lifecycle.Step{
 		&lifecycle.SimpleStep{
 			Run: r.initState,
@@ -427,11 +428,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
-	csiSteps := CsiSteps(r)
-
 	steps := append(steps1, metricsSteps...)
-	steps = append(steps, steps2...)
 	steps = append(steps, csiSteps...)
+	steps = append(steps, steps2...)
 
 	return steps
 }
