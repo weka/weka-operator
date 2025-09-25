@@ -106,6 +106,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: OPERATOR_DEPLOYMENT_NAME
+              value: "{{ .Values.prefix }}-controller-manager"
             - name: OTEL_DEPLOYMENT_IDENTIFIER
               value: "{{ .Values.deploymentIdentifier }}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

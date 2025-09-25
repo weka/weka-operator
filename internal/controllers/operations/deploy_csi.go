@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -15,9 +16,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
+	"github.com/weka/weka-operator/pkg/util"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -218,6 +221,17 @@ func (o *DeployCsiOperation) deployCsiController(ctx context.Context) error {
 	defer end()
 
 	deploymentSpec, err := csi.NewCsiControllerDeployment(ctx, o.csiGroupName, o.wekaClient)
+	if err != nil {
+		return err
+	}
+
+	operatorDeployment, err := util.GetOperatorDeployment(ctx, o.client)
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator deployment")
+	}
+
+	// set owner reference to the operator deployment
+	err = controllerutil.SetControllerReference(operatorDeployment, deploymentSpec, o.client.Scheme())
 	if err != nil {
 		return err
 	}

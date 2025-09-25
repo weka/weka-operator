@@ -1134,6 +1134,17 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		targetDeployment.ObjectMeta.ResourceVersion = deployment.ObjectMeta.ResourceVersion
 		targetDeployment.ObjectMeta.UID = deployment.ObjectMeta.UID
 
+		operatorDeployment, err := util2.GetOperatorDeployment(ctx, c.Client)
+		if err != nil {
+			return errors.Wrap(err, "failed to get operator deployment")
+		}
+
+		// set owner reference to the operator deployment
+		err = controllerutil.SetControllerReference(operatorDeployment, targetDeployment, c.Scheme)
+		if err != nil {
+			return err
+		}
+
 		return c.Client.Update(ctx, targetDeployment)
 	}
 

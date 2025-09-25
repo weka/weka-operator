@@ -17,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
@@ -136,6 +137,18 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 				enforceTrustedHttps,
 				targetHash,
 			)
+
+			operatorDeployment, err := util.GetOperatorDeployment(ctx, r.Client)
+			if err != nil {
+				return errors.Wrap(err, "failed to get operator deployment")
+			}
+
+			// set owner reference to the operator deployment
+			err = controllerutil.SetControllerReference(operatorDeployment, podSpec, r.Scheme)
+			if err != nil {
+				return err
+			}
+
 			if err = r.Create(ctx, podSpec); err != nil {
 				if !apierrors.IsAlreadyExists(err) {
 					return errors.Wrap(err, "failed to create CSI node pod")

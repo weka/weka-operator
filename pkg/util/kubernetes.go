@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"go.opentelemetry.io/otel/codes"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/utils/exec"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 )
@@ -174,6 +176,28 @@ func GetPodNamespace() (string, error) {
 		return "", err
 	}
 	return string(namespace), nil
+}
+
+func GetOperatorDeployment(ctx context.Context, k8sClient crclient.Client) (*appsv1.Deployment, error) {
+	if config.Config.OperatorDeploymentName == "" {
+		return nil, &ConfigurationError{Message: "Operator deployment name is not set"}
+	}
+
+	namespace, err := GetPodNamespace()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get operator namespace")
+	}
+
+	var deployment appsv1.Deployment
+	err = k8sClient.Get(ctx, types.NamespacedName{
+		Name:      config.Config.OperatorDeploymentName,
+		Namespace: namespace,
+	}, &deployment)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get operator deployment")
+	}
+
+	return &deployment, nil
 }
 
 func IsEqualConfigMapData(cm1, cm2 *v1.ConfigMap) bool {
