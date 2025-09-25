@@ -102,7 +102,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 						emptyRef := weka.ObjectReference{}
 						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
 					},
-					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
 				},
 			},
 			&lifecycle.SimpleStep{
@@ -145,7 +145,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				SkipStepStateCheck: true,
 				Run:                loop.DeployCsiPlugin,
 				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
 					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
 			},
@@ -159,7 +159,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.UpdateCsiController,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
-					func() bool { return config.Config.CsiInstallationEnabled },
+					func() bool { return config.Config.Csi.Enabled },
 					func() bool {
 						return wekaClient.Spec.CsiConfig == nil || !wekaClient.Spec.CsiConfig.DisableControllerCreation
 					},
@@ -254,7 +254,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return errors.Wrap(err, "failed to mark containers destroying")
 	}
 
-	if config.Config.CsiInstallationEnabled {
+	if config.Config.Csi.Enabled {
 		err = c.UndeployCsiPlugin(ctx)
 		if err != nil {
 			return errors.Wrap(err, "failed to undeploy CSI plugin")
@@ -1024,7 +1024,7 @@ func (c *clientReconcilerLoop) getClusterContainers(ctx context.Context) []*weka
 }
 
 func (c *clientReconcilerLoop) CheckCsiConfigChanged(ctx context.Context) error {
-	if !config.Config.CsiInstallationEnabled {
+	if !config.Config.Csi.Enabled {
 		// if we are here, installation was switched off
 		return c.UndeployCsiPlugin(ctx)
 	}
@@ -1148,6 +1148,6 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 		return c.Client.Update(ctx, targetDeployment)
 	}
 
-	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.CsiImage)
+	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.Csi.WekafsImage)
 	return nil
 }

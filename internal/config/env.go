@@ -89,6 +89,19 @@ type TolerationsMismatchSettings struct {
 	IgnoredTaints       []string
 }
 
+type EmbeddedCsiSettings struct {
+	Enabled                                       bool
+	StorageClassCreationDisabled                  bool
+	WekafsImage                                   string
+	ProvisionerImage                              string
+	AttacherImage                                 string
+	LivenessProbeImage                            string
+	ResizerImage                                  string
+	SnapshotterImage                              string
+	RegistrarImage                                string
+	PreventNewWorkloadOnClientContainerNotRunning bool
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -143,17 +156,9 @@ var Config struct {
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
 
-	CsiInstallationEnabled          bool
-	CsiStorageClassCreationDisabled bool
-	CsiImage                        string
-	CsiProvisionerImage             string
-	CsiAttacherImage                string
-	CsiLivenessProbeImage           string
-	CsiResizerImage                 string
-	CsiSnapshotterImage             string
-	CsiRegistrarImage               string
-	SyslogPackage                   string
-	Proxy                           string
+	Csi           EmbeddedCsiSettings
+	SyslogPackage string
+	Proxy         string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -310,15 +315,16 @@ func ConfigureEnv(ctx context.Context) {
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")
 
 	// CSI configuration
-	Config.CsiInstallationEnabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
-	Config.CsiStorageClassCreationDisabled = getBoolEnvOrDefault("CSI_STORAGE_CLASS_CREATION_DISABLED", false)
-	Config.CsiImage = env.GetString("CSI_IMAGE", "")
-	Config.CsiProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
-	Config.CsiAttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
-	Config.CsiLivenessProbeImage = env.GetString("CSI_LIVENESSPROBE_IMAGE", "")
-	Config.CsiResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
-	Config.CsiSnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
-	Config.CsiRegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
+	Config.Csi.Enabled = getBoolEnvOrDefault("CSI_INSTALLATION_ENABLED", false)
+	Config.Csi.StorageClassCreationDisabled = getBoolEnvOrDefault("CSI_STORAGE_CLASS_CREATION_DISABLED", false)
+	Config.Csi.WekafsImage = env.GetString("CSI_IMAGE", "")
+	Config.Csi.ProvisionerImage = env.GetString("CSI_PROVISIONER_IMAGE", "")
+	Config.Csi.AttacherImage = env.GetString("CSI_ATTACHER_IMAGE", "")
+	Config.Csi.LivenessProbeImage = env.GetString("CSI_LIVENESSPROBE_IMAGE", "")
+	Config.Csi.ResizerImage = env.GetString("CSI_RESIZER_IMAGE", "")
+	Config.Csi.SnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
+	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
+	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
 	Config.Proxy = getEnvOrDefault("PROXY", "")
 

@@ -75,7 +75,7 @@ func NewCsiNodePod(
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &privileged,
 					},
-					Image:           config.Config.CsiImage,
+					Image:           config.Config.Csi.WekafsImage,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Args:            args,
 					Ports: []corev1.ContainerPort{
@@ -168,7 +168,7 @@ func NewCsiNodePod(
 				},
 				{
 					Name:  "liveness-probe",
-					Image: config.Config.CsiLivenessProbeImage,
+					Image: config.Config.Csi.LivenessProbeImage,
 					Args: []string{
 						"--v=5",
 						"--csi-address=$(ADDRESS)",
@@ -193,7 +193,7 @@ func NewCsiNodePod(
 				},
 				{
 					Name:  "csi-registrar",
-					Image: config.Config.CsiRegistrarImage,
+					Image: config.Config.Csi.RegistrarImage,
 					Args: []string{
 						"--v=5",
 						"--csi-address=$(ADDRESS)",

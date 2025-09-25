@@ -246,6 +246,8 @@ spec:
               value: "{{ .Values.csi.snapshotterImage }}"
             - name: CSI_REGISTRAR_IMAGE
               value: "{{ .Values.csi.registrarImage }}"
+            - name: CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING
+              value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
             - name: SYSLOG_PACKAGE
               value: "{{ .Values.syslogPackage }}"
             - name: PROXY

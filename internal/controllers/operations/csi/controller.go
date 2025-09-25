@@ -63,12 +63,11 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 
 	spec := CsiControllerHashableSpec{
 		CsiDriverName:         csiDriverName,
-		CsiImage:              config.Config.CsiImage,
-		CsiAttacherImage:      config.Config.CsiAttacherImage,
-		CsiProvisionerImage:   config.Config.CsiProvisionerImage,
-		CsiResizerImage:       config.Config.CsiResizerImage,
-		CsiSnapshotterImage:   config.Config.CsiSnapshotterImage,
-		CsiLivenessProbeImage: config.Config.CsiLivenessProbeImage,
+		CsiImage:              config.Config.Csi.WekafsImage,
+		CsiAttacherImage:      config.Config.Csi.ProvisionerImage,
+		CsiResizerImage:       config.Config.Csi.ResizerImage,
+		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
+		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
 		Labels:                labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
@@ -195,7 +194,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
-							Image:           config.Config.CsiImage,
+							Image:           config.Config.Csi.WekafsImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
 							Ports: []corev1.ContainerPort{
@@ -287,7 +286,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						},
 						{
 							Name:  "csi-attacher",
-							Image: config.Config.CsiAttacherImage,
+							Image: config.Config.Csi.AttacherImage,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
@@ -330,7 +329,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						},
 						{
 							Name:  "csi-provisioner",
-							Image: config.Config.CsiProvisionerImage,
+							Image: config.Config.Csi.ProvisionerImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -373,7 +372,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						},
 						{
 							Name:  "csi-resizer",
-							Image: config.Config.CsiResizerImage,
+							Image: config.Config.Csi.ResizerImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -414,7 +413,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						},
 						{
 							Name:  "csi-snapshotter",
-							Image: config.Config.CsiSnapshotterImage,
+							Image: config.Config.Csi.SnapshotterImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",
@@ -462,7 +461,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 								},
 							},
-							Image: config.Config.CsiLivenessProbeImage,
+							Image: config.Config.Csi.LivenessProbeImage,
 							Args: []string{
 								"--v=5",
 								"--csi-address=$(ADDRESS)",

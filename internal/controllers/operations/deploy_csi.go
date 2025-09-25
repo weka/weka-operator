@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
@@ -76,7 +78,7 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Name: "DeployStorageClasses",
 			Run:  o.deployStorageClasses,
 			Predicates: lifecycle.Predicates{
-				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+				lifecycle.BoolValue(!config.Config.Csi.StorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
@@ -99,7 +101,7 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Name: "UndeployStorageClasses",
 			Run:  o.undeployStorageClasses,
 			Predicates: lifecycle.Predicates{
-				lifecycle.BoolValue(!config.Config.CsiStorageClassCreationDisabled),
+				lifecycle.BoolValue(!config.Config.Csi.StorageClassCreationDisabled),
 				func() bool {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
@@ -330,76 +332,104 @@ func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 	}
 }
 
-func getCsiTopologyLabelKeys(csiDriverName string) (nodeLabel, transportLabel, accessibleLabel string) {
-	return fmt.Sprintf("topology.%s/node", csiDriverName),
-		fmt.Sprintf("topology.%s/transport", csiDriverName),
-		fmt.Sprintf("topology.%s/accessible", csiDriverName)
+type CsiTopologyLabelsService struct {
+	nodeName        string
+	container       *weka.WekaContainer
+	hasActiveMounts bool
+
+	nodeLabelKey       string
+	transportLabelKey  string
+	accessibleLabelKey string
+
+	expectedLabels map[string]string
 }
 
-func CheckCsiNodeTopologyLabelsSet(node corev1.Node, csiDriverName string, all bool) (bool, error) {
-	labels := node.Labels
-	if labels == nil {
-		return false, nil
+func NewCsiTopologyLabelsService(csiDriverName, nodeName string, container *weka.WekaContainer, hasActiveMounts bool) *CsiTopologyLabelsService {
+	return &CsiTopologyLabelsService{
+		nodeName:        nodeName,
+		container:       container,
+		hasActiveMounts: hasActiveMounts,
+		// get the label keys for the given CSI driver name
+		nodeLabelKey:       fmt.Sprintf("topology.%s/node", csiDriverName),
+		transportLabelKey:  fmt.Sprintf("topology.%s/transport", csiDriverName),
+		accessibleLabelKey: fmt.Sprintf("topology.%s/accessible", csiDriverName),
 	}
-
-	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
-	_, hasNodeLabel := labels[nodeLabel]
-	_, hasTransportLabel := labels[transportLabel]
-	_, hasAccessibleLabel := labels[accessibleLabel]
-
-	if all {
-		return hasNodeLabel && hasTransportLabel && hasAccessibleLabel, nil
-	}
-
-	return hasNodeLabel || hasTransportLabel || hasAccessibleLabel, nil
 }
 
-func SetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCsiNodeTopologyLabels")
-	defer end()
-
-	logger.Info("Setting CSI node topology labels", "node", node.Name, "csiDriverName", csiDriverName)
-
-	labels := node.Labels
-	if labels == nil {
-		labels = make(map[string]string)
+func (s *CsiTopologyLabelsService) GetExpectedCsiTopologyLabels() map[string]string {
+	if s.expectedLabels != nil {
+		return s.expectedLabels
 	}
 
-	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
-	labels[nodeLabel] = node.Name
-	labels[transportLabel] = "wekafs"
-	labels[accessibleLabel] = "true"
+	labels := make(map[string]string)
 
-	node.Labels = labels
-
-	if err := client.Update(ctx, &node); err != nil {
-		return fmt.Errorf("failed to update node %s with topology labels: %w", node.Name, err)
+	if s.nodeIsCsiAccessible() {
+		labels[s.accessibleLabelKey] = "true"
 	}
 
-	return nil
+	if s.hasActiveMounts || s.nodeIsCsiAccessible() {
+		labels[s.nodeLabelKey] = s.nodeName
+		labels[s.transportLabelKey] = "wekafs"
+	}
+
+	s.expectedLabels = labels
+
+	return labels
 }
 
-func UnsetCsiNodeTopologyLabels(ctx context.Context, client client.Client, node corev1.Node, csiDriverName string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnsetCsiNodeTopologyLabels")
-	defer end()
+func (s *CsiTopologyLabelsService) UpdateNodeLabels(node *corev1.Node, expectedLabels map[string]string) *corev1.Node {
+	// copy expected labels
+	maps.Copy(node.Labels, expectedLabels)
 
-	logger.Info("Unsetting CSI node topology labels", "node", node.Name, "csiDriverName", csiDriverName)
-
-	labels := node.Labels
-	if labels == nil {
-		return nil
+	// remove unexpected labels
+	for key, _ := range node.Labels {
+		if key == s.nodeLabelKey || key == s.transportLabelKey || key == s.accessibleLabelKey {
+			if _, exists := expectedLabels[key]; !exists {
+				delete(node.Labels, key)
+			}
+		}
 	}
 
-	nodeLabel, transportLabel, accessibleLabel := getCsiTopologyLabelKeys(csiDriverName)
-	delete(labels, nodeLabel)
-	delete(labels, transportLabel)
-	delete(labels, accessibleLabel)
+	return node
+}
 
-	node.Labels = labels
+func (s *CsiTopologyLabelsService) NodeHasExpectedCsiTopologyLabels(node *corev1.Node) bool {
+	expectedLabels := s.GetExpectedCsiTopologyLabels()
 
-	if err := client.Update(ctx, &node); err != nil {
-		return fmt.Errorf("failed to update node %s with topology labels: %w", node.Name, err)
+	// check if node has no expected label key or has wrong value
+	for key, expectedValue := range expectedLabels {
+		actualValue, exists := node.Labels[key]
+		if !exists || actualValue != expectedValue {
+			return false
+		}
 	}
 
-	return nil
+	// check if node has any unexpected label key
+	for key := range node.Labels {
+		if key == s.nodeLabelKey || key == s.transportLabelKey || key == s.accessibleLabelKey {
+			if _, exists := expectedLabels[key]; !exists {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
+	container := s.container
+
+	if config.Config.Csi.PreventNewWorkloadOnClientContainerNotRunning && container.Status.Status != weka.Running {
+		return false
+	}
+
+	// we should have stats and they should be recent
+	if container.Status.Stats == nil || container.Status.Stats.LastUpdate.IsZero() {
+		return false
+	}
+
+	processes := container.Status.Stats.Processes
+	allProcessesActive := processes.Active > 0 && processes.Active == processes.Desired
+
+	return allProcessesActive && time.Since(container.Status.Stats.LastUpdate.Time) < 5*time.Minute
 }

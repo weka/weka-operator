@@ -12,12 +12,12 @@ import (
 
 func TestGetCsiControllerDeploymentHash(t *testing.T) {
 	// Setup config
-	config.Config.CsiImage = "test-csi-image"
-	config.Config.CsiAttacherImage = "test-attacher-image"
-	config.Config.CsiProvisionerImage = "test-provisioner-image"
-	config.Config.CsiResizerImage = "test-resizer-image"
-	config.Config.CsiSnapshotterImage = "test-snapshotter-image"
-	config.Config.CsiLivenessProbeImage = "test-liveness-image"
+	config.Config.Csi.WekafsImage = "test-csi-image"
+	config.Config.Csi.AttacherImage = "test-attacher-image"
+	config.Config.Csi.ProvisionerImage = "test-provisioner-image"
+	config.Config.Csi.ResizerImage = "test-resizer-image"
+	config.Config.Csi.SnapshotterImage = "test-snapshotter-image"
+	config.Config.Csi.LivenessProbeImage = "test-liveness-image"
 
 	// Create test WekaClient
 	wekaClient := &weka.WekaClient{
@@ -96,12 +96,12 @@ func TestGetCsiControllerDeploymentHash(t *testing.T) {
 
 func TestGetCsiControllerDeploymentHashWithoutAdvancedConfig(t *testing.T) {
 	// Setup config
-	config.Config.CsiImage = "test-csi-image"
-	config.Config.CsiAttacherImage = "test-attacher-image"
-	config.Config.CsiProvisionerImage = "test-provisioner-image"
-	config.Config.CsiResizerImage = "test-resizer-image"
-	config.Config.CsiSnapshotterImage = "test-snapshotter-image"
-	config.Config.CsiLivenessProbeImage = "test-liveness-image"
+	config.Config.Csi.WekafsImage = "test-csi-image"
+	config.Config.Csi.AttacherImage = "test-attacher-image"
+	config.Config.Csi.ProvisionerImage = "test-provisioner-image"
+	config.Config.Csi.ResizerImage = "test-resizer-image"
+	config.Config.Csi.SnapshotterImage = "test-snapshotter-image"
+	config.Config.Csi.LivenessProbeImage = "test-liveness-image"
 
 	// Create test WekaClient without advanced CSI config
 	wekaClient := &weka.WekaClient{

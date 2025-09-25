@@ -57,7 +57,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				func() bool {
 					return r.wekaClient != nil && r.wekaClient.Spec.TargetCluster.Name != ""
 				},
-				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				lifecycle.BoolValue(config.Config.Csi.Enabled),
 			},
 		},
 		&lifecycle.SimpleStep{

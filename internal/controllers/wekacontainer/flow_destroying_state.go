@@ -32,7 +32,7 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				func() bool {
 					return r.wekaClient != nil && r.wekaClient.Spec.TargetCluster.Name != ""
 				},
-				lifecycle.BoolValue(config.Config.CsiInstallationEnabled),
+				lifecycle.BoolValue(config.Config.Csi.Enabled),
 			},
 		},
 		// if cluster marked container state as destroying, update status and put deletion timestamp

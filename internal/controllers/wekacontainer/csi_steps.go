@@ -26,8 +26,12 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+func GetCsiNodeServerPodName(containerName string) string {
+	return fmt.Sprintf("%s-csi-node", containerName)
+}
+
 func (r *containerReconcilerLoop) WekaContainerManagesCsi() bool {
-	return r.container.IsClientContainer() && config.Config.CsiInstallationEnabled
+	return r.container.IsClientContainer() && config.Config.Csi.Enabled
 }
 
 func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
@@ -63,13 +67,14 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.CleanupCsiNodeServerPod,
 			Predicates: lifecycle.Predicates{
 				container.IsClientContainer,
-				lifecycle.BoolValue(!config.Config.CsiInstallationEnabled),
+				lifecycle.BoolValue(!config.Config.Csi.Enabled),
 				lifecycle.IsTrueCondition(condition.CondCsiDeployed, &r.container.Status.Conditions),
 			},
 			Throttling: &throttling.ThrottlingSettings{
 				Interval:                    10 * time.Minute,
 				DisableRandomPreSetInterval: true,
 			},
+			ContinueOnError: true,
 		},
 	}
 }
@@ -99,7 +104,7 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 		return err
 	}
 
-	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
+	csiNodeName := GetCsiNodeServerPodName(r.container.Name)
 
 	var csiNodeLabels map[string]string
 	var csiNodeTolerations []corev1.Toleration
@@ -164,38 +169,35 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 }
 
 func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	csiDriverName := r.getCsiDriverName()
+	nodeName := r.container.GetNodeAffinity()
+	if nodeName == "" {
+		return errors.New("node affinity is not set")
+	}
 
-	if r.shouldUnsetCsiTopologyLabels(ctx) {
-		anyLabelSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName, false)
+	activeMounts, err := r.getCachedActiveMounts(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get active mounts")
+	}
+
+	hasActiveMounts := activeMounts != nil && *activeMounts > 0
+
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container, hasActiveMounts)
+	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
+		defer end()
+
+		expectedLabels := csiTopologyLabelsService.GetExpectedCsiTopologyLabels()
+		logger.Info("Updating node with CSI topology labels", "labels", expectedLabels)
+
+		node := csiTopologyLabelsService.UpdateNodeLabels(r.node, expectedLabels)
+
+		err = r.Update(ctx, node)
 		if err != nil {
-			return errors.Wrap(err, "failed to check CSI node topology labels")
-		}
-		if anyLabelSet {
-			err = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
-			if err != nil {
-				logger.Error(err, "Failed to unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
-				return nil
-			} else {
-				activeProcesses := fmt.Sprintf("%d/%d", r.container.Status.Stats.Processes.Active, r.container.Status.Stats.Processes.Desired)
-				logger.Info("Unset CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName, "status", r.container.Status.Status, "activeProcesses", activeProcesses)
-			}
-		}
-	} else {
-		labelsSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName, true)
-		if err != nil {
-			return errors.Wrap(err, "failed to check CSI node topology labels")
-		}
-		if !labelsSet {
-			err = operations.SetCsiNodeTopologyLabels(ctx, r.Client, *r.node, csiDriverName)
-			if err != nil {
-				return errors.Wrap(err, "failed to set CSI node topology labels")
-			} else {
-				logger.Info("Set CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
-			}
+			return errors.Wrap(err, "failed to update node with CSI topology labels")
 		}
 	}
 
@@ -210,7 +212,7 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 	if err != nil {
 		return err
 	}
-	csiNodeName := fmt.Sprintf("%s-csi-node", r.container.Name)
+	csiNodeName := GetCsiNodeServerPodName(r.container.Name)
 	if err = r.Delete(ctx, &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      csiNodeName,
@@ -219,28 +221,32 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 	}); err != nil {
 		if !apierrors.IsNotFound(err) {
 			logger.Error(err, "Failed to delete CSI node pod", "pod_name", csiNodeName, "namespace", namespace)
+			return errors.Wrap(err, "failed to delete CSI node pod")
 		}
 	}
+
+	logger.Info("CSI node pod deleted", "pod_name", csiNodeName, "namespace", namespace)
 	return nil
 }
 
-func (r *containerReconcilerLoop) shouldUnsetCsiTopologyLabels(ctx context.Context) bool {
-	activeMounts, _ := r.getCachedActiveMounts(ctx)
+func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnsetCsiNodeTopologyLabels")
+	defer end()
 
-	if r.container.Status.Status != weka.Running && (activeMounts == nil || *activeMounts == 0) {
-		return true
+	csiDriverName := r.getCsiDriverName()
+	nodeName := r.node.Name
+
+	logger.Info("Unsetting CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
+
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, r.container, false)
+	node := csiTopologyLabelsService.UpdateNodeLabels(r.node, nil)
+
+	err := r.Update(ctx, node)
+	if err != nil {
+		return errors.Wrap(err, "failed to update node to unset CSI topology labels")
 	}
 
-	if r.container.Status.Stats == nil || r.container.Status.Stats.LastUpdate.IsZero() {
-		return false
-	}
-
-	return !r.areAllProcessesActive() && time.Since(r.container.Status.Stats.LastUpdate.Time) < 10*time.Minute
-}
-
-func (r *containerReconcilerLoop) areAllProcessesActive() bool {
-	processes := r.container.Status.Stats.Processes
-	return processes.Active > 0 && processes.Active == processes.Desired
+	return nil
 }
 
 func (r *containerReconcilerLoop) shouldDeployCsiNodeServerPod() bool {
@@ -263,9 +269,9 @@ type csiNodeHashableSpec struct {
 func (r *containerReconcilerLoop) calculateCSINodeHash(enforceTrustedHttps bool, labels map[string]string, tolerations []v1.Toleration) (string, error) {
 	spec := csiNodeHashableSpec{
 		CsiDriverName:         r.getCsiDriverName(),
-		CsiRegisterImage:      config.Config.CsiRegistrarImage,
-		CsiLivenessProbeImage: config.Config.CsiLivenessProbeImage,
-		CsiImage:              config.Config.CsiImage,
+		CsiRegisterImage:      config.Config.Csi.RegistrarImage,
+		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
+		CsiImage:              config.Config.Csi.WekafsImage,
 		Labels:                util.NewHashableMap(labels),
 		Tolerations:           tolerations,
 		EnforceTrustedHttps:   enforceTrustedHttps,

@@ -129,17 +129,13 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	// remove csi node topology labels
 	// NOTE: wekaClient is needed for getCsiDriverName
 	if r.wekaClient != nil && r.node != nil && r.WekaContainerManagesCsi() {
-		_ = operations.UnsetCsiNodeTopologyLabels(ctx, r.Client, *r.node, r.getCsiDriverName())
+		err = r.UnsetCsiNodeTopologyLabels(ctx)
+		if err != nil {
+			return err
+		}
 	}
-
 	// delete csi node pod
-	csiNodePodNamespace, _ := util.GetPodNamespace()
-	csiNodePod := &v1.Pod{}
-	csiNodePod.Name = fmt.Sprintf("%s-csi-node", r.container.Name)
-	csiNodePod.Namespace = csiNodePodNamespace
-	_ = r.Delete(ctx, csiNodePod)
-
-	return nil
+	return r.CleanupCsiNodeServerPod(ctx)
 }
 
 func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) error {
