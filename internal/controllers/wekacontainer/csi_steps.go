@@ -46,7 +46,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 					SkipStepStateCheck: true,
 					Run:                r.DeployCsiNodeServerPod,
 					Predicates: lifecycle.Predicates{
-						r.isWekaClientRunning,
+						r.shouldDeployCsiNodeServerPod,
 						lifecycle.IsNotFunc(r.PodNotSet),
 					},
 				},
@@ -156,7 +156,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 
 	csiDriverName := r.getCsiDriverName()
 
-	if r.shouldUnsetCsiTopologyLabels() {
+	if r.shouldUnsetCsiTopologyLabels(ctx) {
 		anyLabelSet, err := operations.CheckCsiNodeTopologyLabelsSet(*r.node, csiDriverName, false)
 		if err != nil {
 			return errors.Wrap(err, "failed to check CSI node topology labels")
@@ -211,8 +211,10 @@ func (r *containerReconcilerLoop) CleanupCsiNodeServerPod(ctx context.Context) e
 	return nil
 }
 
-func (r *containerReconcilerLoop) shouldUnsetCsiTopologyLabels() bool {
-	if r.container.Status.Status != weka.Running && r.container.Status.Status != weka.Draining {
+func (r *containerReconcilerLoop) shouldUnsetCsiTopologyLabels(ctx context.Context) bool {
+	activeMounts, _ := r.getCachedActiveMounts(ctx)
+
+	if r.container.Status.Status != weka.Running && (activeMounts == nil || *activeMounts == 0) {
 		return true
 	}
 
@@ -228,8 +230,11 @@ func (r *containerReconcilerLoop) areAllProcessesActive() bool {
 	return processes.Active > 0 && processes.Active == processes.Desired
 }
 
-func (r *containerReconcilerLoop) isWekaClientRunning() bool {
-	return r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
+func (r *containerReconcilerLoop) shouldDeployCsiNodeServerPod() bool {
+	// or we have active mounts
+	wekaClientIsRunning := r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
+	preCalculatedActiveMounts := r.activeMounts
+	return wekaClientIsRunning || (preCalculatedActiveMounts != nil && *preCalculatedActiveMounts > 0)
 }
 
 type csiNodeHashableSpec struct {
