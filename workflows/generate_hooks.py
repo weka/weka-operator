@@ -10,6 +10,7 @@ from typing import List, Dict, Any
 
 from agents import OpenAIChatCompletionsModel, Agent, ModelSettings, Runner, function_tool, RunContextWrapper, TContext, \
     Tool
+from agents.lifecycle import RunHooksBase
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ gemini_pro_model = OpenAIChatCompletionsModel(
 )
 
 
-class LogHooks():
+class LogHooks(RunHooksBase):
     async def on_agent_start(
             self, context: RunContextWrapper[TContext], agent: Agent[TContext]
     ) -> None:
