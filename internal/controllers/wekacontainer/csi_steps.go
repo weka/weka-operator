@@ -62,6 +62,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 					},
 				},
 			},
+			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
 			Run: r.CleanupCsiNodeServerPod,
@@ -243,6 +244,10 @@ func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context
 
 	err := r.Update(ctx, node)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("node is deleted, no need for cleanup")
+			return nil
+		}
 		return errors.Wrap(err, "failed to update node to unset CSI topology labels")
 	}
 
