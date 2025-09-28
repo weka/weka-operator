@@ -65,6 +65,10 @@ func (r *containerReconcilerLoop) NodeNotSet() bool {
 	return r.node == nil
 }
 
+func (r *containerReconcilerLoop) NodeIsSet() bool {
+	return r.node != nil
+}
+
 func (r *containerReconcilerLoop) PodNotRunning() bool {
 	return r.pod.Status.Phase != v1.PodRunning
 }

@@ -42,6 +42,7 @@ func CsiSteps(r *containerReconcilerLoop) []lifecycle.Step {
 			Name: "CsiInstallation",
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,
+				r.NodeIsSet,
 			},
 			Steps: []lifecycle.Step{
 				&lifecycle.SimpleStep{
