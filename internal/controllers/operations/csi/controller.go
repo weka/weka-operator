@@ -3,6 +3,7 @@ package csi
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -32,6 +33,7 @@ type CsiControllerHashableSpec struct {
 	NodeSelector          *util2.HashableMap
 	EnforceTrustedHttps   bool
 	SkipGarbageCollection bool
+	LogLevel              int
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -73,6 +75,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		NodeSelector:          nodeSelectorHashable,
 		EnforceTrustedHttps:   enforceTrustedHttps,
 		SkipGarbageCollection: skipGarbageCollection,
+		LogLevel:              config.Config.Csi.LogLevel,
 	}
 
 	return util2.HashStruct(spec)
@@ -118,7 +121,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 
 	args := []string{
 		"--drivername=$(CSI_DRIVER_NAME)",
-		"--v=5",
+		"--v=$(LOG_LEVEL)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
 		"--dynamic-path=$(CSI_DYNAMIC_PATH)",
@@ -243,6 +246,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Value: "false",
 								},
 								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+								},
+								{
 									Name: "KUBE_NODE_NAME",
 									ValueFrom: &corev1.EnvVarSource{
 										FieldRef: &corev1.ObjectFieldSelector{
@@ -292,7 +299,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							},
 							Args: []string{
 								"--csi-address=$(ADDRESS)",
-								"--v=5",
+								"--v=$(LOG_LEVEL)",
 								"--timeout=60s",
 								"--leader-election",
 								"--leader-election-namespace=" + namespace,
@@ -303,6 +310,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								{
 									Name:  "ADDRESS",
 									Value: "unix:///csi/csi.sock",
+								},
+								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
@@ -331,7 +342,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name:  "csi-provisioner",
 							Image: config.Config.Csi.ProvisionerImage,
 							Args: []string{
-								"--v=5",
+								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--feature-gates=Topology=true",
 								"--timeout=60s",
@@ -355,6 +366,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "ADDRESS",
 									Value: "unix:///csi/csi.sock",
 								},
+								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -374,7 +389,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name:  "csi-resizer",
 							Image: config.Config.Csi.ResizerImage,
 							Args: []string{
-								"--v=5",
+								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--timeout=60s",
 								"--http-endpoint=:9092",
@@ -396,6 +411,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "ADDRESS",
 									Value: "unix:///csi/csi.sock",
 								},
+								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -415,7 +434,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Name:  "csi-snapshotter",
 							Image: config.Config.Csi.SnapshotterImage,
 							Args: []string{
-								"--v=5",
+								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--timeout=60s",
 								"--leader-election",
@@ -444,6 +463,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "ADDRESS",
 									Value: "unix:///csi/csi.sock",
 								},
+								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+								},
 							},
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							VolumeMounts: []corev1.VolumeMount{
@@ -463,7 +486,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							},
 							Image: config.Config.Csi.LivenessProbeImage,
 							Args: []string{
-								"--v=5",
+								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--health-port=$(HEALTH_PORT)",
 							},
@@ -475,6 +498,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								{
 									Name:  "HEALTH_PORT",
 									Value: "9898",
+								},
+								{
+									Name:  "LOG_LEVEL",
+									Value: strconv.Itoa(config.Config.Csi.LogLevel),
 								},
 							},
 						},

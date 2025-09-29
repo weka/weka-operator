@@ -100,6 +100,7 @@ type EmbeddedCsiSettings struct {
 	SnapshotterImage                              string
 	RegistrarImage                                string
 	PreventNewWorkloadOnClientContainerNotRunning bool
+	LogLevel                                      int
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -325,6 +326,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.SnapshotterImage = env.GetString("CSI_SNAPSHOTTER_IMAGE", "")
 	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
+	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
 	Config.Proxy = getEnvOrDefault("PROXY", "")
 

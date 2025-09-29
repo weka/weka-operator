@@ -248,6 +248,8 @@ spec:
               value: "{{ .Values.csi.registrarImage }}"
             - name: CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING
               value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
+            - name: CSI_LOG_LEVEL
+              value: "{{ .Values.csi.logLevel }}"
             - name: SYSLOG_PACKAGE
               value: "{{ .Values.syslogPackage }}"
             - name: PROXY

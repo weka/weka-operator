@@ -212,3 +212,4 @@ csi:
   snapshotterImage: "registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0"
   registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0"
   preventNewWorkloadOnClientContainerNotRunning: true
+  logLevel: 5

@@ -3,6 +3,7 @@ package csi
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -26,7 +27,7 @@ func NewCsiNodePod(
 ) *corev1.Pod {
 	privileged := true
 	args := []string{
-		"--v=5",
+		"--v=$(LOG_LEVEL)",
 		"--drivername=$(CSI_DRIVER_NAME)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -135,6 +136,10 @@ func NewCsiNodePod(
 								},
 							},
 						},
+						{
+							Name:  "LOG_LEVEL",
+							Value: strconv.Itoa(config.Config.Csi.LogLevel),
+						},
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
@@ -170,7 +175,7 @@ func NewCsiNodePod(
 					Name:  "liveness-probe",
 					Image: config.Config.Csi.LivenessProbeImage,
 					Args: []string{
-						"--v=5",
+						"--v=$(LOG_LEVEL)",
 						"--csi-address=$(ADDRESS)",
 						"--health-port=$(HEALTH_PORT)",
 					},
@@ -182,6 +187,10 @@ func NewCsiNodePod(
 						{
 							Name:  "HEALTH_PORT",
 							Value: "9899",
+						},
+						{
+							Name:  "LOG_LEVEL",
+							Value: strconv.Itoa(config.Config.Csi.LogLevel),
 						},
 					},
 					VolumeMounts: []corev1.VolumeMount{
@@ -195,7 +204,7 @@ func NewCsiNodePod(
 					Name:  "csi-registrar",
 					Image: config.Config.Csi.RegistrarImage,
 					Args: []string{
-						"--v=5",
+						"--v=$(LOG_LEVEL)",
 						"--csi-address=$(ADDRESS)",
 						"--kubelet-registration-path=$(KUBELET_REGISTRATION_PATH)",
 						"--timeout=60s",
@@ -228,6 +237,10 @@ func NewCsiNodePod(
 						{
 							Name:  "KUBELET_REGISTRATION_PATH",
 							Value: fmt.Sprintf("/var/lib/kubelet/plugins/%s/csi.sock", name),
+						},
+						{
+							Name:  "LOG_LEVEL",
+							Value: strconv.Itoa(config.Config.Csi.LogLevel),
 						},
 					},
 					VolumeMounts: []corev1.VolumeMount{
