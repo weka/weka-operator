@@ -26,23 +26,11 @@ import (
 )
 
 func (r *containerReconcilerLoop) ShouldAllocateNICs() bool {
-	if !r.container.IsBackend() && !r.container.IsClientContainer() {
-		return false
-	}
-
-	if r.container.Spec.Network.EthDevice != "" || len(r.container.Spec.Network.EthDevices) > 0 || len(r.container.Spec.Network.DeviceSubnets) > 0 {
+	if r.container.ShouldSkipNICsAllocation() {
 		return false
 	}
 
 	if r.node == nil {
-		return false
-	}
-
-	if r.container.IsMarkedForDeletion() {
-		return false
-	}
-
-	if r.container.Spec.Network.UdpMode {
 		return false
 	}
 
