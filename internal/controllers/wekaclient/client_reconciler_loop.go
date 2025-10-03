@@ -69,7 +69,8 @@ type clientReconcilerLoop struct {
 	upgradeInProgress bool
 	ExecService       exec.ExecService
 	targetCluster     *weka.WekaCluster
-	csiDeployed       bool
+	// true if there is a different existing client managing the CSI deployment
+	csiDeploymentOwnedByDifferentClient bool
 }
 
 func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) lifecycle.StepsEngine {
@@ -102,6 +103,12 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 						emptyRef := weka.ObjectReference{}
 						return wekaClient.Spec.TargetCluster != emptyRef && wekaClient.Spec.TargetCluster.Name != ""
 					},
+					lifecycle.BoolValue(config.Config.Csi.Enabled),
+				},
+			},
+			&lifecycle.SimpleStep{
+				Run: loop.CheckExistingCsiControllerOwner,
+				Predicates: lifecycle.Predicates{
 					lifecycle.BoolValue(config.Config.Csi.Enabled),
 				},
 			},
@@ -145,7 +152,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				SkipStepStateCheck: true,
 				Run:                loop.DeployCsiPlugin,
 				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.Csi.Enabled),
+					loop.clientManagesCsiDeployment,
 					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
 			},
@@ -159,11 +166,12 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.UpdateCsiController,
 				Predicates: lifecycle.Predicates{
 					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
-					func() bool { return config.Config.Csi.Enabled },
+					loop.clientManagesCsiDeployment,
 					func() bool {
 						return wekaClient.Spec.CsiConfig == nil || !wekaClient.Spec.CsiConfig.DisableControllerCreation
 					},
 				},
+				ContinueOnError: true,
 			},
 			&lifecycle.SimpleStep{Run: loop.HandleSpecUpdates},
 			&lifecycle.SimpleStep{Run: loop.HandleUpgrade},
@@ -178,6 +186,10 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			},
 		},
 	}
+}
+
+func (c *clientReconcilerLoop) clientManagesCsiDeployment() bool {
+	return config.Config.Csi.Enabled && !c.csiDeploymentOwnedByDifferentClient
 }
 
 func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
@@ -254,7 +266,7 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return errors.Wrap(err, "failed to mark containers destroying")
 	}
 
-	if config.Config.Csi.Enabled {
+	if c.clientManagesCsiDeployment() {
 		err = c.UndeployCsiPlugin(ctx)
 		if err != nil {
 			return errors.Wrap(err, "failed to undeploy CSI plugin")
@@ -1100,23 +1112,13 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	controllerDeploymentName := csi.GetCSIControllerName(c.GetCSIGroup())
-	namespace, err := util2.GetPodNamespace()
+	deployment, err := c.getExistingCsiControllerDeployment(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to get pod namespace")
+		return err
 	}
-
-	deployment := &appsv1.Deployment{}
-	err = c.Get(ctx, client.ObjectKey{
-		Name:      controllerDeploymentName,
-		Namespace: namespace,
-	}, deployment)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("CSI controller deployment not found, will be created")
-			return nil
-		}
-		return errors.Wrap(err, "failed to get CSI controller deployment")
+	if deployment == nil {
+		logger.Info("CSI controller deployment not found, skipping update")
+		return nil
 	}
 
 	targetDeployment, err := csi.NewCsiControllerDeployment(ctx, c.GetCSIGroup(), c.wekaClient)
@@ -1145,9 +1147,108 @@ func (c *clientReconcilerLoop) UpdateCsiController(ctx context.Context) error {
 			return err
 		}
 
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiController")
+		defer end()
+
 		return c.Client.Update(ctx, targetDeployment)
 	}
 
 	logger.Debug("CSI controller deployment is up to date", "targetHash", targetHash, "csiImage", config.Config.Csi.WekafsImage)
 	return nil
+}
+
+func (c *clientReconcilerLoop) CheckExistingCsiControllerOwner(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	deployment, err := c.getExistingCsiControllerDeployment(ctx)
+	if err != nil {
+		return err
+	}
+	if deployment == nil {
+		logger.Info("CSI controller deployment not found, skipping owner check")
+		return nil
+	}
+
+	isOwnedByDifferentClient, err := c.isOwnedByDifferentWekaClient(ctx, deployment)
+	if err != nil {
+		return err
+	}
+
+	c.csiDeploymentOwnedByDifferentClient = isOwnedByDifferentClient
+
+	return nil
+}
+
+func (c *clientReconcilerLoop) getExistingCsiControllerDeployment(ctx context.Context) (*appsv1.Deployment, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiControllerDeployment")
+	defer end()
+
+	controllerDeploymentName := csi.GetCSIControllerName(c.GetCSIGroup())
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get pod namespace")
+	}
+
+	deployment := &appsv1.Deployment{}
+	err = c.Get(ctx, client.ObjectKey{
+		Name:      controllerDeploymentName,
+		Namespace: namespace,
+	}, deployment)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("CSI controller deployment not found")
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "failed to get CSI controller deployment")
+	}
+
+	return deployment, nil
+}
+
+func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context, deployment *appsv1.Deployment) (bool, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "isOwnedByDifferentWekaClient")
+	defer end()
+
+	// if csi controller was deployed by different client, and this client still exists, do not interfere
+	ownerWekaClientAnnotation, ok := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner"]
+	if ok && ownerWekaClientAnnotation != string(c.wekaClient.GetUID()) {
+		logger.Debug("CSI controller deployment is owned by different WekaClient",
+			"ownerWekaClient", ownerWekaClientAnnotation, "currentWekaClient", string(c.wekaClient.GetUID()))
+
+		// check if the owner WekaClient still exists
+		ownerClientName, _ := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-name"]
+		ownerClientNamespace, _ := deployment.Spec.Template.Annotations["weka.io/csi-controller-owner-namespace"]
+
+		// both annotations must be present, otherwise we want to proceed with update and take ownership
+		if ownerClientName == "" || ownerClientNamespace == "" {
+			logger.Info("Owner WekaClient annotations are missing, can take ownership of CSI controller deployment",
+				"ownerWekaClient", ownerWekaClientAnnotation, "ownerClientName", ownerClientName, "ownerClientNamespace", ownerClientNamespace)
+
+			return false, nil
+		}
+
+		ownerClient := &weka.WekaClient{}
+		err := c.Get(ctx, client.ObjectKey{
+			Name:      ownerClientName,
+			Namespace: ownerClientNamespace,
+		}, ownerClient)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("Owner WekaClient not found, can take ownership of CSI controller deployment",
+					"ownerWekaClient", ownerWekaClientAnnotation, "ownerClientName", ownerClientName, "ownerClientNamespace", ownerClientNamespace)
+				return false, nil
+			}
+			return false, errors.Wrap(err, "failed to get owner WekaClient")
+		}
+
+		// owner WekaClient still exists, do not interfere
+		logger.Info("Owner WekaClient still exists, cannot take ownership of CSI controller deployment",
+			"ownerWekaClient", ownerWekaClientAnnotation, "ownerClientName", ownerClientName, "ownerClientNamespace", ownerClientNamespace)
+		return true, nil
+	}
+
+	logger.Debug("CSI controller deployment is not owned by different WekaClient")
+
+	return false, nil
 }
