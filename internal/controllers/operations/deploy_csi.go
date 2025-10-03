@@ -35,6 +35,10 @@ type DeployCsiOperation struct {
 	csiDriverName string
 	undeploy      bool
 	nodes         []corev1.Node
+	// existing resources
+	csiDriverExists     bool
+	storageClassesExist bool
+	csiControllerExists bool
 }
 
 type DeployCsiResult struct {
@@ -69,10 +73,14 @@ func (o *DeployCsiOperation) AsStep() lifecycle.Step {
 func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 	deploySteps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
+			Name: "GetExistingCsiResources",
+			Run:  o.getExistingCsiResources,
+		},
+		&lifecycle.SimpleStep{
 			Name: "DeployCsiDriver",
 			Run:  o.deployCsiDriver,
 			Predicates: lifecycle.Predicates{
-				o.shouldDeployCSIDriver,
+				func() bool { return !o.csiDriverExists },
 			}},
 		&lifecycle.SimpleStep{
 			Name: "DeployStorageClasses",
@@ -83,14 +91,14 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 					emptyRef := weka.ObjectReference{}
 					return o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != ""
 				},
-				o.shouldDeployStorageClass,
+				func() bool { return !o.storageClassesExist },
 			}},
 		&lifecycle.SimpleStep{
 			Name: "DeployCsiController",
 			Run:  o.deployCsiController,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
-				o.shouldDeployCSIController,
+				func() bool { return !o.csiControllerExists },
 			}},
 	}
 	undeploySteps := []lifecycle.Step{
@@ -262,58 +270,57 @@ func (o *DeployCsiOperation) undeployCsiController(ctx context.Context) error {
 	return nil
 }
 
-func (o *DeployCsiOperation) shouldDeployCSIDriver() bool {
-	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployCSIDriver")
+func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiResources")
 	defer end()
 
+	// Get existing CSIDriver
 	listOpts := []client.ListOption{
 		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIDriver, nil, nil)),
 	}
 	var existingList storagev1.CSIDriverList
 	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
 		logger.Error(err, "failed to list existing CSIDrivers")
-		return false
+		return err
 	}
 	if len(existingList.Items) > 0 {
-		return false
+		o.csiDriverExists = true
+		logger.Debug("Found existing CSIDriver", "name", existingList.Items[0].Name)
 	}
-	return true
-}
 
-func (o *DeployCsiOperation) shouldDeployStorageClass() bool {
-	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployStorageClass")
-	defer end()
-
-	listOpts := []client.ListOption{
+	// Get existing StorageClasses
+	listOpts = []client.ListOption{
 		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIStorageclass, nil, nil)),
 	}
-	var existingList storagev1.StorageClassList
-	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
+	var existingScList storagev1.StorageClassList
+	if err := o.client.List(ctx, &existingScList, listOpts...); err != nil {
 		logger.Error(err, "failed to list existing StorageClasses")
-		return false
+		return err
 	}
-	if len(existingList.Items) > 0 {
-		return false
+	if len(existingScList.Items) > 0 {
+		o.storageClassesExist = true
+		var scNames []string
+		for _, sc := range existingScList.Items {
+			scNames = append(scNames, sc.Name)
+		}
+		logger.Debug("Found existing StorageClasses", "names", scNames)
 	}
-	return true
-}
 
-func (o *DeployCsiOperation) shouldDeployCSIController() bool {
-	ctx, logger, end := instrumentation.GetLogSpan(context.Background(), "shouldDeployCSIController")
-	defer end()
-
-	listOpts := []client.ListOption{
+	// Get existing CSI Controller Deployment
+	listOpts = []client.ListOption{
 		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSIController, nil, nil)),
 	}
-	var existingList appsv1.DeploymentList
-	if err := o.client.List(ctx, &existingList, listOpts...); err != nil {
+	var existingDepList appsv1.DeploymentList
+	if err := o.client.List(ctx, &existingDepList, listOpts...); err != nil {
 		logger.Error(err, "failed to list existing Deployments")
-		return false
+		return err
 	}
-	if len(existingList.Items) > 0 {
-		return false
+	if len(existingDepList.Items) > 0 {
+		o.csiControllerExists = true
+		logger.Debug("Found existing CSI Controller Deployment", "name", existingDepList.Items[0].Name)
 	}
-	return true
+
+	return nil
 }
 
 func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {

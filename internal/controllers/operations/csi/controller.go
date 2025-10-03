@@ -186,6 +186,11 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						"prometheus.io/path":          "/metrics",
 						"prometheus.io/port":          "9090,9091,9092,9093,9095",
 						"weka.io/csi-controller-hash": targetHash,
+						// link the deployment to the client for easier identification of "owner"
+						// NOTE: we cannot use owner references because the client and controller are in different namespaces
+						"weka.io/csi-controller-owner":           string(wekaClient.GetUID()),
+						"weka.io/csi-controller-owner-name":      wekaClient.Name,
+						"weka.io/csi-controller-owner-namespace": wekaClient.Namespace,
 					},
 				},
 				Spec: corev1.PodSpec{
