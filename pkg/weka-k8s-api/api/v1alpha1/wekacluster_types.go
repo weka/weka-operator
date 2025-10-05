@@ -54,6 +54,10 @@ type Network struct {
 	DeviceSubnets          []string          `json:"deviceSubnets,omitempty"`
 	Selectors              []NetworkSelector `json:"selectors,omitempty"`
 	ManagementIPsSelectors []NetworkSelector `json:"managementIpsSelectors,omitempty"`
+	// BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+	// When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+	// When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+	BindManagementAll bool `json:"bindManagementAll,omitempty"`
 }
 
 type AdditionalMemory struct {
