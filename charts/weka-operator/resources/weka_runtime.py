@@ -812,7 +812,7 @@ async def load_drivers():
                 if ec != 0:
                     logging.error(f"Failed to get drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
                     raise Exception(f"Failed to get drivers: {stderr.decode('utf-8')}")
-                
+
         if is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
         else:
@@ -1563,7 +1563,7 @@ async def ensure_weka_container():
     resources['auto_discovery_enabled'] = False
     resources["ips"] = MANAGEMENT_IPS
     ff = await get_feature_flags()
-    if ff.supports_binding_to_not_all_interfaces:
+    if ff.supports_binding_to_not_all_interfaces and os.environ.get("BIND_MANAGEMENT_ALL", "false").lower() == "false":
         resources["restrict_listen"] = True
 
     # resources["mask_interrupts"] = True
