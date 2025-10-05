@@ -311,6 +311,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: managementIPsSelectors,
 						},
 						{
+							Name:  "BIND_MANAGEMENT_ALL",
+							Value: strconv.FormatBool(f.container.Spec.Network.BindManagementAll),
+						},
+						{
 							Name:  "NET_GATEWAY",
 							Value: gateway,
 						},
