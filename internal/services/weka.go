@@ -637,6 +637,10 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 			return nil
 
 		}
+		if strings.Contains(stderr.String(), "S3 cluster is not configured") {
+			logger.Error(err, "S3 cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
+			return fmt.Errorf("s3 cluster is not configured")
+		}
 		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}

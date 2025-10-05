@@ -53,6 +53,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run:  r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
+				r.NodeIsSet,
 				r.ShouldDeactivate,
 				lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
 				lifecycle.IsNotFunc(r.container.IsS3Container), // no need to recover S3 container on deactivate
@@ -66,6 +67,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsWekaContainer,
 				r.ShouldDeactivate,
 				r.PodIsSet,
+				r.NodeIsSet,
 				lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
 			},
 		},
@@ -240,7 +242,7 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 }
 
 func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error {
-	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	err := r.stopAndEnsureNoPod(ctx)
@@ -260,7 +262,16 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 	executeInContainer := discovery.SelectActiveContainer(containers)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
-	return wekaService.RemoveFromS3Cluster(ctx, *containerId)
+	err = wekaService.RemoveFromS3Cluster(ctx, *containerId)
+	if err != nil {
+		// Don't fail if S3 cluster doesn't exist
+		if err.Error() == "s3 cluster is not configured" {
+			logger.Info("S3 cluster is not configured, skipping removal", "container_id", *containerId)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
@@ -323,6 +334,10 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 
 	wekaContainer, err := wekaService.GetWekaContainer(ctx, *containerId)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			logger.Info("Container not found in cluster, assuming it is already deactivated", "container_id", *containerId)
+			return nil
+		}
 		return err
 	}
 
