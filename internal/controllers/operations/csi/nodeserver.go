@@ -70,6 +70,7 @@ func NewCsiNodePod(
 		Spec: corev1.PodSpec{
 			NodeName:           nodeName,
 			ServiceAccountName: "csi-wekafs-node-sa",
+			PriorityClassName:  config.Config.PriorityClasses.Targeted,
 			Containers: []corev1.Container{
 				{
 					Name: "wekafs",

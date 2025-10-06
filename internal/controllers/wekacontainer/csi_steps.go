@@ -270,6 +270,7 @@ type csiNodeHashableSpec struct {
 	Labels                *util.HashableMap
 	Tolerations           []corev1.Toleration
 	EnforceTrustedHttps   bool
+	PriorityClassName     string
 }
 
 func (r *containerReconcilerLoop) calculateCSINodeHash(enforceTrustedHttps bool, labels map[string]string, tolerations []v1.Toleration) (string, error) {
@@ -281,6 +282,7 @@ func (r *containerReconcilerLoop) calculateCSINodeHash(enforceTrustedHttps bool,
 		Labels:                util.NewHashableMap(labels),
 		Tolerations:           tolerations,
 		EnforceTrustedHttps:   enforceTrustedHttps,
+		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 	}
 
 	return util.HashStruct(spec)
