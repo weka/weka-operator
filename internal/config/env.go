@@ -103,6 +103,11 @@ type EmbeddedCsiSettings struct {
 	LogLevel                                      int
 }
 
+type PriorityClasses struct {
+	Initial  string
+	Targeted string
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -157,9 +162,10 @@ var Config struct {
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
 
-	Csi           EmbeddedCsiSettings
-	SyslogPackage string
-	Proxy         string
+	Csi             EmbeddedCsiSettings
+	SyslogPackage   string
+	Proxy           string
+	PriorityClasses PriorityClasses
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -329,6 +335,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
 	Config.Proxy = getEnvOrDefault("PROXY", "")
+
+	// Priority classes configuration
+	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial")
+	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }
