@@ -180,9 +180,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	serviceAccountName := f.container.Spec.ServiceAccountName
 	var priorityClassName string
 	if f.container.GetNodeAffinity() != "" {
-		priorityClassName = "weka-targeted"
+		priorityClassName = config.Config.PriorityClasses.Targeted
 	} else {
-		priorityClassName = "weka-initial"
+		priorityClassName = config.Config.PriorityClasses.Initial
 	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

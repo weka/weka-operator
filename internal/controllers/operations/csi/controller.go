@@ -34,6 +34,7 @@ type CsiControllerHashableSpec struct {
 	EnforceTrustedHttps   bool
 	SkipGarbageCollection bool
 	LogLevel              int
+	PriorityClassName     string
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -76,6 +77,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		EnforceTrustedHttps:   enforceTrustedHttps,
 		SkipGarbageCollection: skipGarbageCollection,
 		LogLevel:              config.Config.Csi.LogLevel,
+		PriorityClassName:     config.Config.PriorityClasses.Targeted,
 	}
 
 	return util2.HashStruct(spec)
@@ -196,6 +198,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 				Spec: corev1.PodSpec{
 					NodeSelector:       nodeSelector,
 					ServiceAccountName: "csi-wekafs-controller-sa",
+					PriorityClassName:  config.Config.PriorityClasses.Targeted,
 					Containers: []corev1.Container{
 						{
 							Name: "wekafs",
