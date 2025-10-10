@@ -71,3 +71,30 @@ func tolerationSecondsString(tolerationSeconds *int64) string {
 	}
 	return "nil"
 }
+
+// TolerationsEqual checks if two tolerations are equal
+func TolerationsEqual(a, b corev1.Toleration) bool {
+	return a.Key == b.Key &&
+		a.Operator == b.Operator &&
+		a.Value == b.Value &&
+		a.Effect == b.Effect &&
+		tolerationSecondsEqual(a.TolerationSeconds, b.TolerationSeconds)
+}
+
+// TolerationsEqualExceptSeconds checks if two tolerations are equal ignoring tolerationSeconds
+func TolerationsEqualExceptSeconds(a, b corev1.Toleration) bool {
+	return a.Key == b.Key &&
+		a.Operator == b.Operator &&
+		a.Value == b.Value &&
+		a.Effect == b.Effect
+}
+
+func tolerationSecondsEqual(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}

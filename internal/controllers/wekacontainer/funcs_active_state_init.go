@@ -173,6 +173,64 @@ func (r *containerReconcilerLoop) podMetadataChanged() bool {
 	return !util.NewHashableMap(newAnnotations).Equals(util.NewHashableMap(oldAnnotations))
 }
 
+func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	pod := r.pod
+	containerTolerations := r.container.Spec.Tolerations
+
+	var newTolerations []v1.Toleration
+	var updatedTolerations []v1.Toleration
+	podTolerations := make([]v1.Toleration, len(pod.Spec.Tolerations))
+	copy(podTolerations, pod.Spec.Tolerations)
+
+	// Process each desired toleration from WekaContainer spec
+	for _, desired := range containerTolerations {
+		foundIndex := -1
+		for i, current := range podTolerations {
+			if util.TolerationsEqualExceptSeconds(desired, current) {
+				foundIndex = i
+				break
+			}
+		}
+
+		if foundIndex == -1 {
+			// Toleration not found, add it
+			newTolerations = append(newTolerations, desired)
+		} else if !util.TolerationsEqual(desired, podTolerations[foundIndex]) {
+			// Toleration found but tolerationSeconds differs, update it
+			podTolerations[foundIndex] = desired
+			updatedTolerations = append(updatedTolerations, desired)
+		}
+	}
+
+	if len(newTolerations) == 0 && len(updatedTolerations) == 0 {
+		return nil
+	}
+
+	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doTolerationsUpdate")
+	defer end()
+
+	if len(newTolerations) > 0 {
+		logger.Debug("Adding new tolerations to pod", "new_tolerations", newTolerations)
+		podTolerations = append(podTolerations, newTolerations...)
+	}
+
+	if len(updatedTolerations) > 0 {
+		logger.Debug("Updating tolerationSeconds for existing tolerations", "updated_tolerations", updatedTolerations)
+	}
+
+	pod.Spec.Tolerations = podTolerations
+
+	if err := r.Update(ctx, pod); err != nil {
+		return fmt.Errorf("failed to update pod tolerations: %w", err)
+	}
+	r.pod = pod
+
+	return nil
+}
+
 func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) error {
 	// clear r.container.Status.Timestamps[TimestampStopAttempt
 	if r.container.Status.Timestamps == nil {

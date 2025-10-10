@@ -99,6 +99,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.updatePodTolerationsOnChange,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.PodNotSet),
+			},
+		},
+		&lifecycle.SimpleStep{
 			// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
 			Run: r.dropStopAttemptRecord,
 			Predicates: lifecycle.Predicates{
