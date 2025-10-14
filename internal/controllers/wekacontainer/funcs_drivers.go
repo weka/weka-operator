@@ -68,8 +68,9 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 	}
 
 	pod := r.pod
+	timeout := 15 * time.Second
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return false, err
