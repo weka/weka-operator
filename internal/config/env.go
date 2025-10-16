@@ -337,8 +337,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Proxy = getEnvOrDefault("PROXY", "")
 
 	// Priority classes configuration
-	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial")
-	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted")
+	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial-no-evict")
+	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted-no-evict")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }
