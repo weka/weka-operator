@@ -203,10 +203,10 @@ proxy: ""
 
 # Priority classes configuration
 priorityClasses:
-  # The operator always creates default priority classes: weka-initial and weka-targeted
+  # The operator always creates default priority classes: weka-initial-no-evict and weka-targeted-no-evict
   # Users can override the names below to use their own existing priority classes instead
-  initial: "weka-initial"        # Priority class name for initial weka containers
-  targeted: "weka-targeted"      # Priority class name for re-scheduled weka containers, node agents, CSI controller and CSI node server
+  initial: "weka-initial-no-evict"        # Priority class name for initial weka containers
+  targeted: "weka-targeted-no-evict"      # Priority class name for re-scheduled weka containers, node agents, CSI controller and CSI node server
   # Values for the default priority classes that are always created
   defaultValues:
     initial: 900000000
