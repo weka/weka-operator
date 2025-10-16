@@ -4,6 +4,7 @@ metadata:
   name: weka-targeted
 value: {{ .Values.priorityClasses.defaultValues.targeted }}
 globalDefault: false
+preemptionPolicy: Never
 description: "Re-scheduled weka containers, node agents, CSI controller and CSI node server pods"
 ---
 apiVersion: scheduling.k8s.io/v1
@@ -12,4 +13,5 @@ metadata:
   name: weka-initial
 value: {{ .Values.priorityClasses.defaultValues.initial }}
 globalDefault: false
+preemptionPolicy: Never
 description: "Initial weka containers pods"
