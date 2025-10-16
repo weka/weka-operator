@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+
 	"github.com/weka/weka-operator/pkg/util"
 )
 
 func (r *containerReconcilerLoop) getManagementIps(ctx context.Context) ([]string, error) {
-	executor, err := r.ExecService.GetExecutor(ctx, r.container)
+	timeout := 10 * time.Second
+
+	executor, err := r.ExecService.GetExecutorWithTimeout(ctx, r.container, &timeout)
 	if err != nil {
 		return nil, err
 	}
