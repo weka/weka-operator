@@ -663,6 +663,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	if !container.Spec.Network.Equal(&newClientSpec.Network) {
+		container.Spec.Network = newClientSpec.Network
+		changed = true
+	}
+
 	newTolerations := util.ExpandTolerations([]v1.Toleration{}, newClientSpec.Tolerations, newClientSpec.RawTolerations)
 	oldTolerations := util.NormalizeTolerations(container.Spec.Tolerations)
 	if !reflect.DeepEqual(oldTolerations, newTolerations) {
@@ -985,6 +990,7 @@ type UpdatableClientSpec struct {
 	PvcConfig             *weka.PVCConfig
 	TracesConfiguration   *weka.TracesConfiguration
 	CpuPolicy             weka.CpuPolicy
+	Network               weka.Network
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -1015,6 +1021,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		PvcConfig:             resources.GetPvcConfig(spec.GlobalPVC),
 		TracesConfiguration:   spec.TracesConfiguration,
 		CpuPolicy:             spec.CpuPolicy,
+		Network:               spec.Network,
 	}
 }
 
