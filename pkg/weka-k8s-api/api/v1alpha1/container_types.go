@@ -99,7 +99,7 @@ const (
 	PersistencePathBaseRhCos        = "/root/k8s-weka"
 	OsNameOpenshift                 = "rhcos"
 	OsNameCos                       = "cos"
-	// Statis is fine, since we will not relay on host network here
+	// Static is fine, since we will not rely on host network here
 	StaticPortAdhocyWCOperations      = 60040
 	StaticPortAdhocyWCOperationsAgent = 60039
 )

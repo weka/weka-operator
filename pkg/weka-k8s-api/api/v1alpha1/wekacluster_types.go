@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"slices"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -44,6 +45,20 @@ type NetworkSelector struct {
 	DeviceNames []string `json:"deviceNames,omitempty"`
 }
 
+func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
+	if n == nil && o == nil {
+		return true
+	}
+	if n == nil || o == nil {
+		return false
+	}
+
+	return n.Subnet == o.Subnet &&
+		n.Min == o.Min &&
+		n.Max == o.Max &&
+		slices.Equal(n.DeviceNames, o.DeviceNames)
+}
+
 type Network struct {
 	EthDevice  string   `json:"ethDevice,omitempty"`
 	EthDevices []string `json:"ethDevices,omitempty"`
@@ -58,6 +73,53 @@ type Network struct {
 	// When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
 	// When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
 	BindManagementAll bool `json:"bindManagementAll,omitempty"`
+}
+
+func (n *Network) Equal(o *Network) bool {
+	if n == nil && o == nil {
+		return true
+	}
+	if n == nil || o == nil {
+		return false
+	}
+
+	// Compare simple fields
+	if n.EthDevice != o.EthDevice ||
+		n.Gateway != o.Gateway ||
+		n.UdpMode != o.UdpMode ||
+		n.BindManagementAll != o.BindManagementAll {
+		return false
+	}
+
+	// Compare string slices
+	if !slices.Equal(n.EthDevices, o.EthDevices) {
+		return false
+	}
+
+	if !slices.Equal(n.DeviceSubnets, o.DeviceSubnets) {
+		return false
+	}
+
+	// Compare NetworkSelector slices
+	if len(n.Selectors) != len(o.Selectors) {
+		return false
+	}
+	for i, v := range n.Selectors {
+		if !v.Equal(&o.Selectors[i]) {
+			return false
+		}
+	}
+
+	if len(n.ManagementIPsSelectors) != len(o.ManagementIPsSelectors) {
+		return false
+	}
+	for i, v := range n.ManagementIPsSelectors {
+		if !v.Equal(&o.ManagementIPsSelectors[i]) {
+			return false
+		}
+	}
+
+	return true
 }
 
 type AdditionalMemory struct {
