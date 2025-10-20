@@ -2159,27 +2159,20 @@ def is_port_free(port: int) -> bool:
                 if len(cols) < 10:
                     continue
                 local_addr = cols[1]         # e.g. "0100007F:0016"
-                state_hex  = cols[3]         # e.g. "0A" for TCP LISTEN
-                ip_hex, port_hex = local_addr.split(':')
 
                 try:
+                    ip_hex, port_hex = local_addr.split(':')
                     used_port = int(port_hex, 16)
-                except ValueError:
+                except (ValueError, IndexError):
                     continue
+
                 if used_port == 0:
                     continue
 
-                if "tcp" in path:
-                    # Only count TCP ports in LISTEN state (0A)
-                    if state_hex.upper() == "0A":
-                        if used_port == port:
-                            logging.debug(f"Port {port} is already in use")
-                            return False
-                else:
-                    # UDP: treat any bound socket as "used"
-                    if used_port == port:
-                        logging.debug(f"Port {port} is already in use")
-                        return False
+                # Check if the local port is in use (any TCP/UDP state)
+                if used_port == port:
+                    logging.debug(f"Port {port} is already in use")
+                    return False
 
     return True
 
