@@ -369,6 +369,12 @@ spec:
               network:
                 description: weka cluster network configuration
                 properties:
+                  bindManagementAll:
+                    description: |-
+                      BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                      When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                      When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                    type: boolean
                   deviceSubnets:
                     description: subnet that is used for devices auto-discovery
                     items:
@@ -6141,6 +6147,12 @@ spec:
                   compute:
                     description: network selector for compute weka containers
                     properties:
+                      bindManagementAll:
+                        description: |-
+                          BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                          When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                          When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                        type: boolean
                       deviceSubnets:
                         description: subnet that is used for devices auto-discovery
                         items:
@@ -6191,6 +6203,12 @@ spec:
                   drive:
                     description: network selector for drive weka containers
                     properties:
+                      bindManagementAll:
+                        description: |-
+                          BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                          When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                          When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                        type: boolean
                       deviceSubnets:
                         description: subnet that is used for devices auto-discovery
                         items:
@@ -6241,6 +6259,12 @@ spec:
                   nfs:
                     description: network selector for nfs weka containers
                     properties:
+                      bindManagementAll:
+                        description: |-
+                          BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                          When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                          When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                        type: boolean
                       deviceSubnets:
                         description: subnet that is used for devices auto-discovery
                         items:
@@ -6291,6 +6315,12 @@ spec:
                   s3:
                     description: network selector for s3 weka containers
                     properties:
+                      bindManagementAll:
+                        description: |-
+                          BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                          When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                          When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                        type: boolean
                       deviceSubnets:
                         description: subnet that is used for devices auto-discovery
                         items:
