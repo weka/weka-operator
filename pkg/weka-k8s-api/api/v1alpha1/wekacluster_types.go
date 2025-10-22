@@ -60,11 +60,25 @@ func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
 }
 
 type Network struct {
-	EthDevice  string   `json:"ethDevice,omitempty"`
+	// The name of a single network interface (for example, eth1) to be used by every backend container.
+	// This is for clusters that use only one dedicated NIC for the data path.
+	// You cannot use this field with ethDevices.
+	// If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
+	EthDevice string `json:"ethDevice,omitempty"`
+	// A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+	// The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+	// You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
 	EthDevices []string `json:"ethDevices,omitempty"`
-	Gateway    string   `json:"gateway,omitempty"`
-	UdpMode    bool     `json:"udpMode,omitempty"`
-	// subnet that is used for devices auto-discovery
+	// The default gateway IPv4 address for the backend containers’ data-path network.
+	// This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+	// If you have a flat, non-routed backend network, you can leave this field empty.
+	Gateway string `json:"gateway,omitempty"`
+	// A setting that enables or disables UDP encapsulation for backend traffic.
+	// - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+	// This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
+	UdpMode bool `json:"udpMode,omitempty"`
+	// A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+	// The operator assigns IP addresses from these subnets to the backend containers for their data path network
 	// +kubebuilder:validation:items:Pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}\\/[0-9]{1,2}$"
 	DeviceSubnets          []string          `json:"deviceSubnets,omitempty"`
 	Selectors              []NetworkSelector `json:"selectors,omitempty"`
