@@ -309,7 +309,7 @@ type WekaService interface {
 	ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
-	RemoveContainer(ctx context.Context, containerId int) error
+	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
 	DeactivateDrive(ctx context.Context, driveUuid string) error
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
@@ -984,7 +984,7 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 	return nil
 }
 
-func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int) error {
+func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error {
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
 		return err
@@ -992,6 +992,11 @@ func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int) e
 	cmd := []string{
 		"wekaauthcli", "cluster", "container", "remove", strconv.Itoa(containerId),
 	}
+
+	if noUnimprint {
+		cmd = append(cmd, "--no-unimprint")
+	}
+
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveContainer", cmd)
 	if err != nil {
 		// error: Host HostId<15> not found\n\x00
