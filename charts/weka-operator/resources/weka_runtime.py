@@ -2990,7 +2990,7 @@ async def shutdown():
             force_shutdown_task = asyncio.create_task(watch_for_force_shutdown())
 
         while await is_container_running(no_agent_as_not_running=force_stop):
-            await run_command(f"weka local stop {stop_flag}", capture_stdout=False)
+            await run_command(f"timeout 180 weka local stop {stop_flag}", capture_stdout=False)
             await asyncio.sleep(3)
             
         if force_shutdown_task is not None:
