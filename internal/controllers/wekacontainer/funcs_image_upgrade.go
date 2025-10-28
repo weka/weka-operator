@@ -169,11 +169,8 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	}
 
 	if !container.Spec.AllowHotUpgrade {
-		logger.Debug("Hot upgrade is not enabled, issuing weka local stop")
-		err := r.runWekaLocalStop(ctx, pod, false)
-		if err != nil {
-			return err
-		}
+		logger.Debug("Hot upgrade is not enabled, allowing pod to go down without any prepare")
+		// NOTE: we had explicit weka local stop here, but it seems to be not really needed
 	} else {
 		logger.Info("Running prepare-upgrade")
 		err = r.runDriverPrepareUpgrade(ctx, executor)
