@@ -1415,3 +1415,12 @@ func GetPodShutdownInstructionPathOnAgent(bootId string, pod *corev1.Pod) string
 	podUid := pod.UID
 	return path.Join("/host-binds/shared/containers/", string(containerUid), "instructions", string(podUid), bootId)
 }
+
+func GetWekaPodContainer(pod *corev1.Pod) (corev1.Container, error) {
+	for _, podContainer := range pod.Spec.Containers {
+		if podContainer.Name == "weka-container" {
+			return podContainer, nil
+		}
+	}
+	return corev1.Container{}, errors.New("Weka container not found in pod")
+}

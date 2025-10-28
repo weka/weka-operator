@@ -16,6 +16,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -656,7 +657,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	pod := r.pod
 	container := r.container
 
-	wekaContainer, err := r.getWekaPodContainer(pod)
+	wekaContainer, err := resources.GetWekaPodContainer(pod)
 	if err != nil {
 		return err
 	}

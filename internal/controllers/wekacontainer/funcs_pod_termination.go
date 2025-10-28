@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 )
 
 func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) error {
@@ -43,7 +44,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 
 	if container.Spec.Image != container.Status.LastAppliedImage && container.Status.LastAppliedImage != "" {
 		var wekaPodContainer v1.Container
-		wekaPodContainer, err := r.getWekaPodContainer(pod)
+		wekaPodContainer, err := resources.GetWekaPodContainer(pod)
 		if err != nil {
 			return err
 		}
