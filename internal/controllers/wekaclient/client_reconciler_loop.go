@@ -153,8 +153,8 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run:                loop.DeployCsiPlugin,
 				Predicates: lifecycle.Predicates{
 					loop.clientManagesCsiDeployment,
-					lifecycle.BoolValue(wekaClient.Status.Status == weka.WekaClientStatusRunning),
 				},
+				ContinueOnError: true,
 			},
 			&lifecycle.SimpleStep{
 				Run: loop.CheckCsiConfigChanged,
