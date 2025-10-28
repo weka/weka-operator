@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -50,7 +51,7 @@ func (r *containerReconcilerLoop) DeactivateDrives(ctx context.Context) error {
 		return err
 	}
 
-	return workers.ProcessConcurrently(ctx, drives, 5, func(ctx context.Context, drive services.Drive) error {
+	return workers.ProcessConcurrently(ctx, drives, 5, func(ctx context.Context, drive weka.Drive) error {
 		switch drive.Status {
 		case statusActive:
 			logger.Info("Deactivating drive", "drive_id", drive.Uuid)

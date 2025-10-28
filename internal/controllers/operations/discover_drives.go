@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -16,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
@@ -41,14 +42,6 @@ type DiscoverDrivesOperation struct {
 	tolerations     []corev1.Toleration
 }
 
-type DriveInfo struct {
-	SerialId   string `json:"serial_id"`
-	WekaGuid   string `json:"weka_guid"`
-	DevicePath string `json:"block_device"`
-	Partition  string `json:"partition"`
-	IsSigned   bool   `json:"is_signed"` // Means drive is signed by Weka
-}
-
 type DriveRawInfo struct {
 	SerialId  string `json:"serial_id"`
 	Path      string `json:"path"`
@@ -56,9 +49,9 @@ type DriveRawInfo struct {
 }
 
 type DriveNodeResults struct {
-	Err       error          `json:"err"`
-	Drives    []DriveInfo    `json:"drives"`
-	RawDrives []DriveRawInfo `json:"raw_drives"`
+	Err       error              `json:"err"`
+	Drives    []domain.DriveInfo `json:"drives"`
+	RawDrives []DriveRawInfo     `json:"raw_drives"`
 }
 
 type DiscoverDrivesResult struct {

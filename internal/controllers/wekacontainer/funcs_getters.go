@@ -3,9 +3,8 @@ package wekacontainer
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -22,6 +21,7 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func NodeIsReady(node *v1.Node) bool {
@@ -123,6 +123,43 @@ func (r *containerReconcilerLoop) ResultsAreProcessed() bool {
 		}
 	}
 	return false
+}
+
+func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
+	if r.container.Status.Stats != nil {
+		activeDrives := int(r.container.Status.Stats.Drives.DriveCounters.Active)
+		if activeDrives == len(r.container.Status.AddedDrives) &&
+			activeDrives == r.container.Spec.NumDrives {
+			// all drives are added and active
+			return true
+		}
+	}
+	return false
+}
+
+func (r *containerReconcilerLoop) AddedDrivesNotAligedWithAllocations() bool {
+	if r.container.Status.Allocations == nil {
+		return false
+	}
+	addedDrivesSerials := r.container.Status.GetAddedDrivesSerials()
+	if len(addedDrivesSerials) == 0 {
+		return false
+	}
+	slices.Sort(addedDrivesSerials)
+	slices.Sort(r.container.Status.Allocations.Drives)
+	return !slices.Equal(addedDrivesSerials, r.container.Status.Allocations.Drives)
+}
+
+func (r *containerReconcilerLoop) HasDrivesToAdd() bool {
+	return len(r.container.Status.AddedDrives) < r.container.Spec.NumDrives
+}
+
+func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
+	if r.container.Status.Allocations == nil {
+		// if no allocations at all, covered by cluster's AllocateResources
+		return false
+	}
+	return len(r.container.Status.Allocations.Drives) < r.container.Spec.NumDrives
 }
 
 func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
@@ -363,14 +400,8 @@ func handleFailureDomainValue(fd string) string {
 	// if it exceeds 16 characters, truncate it to 16 characters
 	if len(fd) > 16 {
 		// get 16 characters' hash value (to guarantee uniqueness)
-		return getHash(fd)
+		return util.GetHash(fd, 16)
 	}
 	// replace all "/" with "-"
 	return strings.ReplaceAll(fd, "/", "-")
-}
-
-// Generates SHA-256 hash and takes the first 16 characters
-func getHash(s string) string {
-	hash := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(hash[:])[:16]
 }

@@ -189,6 +189,7 @@ var Config struct {
 	TolerationsMismatchSettings            TolerationsMismatchSettings
 	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
 	DeleteUnschedulablePodsAfter           time.Duration
+	RemoveFailedDrivesFromWeka             bool
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
@@ -256,7 +257,7 @@ func init() {
 	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
-	Consts.PeriodicDrivesCheckInterval = 10 * time.Minute
+	Consts.PeriodicDrivesCheckInterval = 3 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
 	Consts.FormClusterMinComputeContainers = 5
 	Consts.FormClusterMinDriveContainers = 5
@@ -346,6 +347,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.TolerationsMismatchSettings.IgnoredTaints = getStringSlice("TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS")
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
+	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")

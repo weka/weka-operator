@@ -117,7 +117,12 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		return err
 	}
 
-	err = allocator.DeallocateContainer(ctx, container, r.Client)
+	resourceAllocator, err := allocator.GetAllocator(ctx, r.Client)
+	if err != nil {
+		return err
+	}
+
+	err = resourceAllocator.DeallocateContainer(ctx, container)
 	if err != nil {
 		logger.Error(err, "Error deallocating container")
 		return err

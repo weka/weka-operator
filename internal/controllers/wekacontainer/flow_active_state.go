@@ -274,6 +274,27 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.WaitForPodRunning,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.selfUpdateAllocations,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return r.container.Status.Allocations == nil && !r.container.IsClientContainer()
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.AllocateDrivesIfNeeded,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.NeedsDrivesToAllocate,
+			},
+			ContinueOnError: true,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:                    config.Consts.PeriodicDrivesCheckInterval,
+				DisableRandomPreSetInterval: true,
+				EnsureStepSuccess:           true,
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{Name: condition.CondContainerResourcesWritten},
 			Run:   r.WriteResources,
 			Predicates: lifecycle.Predicates{
@@ -394,7 +415,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.EnsureDrives,
+			Run: r.UpdateWekaAddedDrives,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				func() bool {
@@ -403,6 +424,34 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				func() bool {
 					return r.container.Status.InternalStatus == "READY"
 				},
+				// checking active drives in container metrics - skip fetching drives from weka if we have desired active drives
+				lifecycle.IsNotFunc(r.AllExpectedDrivesAreActive),
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.MarkDrivesForRemoval,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.AddedDrivesNotAligedWithAllocations,
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.RemoveDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+			},
+			ContinueOnError: true,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:                    config.Consts.PeriodicDrivesCheckInterval,
+				DisableRandomPreSetInterval: true,
+				EnsureStepSuccess:           true,
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.EnsureDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.HasDrivesToAdd,
 			},
 			OnFail: r.setDrivesErrorStatus,
 			Throttling: &throttling.ThrottlingSettings{

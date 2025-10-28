@@ -230,6 +230,8 @@ spec:
               value: "{{ .Values.defaultIntervals.deleteEnvoyWithoutS3NeighborTimeout }}"
             - name: DELETE_UNSCHEDULABLE_PODS_AFTER
               value: "{{ .Values.defaultIntervals.deleteUnschedulablePodsAfter }}"
+            - name: REMOVE_FAILED_DRIVES_FROM_WEKA
+              value: "{{ .Values.removeFailedDrives }}"
             - name: CSI_INSTALLATION_ENABLED
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_STORAGE_CLASS_CREATION_DISABLED

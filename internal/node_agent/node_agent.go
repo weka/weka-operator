@@ -30,6 +30,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	metrics2 "github.com/weka/weka-operator/pkg/metrics"
 	"github.com/weka/weka-operator/pkg/util"
@@ -674,18 +675,10 @@ type GetContainerInfoRequest struct {
 	ContainerId string `json:"container_id"`
 }
 
-type DriveDetails struct {
-	SerialId   string `json:"serial_id"`
-	DevicePath string `json:"block_device"`
-	Partition  string `json:"partition"`
-	IsSigned   bool   `json:"is_signed"`           // Means drive is signed by Weka
-	WekaGuid   string `json:"weka_guid,omitempty"` // Only populated if drive is signed
-}
-
 // FindDrivesResponse represents the response containing drive information
 type FindDrivesResponse struct {
-	Drives []DriveDetails `json:"drives"`
-	Error  string         `json:"error,omitempty"`
+	Drives []domain.DriveInfo `json:"drives"`
+	Error  string             `json:"error,omitempty"`
 }
 
 func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
@@ -845,7 +838,7 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error(err, "Failed to discover drives")
 		response := FindDrivesResponse{
-			Drives: []DriveDetails{},
+			Drives: []domain.DriveInfo{},
 			Error:  err.Error(),
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -854,7 +847,7 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("Successfully discovered drives", "count", len(drives))
+	logger.Info("Successfully discovered drives", "count", len(drives), "drives", drives)
 
 	response := FindDrivesResponse{
 		Drives: drives,
@@ -865,11 +858,11 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]DriveDetails, error) {
+func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]domain.DriveInfo, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverWekaDrives")
 	defer end()
 
-	var drives []DriveDetails
+	var drives []domain.DriveInfo
 	wekaPartitionTypeGUID := "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
 
 	// Get all partition names from /dev/disk/by-path and /dev/disk/by-id
@@ -941,7 +934,7 @@ func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]DriveDetails, err
 			continue
 		}
 
-		drives = append(drives, DriveDetails{
+		drives = append(drives, domain.DriveInfo{
 			SerialId:   serialID,
 			DevicePath: blockDevice,
 			Partition:  devicePath,

@@ -17,7 +17,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 	defer end()
 
 	containers := discovery.GetAllContainers(ctx, r.Client)
-	configStore, err := allocator.NewConfigMapStore(ctx, r.Client)
+	resourcesAllocator, err := allocator.GetAllocator(ctx, r.Client)
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		existingContainers[container.Namespace][container.Name] = true
 	}
 
-	allocations, err := configStore.GetAllocations(ctx)
+	allocations, err := resourcesAllocator.GetAllocations(ctx)
 	if err != nil {
 		return err
 	}
@@ -62,10 +62,10 @@ func (r *WekaClusterReconciler) GC(ctx context.Context) error {
 		r.DetectedZombies = make(map[types.NamespacedName]time.Time)
 	}
 
-	for owner, _ := range misses {
+	for owner := range misses {
 		if firstDetected, ok := r.DetectedZombies[owner]; ok {
 			if time.Since(firstDetected) > detectZombiesTime {
-				err := allocator.DeallocateNamespacedObject(ctx, owner, configStore)
+				err := resourcesAllocator.DeallocateNamespacedObject(ctx, owner)
 				if err != nil {
 					logger.Error(err, "Failed to deallocate container", "owner", owner)
 				}

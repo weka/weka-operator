@@ -151,14 +151,23 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	for drive := range seenDrives {
 		updatedDrivesList = append(updatedDrivesList, drive)
 	}
-	newDrivesStr, _ := json.Marshal(updatedDrivesList)
+	newDrivesStr, err := json.Marshal(updatedDrivesList)
+	if err != nil {
+		err = fmt.Errorf("error marshalling updated drives list: %w", err)
+		return err
+	}
+
 	node.Annotations["weka.io/weka-drives"] = string(newDrivesStr)
 	// calculate hash, based on o.node.Status.NodeInfo.BootID
 	node.Annotations["weka.io/sign-drives-hash"] = domain.CalculateNodeDriveSignHash(node)
 
 	blockedDrives := []string{}
 	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
-		_ = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		if err != nil {
+			err = fmt.Errorf("error unmarshalling blocked drives: %w", err)
+			return err
+		}
 	}
 
 	for _, drive := range opResult.RawDrives {

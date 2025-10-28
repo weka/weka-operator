@@ -4,21 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 type BlockDrivesOperation struct {
 	client          client.Client
-	payload         *v1alpha1.BlockDrivesPayload
+	kubeService     kubernetes.KubeService
+	payload         *weka.BlockDrivesPayload
 	results         BlockDrivesResult
 	ownerStatus     *string
 	successCallback lifecycle.StepFunc
@@ -31,9 +35,10 @@ type BlockDrivesResult struct {
 	Result string `json:"result"`
 }
 
-func NewBlockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPayload, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *BlockDrivesOperation {
+func NewBlockDrivesOperation(mgr ctrl.Manager, payload *weka.BlockDrivesPayload, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *BlockDrivesOperation {
 	return &BlockDrivesOperation{
 		client:          mgr.GetClient(),
+		kubeService:     kubernetes.NewKubeService(mgr.GetClient()),
 		payload:         payload,
 		ownerStatus:     ownerStatus,
 		successCallback: successCallback,
@@ -41,7 +46,7 @@ func NewBlockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPayl
 	}
 }
 
-func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *v1alpha1.BlockDrivesPayload, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *BlockDrivesOperation {
+func NewUnblockDrivesOperation(mgr ctrl.Manager, payload *weka.BlockDrivesPayload, ownerStatus *string, successCallback, failureCallback lifecycle.StepFunc) *BlockDrivesOperation {
 	return &BlockDrivesOperation{
 		client:          mgr.GetClient(),
 		payload:         payload,
@@ -198,22 +203,10 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 
 	// Add the new blocked drives to the list (if not already there)
 	for _, serialID := range o.payload.SerialIDs {
-		isBlocked := false
-		for _, blockedDrive := range blockedDrives {
-			if blockedDrive == serialID {
-				isBlocked = true
-				break
-			}
-		}
+		isBlocked := slices.Contains(blockedDrives, serialID)
 
 		// check if blocked drive exists in the available drives list
-		existsInAllDrives := false
-		for _, drive := range allDrives {
-			if drive == serialID {
-				existsInAllDrives = true
-				break
-			}
-		}
+		existsInAllDrives := slices.Contains(allDrives, serialID)
 
 		if !existsInAllDrives {
 			notFoundDrives = append(notFoundDrives, serialID)
@@ -248,8 +241,11 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 		return err
 	}
 
+	// remove weka.io/sign-drives-hash annotation from nodes to force drives re-scan on the next sign drives operation
+	delete(node.Annotations, "weka.io/sign-drives-hash")
+
 	if err := o.client.Update(ctx, node); err != nil {
-		err = fmt.Errorf("error updating node annotations: %w", err)
+		err = fmt.Errorf("error updating node: %w", err)
 		return err
 	}
 

@@ -141,6 +141,8 @@ removalThrottlingEnabled: true
 # -- this validation is only relevant for new client containers creation
 skipClientsTolerationValidation: true
 
+removeFailedDrives: false
+
 tolerationsMismatchSettings:
   enableIgnoredTaints: true
   ignoredTaints:

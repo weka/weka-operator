@@ -10,7 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -277,14 +277,6 @@ func (p Process) GetProcessId() int {
 	return id
 }
 
-type Drive struct {
-	Uuid         string `json:"uuid"`
-	AddedTime    string `json:"added_time"`
-	DevicePath   string `json:"device_path"`
-	SerialNumber string `json:"serial_number"`
-	Status       string `json:"status"`
-}
-
 type DriveListOptions struct {
 	ContainerId *int    `json:"container_id"`
 	Status      *string `json:"status"`
@@ -311,11 +303,12 @@ type WekaService interface {
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
 	EnsureUser(ctx context.Context, username, password, role string) error
 	EnsureNoUser(ctx context.Context, username string) error
-	SetWekaHome(ctx context.Context, WekaHomeConfig v1alpha1.WekaHomeConfig) error
+	SetWekaHome(ctx context.Context, WekaHomeConfig weka.WekaHomeConfig) error
 	EmitCustomEvent(ctx context.Context, msg string, k8sVersion string) error
-	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error)
-	ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error)
+	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error)
+	ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
+	AddDrive(ctx context.Context, containerId int, devicePath string) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
 	DeactivateDrive(ctx context.Context, driveUuid string) error
@@ -326,14 +319,14 @@ type WekaService interface {
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
-func NewWekaService(ExecService exec.ExecService, container *v1alpha1.WekaContainer) WekaService {
+func NewWekaService(ExecService exec.ExecService, container *weka.WekaContainer) WekaService {
 	return &CliWekaService{
 		ExecService: ExecService,
 		Container:   container,
 	}
 }
 
-func NewWekaServiceWithTimeout(ExecService exec.ExecService, container *v1alpha1.WekaContainer, timeout *time.Duration) WekaService {
+func NewWekaServiceWithTimeout(ExecService exec.ExecService, container *weka.WekaContainer, timeout *time.Duration) WekaService {
 	return &CliWekaService{
 		ExecService: ExecService,
 		Container:   container,
@@ -363,7 +356,7 @@ type NfsInterfaceGroupAlreadyJoined struct {
 
 type CliWekaService struct {
 	ExecService exec.ExecService
-	Container   *v1alpha1.WekaContainer
+	Container   *weka.WekaContainer
 	timeout     *time.Duration
 }
 
@@ -387,8 +380,8 @@ func (c *CliWekaService) ListProcesses(ctx context.Context, listOptions ProcessL
 	return processes, nil
 }
 
-func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]Drive, error) {
-	var drives []Drive
+func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error) {
+	var drives []weka.Drive
 	filters := []string{}
 	wekacli := "wekaauthcli"
 	cmdParts := []string{wekacli, "cluster", "drive", "--json"}
@@ -410,7 +403,7 @@ func (c *CliWekaService) ListDrives(ctx context.Context, listOptions DriveListOp
 	return drives, nil
 }
 
-func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig v1alpha1.WekaHomeConfig) error {
+func (c *CliWekaService) SetWekaHome(ctx context.Context, wekaHomeConfig weka.WekaHomeConfig) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetWekaHome")
 	defer end()
 
@@ -976,6 +969,27 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 	return nil
 }
 
+func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string) error {
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"weka", "cluster", "drive", "add", strconv.Itoa(containerId), devicePath,
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "AddDrive", cmd)
+	if err != nil && strings.Contains(stderr.String(), "Device is already in use") {
+		return nil
+	}
+	if err != nil {
+		err = errors.Wrapf(err, "Failed to add drive %s to container %d: %s", devicePath, containerId, stderr.String())
+		return err
+	}
+	return nil
+}
+
 func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) error {
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
@@ -985,6 +999,10 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 		"wekaauthcli", "cluster", "drive", "remove", driveUuid, "-f",
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveDrive", cmd)
+	// handle error: The given drive "3b265a18-3e1a-45ab-abe3-a7729497cb1a" does not exist.
+	if err != nil && strings.Contains(stderr.String(), "does not exist") {
+		return nil
+	}
 	if err != nil {
 		err = errors.Wrapf(err, "Failed to remove drive %s: %s", driveUuid, stderr.String())
 		return err
@@ -1017,12 +1035,12 @@ func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int, n
 	return nil
 }
 
-func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId int) ([]Drive, error) {
+func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error) {
 	cmd := []string{
 		"wekaauthcli", "cluster", "drive", "--container", strconv.Itoa(containerId), "--json",
 	}
 
-	drives := []Drive{}
+	drives := []weka.Drive{}
 	err := c.RunJsonCmd(ctx, cmd, "ListContainerDrives", &drives)
 	if err != nil {
 		return nil, err
