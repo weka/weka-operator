@@ -10,7 +10,6 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -256,10 +255,14 @@ func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context
 }
 
 func (r *containerReconcilerLoop) shouldDeployCsiNodeServerPod() bool {
+	// TODO: keeping for the reference until deeper review
+	// Meanwhile returning true, as we already under client container context and CSI flow
+	// A logic here seems valid(if to use wekacontainer and not wekaclient) for node labels, but not csi node
+	return true
 	// or we have active mounts
-	wekaClientIsRunning := r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
-	preCalculatedActiveMounts := r.activeMounts
-	return wekaClientIsRunning || (preCalculatedActiveMounts != nil && *preCalculatedActiveMounts > 0)
+	//wekaClientIsRunning := r.wekaClient != nil && r.wekaClient.Status.Status == weka.WekaClientStatusRunning
+	//preCalculatedActiveMounts := r.activeMounts
+	//return wekaClientIsRunning || (preCalculatedActiveMounts != nil && *preCalculatedActiveMounts > 0)
 }
 
 type csiNodeHashableSpec struct {
