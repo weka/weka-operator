@@ -333,15 +333,6 @@ func (r *containerReconcilerLoop) getFrontendWekaContainerOnNode(ctx context.Con
 	})
 }
 
-func (r *containerReconcilerLoop) getWekaPodContainer(pod *v1.Pod) (v1.Container, error) {
-	for _, podContainer := range pod.Spec.Containers {
-		if podContainer.Name == "weka-container" {
-			return podContainer, nil
-		}
-	}
-	return v1.Container{}, errors.New("Weka container not found in pod")
-}
-
 func (r *containerReconcilerLoop) getFailureDomain(ctx context.Context) *string {
 	fdConfig := r.container.Spec.FailureDomain
 	if fdConfig == nil {

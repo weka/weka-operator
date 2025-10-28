@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -78,7 +79,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 	}
 
 	var wekaPodContainer v1.Container
-	wekaPodContainer, err := r.getWekaPodContainer(pod)
+	wekaPodContainer, err := resources.GetWekaPodContainer(pod)
 	if err != nil {
 		return err
 	}

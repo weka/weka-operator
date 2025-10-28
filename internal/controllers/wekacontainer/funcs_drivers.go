@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -37,6 +38,16 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 			logger.Debug("Cannot upgrade to new image, using last applied", "image", details.Image, "error", err)
 			details.Image = r.container.Status.LastAppliedImage
 		}
+	}
+
+	if r.pod != nil {
+		wekaPodContainer, err := resources.GetWekaPodContainer(r.pod)
+		if err != nil {
+			return err
+		}
+
+		logger.Info("Container has existing pod, using pod image for drivers loading check", "pod_image", wekaPodContainer.Image)
+		details.Image = wekaPodContainer.Image
 	}
 
 	if !operations.DriversLoaded(r.node, details.Image, r.container.HasFrontend()) {
