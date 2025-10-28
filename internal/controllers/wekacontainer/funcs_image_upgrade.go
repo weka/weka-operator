@@ -118,7 +118,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 		}
 
 		if wekaPodContainer.Image != container.Spec.Image {
-			if container.HasFrontend() {
+			if container.HasFrontend() && container.Spec.AllowHotUpgrade {
 				err = r.runFrontendUpgradePrepare(ctx)
 				if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 					logger.Info("No wekafs driver found, force terminating pod")
@@ -160,7 +160,10 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "runFrontendUpgradePrepare")
 	defer end()
 
-	container := r.container
+	if !r.container.Spec.AllowHotUpgrade {
+		return fmt.Errorf("cannot run prepare-upgrade as Hot upgrade is not enabled")
+	}
+
 	pod := r.pod
 
 	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
@@ -168,21 +171,9 @@ func (r *containerReconcilerLoop) runFrontendUpgradePrepare(ctx context.Context)
 		return err
 	}
 
-	if !container.Spec.AllowHotUpgrade {
-		logger.Debug("Hot upgrade is not enabled, issuing weka local stop")
-		err := r.runWekaLocalStop(ctx, pod, false)
-		if err != nil {
-			return err
-		}
-	} else {
-		logger.Info("Running prepare-upgrade")
-		err = r.runDriverPrepareUpgrade(ctx, executor)
-		if err != nil {
-			return err
-		}
-		logger.Debug("Hot upgrade is enabled, skipping driver removal")
-	}
-	return nil
+	logger.Info("Hot upgrade is enabled, running prepare-upgrade")
+
+	return r.runDriverPrepareUpgrade(ctx, executor)
 }
 
 func (r *containerReconcilerLoop) runDriverPrepareUpgrade(ctx context.Context, executor util.Exec) error {

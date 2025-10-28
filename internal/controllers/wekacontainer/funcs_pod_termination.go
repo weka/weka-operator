@@ -92,7 +92,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 		}
 
 		// upgrade detected
-		if upgradeRunning {
+		if upgradeRunning && r.container.Spec.AllowHotUpgrade && !skipExec {
 			logger.Info("Upgrade detected")
 			err := r.runFrontendUpgradePrepare(ctx)
 			if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
