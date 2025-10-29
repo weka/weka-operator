@@ -55,7 +55,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.PodNotSet,
 				r.NodeIsSet,
 				r.ShouldDeactivate,
-				lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
+				// lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
 				lifecycle.IsNotFunc(r.container.IsS3Container), // no need to recover S3 container on deactivate
 			},
 			ContinueOnError: true,
@@ -131,6 +131,16 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.RemoveDeactivatedContainers,
+			State: &lifecycle.State{
+				Name:   condition.CondContainerRemoved,
+				Reason: "Deletion",
+			},
+			Predicates: lifecycle.Predicates{
+				r.ShouldDeactivate,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Name: "reconcileClusterStatusOnDeletion",
 			Run:  r.reconcileClusterStatus,
 			Predicates: lifecycle.Predicates{
@@ -177,16 +187,6 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 			Predicates: lifecycle.Predicates{
 				r.container.IsWekaContainer,
-			},
-		},
-		&lifecycle.SimpleStep{
-			Run: r.RemoveDeactivatedContainers,
-			State: &lifecycle.State{
-				Name:   condition.CondContainerRemoved,
-				Reason: "Deletion",
-			},
-			Predicates: lifecycle.Predicates{
-				r.ShouldDeactivate,
 			},
 		},
 		&lifecycle.SimpleStep{
