@@ -46,6 +46,7 @@ type DriveInfo struct {
 	WekaGuid   string `json:"weka_guid"`
 	DevicePath string `json:"block_device"`
 	Partition  string `json:"partition"`
+	IsSigned   bool   `json:"is_signed"` // Means drive is signed by Weka
 }
 
 type DriveRawInfo struct {

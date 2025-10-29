@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -244,6 +245,7 @@ func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, erro
 	mux.HandleFunc("/getContainerInfo", a.getContainerInfo)
 	mux.HandleFunc("/getActiveMounts", a.getActiveMounts)
 	mux.HandleFunc("/register", a.registerHandler)
+	mux.HandleFunc("/findDrives", a.findDrivesHandler)
 
 	// Use custom middleware to log requests and recover from panics
 	wrappedMux := a.PanicRecovery(a.LoggingMiddleware(mux))
@@ -672,6 +674,20 @@ type GetContainerInfoRequest struct {
 	ContainerId string `json:"container_id"`
 }
 
+type DriveDetails struct {
+	SerialId   string `json:"serial_id"`
+	DevicePath string `json:"block_device"`
+	Partition  string `json:"partition"`
+	IsSigned   bool   `json:"is_signed"`           // Means drive is signed by Weka
+	WekaGuid   string `json:"weka_guid,omitempty"` // Only populated if drive is signed
+}
+
+// FindDrivesResponse represents the response containing drive information
+type FindDrivesResponse struct {
+	Drives []DriveDetails `json:"drives"`
+	Error  string         `json:"error,omitempty"`
+}
+
 func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "getContainerInfo")
 	defer end()
@@ -810,6 +826,194 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts})
+}
+
+func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "FindDrives")
+	defer end()
+
+	if a.validateAuth(w, r, logger) {
+		return
+	}
+
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	drives, err := a.discoverWekaDrives(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to discover drives")
+		response := FindDrivesResponse{
+			Drives: []DriveDetails{},
+			Error:  err.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	logger.Info("Successfully discovered drives", "count", len(drives))
+
+	response := FindDrivesResponse{
+		Drives: drives,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]DriveDetails, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "discoverWekaDrives")
+	defer end()
+
+	var drives []DriveDetails
+	wekaPartitionTypeGUID := "993ec906-b4e2-11e7-a205-a0a8cd3ea1de"
+
+	// Get all partition names from /dev/disk/by-path and /dev/disk/by-id
+	partNames := make(map[string]bool)
+
+	// Get partitions from /dev/disk/by-path
+	if _, err := os.Stat("/dev/disk/by-path"); err == nil {
+		cmd := exec.CommandContext(ctx, "bash", "-c", "for d in /dev/disk/by-path/*; do readlink -f $d | xargs basename; done")
+		output, err := cmd.Output()
+		if err == nil {
+			for partName := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+				if partName != "" {
+					partNames[partName] = true
+				}
+			}
+		}
+	}
+
+	// Get partitions from /dev/disk/by-id
+	cmd := exec.CommandContext(ctx, "bash", "-c", "for d in /dev/disk/by-id/*; do readlink -f $d | xargs basename; done")
+	output, err := cmd.Output()
+	if err == nil {
+		for partName := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+			if partName != "" {
+				partNames[partName] = true
+			}
+		}
+	}
+
+	logger.Debug("Found block devices", "count", len(partNames))
+
+	// Check each partition for WEKA partition type
+	for partName := range partNames {
+		devicePath := "/dev/" + partName
+
+		// Get partition type
+		cmd := exec.CommandContext(ctx, "blkid", "-s", "PART_ENTRY_TYPE", "-o", "value", "-p", devicePath)
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		typeID := strings.TrimSpace(string(output))
+		if typeID != wekaPartitionTypeGUID {
+			continue
+		}
+
+		// This is a WEKA partition - read signature
+		signature, err := a.readDriveSignature(ctx, devicePath)
+		if err != nil {
+			logger.Error(err, "Failed to read signature", "device", devicePath)
+			continue
+		}
+
+		// Check if signed (unsigned drives have signature: 90f0090f90f0090f90f0090f90f0090f)
+		isSigned := signature != "" && signature != "90f0090f90f0090f90f0090f90f0090f"
+
+		// Format weka_guid if signed
+		wekaGuid := ""
+		if isSigned && len(signature) == 32 {
+			wekaGuid = fmt.Sprintf("%s-%s-%s-%s-%s",
+				signature[0:8], signature[8:12], signature[12:16], signature[16:20], signature[20:32])
+		}
+
+		// Get device info (serial ID, device path)
+		serialID, blockDevice, err := a.getDeviceInfo(ctx, partName)
+		if err != nil {
+			logger.Error(err, "Failed to get device info", "partition", partName)
+			continue
+		}
+
+		drives = append(drives, DriveDetails{
+			SerialId:   serialID,
+			DevicePath: blockDevice,
+			Partition:  devicePath,
+			IsSigned:   isSigned,
+			WekaGuid:   wekaGuid,
+		})
+	}
+
+	return drives, nil
+}
+
+func (a *NodeAgent) readDriveSignature(ctx context.Context, devicePath string) (string, error) {
+	// Read 16 bytes at offset 8
+	cmd := exec.CommandContext(ctx, "hexdump", "-v", "-e", "1/1 \"%.2x\"", "-s", "8", "-n", "16", devicePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialID string, blockDevice string, err error) {
+	// Get PCI device path
+	cmd := exec.CommandContext(ctx, "readlink", "-f", "/sys/class/block/"+partName)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get PCI device path: %w", err)
+	}
+	pciDevicePath := strings.TrimSpace(string(output))
+
+	if strings.Contains(partName, "nvme") {
+		// NVMe device
+		pathParts := strings.Split(pciDevicePath, "/")
+		if len(pathParts) < 2 {
+			return "", "", fmt.Errorf("invalid PCI device path")
+		}
+
+		// Serial is 2 directories up
+		serialPath := strings.Join(pathParts[:len(pathParts)-2], "/") + "/serial"
+		serialData, err := os.ReadFile(serialPath)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read serial: %w", err)
+		}
+		serialID = strings.TrimSpace(string(serialData))
+
+		// Device path is the parent of the partition
+		blockDevice = "/dev/" + pathParts[len(pathParts)-2]
+	} else {
+		// Regular SCSI device
+		pathParts := strings.Split(pciDevicePath, "/")
+		deviceName := pathParts[len(pathParts)-2]
+		blockDevice = "/dev/" + deviceName
+
+		// Read device index
+		devIndexPath := "/sys/block/" + deviceName + "/dev"
+		devIndexData, err := os.ReadFile(devIndexPath)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read device index: %w", err)
+		}
+		devIndex := strings.TrimSpace(string(devIndexData))
+
+		// Read serial from udev data
+		cmd := exec.CommandContext(ctx, "bash", "-c",
+			fmt.Sprintf("grep ID_SERIAL= /host/run/udev/data/b%s | cut -d= -f2", devIndex))
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", fmt.Errorf("failed to read serial from udev: %w", err)
+		}
+		serialID = strings.TrimSpace(string(output))
+	}
+
+	return serialID, blockDevice, nil
 }
 
 type CategoryStat struct {

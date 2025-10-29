@@ -511,8 +511,25 @@ async def find_weka_drives():
             continue
 
         if type_id == "993ec906-b4e2-11e7-a205-a0a8cd3ea1de":
-            # TODO: Read and populate actual weka guid here
+            # Read drive signature to determine if it's signed
+            # Signature is at offset 8, 16 bytes
+            try:
+                signature_cmd = f"hexdump -v -e '1/1 \"%.2x\"' -s 8 -n 16 /dev/{part_name}"
+                signature = subprocess.check_output(signature_cmd, shell=True).decode().strip()
+            except subprocess.CalledProcessError:
+                logging.error(f"Failed to read signature for {part_name}")
+                signature = ""
+
+            # Check if drive is signed by Weka
+            # Unsigned drives have signature: 90f0090f90f0090f90f0090f90f0090f
+            is_signed = signature != "" and signature != "90f0090f90f0090f90f0090f90f0090f"
+
+            # Format weka_guid (cluster ID) if signed
             weka_guid = ""
+            if is_signed and len(signature) == 32:
+                # Format signature as UUID with dashes
+                weka_guid = f"{signature[0:8]}-{signature[8:12]}-{signature[12:16]}-{signature[16:20]}-{signature[20:32]}"
+
             # resolve block_device to serial id
             pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{part_name}",
                                                       shell=True).decode().strip()
@@ -534,7 +551,8 @@ async def find_weka_drives():
                 "partition": "/dev/" + part_name,
                 "block_device": device_path,
                 "serial_id": serial_id,
-                "weka_guid": weka_guid
+                "weka_guid": weka_guid,
+                "is_signed": is_signed
             })
 
     return drives

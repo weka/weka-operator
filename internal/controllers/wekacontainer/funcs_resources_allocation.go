@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/types"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -507,6 +509,85 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 }
 
 func (r *containerReconcilerLoop) getKernelDrives(ctx context.Context, executor util.Exec) (map[string]operations.DriveInfo, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getKernelDrives")
+	defer end()
+
+	// Try to get drives from node-agent first
+	drives, err := r.getKernelDrivesFromNodeAgent(ctx)
+	if err != nil {
+		logger.Info("Failed to get drives from node-agent, falling back to old implementation", "error", err)
+		// Fallback to old implementation: read drives.json from pod
+		drives, err = r.getKernelDrivesFromPod(ctx, executor)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return drives, nil
+}
+
+func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Context) (map[string]operations.DriveInfo, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getKernelDrivesFromNodeAgent")
+	defer end()
+
+	// Find node-agent pod on the same node as this container
+	agentPod, err := r.findAdjacentNodeAgent(ctx, r.pod)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-agent pod: %w", err)
+	}
+
+	// Get token for authentication
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node-agent token: %w", err)
+	}
+
+	// Call /findDrives endpoint
+	url := fmt.Sprintf("http://%s:8090/findDrives", agentPod.Status.PodIP)
+
+	timeout := time.Second * 30
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := util.SendJsonRequest(ctx, url, []byte("{}"), util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call node-agent: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("findDrives failed: %s, status: %d", string(body), resp.StatusCode)
+	}
+
+	var response struct {
+		Drives []operations.DriveInfo `json:"drives"`
+		Error  string                 `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if response.Error != "" {
+		return nil, fmt.Errorf("node-agent returned error: %s", response.Error)
+	}
+
+	logger.Info("Successfully fetched drives from node-agent", "count", len(response.Drives))
+
+	// Convert to map by serial ID
+	serialIdMap := make(map[string]operations.DriveInfo)
+	for _, drive := range response.Drives {
+		serialIdMap[drive.SerialId] = drive
+	}
+
+	return serialIdMap, nil
+}
+
+func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, executor util.Exec) (map[string]operations.DriveInfo, error) {
 	stdout, _, err := executor.ExecNamed(ctx, "FetchKernelDrives",
 		[]string{"bash", "-ce", "cat /opt/weka/k8s-runtime/drives.json"})
 	if err != nil {
