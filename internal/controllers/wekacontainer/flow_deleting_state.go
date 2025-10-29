@@ -3,7 +3,6 @@ package wekacontainer
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -470,8 +469,10 @@ func (r *containerReconcilerLoop) removeDeactivatedContainers(ctx context.Contex
 	// Verify that the container was actually removed from the cluster
 	_, err = wekaService.GetWekaContainer(ctx, containerId)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			logger.Info("Container successfully removed from cluster", "container_id", containerId)
+		containerNotFound := &services.WekaContainerNotFound{}
+		if errors.As(err, &containerNotFound) {
+			// Container successfully removed
+			logger.Info("Container not found in cluster, removal confirmed", "container_id", containerId)
 			return nil
 		}
 		// Other errors might be temporary, so we wait and retry

@@ -19,7 +19,7 @@ require (
 	github.com/thessem/zap-prettyconsole v0.5.2
 	github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a
 	github.com/weka/go-steps-engine v0.0.0
-	github.com/weka/go-weka-observability v0.0.0-20251005153828-d9d8e4b48cb2
+	github.com/weka/go-weka-observability v0.0.3-0.20251029213711-8b38c8edf3ef
 	github.com/weka/weka-k8s-api v0.0.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
@@ -65,6 +65,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.24.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -101,6 +102,7 @@ require (
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	k8s.io/apiextensions-apiserver v0.32.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect

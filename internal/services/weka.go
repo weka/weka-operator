@@ -18,6 +18,14 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+type WekaContainerNotFound struct {
+	ContainerId int
+}
+
+func (e *WekaContainerNotFound) Error() string {
+	return fmt.Sprintf("Weka container with id %d not found in cluster", e.ContainerId)
+}
+
 type WekaStatusCapacity struct {
 	UnprovisionedBytes int64 `json:"unprovisioned_bytes"`
 	TotalBytes         int64 `json:"total_bytes"`
@@ -1000,7 +1008,7 @@ func (c *CliWekaService) RemoveContainer(ctx context.Context, containerId int, n
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveContainer", cmd)
 	if err != nil {
 		// error: Host HostId<15> not found\n\x00
-		if strings.Contains(stderr.String(), "not found") {
+		if strings.Contains(stderr.String(), fmt.Sprintf("Host HostId<%d> not found", containerId)) {
 			return nil
 		}
 		err = errors.Wrapf(err, "Failed to remove container %d: %s", containerId, stderr.String())
@@ -1079,7 +1087,7 @@ func (c *CliWekaService) GetWekaContainer(ctx context.Context, containerId int) 
 	}
 
 	if len(containers) == 0 {
-		return nil, fmt.Errorf("container %d not found", containerId)
+		return nil, &WekaContainerNotFound{ContainerId: containerId}
 	}
 
 	return &containers[0], nil

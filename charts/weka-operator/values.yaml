@@ -109,6 +109,10 @@ manager:
   nodeSelector: {}
   tolerations: []
   labels: {}
+  loggerSettings:
+    level: 0
+    format: raw
+    callerDirLvl: 1
 
 debugSleep: 3
 
