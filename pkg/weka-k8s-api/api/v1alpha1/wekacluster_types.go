@@ -155,6 +155,8 @@ type WekaConfig struct {
 	DriveCores                int  `json:"driveCores,omitempty"`
 	S3Cores                   int  `json:"s3Cores,omitempty"`
 	NumDrives                 int  `json:"numDrives,omitempty"`
+	ComputeExtraCores         int  `json:"computeExtraCores,omitempty"`
+	DriveExtraCores           int  `json:"driveExtraCores,omitempty"`
 	S3ExtraCores              int  `json:"s3ExtraCores,omitempty"`
 	DriveHugepages            int  `json:"driveHugepages,omitempty"`
 	DriveHugepagesOffset      int  `json:"driveHugepagesOffset,omitempty"`

@@ -216,6 +216,10 @@ spec:
                     type: integer
                   computeCores:
                     type: integer
+                  computeExtraCores:
+                    description: Additional CPU cores for compute containers beyond
+                      computeCores, added to pod resources but not to weka configuration
+                    type: integer
                   computeHugepages:
                     type: integer
                   computeHugepagesOffset:
@@ -223,6 +227,10 @@ spec:
                   driveContainers:
                     type: integer
                   driveCores:
+                    type: integer
+                  driveExtraCores:
+                    description: Additional CPU cores for drive containers beyond driveCores,
+                      added to pod resources but not to weka configuration
                     type: integer
                   driveHugepages:
                     type: integer
@@ -257,6 +265,8 @@ spec:
                   s3Cores:
                     type: integer
                   s3ExtraCores:
+                    description: Additional CPU cores for S3 containers beyond s3Cores,
+                      added to pod resources but not to weka configuration
                     type: integer
                   s3FrontendHugepages:
                     type: integer
