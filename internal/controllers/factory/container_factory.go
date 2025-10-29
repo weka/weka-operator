@@ -61,9 +61,11 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	switch role {
 	case "compute":
 		additionalMemory = cluster.Spec.AdditionalMemory.Compute
+		extraCores = template.ComputeExtraCores
 	case "drive":
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
 		numDrives = template.NumDrives
+		extraCores = template.DriveExtraCores
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores

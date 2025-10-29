@@ -992,6 +992,14 @@ func (f *PodFactory) getHugePagesOffset() int {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+		totalNumCores += f.container.Spec.ExtraCores
+	}
+
+	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+		totalNumCores += f.container.Spec.ExtraCores
+	}
+
 	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
@@ -1043,6 +1051,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		totalCores := totalNumCores*2 + 1
 		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
+		}
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
+		}
+		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
 		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated

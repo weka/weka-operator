@@ -7,7 +7,9 @@ import (
 
 type ClusterTemplate struct {
 	DriveCores                 int
+	DriveExtraCores            int
 	ComputeCores               int
+	ComputeExtraCores          int
 	EnvoyCores                 int
 	S3Cores                    int
 	S3ExtraCores               int
@@ -107,7 +109,9 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 
 	return ClusterTemplate{
 		DriveCores:                 config.DriveCores,
+		DriveExtraCores:            config.DriveExtraCores,
 		ComputeCores:               config.ComputeCores,
+		ComputeExtraCores:          config.ComputeExtraCores,
 		ComputeContainers:          *config.ComputeContainers,
 		DriveContainers:            *config.DriveContainers,
 		S3Containers:               config.S3Containers,
