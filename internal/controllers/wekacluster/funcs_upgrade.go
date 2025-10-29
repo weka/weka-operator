@@ -57,6 +57,10 @@ type UpdatableClusterSpec struct {
 	TracesConfiguration       *weka.TracesConfiguration
 	RoleCoreIds               weka.RoleCoreIds
 	CpuPolicy                 weka.CpuPolicy
+	ComputeExtraCores         int
+	DriveExtraCores           int
+	S3ExtraCores              int
+	NfsExtraCores             int
 }
 
 func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -66,6 +70,18 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 			return nil
 		}
 		return util.NewHashableMap(*ptr)
+	}
+
+	// Get extra cores values from dynamic config if available
+	computeExtraCores := 0
+	driveExtraCores := 0
+	s3ExtraCores := 0
+	nfsExtraCores := 0
+	if spec.Dynamic != nil {
+		computeExtraCores = spec.Dynamic.ComputeExtraCores
+		driveExtraCores = spec.Dynamic.DriveExtraCores
+		s3ExtraCores = spec.Dynamic.S3ExtraCores
+		nfsExtraCores = spec.Dynamic.NfsExtraCores
 	}
 
 	return &UpdatableClusterSpec{
@@ -93,6 +109,10 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		TracesConfiguration:       spec.TracesConfiguration,
 		RoleCoreIds:               spec.RoleCoreIds,
 		CpuPolicy:                 spec.CpuPolicy,
+		ComputeExtraCores:         computeExtraCores,
+		DriveExtraCores:           driveExtraCores,
+		S3ExtraCores:              s3ExtraCores,
+		NfsExtraCores:             nfsExtraCores,
 	}
 }
 
@@ -268,6 +288,23 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		if container.Spec.CpuPolicy != updatableSpec.CpuPolicy {
 			container.Spec.CpuPolicy = updatableSpec.CpuPolicy
+		}
+
+		// Update extra cores based on container role
+		// Note: This updates only ExtraCores (pod resources), not NumCores (weka configuration)
+		var targetExtraCores int
+		switch role {
+		case weka.WekaContainerModeCompute:
+			targetExtraCores = updatableSpec.ComputeExtraCores
+		case weka.WekaContainerModeDrive:
+			targetExtraCores = updatableSpec.DriveExtraCores
+		case weka.WekaContainerModeS3:
+			targetExtraCores = updatableSpec.S3ExtraCores
+		case weka.WekaContainerModeNfs:
+			targetExtraCores = updatableSpec.NfsExtraCores
+		}
+		if container.Spec.ExtraCores != targetExtraCores {
+			container.Spec.ExtraCores = targetExtraCores
 		}
 
 		err = r.getClient().Patch(ctx, container, patch)
