@@ -1011,6 +1011,253 @@ def find_full_cores(n):
         return selected_siblings
 
 
+def get_data_path_cores():
+    """Get cores used by data path wekanode processes (slot != 0).
+
+    These are the high-performance drive/compute/client processes that need
+    dedicated cores.
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "aux"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        data_path_pids = []
+        for line in result.stdout.splitlines():
+            # Find wekanode processes that are NOT slot 0 (i.e., slot 1, 2, 3, etc.)
+            if "/weka/wekanode" in line and "--slot" in line and "--slot 0" not in line:
+                parts = line.split()
+                if len(parts) > 1:
+                    pid = parts[1]
+                    data_path_pids.append(pid)
+
+        # Get CPU affinity for each data path PID
+        data_path_cores = set()
+        for pid in data_path_pids:
+            try:
+                affinity_result = subprocess.run(
+                    ["taskset", "-cp", pid],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                # Parse output like "pid 1673's current affinity list: 6"
+                for line in affinity_result.stdout.splitlines():
+                    if "affinity list:" in line:
+                        affinity_str = line.split("affinity list:")[-1].strip()
+                        cores = expand_ranges(affinity_str)
+                        data_path_cores.update(cores)
+            except subprocess.CalledProcessError as e:
+                logging.debug(f"Failed to get affinity for PID {pid}: {e}")
+                continue
+
+        return list(data_path_cores)
+    except Exception as e:
+        logging.debug(f"Failed to get data path cores: {e}")
+        return []
+
+
+def get_all_reserved_cores():
+    """Get all cores reserved for data path including their siblings.
+
+    When we assign core X to a data path process, we implicitly isolate its
+    sibling as well, so both X and its sibling should not be used for management.
+    """
+    data_path_cores = get_data_path_cores()
+    all_reserved_cores = set(data_path_cores)
+
+    # Add siblings of data path cores
+    for core in data_path_cores:
+        try:
+            siblings = read_siblings_list(core)
+            all_reserved_cores.update(siblings)
+        except Exception as e:
+            logging.debug(f"Failed to get siblings for core {core}: {e}")
+
+    return list(all_reserved_cores)
+
+
+def get_remaining_cores():
+    """Get cores that should be used for management and other processes.
+
+    These are the cores NOT assigned to data path processes (slot != 0)
+    and NOT siblings of data path cores.
+    """
+    available_cores = parse_cpu_allowed_list()
+    reserved_cores = get_all_reserved_cores()
+    remaining = [core for core in available_cores if core not in reserved_cores]
+    return remaining
+
+
+def get_processes_to_reassign():
+    """Get PIDs of processes that should be reassigned to remaining cores.
+
+    Excludes:
+    - PID 1 (weka_runtime.py - the script doing the calculations)
+    - wekanode processes with slot != 0 (drive/compute processes)
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "aux"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        pids_to_reassign = []
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+
+            pid = parts[1]
+
+            # Skip header line
+            if pid == "PID":
+                continue
+
+            # Skip PID 1 (weka_runtime.py)
+            if pid == "1":
+                continue
+
+            # Skip wekanode processes that are NOT slot 0
+            # (slot 0 is management, slot 1,2,etc are drive/compute/client)
+            if "/weka/wekanode" in line and "--slot 0" not in line:
+                continue
+
+            pids_to_reassign.append(pid)
+
+        return pids_to_reassign
+    except Exception as e:
+        logging.debug(f"Failed to get processes to reassign: {e}")
+        return []
+
+
+def get_process_cmdline(pid):
+    """Get full command line for a process."""
+    try:
+        with open(f"/proc/{pid}/cmdline") as f:
+            cmdline = f.read().replace('\0', ' ').strip()
+            return cmdline if cmdline else f"<PID {pid}>"
+    except Exception:
+        return f"<PID {pid}>"
+
+
+def get_process_affinity(pid):
+    """Get current CPU affinity for a process."""
+    try:
+        result = subprocess.run(
+            ["taskset", "-cp", pid],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            # Parse output like "pid 600's current affinity list: 2-4,34,35"
+            for line in result.stdout.splitlines():
+                if "affinity list:" in line:
+                    affinity_str = line.split("affinity list:")[-1].strip()
+                    return set(expand_ranges(affinity_str))
+        return None
+    except Exception:
+        return None
+
+
+async def manage_cpu_affinities():
+    """Manage CPU affinities for non-wekanode processes.
+
+    This function:
+    1. Calculates remaining cores (excluding data path cores and their siblings)
+    2. Finds all processes that should be reassigned
+    3. Sets their CPU affinity to remaining cores
+
+    Failures are non-fatal and only logged.
+    """
+    try:
+        # Calculate core allocation
+        available_cores = parse_cpu_allowed_list()
+        data_path_cores = get_data_path_cores()
+        reserved_cores = get_all_reserved_cores()
+        remaining_cores = get_remaining_cores()
+
+        logging.debug(f"CPU affinity calculation: available={available_cores}, "
+                     f"data_path={data_path_cores}, reserved={sorted(reserved_cores)}, "
+                     f"remaining={remaining_cores}")
+
+        if not remaining_cores:
+            logging.warning("No remaining cores available for CPU affinity management. "
+                          "All cores are reserved for data path processes.")
+            return
+
+        target_cores_set = set(remaining_cores)
+        cores_str = ",".join(map(str, remaining_cores))
+        logging.debug(f"Managing CPU affinities: assigning processes to cores {cores_str}")
+
+        pids = get_processes_to_reassign()
+        logging.debug(f"Found {len(pids)} processes to check")
+
+        changes_made = 0
+        for pid in pids:
+            try:
+                # Check current affinity
+                current_affinity = get_process_affinity(pid)
+
+                # Skip if already set correctly
+                if current_affinity is not None and current_affinity == target_cores_set:
+                    continue
+
+                # Get command line for logging
+                cmdline = get_process_cmdline(pid)
+
+                # Set new affinity
+                result = subprocess.run(
+                    ["taskset", "-cp", cores_str, pid],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    current_str = ",".join(map(str, sorted(current_affinity))) if current_affinity else "unknown"
+                    logging.info(f"Changed CPU affinity for PID {pid}: {current_str} -> {cores_str} | {cmdline}")
+                    changes_made += 1
+                else:
+                    # Process might have exited - only log at debug level
+                    logging.debug(f"Failed to set affinity for PID {pid}: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                logging.debug(f"Timeout setting affinity for PID {pid}")
+            except Exception as e:
+                logging.debug(f"Error setting affinity for PID {pid}: {e}")
+
+        if changes_made > 0:
+            logging.info(f"CPU affinity management: adjusted {changes_made} processes")
+    except Exception as e:
+        logging.warning(f"CPU affinity management failed (non-fatal): {e}")
+
+
+async def periodic_cpu_affinity_management():
+    """Periodically manage CPU affinities every 60 seconds.
+
+    This task runs in the background and does not block other operations.
+    Failures are logged but do not cause the container to exit.
+    """
+    # Initial delay to allow container to fully initialize
+    await asyncio.sleep(30)
+
+    logging.info("Starting periodic CPU affinity management (every 60 seconds)")
+
+    while not exiting:
+        try:
+            await manage_cpu_affinities()
+        except Exception as e:
+            logging.warning(f"Periodic CPU affinity management failed (non-fatal): {e}")
+
+        await asyncio.sleep(60)
+
+
 async def await_agent():
     start = time.time()
     agent_timeout = 60 if WEKA_PERSISTENCE_MODE != "global" else 1500  # global usually is remote storage and pre-create of logs file might take much longer
@@ -2833,6 +3080,11 @@ async def main():
     await start_weka_container()
     await ensure_container_exec()
     logging.info("Container is UP and running")
+
+    # Start periodic CPU affinity management for drive, compute, and client containers
+    if MODE in ["drive", "compute", "client"]:
+        asyncio.create_task(periodic_cpu_affinity_management())
+
     if MODE == "drive":
         await ensure_drives()
 
