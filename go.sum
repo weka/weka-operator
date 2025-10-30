@@ -140,8 +140,8 @@ github.com/thessem/zap-prettyconsole v0.5.2 h1:knusxXGhmkD5Ho+WiI4IzD16Dz9PEcOIK
 github.com/thessem/zap-prettyconsole v0.5.2/go.mod h1:3qfsE7y+bLOq7EQ+fMZHD3HYEp24ULFf5nhLSx6rjrE=
 github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a h1:VmmLhrctgsS+lsLc9aHTkNNhu7CSQLqASkC5sB366o4=
 github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a/go.mod h1:E0L3t9OrFd2sNgsppY7cuOCBUKoKcBqFp8mFj9pfFpk=
-github.com/weka/go-weka-observability v0.0.3-0.20251029213711-8b38c8edf3ef h1:TbSSt47FOyCGeUWTeDGg9yCRvLHrUxZ659hGpN0wgTg=
-github.com/weka/go-weka-observability v0.0.3-0.20251029213711-8b38c8edf3ef/go.mod h1:hjN04GewV6kMRpK2Qb+gYkcLl62MTFvQoCrO28dxZZI=
+github.com/weka/go-weka-observability v0.0.3 h1:94hwq/VCu5CPhd6hQH745nFiCorCGS4MinbM30+JF9A=
+github.com/weka/go-weka-observability v0.0.3/go.mod h1:hjN04GewV6kMRpK2Qb+gYkcLl62MTFvQoCrO28dxZZI=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=
 github.com/x448/float16 v0.8.4/go.mod h1:14CWIYCyZA/cWjXOioeEpHeN/83MdbZDRQHoFcYsOfg=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

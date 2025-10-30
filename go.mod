@@ -19,7 +19,7 @@ require (
 	github.com/thessem/zap-prettyconsole v0.5.2
 	github.com/weka/go-lib v0.0.0-20250813155110-01f071a2760a
 	github.com/weka/go-steps-engine v0.0.0
-	github.com/weka/go-weka-observability v0.0.3-0.20251029213711-8b38c8edf3ef
+	github.com/weka/go-weka-observability v0.0.3
 	github.com/weka/weka-k8s-api v0.0.0
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
