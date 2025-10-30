@@ -470,6 +470,14 @@ type WekaClusterSpecOverrides struct {
 	UpgradePaused bool `json:"upgradePaused,omitempty"`
 	// Prevent from moving into compute phase
 	UpgradePausePreCompute bool `json:"upgradePausePreCompute,omitempty"`
+	// Timeout duration for deactivating pods that are terminating longer than this duration.
+	// When nil (default), the default timeout of 5 minutes is used.
+	// When set to 0, deactivation of terminating pods is disabled.
+	// Otherwise, the specified duration is used.
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+	// +optional
+	PodTerminationDeactivationTimeout *metav1.Duration `json:"podTerminationDeactivationTimeout,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
