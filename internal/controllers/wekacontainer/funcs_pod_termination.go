@@ -129,7 +129,24 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 					return err
 				}
 			} else {
-				if time.Since(since.Time) > 5*time.Minute && !(container.Spec.GetOverrides().MigrateOutFromPvc && container.Spec.PVC != nil) {
+				// Get timeout from cluster overrides
+				deactivationTimeout := 5 * time.Minute // default value
+				cluster, err := r.getCluster(ctx)
+				if err != nil {
+					return err
+				} else if cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout != nil {
+					timeoutDuration := cluster.Spec.GetOverrides().PodTerminationDeactivationTimeout.Duration
+					if timeoutDuration == 0 {
+						// 0 means never deactivate - set to a very large duration
+						deactivationTimeout = time.Duration(0)
+					} else {
+						deactivationTimeout = timeoutDuration
+					}
+				}
+
+				// Only deactivate if timeout is not 0 (disabled) and has exceeded
+				shouldDeactivate := deactivationTimeout > 0 && time.Since(since.Time) > deactivationTimeout
+				if shouldDeactivate && !(container.Spec.GetOverrides().MigrateOutFromPvc && container.Spec.PVC != nil) {
 					// lets start deactivate flow, we are doing it by deleting weka container
 					if err := r.ensureStateDeleting(ctx); err != nil {
 						return err
