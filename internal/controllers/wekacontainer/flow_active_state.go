@@ -276,8 +276,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.selfUpdateAllocations,
 			Predicates: lifecycle.Predicates{
+				r.container.IsAllocatable,
 				func() bool {
-					return r.container.Status.Allocations == nil && !r.container.IsClientContainer()
+					return r.container.Status.Allocations == nil
 				},
 			},
 		},
@@ -288,11 +289,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.NeedsDrivesToAllocate,
 			},
 			ContinueOnError: true,
-			Throttling: &throttling.ThrottlingSettings{
-				Interval:                    config.Consts.PeriodicDrivesCheckInterval,
-				DisableRandomPreSetInterval: true,
-				EnsureStepSuccess:           true,
-			},
 		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{Name: condition.CondContainerResourcesWritten},
@@ -419,13 +415,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				func() bool {
-					return len(r.container.Status.Allocations.Drives) > 0
-				},
-				func() bool {
 					return r.container.Status.InternalStatus == "READY"
 				},
-				// checking active drives in container metrics - skip fetching drives from weka if we have desired active drives
-				lifecycle.IsNotFunc(r.AllExpectedDrivesAreActive),
+				r.NeedWekaDrivesListUpdate,
 			},
 		},
 		&lifecycle.SimpleStep{

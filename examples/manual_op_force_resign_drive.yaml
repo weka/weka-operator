@@ -1,0 +1,12 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: force-resign-drives
+  namespace: weka-operator-system
+spec:
+  action: "force-resign-drives"
+  payload:
+    forceResignDrivesPayload:
+      nodeName: "h6-8-d"
+      deviceSerials:
+        - 23164A330BEE

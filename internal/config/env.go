@@ -257,7 +257,7 @@ func init() {
 	Consts.ContainerUpdateAllocationsSleep = 10 * time.Second
 	Consts.JoinIpsCacheTTL = 1 * time.Minute
 	Consts.NewContainersLimit = 1000 // virtually no limit for now
-	Consts.PeriodicDrivesCheckInterval = 3 * time.Minute
+	Consts.PeriodicDrivesCheckInterval = 1 * time.Minute
 	Consts.CheckDriversInterval = 7 * time.Minute
 	Consts.FormClusterMinComputeContainers = 5
 	Consts.FormClusterMinDriveContainers = 5

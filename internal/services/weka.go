@@ -26,6 +26,14 @@ func (e *WekaContainerNotFound) Error() string {
 	return fmt.Sprintf("Weka container with id %d not found in cluster", e.ContainerId)
 }
 
+type DriveNotFound struct {
+	DriveUuid string
+}
+
+func (e *DriveNotFound) Error() string {
+	return fmt.Sprintf("Drive with uuid %s not found in cluster", e.DriveUuid)
+}
+
 type WekaStatusCapacity struct {
 	UnprovisionedBytes int64 `json:"unprovisioned_bytes"`
 	TotalBytes         int64 `json:"total_bytes"`
@@ -311,6 +319,7 @@ type WekaService interface {
 	AddDrive(ctx context.Context, containerId int, devicePath string) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
+	GetClusterDrive(ctx context.Context, driveUuid string) (*weka.Drive, error)
 	DeactivateDrive(ctx context.Context, driveUuid string) error
 	ListProcesses(ctx context.Context, listOptions ProcessListOptions) ([]Process, error)
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
@@ -1000,7 +1009,8 @@ func (c *CliWekaService) RemoveDrive(ctx context.Context, driveUuid string) erro
 	}
 	_, stderr, err := executor.ExecNamed(ctx, "RemoveDrive", cmd)
 	// handle error: The given drive "3b265a18-3e1a-45ab-abe3-a7729497cb1a" does not exist.
-	if err != nil && strings.Contains(stderr.String(), "does not exist") {
+	notExistErr := fmt.Sprintf("The given drive \"%s\" does not exist", driveUuid)
+	if err != nil && strings.Contains(stderr.String(), notExistErr) {
 		return nil
 	}
 	if err != nil {
@@ -1046,6 +1056,24 @@ func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId in
 		return nil, err
 	}
 	return drives, nil
+}
+
+func (c *CliWekaService) GetClusterDrive(ctx context.Context, driveUuid string) (*weka.Drive, error) {
+	cmd := []string{
+		"wekaauthcli", "cluster", "drive", driveUuid, "--json",
+	}
+
+	var drives []weka.Drive
+	err := c.RunJsonCmd(ctx, cmd, "GetClusterDrive", &drives)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(drives) == 0 {
+		return nil, &DriveNotFound{DriveUuid: driveUuid}
+	}
+
+	return &drives[0], nil
 }
 
 func (c *CliWekaService) DeactivateDrive(ctx context.Context, driveUuid string) error {

@@ -1,0 +1,27 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: block-drives
+  namespace: weka-operator-system
+spec:
+  action: "block-drives"
+  payload:
+    blockDrivesPayload:
+      serialIDs:
+        - "23164A330BEE"
+      node: "h6-8-d"
+
+
+# ---
+# apiVersion: weka.weka.io/v1alpha1
+# kind: WekaManualOperation
+# metadata:
+#   name: unblock-drives
+#   namespace: weka-operator-system
+# spec:
+#   action: "unblock-drives"
+#   payload:
+#     blockDrivesPayload:
+#       serialIDs:
+#         - "22184A1DEC21"
+#       node: "h6-8-c"

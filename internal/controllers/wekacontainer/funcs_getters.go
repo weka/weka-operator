@@ -125,6 +125,13 @@ func (r *containerReconcilerLoop) ResultsAreProcessed() bool {
 	return false
 }
 
+func (r *containerReconcilerLoop) NeedWekaDrivesListUpdate() bool {
+	if !r.AllExpectedDrivesAreActive() {
+		return true
+	}
+	return r.AddedDrivesNotAligedWithAllocations()
+}
+
 func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
 	if r.container.Status.Stats != nil {
 		activeDrives := int(r.container.Status.Stats.Drives.DriveCounters.Active)

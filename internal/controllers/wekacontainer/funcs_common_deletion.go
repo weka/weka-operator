@@ -140,7 +140,10 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		}
 	}
 	// delete csi node pod
-	return r.CleanupCsiNodeServerPod(ctx)
+	if r.WekaContainerManagesCsi() {
+		return r.CleanupCsiNodeServerPod(ctx)
+	}
+	return nil
 }
 
 func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) error {

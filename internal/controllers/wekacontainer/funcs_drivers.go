@@ -46,7 +46,6 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 			return err
 		}
 
-		logger.Info("Container has existing pod, using pod image for drivers loading check", "pod_image", wekaPodContainer.Image)
 		details.Image = wekaPodContainer.Image
 	}
 

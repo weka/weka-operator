@@ -58,11 +58,6 @@ type ResourcesAllocator struct {
 }
 
 func newResourcesAllocator(ctx context.Context, client client.Client) (Allocator, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewResourcesAllocator")
-	defer end()
-
-	logger.Info("Creating allocator instance")
-
 	cs, err := NewConfigMapStore(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config store: %w", err)
