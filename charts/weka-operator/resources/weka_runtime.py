@@ -1092,12 +1092,44 @@ def get_remaining_cores():
     return remaining
 
 
+def get_process_uptime(pid):
+    """Get process uptime in seconds.
+
+    Returns:
+        float: Uptime in seconds, or None if unable to determine
+    """
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            stat_data = f.read()
+            # Field 22 is starttime (in clock ticks since system boot)
+            parts = stat_data.split()
+            if len(parts) < 22:
+                return None
+            starttime_ticks = int(parts[21])
+
+            # Get system uptime
+            with open("/proc/uptime") as uptime_file:
+                system_uptime = float(uptime_file.read().split()[0])
+
+            # Get clock ticks per second
+            clock_ticks = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
+
+            # Calculate process uptime
+            starttime_seconds = starttime_ticks / clock_ticks
+            process_uptime = system_uptime - starttime_seconds
+
+            return process_uptime
+    except Exception:
+        return None
+
+
 def get_processes_to_reassign():
     """Get PIDs of processes that should be reassigned to remaining cores.
 
     Excludes:
     - PID 1 (weka_runtime.py - the script doing the calculations)
     - wekanode processes with slot != 0 (drive/compute processes)
+    - Processes running for less than 10 seconds (to avoid race conditions)
     """
     try:
         result = subprocess.run(
@@ -1126,6 +1158,12 @@ def get_processes_to_reassign():
             # Skip wekanode processes that are NOT slot 0
             # (slot 0 is management, slot 1,2,etc are drive/compute/client)
             if "/weka/wekanode" in line and "--slot 0" not in line:
+                continue
+
+            # Skip processes running for less than 10 seconds to avoid race conditions
+            # Also skip if we can't determine uptime (process might have just died)
+            uptime = get_process_uptime(pid)
+            if uptime is None or uptime < 10.0:
                 continue
 
             pids_to_reassign.append(pid)
@@ -1183,10 +1221,6 @@ async def manage_cpu_affinities():
         reserved_cores = get_all_reserved_cores()
         remaining_cores = get_remaining_cores()
 
-        logging.debug(f"CPU affinity calculation: available={available_cores}, "
-                     f"data_path={data_path_cores}, reserved={sorted(reserved_cores)}, "
-                     f"remaining={remaining_cores}")
-
         if not remaining_cores:
             logging.warning("No remaining cores available for CPU affinity management. "
                           "All cores are reserved for data path processes.")
@@ -1194,22 +1228,46 @@ async def manage_cpu_affinities():
 
         target_cores_set = set(remaining_cores)
         cores_str = ",".join(map(str, remaining_cores))
-        logging.debug(f"Managing CPU affinities: assigning processes to cores {cores_str}")
 
         pids = get_processes_to_reassign()
-        logging.debug(f"Found {len(pids)} processes to check")
 
-        changes_made = 0
+        # First pass: check if any changes are needed
+        pids_needing_changes = []
         for pid in pids:
             try:
-                # Check current affinity
+                current_affinity = get_process_affinity(pid)
+                # Skip if we can't get affinity (process dead/unreadable)
+                if current_affinity is None:
+                    continue
+                # Skip if already set correctly
+                if current_affinity == target_cores_set:
+                    continue
+                pids_needing_changes.append(pid)
+            except Exception:
+                # Process might have exited, skip it
+                continue
+
+        # If no changes needed, return silently
+        if not pids_needing_changes:
+            return
+
+        # Log only when we have changes to make
+        logging.debug(f"CPU affinity calculation: available={available_cores}, "
+                     f"data_path={data_path_cores}, reserved={sorted(reserved_cores)}, "
+                     f"remaining={remaining_cores}")
+        logging.debug(f"Managing CPU affinities: assigning processes to cores {cores_str}")
+        logging.debug(f"Found {len(pids_needing_changes)} processes needing affinity changes (out of {len(pids)} checked)")
+
+        changes_made = 0
+        for pid in pids_needing_changes:
+            try:
+                # Get current affinity and command line for logging
                 current_affinity = get_process_affinity(pid)
 
-                # Skip if already set correctly
-                if current_affinity is not None and current_affinity == target_cores_set:
+                # Skip if process died between first and second pass
+                if current_affinity is None:
                     continue
 
-                # Get command line for logging
                 cmdline = get_process_cmdline(pid)
 
                 # Set new affinity
