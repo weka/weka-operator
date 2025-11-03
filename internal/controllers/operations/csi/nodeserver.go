@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,6 +81,7 @@ func NewCsiNodePod(
 					Image:           config.Config.Csi.WekafsImage,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Args:            args,
+					Resources:       toK8sResourceRequirementsForNode(config.Config.Csi.NodeResources.Wekafs),
 					Ports: []corev1.ContainerPort{
 						{
 							ContainerPort: 9899,
@@ -173,8 +175,9 @@ func NewCsiNodePod(
 					},
 				},
 				{
-					Name:  "liveness-probe",
-					Image: config.Config.Csi.LivenessProbeImage,
+					Name:      "liveness-probe",
+					Image:     config.Config.Csi.LivenessProbeImage,
+					Resources: toK8sResourceRequirementsForNode(config.Config.Csi.NodeResources.LivenessProbe),
 					Args: []string{
 						"--v=$(LOG_LEVEL)",
 						"--csi-address=$(ADDRESS)",
@@ -202,8 +205,9 @@ func NewCsiNodePod(
 					},
 				},
 				{
-					Name:  "csi-registrar",
-					Image: config.Config.Csi.RegistrarImage,
+					Name:      "csi-registrar",
+					Image:     config.Config.Csi.RegistrarImage,
+					Resources: toK8sResourceRequirementsForNode(config.Config.Csi.NodeResources.CsiRegistrar),
 					Args: []string{
 						"--v=$(LOG_LEVEL)",
 						"--csi-address=$(ADDRESS)",
@@ -355,4 +359,31 @@ func hostPathTypePtr(hostPathType corev1.HostPathType) *corev1.HostPathType {
 func mountPropagationBidirectional() *corev1.MountPropagationMode {
 	propagationMode := corev1.MountPropagationBidirectional
 	return &propagationMode
+}
+
+// Helper function to convert config ResourceRequirements to Kubernetes ResourceRequirements
+func toK8sResourceRequirementsForNode(res config.ResourceRequirements) corev1.ResourceRequirements {
+	k8sRes := corev1.ResourceRequirements{}
+
+	if res.Limits.CPU != "" || res.Limits.Memory != "" {
+		k8sRes.Limits = corev1.ResourceList{}
+		if res.Limits.CPU != "" {
+			k8sRes.Limits[corev1.ResourceCPU] = resource.MustParse(res.Limits.CPU)
+		}
+		if res.Limits.Memory != "" {
+			k8sRes.Limits[corev1.ResourceMemory] = resource.MustParse(res.Limits.Memory)
+		}
+	}
+
+	if res.Requests.CPU != "" || res.Requests.Memory != "" {
+		k8sRes.Requests = corev1.ResourceList{}
+		if res.Requests.CPU != "" {
+			k8sRes.Requests[corev1.ResourceCPU] = resource.MustParse(res.Requests.CPU)
+		}
+		if res.Requests.Memory != "" {
+			k8sRes.Requests[corev1.ResourceMemory] = resource.MustParse(res.Requests.Memory)
+		}
+	}
+
+	return k8sRes
 }
