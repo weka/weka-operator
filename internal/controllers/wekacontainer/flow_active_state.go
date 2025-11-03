@@ -425,6 +425,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				r.AddedDrivesNotAligedWithAllocations,
+				func() bool { return config.Config.RemoveFailedDrivesFromWeka },
 			},
 		},
 		&lifecycle.SimpleStep{

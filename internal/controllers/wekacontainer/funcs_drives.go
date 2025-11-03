@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -257,25 +256,13 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 
 	var containerDriveFailures []string
 
-	// check the Stats for any drives marked as failed
-	if config.Config.RemoveFailedDrivesFromWeka {
-		// check if any container has failed drives
-		driveFailures := container.Status.GetStats().Drives.DriveFailures
-		if len(driveFailures) > 0 {
-			containerDriveFailures = make([]string, 0, len(driveFailures))
-			for _, driveFailure := range driveFailures {
-				logger.Info("Drive marked as failed, marking for removal", "drive", driveFailure.SerialId)
-				containerDriveFailures = append(containerDriveFailures, driveFailure.SerialId)
-			}
-		}
-	}
-
-	// check if any drives added to weka from this container are not present in status Allocations
-	for _, addedDriveSerial := range container.Status.GetAddedDrivesSerials() {
-		found := slices.Contains(container.Status.Allocations.Drives, addedDriveSerial)
-		if !found {
-			logger.Info("Drive not found in allocations, marking for removal", "drive", addedDriveSerial)
-			containerDriveFailures = append(containerDriveFailures, addedDriveSerial)
+	// check if any container has failed drives
+	driveFailures := container.Status.GetStats().Drives.DriveFailures
+	if len(driveFailures) > 0 {
+		containerDriveFailures = make([]string, 0, len(driveFailures))
+		for _, driveFailure := range driveFailures {
+			logger.Info("Drive marked as failed, marking for removal", "drive", driveFailure.SerialId)
+			containerDriveFailures = append(containerDriveFailures, driveFailure.SerialId)
 		}
 	}
 
