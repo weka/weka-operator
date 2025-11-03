@@ -11,6 +11,7 @@ import (
 	"github.com/weka/weka-k8s-api/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -209,6 +210,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Image:           config.Config.Csi.WekafsImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Args:            args,
+							Resources:       toK8sResourceRequirements(config.Config.Csi.ControllerResources.Wekafs),
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 9898,
@@ -306,6 +308,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiAttacher),
 							Args: []string{
 								"--csi-address=$(ADDRESS)",
 								"--v=$(LOG_LEVEL)",
@@ -348,8 +351,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							},
 						},
 						{
-							Name:  "csi-provisioner",
-							Image: config.Config.Csi.ProvisionerImage,
+							Name:      "csi-provisioner",
+							Image:     config.Config.Csi.ProvisionerImage,
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiProvisioner),
 							Args: []string{
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
@@ -395,8 +399,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							},
 						},
 						{
-							Name:  "csi-resizer",
-							Image: config.Config.Csi.ResizerImage,
+							Name:      "csi-resizer",
+							Image:     config.Config.Csi.ResizerImage,
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiResizer),
 							Args: []string{
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
@@ -440,8 +445,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							},
 						},
 						{
-							Name:  "csi-snapshotter",
-							Image: config.Config.Csi.SnapshotterImage,
+							Name:      "csi-snapshotter",
+							Image:     config.Config.Csi.SnapshotterImage,
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiSnapshotter),
 							Args: []string{
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
@@ -493,7 +499,8 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 								},
 							},
-							Image: config.Config.Csi.LivenessProbeImage,
+							Image:     config.Config.Csi.LivenessProbeImage,
+							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.LivenessProbe),
 							Args: []string{
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
@@ -586,4 +593,31 @@ func ptr(s string) *string {
 // Helper function for HostPathType
 func typePtr(t corev1.HostPathType) *corev1.HostPathType {
 	return &t
+}
+
+// Helper function to convert config ResourceRequirements to Kubernetes ResourceRequirements
+func toK8sResourceRequirements(res config.ResourceRequirements) corev1.ResourceRequirements {
+	k8sRes := corev1.ResourceRequirements{}
+
+	if res.Limits.CPU != "" || res.Limits.Memory != "" {
+		k8sRes.Limits = corev1.ResourceList{}
+		if res.Limits.CPU != "" {
+			k8sRes.Limits[corev1.ResourceCPU] = resource.MustParse(res.Limits.CPU)
+		}
+		if res.Limits.Memory != "" {
+			k8sRes.Limits[corev1.ResourceMemory] = resource.MustParse(res.Limits.Memory)
+		}
+	}
+
+	if res.Requests.CPU != "" || res.Requests.Memory != "" {
+		k8sRes.Requests = corev1.ResourceList{}
+		if res.Requests.CPU != "" {
+			k8sRes.Requests[corev1.ResourceCPU] = resource.MustParse(res.Requests.CPU)
+		}
+		if res.Requests.Memory != "" {
+			k8sRes.Requests[corev1.ResourceMemory] = resource.MustParse(res.Requests.Memory)
+		}
+	}
+
+	return k8sRes
 }

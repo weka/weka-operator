@@ -229,3 +229,70 @@ csi:
   registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0"
   preventNewWorkloadOnClientContainerNotRunning: true
   logLevel: 5
+  controller:
+    resources:
+      wekafs:
+        limits:
+          cpu: 1
+          memory: 2Gi
+        requests:
+          cpu: 128m
+          memory: 128Mi
+      csiAttacher:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 4m
+          memory: 48Mi
+      csiProvisioner:
+        limits:
+          cpu: 1
+          memory: 2Gi
+        requests:
+          cpu: 128m
+          memory: 128Mi
+      csiResizer:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 4m
+          memory: 48Mi
+      csiSnapshotter:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 4m
+          memory: 48Mi
+      livenessProbe:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 12m
+          memory: 48Mi
+  node:
+    resources:
+      wekafs:
+        limits:
+          cpu: 1
+          memory: 2Gi
+        requests:
+          cpu: 128m
+          memory: 128Mi
+      livenessProbe:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 12m
+          memory: 44Mi
+      csiRegistrar:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 8m
+          memory: 52Mi
