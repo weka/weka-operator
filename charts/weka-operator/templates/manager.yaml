@@ -250,6 +250,78 @@ spec:
               value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
             - name: CSI_LOG_LEVEL
               value: "{{ .Values.csi.logLevel }}"
+            - name: CSI_CONTROLLER_WEKAFS_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.wekafs.limits.cpu }}"
+            - name: CSI_CONTROLLER_WEKAFS_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.wekafs.limits.memory }}"
+            - name: CSI_CONTROLLER_WEKAFS_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.wekafs.requests.cpu }}"
+            - name: CSI_CONTROLLER_WEKAFS_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.wekafs.requests.memory }}"
+            - name: CSI_CONTROLLER_ATTACHER_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.csiAttacher.limits.cpu }}"
+            - name: CSI_CONTROLLER_ATTACHER_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiAttacher.limits.memory }}"
+            - name: CSI_CONTROLLER_ATTACHER_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.csiAttacher.requests.cpu }}"
+            - name: CSI_CONTROLLER_ATTACHER_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiAttacher.requests.memory }}"
+            - name: CSI_CONTROLLER_PROVISIONER_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.csiProvisioner.limits.cpu }}"
+            - name: CSI_CONTROLLER_PROVISIONER_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiProvisioner.limits.memory }}"
+            - name: CSI_CONTROLLER_PROVISIONER_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.csiProvisioner.requests.cpu }}"
+            - name: CSI_CONTROLLER_PROVISIONER_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiProvisioner.requests.memory }}"
+            - name: CSI_CONTROLLER_RESIZER_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.csiResizer.limits.cpu }}"
+            - name: CSI_CONTROLLER_RESIZER_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiResizer.limits.memory }}"
+            - name: CSI_CONTROLLER_RESIZER_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.csiResizer.requests.cpu }}"
+            - name: CSI_CONTROLLER_RESIZER_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiResizer.requests.memory }}"
+            - name: CSI_CONTROLLER_SNAPSHOTTER_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.csiSnapshotter.limits.cpu }}"
+            - name: CSI_CONTROLLER_SNAPSHOTTER_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiSnapshotter.limits.memory }}"
+            - name: CSI_CONTROLLER_SNAPSHOTTER_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.csiSnapshotter.requests.cpu }}"
+            - name: CSI_CONTROLLER_SNAPSHOTTER_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.csiSnapshotter.requests.memory }}"
+            - name: CSI_CONTROLLER_LIVENESS_PROBE_LIMITS_CPU
+              value: "{{ .Values.csi.controller.resources.livenessProbe.limits.cpu }}"
+            - name: CSI_CONTROLLER_LIVENESS_PROBE_LIMITS_MEMORY
+              value: "{{ .Values.csi.controller.resources.livenessProbe.limits.memory }}"
+            - name: CSI_CONTROLLER_LIVENESS_PROBE_REQUESTS_CPU
+              value: "{{ .Values.csi.controller.resources.livenessProbe.requests.cpu }}"
+            - name: CSI_CONTROLLER_LIVENESS_PROBE_REQUESTS_MEMORY
+              value: "{{ .Values.csi.controller.resources.livenessProbe.requests.memory }}"
+            - name: CSI_NODE_WEKAFS_LIMITS_CPU
+              value: "{{ .Values.csi.node.resources.wekafs.limits.cpu }}"
+            - name: CSI_NODE_WEKAFS_LIMITS_MEMORY
+              value: "{{ .Values.csi.node.resources.wekafs.limits.memory }}"
+            - name: CSI_NODE_WEKAFS_REQUESTS_CPU
+              value: "{{ .Values.csi.node.resources.wekafs.requests.cpu }}"
+            - name: CSI_NODE_WEKAFS_REQUESTS_MEMORY
+              value: "{{ .Values.csi.node.resources.wekafs.requests.memory }}"
+            - name: CSI_NODE_LIVENESS_PROBE_LIMITS_CPU
+              value: "{{ .Values.csi.node.resources.livenessProbe.limits.cpu }}"
+            - name: CSI_NODE_LIVENESS_PROBE_LIMITS_MEMORY
+              value: "{{ .Values.csi.node.resources.livenessProbe.limits.memory }}"
+            - name: CSI_NODE_LIVENESS_PROBE_REQUESTS_CPU
+              value: "{{ .Values.csi.node.resources.livenessProbe.requests.cpu }}"
+            - name: CSI_NODE_LIVENESS_PROBE_REQUESTS_MEMORY
+              value: "{{ .Values.csi.node.resources.livenessProbe.requests.memory }}"
+            - name: CSI_NODE_REGISTRAR_LIMITS_CPU
+              value: "{{ .Values.csi.node.resources.csiRegistrar.limits.cpu }}"
+            - name: CSI_NODE_REGISTRAR_LIMITS_MEMORY
+              value: "{{ .Values.csi.node.resources.csiRegistrar.limits.memory }}"
+            - name: CSI_NODE_REGISTRAR_REQUESTS_CPU
+              value: "{{ .Values.csi.node.resources.csiRegistrar.requests.cpu }}"
+            - name: CSI_NODE_REGISTRAR_REQUESTS_MEMORY
+              value: "{{ .Values.csi.node.resources.csiRegistrar.requests.memory }}"
             - name: SYSLOG_PACKAGE
               value: "{{ .Values.syslogPackage }}"
             - name: PROXY

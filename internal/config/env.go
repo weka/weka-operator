@@ -89,6 +89,31 @@ type TolerationsMismatchSettings struct {
 	IgnoredTaints       []string
 }
 
+type ResourceRequirements struct {
+	Limits   ResourceList `json:"limits,omitempty"`
+	Requests ResourceList `json:"requests,omitempty"`
+}
+
+type ResourceList struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
+}
+
+type CsiControllerResources struct {
+	Wekafs         ResourceRequirements `json:"wekafs,omitempty"`
+	CsiAttacher    ResourceRequirements `json:"csiAttacher,omitempty"`
+	CsiProvisioner ResourceRequirements `json:"csiProvisioner,omitempty"`
+	CsiResizer     ResourceRequirements `json:"csiResizer,omitempty"`
+	CsiSnapshotter ResourceRequirements `json:"csiSnapshotter,omitempty"`
+	LivenessProbe  ResourceRequirements `json:"livenessProbe,omitempty"`
+}
+
+type CsiNodeResources struct {
+	Wekafs        ResourceRequirements `json:"wekafs,omitempty"`
+	LivenessProbe ResourceRequirements `json:"livenessProbe,omitempty"`
+	CsiRegistrar  ResourceRequirements `json:"csiRegistrar,omitempty"`
+}
+
 type EmbeddedCsiSettings struct {
 	Enabled                                       bool
 	StorageClassCreationDisabled                  bool
@@ -101,6 +126,8 @@ type EmbeddedCsiSettings struct {
 	RegistrarImage                                string
 	PreventNewWorkloadOnClientContainerNotRunning bool
 	LogLevel                                      int
+	ControllerResources                           CsiControllerResources
+	NodeResources                                 CsiNodeResources
 }
 
 type PriorityClasses struct {
@@ -333,6 +360,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
 	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
+	Config.Csi.ControllerResources = parseCsiControllerResources()
+	Config.Csi.NodeResources = parseCsiNodeResources()
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
 	Config.Proxy = getEnvOrDefault("PROXY", "")
 
@@ -459,4 +488,36 @@ func getDurationEnvOrDefault(envKey string, defaultVal time.Duration) time.Durat
 	}
 
 	return duration
+}
+
+func parseCsiControllerResources() CsiControllerResources {
+	return CsiControllerResources{
+		Wekafs:         parseResourceRequirements("CSI_CONTROLLER_WEKAFS"),
+		CsiAttacher:    parseResourceRequirements("CSI_CONTROLLER_ATTACHER"),
+		CsiProvisioner: parseResourceRequirements("CSI_CONTROLLER_PROVISIONER"),
+		CsiResizer:     parseResourceRequirements("CSI_CONTROLLER_RESIZER"),
+		CsiSnapshotter: parseResourceRequirements("CSI_CONTROLLER_SNAPSHOTTER"),
+		LivenessProbe:  parseResourceRequirements("CSI_CONTROLLER_LIVENESS_PROBE"),
+	}
+}
+
+func parseCsiNodeResources() CsiNodeResources {
+	return CsiNodeResources{
+		Wekafs:        parseResourceRequirements("CSI_NODE_WEKAFS"),
+		LivenessProbe: parseResourceRequirements("CSI_NODE_LIVENESS_PROBE"),
+		CsiRegistrar:  parseResourceRequirements("CSI_NODE_REGISTRAR"),
+	}
+}
+
+func parseResourceRequirements(envPrefix string) ResourceRequirements {
+	return ResourceRequirements{
+		Limits: ResourceList{
+			CPU:    env.GetString(envPrefix+"_LIMITS_CPU", ""),
+			Memory: env.GetString(envPrefix+"_LIMITS_MEMORY", ""),
+		},
+		Requests: ResourceList{
+			CPU:    env.GetString(envPrefix+"_REQUESTS_CPU", ""),
+			Memory: env.GetString(envPrefix+"_REQUESTS_MEMORY", ""),
+		},
+	}
 }
