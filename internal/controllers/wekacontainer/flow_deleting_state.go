@@ -150,6 +150,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 					},
 				),
 				r.container.IsBackend, // if we needed to deactivate - we would not reach this point without deactivating
+				func() bool { return NodeIsReady(r.node) },
 				// is it safe to force stop
 			},
 		},
@@ -169,6 +170,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsClientContainer,
 				lifecycle.IsNotFunc(r.PodNotSet),
+				func() bool { return NodeIsReady(r.node) },
 			},
 		},
 		&lifecycle.SimpleStep{
@@ -176,6 +178,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			// we do not try to align with whether we did stop - if we did stop for a some reason - good, graceful will succeed after it, if not - this is a protection
 			Predicates: lifecycle.Predicates{
 				r.container.IsWekaContainer,
+				func() bool { return NodeIsReady(r.node) },
 			},
 		},
 		&lifecycle.SimpleStep{

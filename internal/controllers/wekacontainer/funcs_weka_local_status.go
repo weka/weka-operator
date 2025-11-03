@@ -9,14 +9,27 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/services"
-	v1 "k8s.io/api/core/v1"
 )
 
 func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
+
+	node := r.node
+
+	if node != nil && !NodeIsReady(node) {
+		err := fmt.Errorf("node %s is not ready", node.Name)
+
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "NodeNotReady", err.Error(), time.Minute)
+
+		logger.Info("Skipping weka local status reconciliation on NotReady node", "node", node.Name)
+
+		return nil
+	}
 
 	container := r.container
 
