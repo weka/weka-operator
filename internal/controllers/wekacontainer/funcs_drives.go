@@ -151,23 +151,16 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 		addedSerials = append(addedSerials, drive.SerialNumber)
 	}
 
-	logger.Info("Fetched added drives from weka", "drives", addedSerials)
+	logger.Info("Fetched added drives from weka", "count", len(drivesAdded), "serials", addedSerials)
 
-	currentAddedSerials := container.Status.GetAddedDrivesSerials()
-
-	// sort drives for comparison
-	slices.Sort(addedSerials)
-	slices.Sort(currentAddedSerials)
-
-	if !slices.Equal(addedSerials, currentAddedSerials) {
-		container.Status.AddedDrives = drivesAdded
-		err = r.Status().Update(ctx, container)
-		if err != nil {
-			err = fmt.Errorf("cannot update container status with added drives: %w", err)
-			return err
-		}
-		logger.Info("Updated container status with added drives", "drives", drivesAdded)
+	container.Status.AddedDrives = drivesAdded
+	err = r.Status().Update(ctx, container)
+	if err != nil {
+		err = fmt.Errorf("cannot update container status with added drives: %w", err)
+		return err
 	}
+
+	logger.Info("Updated container status with added drives", "count", len(drivesAdded))
 
 	return nil
 }

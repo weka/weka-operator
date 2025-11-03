@@ -61,7 +61,6 @@ type wekaClusterReconcilerLoop struct {
 	Throttler       throttling.Throttler
 	// internal field used to store data in-memory between steps
 	readyContainers *ReadyForClusterizationContainers
-	// nodes for weka cluster
 }
 
 // GetAllSteps combines all reconciliation steps into a single ordered list
