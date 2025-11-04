@@ -9,7 +9,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/pkg/util"
@@ -42,25 +41,28 @@ func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName 
 		return nil, errors.New("node name is empty")
 	}
 
-	nodeAgentName := GetNodeAgentName(nodeName)
 	nodeAgentNamespace, err := util.GetPodNamespace()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get operator namespace")
 	}
 
-	nodeAgentPod := &v1.Pod{}
-
-	err = r.Get(ctx, client.ObjectKey{
-		Name:      nodeAgentName,
-		Namespace: nodeAgentNamespace,
-	}, nodeAgentPod)
-
+	pods, err := r.KubeService.GetPodsSimple(ctx, nodeAgentNamespace, string(nodeName), map[string]string{
+		"control-plane": "weka-node-agent",
+		"app":           "weka-node-agent",
+	})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get node agent pod")
+		return nil, errors.Wrap(err, "failed to list node agent pods")
 	}
 
-	if nodeAgentPod.Status.Phase == v1.PodRunning {
-		return nodeAgentPod, nil
+	if len(pods) == 0 {
+		return nil, errors.Errorf("no node agent pod found on node %s", nodeName)
+	}
+
+	for i := range pods {
+		pod := &pods[i]
+		if pod.Status.Phase == v1.PodRunning {
+			return pod, nil
+		}
 	}
 
 	return nil, &NodeAgentPodNotRunning{}

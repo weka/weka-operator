@@ -426,7 +426,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	// we should have deployment at hand now
 	kubeService := kubernetes.NewKubeService(r.getClient())
 	// searching for own pods
-	pods, err := kubeService.GetPodsSimple(ctx, r.cluster.Namespace, identifierLabels)
+	pods, err := kubeService.GetPodsSimple(ctx, r.cluster.Namespace, "", identifierLabels)
 	if err != nil {
 		return err
 	}

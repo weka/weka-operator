@@ -23,7 +23,8 @@ type K8sOwnerRef struct {
 type KubeService interface {
 	GetNode(ctx context.Context, nodeName types.NodeName) (*v1.Node, error)
 	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
-	GetPodsSimple(ctx context.Context, namespace string, labels map[string]string) ([]v1.Pod, error)
+	GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error)
+	GetPodsSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error)
 	GetWekaContainersSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error)
 	GetWekaContainers(ctx context.Context, options GetPodsOptions) ([]v1alpha1.WekaContainer, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
@@ -129,7 +130,7 @@ func (s *ApiKubeService) GetPods(ctx context.Context, options GetPodsOptions) ([
 	return pods.Items, nil
 }
 
-func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace string, labels map[string]string) ([]v1.Pod, error) {
+func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1.Pod, error) {
 	pods := &v1.PodList{}
 
 	// Create a list of options to pass to the List method
@@ -139,6 +140,11 @@ func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace string, la
 
 	if len(labels) != 0 {
 		listOptions = append(listOptions, client.MatchingLabels(labels))
+	}
+
+	// Add node name filtering if the node parameter is not empty
+	if node != "" {
+		listOptions = append(listOptions, client.MatchingFields{"spec.nodeName": node})
 	}
 
 	// List the pods with the given options

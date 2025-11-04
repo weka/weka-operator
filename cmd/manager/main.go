@@ -27,7 +27,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -38,6 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -179,6 +182,15 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						"app.kubernetes.io/created-by": "weka-operator",
+					}),
+				},
+			},
+		},
 	})
 	if err != nil {
 		logger.Error(err, "unable to start manager")
@@ -276,6 +288,13 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 }
 
 func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(rawObj client.Object) []string {
+		pod := rawObj.(*corev1.Pod)
+		return []string{pod.Spec.NodeName}
+	}); err != nil {
+		return err
+	}
+
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &wekav1alpha1.WekaContainer{}, "metadata.uid", func(rawObj client.Object) []string {
 		wekaContainer := rawObj.(*wekav1alpha1.WekaContainer)
 		return []string{string(wekaContainer.UID)}
