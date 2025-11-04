@@ -69,6 +69,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.NodeIsSet,
 				lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
 			},
+			ContinueOnError: true,
 		},
 	}
 
