@@ -104,14 +104,6 @@ func ContainerReconcileSteps(r *ContainerController, container *weka.WekaContain
 		Conditions: &loop.container.Status.Conditions,
 	}
 
-	if container.Spec.Mode == weka.WekaContainerModeNodeAgent {
-		return lifecycle.StepsEngine{
-			StateKeeper: k8sObject,
-			Throttler:   r.ThrottlingMap.WithPartition("container/" + loop.container.Name),
-			Steps:       NodeAgentFlow(loop),
-		}
-	}
-
 	// Choose the appropriate steps based on container state
 	var steps []lifecycle.Step
 	switch container.Spec.State {

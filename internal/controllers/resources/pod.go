@@ -89,12 +89,6 @@ func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.Di
 }
 
 func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod, error) {
-	// Check if this is a node-agent container and delegate to NodeAgentPodFactory
-	if f.container.IsNodeAgentContainer() {
-		nodeAgentFactory := NewNodeAgentPodFactory(f.container, f.nodeInfo)
-		return nodeAgentFactory.Create(ctx)
-	}
-
 	labels := LabelsForWekaPod(f.container)
 	annotations := AnnotationsForWekaPod(f.container.GetAnnotations(), nil)
 

@@ -143,25 +143,8 @@ func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	return t.IgnoredTaints
 }
 
-type NodeAgent struct {
-	Image            string
-	PersistencePaths string
-	Resources        struct {
-		Limits struct {
-			CPU    string
-			Memory string
-		}
-		Requests struct {
-			CPU    string
-			Memory string
-		}
-	}
-}
-
 var Config struct {
 	Version                        string
-	OperatorPrefix                 string
-	OperatorImage                  string
 	OperatorPodUID                 string
 	OperatorPodName                string
 	OperatorPodNamespace           string
@@ -214,7 +197,6 @@ var Config struct {
 	SyslogPackage   string
 	Proxy           string
 	PriorityClasses PriorityClasses
-	NodeAgent       NodeAgent
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -295,8 +277,6 @@ func init() {
 func ConfigureEnv(ctx context.Context) {
 	Config.Version = getEnvOrFail("VERSION")
 	Config.Mode = OperatorMode(env.GetString("OPERATOR_MODE", string(OperatorModeManager)))
-	Config.OperatorPrefix = getEnvOrDefault("OPERATOR_PREFIX", "weka-operator")
-	Config.OperatorImage = os.Getenv("OPERATOR_IMAGE")
 	Config.OperatorPodUID = os.Getenv("POD_UID")
 	Config.OperatorPodName = os.Getenv("POD_NAME")
 	Config.OperatorPodNamespace = os.Getenv("POD_NAMESPACE")
@@ -396,13 +376,6 @@ func ConfigureEnv(ctx context.Context) {
 	// Priority classes configuration
 	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial-no-evict")
 	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted-no-evict")
-	// NodeAgent configuration
-	Config.NodeAgent.Image = getEnvOrDefault("NODE_AGENT_IMAGE", "")
-	Config.NodeAgent.PersistencePaths = getEnvOrDefault("NODE_AGENT_PERSISTENCE_PATHS", "/opt/k8s-weka")
-	Config.NodeAgent.Resources.Limits.CPU = getEnvOrDefault("NODE_AGENT_RESOURCES_LIMITS_CPU", "1000m")
-	Config.NodeAgent.Resources.Limits.Memory = getEnvOrDefault("NODE_AGENT_RESOURCES_LIMITS_MEMORY", "1024Mi")
-	Config.NodeAgent.Resources.Requests.CPU = getEnvOrDefault("NODE_AGENT_RESOURCES_REQUESTS_CPU", "50m")
-	Config.NodeAgent.Resources.Requests.Memory = getEnvOrDefault("NODE_AGENT_RESOURCES_REQUESTS_MEMORY", "64Mi")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
 }

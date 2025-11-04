@@ -28,13 +28,6 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.refreshPod,
 		},
 		&lifecycle.SimpleStep{
-			Run: r.EnsureNodeAgent,
-			Predicates: lifecycle.Predicates{
-				r.HasNodeAffinity,
-			},
-			ContinueOnError: true,
-		},
-		&lifecycle.SimpleStep{
 			Run: r.GetWekaClient,
 			Predicates: lifecycle.Predicates{
 				r.WekaContainerManagesCsi,

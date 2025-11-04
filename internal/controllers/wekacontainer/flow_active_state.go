@@ -65,13 +65,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.refreshPod,
 		},
-		&lifecycle.SimpleStep{
-			Run: r.EnsureNodeAgent,
-			Predicates: lifecycle.Predicates{
-				r.HasNodeAffinity,
-			},
-			ContinueOnError: true,
-		},
 	}
 
 	metricsSteps := MetricsSteps(r)
@@ -716,15 +709,7 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	pod := r.pod
 	container := r.container
 
-	var podContainer v1.Container
-	var err error
-
-	switch container.Spec.Mode {
-	case weka.WekaContainerModeNodeAgent:
-		podContainer, err = r.getNodeAgentPodContainer(pod)
-	default:
-		podContainer, err = resources.GetWekaPodContainer(pod)
-	}
+	podContainer, err := resources.GetWekaPodContainer(pod)
 	if err != nil {
 		return err
 	}

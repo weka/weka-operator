@@ -39,14 +39,12 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	container := r.container
-
-	// NOTE: node agent pod could be still needed even is node got unschedulable,
-	// e.g. to let client container check active mounts ang go away
-	if !r.container.IsNodeAgentContainer() && NodeIsUnschedulable(r.node) {
+	if NodeIsUnschedulable(r.node) {
 		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
+
+	container := r.container
 
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
