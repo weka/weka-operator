@@ -31,7 +31,9 @@ func (r *containerReconcilerLoop) reconcileClusterStatus(ctx context.Context) er
 		return nil
 	}
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	timeout := time.Second * 15
+
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		logger.Error(err, "Error creating executor")
 		return err
