@@ -14,14 +14,41 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
-	if r.node == nil {
-		return nil, errors.New("Node is not set")
+func (r *containerReconcilerLoop) getCurrentPodNodeName() (string, error) {
+	if r.pod == nil {
+		return "", errors.New("Pod is not set")
 	}
 
-	if !NodeIsReady(r.node) {
-		err := errors.New("Node is not ready")
-		return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+	pod := r.pod
+
+	if pod.Status.Phase != v1.PodRunning {
+		err := fmt.Errorf("Pod is not running yet, current phase: %s", pod.Status.Phase)
+		return "", err
+	}
+
+	if pod.Spec.NodeName != "" {
+		return pod.Spec.NodeName, nil
+	}
+
+	return "", errors.New("Pod node name is not set")
+}
+
+func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Pod, error) {
+	var nodeName string
+	var err error
+
+	if r.node == nil {
+		// try to get node name from pod
+		nodeName, err = r.getCurrentPodNodeName()
+		if err != nil {
+			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		}
+	} else {
+		if !NodeIsReady(r.node) {
+			err := errors.New("Node is not ready")
+			return nil, lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+		}
+		nodeName = r.node.Name
 	}
 
 	ns, err := util.GetPodNamespace()
@@ -29,7 +56,7 @@ func (r *containerReconcilerLoop) getNodeAgentPods(ctx context.Context) ([]v1.Po
 		return nil, err
 	}
 	//TODO: We can replace this call with GetWekaContainerSimple (and remove index for pods nodenames) if we move nodeAgent to be wekacontainer
-	pods, err := r.KubeService.GetPodsSimple(ctx, ns, r.node.Name, map[string]string{
+	pods, err := r.KubeService.GetPodsSimple(ctx, ns, nodeName, map[string]string{
 		"app.kubernetes.io/component": "weka-node-agent",
 	})
 	if err != nil {
