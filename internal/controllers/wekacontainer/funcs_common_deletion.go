@@ -210,7 +210,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 }
 
 func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowForceStopInstruction")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowForceStopInstruction", "skipExec", skipExec)
 	defer end()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
@@ -223,7 +223,9 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 		return err
 	}
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	timeout := 1 * time.Minute
+
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
@@ -444,7 +446,7 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 }
 
 func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context, pod *v1.Pod, skipExec bool) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowStopInstruction")
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "writeAllowStopInstruction", "skipExec", skipExec)
 	defer end()
 
 	// create a Json and sent it to node-agent, required for CoreOS / cri-o container agent
@@ -457,7 +459,10 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 	if skipExec {
 		return err
 	}
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+
+	timeout := 1 * time.Minute
+
+	executor, err := util.NewExecInPodWithTimeout(r.RestClient, r.Manager.GetConfig(), pod, &timeout)
 	if err != nil {
 		return err
 	}
