@@ -73,6 +73,9 @@ type WekaClientSpecOverrides struct {
 	// unsafe parameter, disables anti-affinities on client pods, allowing to schedule more than one client pod per node.
 	// Running multiple clients for multiple clusters on the same node is not fully supported yet, and this flag should not be used in production.
 	DropAffinityConstraints bool `json:"dropAffinityConstraints,omitempty"`
+	// override name used in weka local setup for the container
+	// this can be used for integration with external client on the host
+	WekaContainerName string `json:"wekaContainerName,omitempty"`
 }
 
 type UpgradePolicy struct {
