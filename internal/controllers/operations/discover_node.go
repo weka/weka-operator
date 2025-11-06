@@ -70,7 +70,7 @@ func (o *DiscoverNodeOperation) AsStep() lifecycle.Step {
 func (o *DiscoverNodeOperation) GetSteps() []lifecycle.Step {
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{Name: "GetNode", Run: o.GetNode},
-		&lifecycle.SimpleStep{Name: "GetContainers", Run: o.GetContainers},
+		&lifecycle.SimpleStep{Name: "GetContainer", Run: o.GetContainer},
 		&lifecycle.SimpleStep{
 			Name:            "FinishOnExistingInfo",
 			Run:             o.DeleteContainers,
@@ -166,7 +166,7 @@ func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	return nil
 }
 
-func (o *DiscoverNodeOperation) GetContainers(ctx context.Context) error {
+func (o *DiscoverNodeOperation) GetContainer(ctx context.Context) error {
 	containerName := o.getContainerName()
 	container, err := discovery.GetContainerByName(ctx, o.client, weka.ObjectReference{
 		Namespace: o.ownerRef.GetNamespace(),

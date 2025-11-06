@@ -170,7 +170,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 		}
 
-		nodeInfo, err := r.GetNodeInfo(ctx)
+		nodeInfo, err := r.GetNodeInfo(ctx, container.GetNodeAffinity())
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				logger.Info("node is deleted, no need for cleanup")
@@ -262,7 +262,18 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 		return err
 	}
 
-	nodeInfo, err := r.GetNodeInfo(ctx)
+	var nodeName string
+	if r.node == nil {
+		// try to get node name from pod
+		nodeName, err = r.getCurrentPodNodeName()
+		if err != nil {
+			return fmt.Errorf("cannot get current pod node name: %v", err)
+		}
+	} else {
+		nodeName = r.node.Name
+	}
+
+	nodeInfo, err := r.GetNodeInfo(ctx, weka.NodeName(nodeName))
 	if err != nil {
 		return err
 	}

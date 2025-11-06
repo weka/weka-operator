@@ -1941,6 +1941,8 @@ def get_boot_id():
 
 
 def get_instructions_dir():
+    # /host-binds/shared path comes from weka-container-shared-dir volume mount
+    # NOTE: hostpath for this volume includes container uid subdir
     return f"/host-binds/shared/instructions/{POD_ID}/{get_boot_id()}"
 
 

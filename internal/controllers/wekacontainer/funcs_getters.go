@@ -250,25 +250,17 @@ func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*
 	return clusterContainers, nil
 }
 
-func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context) (*discovery.DiscoveryNodeInfo, error) {
+func (r *containerReconcilerLoop) GetNodeInfo(ctx context.Context, nodeName weka.NodeName) (*discovery.DiscoveryNodeInfo, error) {
 	container := r.container
 
 	if container.IsDiscoveryContainer() {
-		return nil, errors.New("cannot get node info for discovery container")
+		return nil, errors.New("cannot run node discovery on a discovery container")
 	}
 
-	nodeAffinity := container.GetNodeAffinity()
-	if container.GetNodeAffinity() == "" {
-		node, err := r.pickMatchingNode(ctx)
-		if err != nil {
-			return nil, err
-		}
-		nodeAffinity = weka.NodeName(node.Name)
-	}
 	discoverNodeOp := operations.NewDiscoverNodeOperation(
 		r.Manager,
 		r.RestClient,
-		nodeAffinity,
+		nodeName,
 		container,
 		container.ToOwnerDetails(),
 	)
