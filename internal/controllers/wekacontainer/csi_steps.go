@@ -117,8 +117,8 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 	}
 	labels := csi.GetCsiLabels(r.getCsiDriverName(), csi.CSINode, r.container.Labels, csiNodeLabels)
 	tolerations := append(r.container.Spec.Tolerations, csiNodeTolerations...)
-	// tolerate all NoSchedule taints for the CSI node pod
-	tolerations = resources.ExpandNoScheduleTolerations(tolerations)
+	// conditionally tolerate all NoSchedule taints for the CSI node pod (same as client pods)
+	tolerations = resources.ConditionalExpandNoScheduleTolerations(tolerations, !config.Config.SkipClientNoScheduleToleration)
 	// add NoExecute tolerations for common node taints
 	tolerations = expandCsiNoExecuteTolerations(tolerations)
 
