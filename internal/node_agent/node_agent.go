@@ -994,10 +994,17 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("Checking active mounts from /proc/wekafs/interface")
+	// Get container name from query parameter
+	containerName := r.URL.Query().Get("container_name")
 
 	// path to driver interface file
-	filePath := "/proc/wekafs/interface"
+	var filePath string
+	if containerName != "" {
+		filePath = fmt.Sprintf("/proc/wekafs/%s/interface", containerName)
+	} else {
+		// fallback to default path for backward compatibility
+		filePath = "/proc/wekafs/interface"
+	}
 
 	file, err := os.Open(filePath)
 	if err != nil && os.IsNotExist(err) {

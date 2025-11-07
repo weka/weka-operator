@@ -1,0 +1,26 @@
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: kristina-two
+  namespace: test-cluster-ready
+spec:
+  cpuPolicy: auto
+  driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
+  dynamicTemplate:
+    computeContainers: 6
+    computeHugepages: 20000
+    driveContainers: 6
+  gracefulDestroyDuration: 0s
+  hotSpare: 0
+  image: quay.io/weka.io/weka-in-container:4.4.10.118
+  imagePullSecret: quay-io-robot-secret
+  network:
+    deviceSubnets:
+    - 10.100.0.0/16
+  nodeSelector:
+    weka.io/supports-backends: "true"
+  ports:
+    basePort: 15500
+  startIoConditions:
+    minNumDrives: 5
+  template: dynamic

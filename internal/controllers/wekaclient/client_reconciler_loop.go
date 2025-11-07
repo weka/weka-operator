@@ -467,9 +467,10 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 				SkipActiveMountsCheck:    wekaClient.Spec.GetOverrides().SkipActiveMountsCheck,
 				UmountOnHost:             wekaClient.Spec.GetOverrides().UmountOnHost,
 			},
-			AutoRemoveTimeout: wekaClient.Spec.AutoRemoveTimeout,
-			Resources:         wekaClient.Spec.Resources,
-			PVC:               resources.GetPvcConfig(wekaClient.Spec.GlobalPVC),
+			AutoRemoveTimeout:     wekaClient.Spec.AutoRemoveTimeout,
+			Resources:             wekaClient.Spec.Resources,
+			PVC:                   resources.GetPvcConfig(wekaClient.Spec.GlobalPVC),
+			NoAffinityConstraints: wekaClient.Spec.GetOverrides().DropAffinityConstraints,
 		},
 	}
 
@@ -709,6 +710,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 	oldAnnotations := container.GetAnnotations()
 	if !util2.NewHashableMap(newAnnotations).Equals(util2.NewHashableMap(oldAnnotations)) {
 		container.SetAnnotations(newAnnotations)
+		changed = true
+	}
+
+	if container.Spec.NoAffinityConstraints != newClientSpec.DropAffinityConstraints {
+		container.Spec.NoAffinityConstraints = newClientSpec.DropAffinityConstraints
 		changed = true
 	}
 
@@ -983,30 +989,31 @@ func isPortRangeEqual(a, b weka.PortRange) bool {
 }
 
 type UpdatableClientSpec struct {
-	DriversDistService    string
-	DriversBuildId        *string
-	ImagePullSecret       string
-	WekaSecretRef         string
-	AdditionalMemory      int
-	UpgradePolicy         weka.UpgradePolicy
-	AllowHotUpgrade       bool
-	DriversLoaderImage    string
-	Port                  int
-	AgentPort             int
-	PortRange             *weka.PortRange
-	CoresNumber           int
-	Tolerations           []string
-	RawTolerations        []v1.Toleration
-	Labels                *util2.HashableMap
-	Annotations           *util2.HashableMap
-	AutoRemoveTimeout     metav1.Duration
-	ForceDrain            bool
-	SkipActiveMountsCheck bool
-	UmountOnHost          bool
-	PvcConfig             *weka.PVCConfig
-	TracesConfiguration   *weka.TracesConfiguration
-	CpuPolicy             weka.CpuPolicy
-	Network               weka.Network
+	DriversDistService      string
+	DriversBuildId          *string
+	ImagePullSecret         string
+	WekaSecretRef           string
+	AdditionalMemory        int
+	UpgradePolicy           weka.UpgradePolicy
+	AllowHotUpgrade         bool
+	DriversLoaderImage      string
+	Port                    int
+	AgentPort               int
+	PortRange               *weka.PortRange
+	CoresNumber             int
+	Tolerations             []string
+	RawTolerations          []v1.Toleration
+	Labels                  *util2.HashableMap
+	Annotations             *util2.HashableMap
+	AutoRemoveTimeout       metav1.Duration
+	ForceDrain              bool
+	SkipActiveMountsCheck   bool
+	UmountOnHost            bool
+	PvcConfig               *weka.PVCConfig
+	TracesConfiguration     *weka.TracesConfiguration
+	CpuPolicy               weka.CpuPolicy
+	Network                 weka.Network
+	DropAffinityConstraints bool
 }
 
 func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
@@ -1015,30 +1022,31 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 	meta := client.ObjectMeta
 
 	return &UpdatableClientSpec{
-		DriversDistService:    spec.DriversDistService,
-		DriversBuildId:        spec.GetOverrides().DriversBuildId,
-		ImagePullSecret:       spec.ImagePullSecret,
-		WekaSecretRef:         spec.WekaSecretRef,
-		AdditionalMemory:      spec.AdditionalMemory,
-		UpgradePolicy:         spec.UpgradePolicy,
-		AllowHotUpgrade:       spec.AllowHotUpgrade,
-		DriversLoaderImage:    spec.GetOverrides().DriversLoaderImage,
-		Port:                  spec.Port,
-		AgentPort:             spec.AgentPort,
-		PortRange:             spec.PortRange,
-		CoresNumber:           spec.CoresNumber,
-		Tolerations:           spec.Tolerations,
-		RawTolerations:        spec.RawTolerations,
-		Labels:                labels,
-		Annotations:           util2.NewHashableMap(meta.Annotations),
-		AutoRemoveTimeout:     spec.AutoRemoveTimeout,
-		ForceDrain:            spec.GetOverrides().ForceDrain,
-		SkipActiveMountsCheck: spec.GetOverrides().SkipActiveMountsCheck,
-		UmountOnHost:          spec.GetOverrides().UmountOnHost,
-		PvcConfig:             resources.GetPvcConfig(spec.GlobalPVC),
-		TracesConfiguration:   spec.TracesConfiguration,
-		CpuPolicy:             spec.CpuPolicy,
-		Network:               spec.Network,
+		DriversDistService:      spec.DriversDistService,
+		DriversBuildId:          spec.GetOverrides().DriversBuildId,
+		ImagePullSecret:         spec.ImagePullSecret,
+		WekaSecretRef:           spec.WekaSecretRef,
+		AdditionalMemory:        spec.AdditionalMemory,
+		UpgradePolicy:           spec.UpgradePolicy,
+		AllowHotUpgrade:         spec.AllowHotUpgrade,
+		DriversLoaderImage:      spec.GetOverrides().DriversLoaderImage,
+		Port:                    spec.Port,
+		AgentPort:               spec.AgentPort,
+		PortRange:               spec.PortRange,
+		CoresNumber:             spec.CoresNumber,
+		Tolerations:             spec.Tolerations,
+		RawTolerations:          spec.RawTolerations,
+		Labels:                  labels,
+		Annotations:             util2.NewHashableMap(meta.Annotations),
+		AutoRemoveTimeout:       spec.AutoRemoveTimeout,
+		ForceDrain:              spec.GetOverrides().ForceDrain,
+		SkipActiveMountsCheck:   spec.GetOverrides().SkipActiveMountsCheck,
+		UmountOnHost:            spec.GetOverrides().UmountOnHost,
+		PvcConfig:               resources.GetPvcConfig(spec.GlobalPVC),
+		TracesConfiguration:     spec.TracesConfiguration,
+		CpuPolicy:               spec.CpuPolicy,
+		Network:                 spec.Network,
+		DropAffinityConstraints: spec.GetOverrides().DropAffinityConstraints,
 	}
 }
 

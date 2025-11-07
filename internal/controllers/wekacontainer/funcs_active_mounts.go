@@ -44,7 +44,11 @@ func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, er
 		return nil, err
 	}
 
-	url := "http://" + agentPod.Status.PodIP + ":8090/getActiveMounts"
+	// Build URL with container_name query parameter
+	url := fmt.Sprintf("http://%s:8090/getActiveMounts", agentPod.Status.PodIP)
+	if r.container.Spec.WekaContainerName != "" {
+		url = fmt.Sprintf("%s?container_name=%s", url, r.container.Spec.WekaContainerName)
+	}
 
 	resp, err := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
 	if err != nil {
