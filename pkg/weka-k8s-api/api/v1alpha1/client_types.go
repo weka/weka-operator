@@ -70,6 +70,9 @@ type WekaClientSpecOverrides struct {
 	SkipActiveMountsCheck bool `json:"skipActiveMountsCheck,omitempty"`
 	// unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host
 	UmountOnHost bool `json:"umountOnHost,omitempty"`
+	// unsafe parameter, disables anti-affinities on client pods, allowing to schedule more than one client pod per node.
+	// Running multiple clients for multiple clusters on the same node is not fully supported yet, and this flag should not be used in production.
+	DropAffinityConstraints bool `json:"dropAffinityConstraints,omitempty"`
 }
 
 type UpgradePolicy struct {
