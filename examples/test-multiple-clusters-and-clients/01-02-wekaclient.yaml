@@ -1,8 +1,8 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaClient
 metadata:
-  name: kristina-client-second
-  namespace: test-cluster-ready
+  name: testmultiple-client-1
+  namespace: testmultiple
 spec:
   autoRemoveTimeout: 0s
   cpuPolicy: auto
@@ -15,12 +15,13 @@ spec:
   nodeSelector:
     weka.io/supports-clients: "true"
   portRange:
-    basePort: 46500
+    basePort: 46000
     portRange: 0
   targetCluster:
-    name: kristina-two
-    namespace: test-cluster-ready
+    name: testmultiple-1
+    namespace: testmultiple
   upgradePolicy:
     type: all-at-once
-  wekaSecretRef: weka-client-kristina-two
-  dropAffinityConstraints: true
+  wekaSecretRef: weka-client-testmultiple-1
+  overrides:
+    dropAffinityConstraints: true

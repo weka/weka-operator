@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -36,6 +37,7 @@ type CsiControllerHashableSpec struct {
 	SkipGarbageCollection bool
 	LogLevel              int
 	PriorityClassName     string
+	WekaContainerName     string
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -80,6 +82,7 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		SkipGarbageCollection: skipGarbageCollection,
 		LogLevel:              config.Config.Csi.LogLevel,
 		PriorityClassName:     config.Config.PriorityClasses.Targeted,
+		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
 	}
 
 	return util2.HashStruct(spec)
@@ -125,8 +128,11 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	privileged := true
 	replicas := int32(2)
 
+	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+
 	args := []string{
 		"--drivername=$(CSI_DRIVER_NAME)",
+		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--v=$(LOG_LEVEL)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -277,6 +283,10 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 											FieldPath: "status.hostIP",
 										},
 									},
+								},
+								{
+									Name:  "WEKAFS_CONTAINER_NAME",
+									Value: wekaContainerName,
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{

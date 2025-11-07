@@ -423,6 +423,8 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		secretName = weka.GetClientSecretName(wekaClient.Spec.TargetCluster.Name)
 	}
 
+	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
+
 	container := &weka.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "weka.weka.io/v1alpha1",
@@ -441,7 +443,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			PortRange:           portRange,
 			Image:               wekaClient.Spec.Image,
 			ImagePullSecret:     wekaClient.Spec.ImagePullSecret,
-			WekaContainerName:   fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID())),
+			WekaContainerName:   wekaContainerName,
 			Mode:                weka.WekaContainerModeClient,
 			NumCores:            c.getClientCores(),
 			CpuPolicy:           wekaClient.Spec.CpuPolicy,

@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
@@ -95,7 +96,9 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 			Operator: corev1.TolerationOpExists, // Tolerates all taints
 		},
 	}
-	var csiLabels map[string]string
+	csiLabels := map[string]string{
+		"app.kubernetes.io/created-by": "weka-operator",
+	}
 	var enforceTrustedHttps bool
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
 		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.NodeTolerations...)
@@ -117,6 +120,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 
 	args := []string{
 		"--v=$(LOG_LEVEL)",
+		"--wekafscontainername=$(WEKAFS_CONTAINER_NAME)",
 		"--drivername=$(CSI_DRIVER_NAME)",
 		"--endpoint=$(CSI_ENDPOINT)",
 		"--nodeid=$(KUBE_NODE_NAME)",
@@ -144,6 +148,8 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	if tracingFlag != "" {
 		args = append(args, tracingFlag)
 	}
+
+	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
 	return &appsv1.DaemonSet{
 		TypeMeta: metav1.TypeMeta{
@@ -254,6 +260,10 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 								{
 									Name:  "LOG_LEVEL",
 									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+								},
+								{
+									Name:  "WEKAFS_CONTAINER_NAME",
+									Value: wekaContainerName,
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{

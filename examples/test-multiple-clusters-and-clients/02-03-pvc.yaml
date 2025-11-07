@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: kristina-two-pvc
-  namespace: test-cluster-ready
+  name: testmultiple-pvc-2
+  namespace: testmultiple
 spec:
   accessModes:
   - ReadWriteMany
   resources:
     requests:
       storage: 10Gi
-  storageClassName: weka-kristina-two-test-cluster-ready-default
+  storageClassName: weka-testmultiple-2-testmultiple-default
   volumeMode: Filesystem

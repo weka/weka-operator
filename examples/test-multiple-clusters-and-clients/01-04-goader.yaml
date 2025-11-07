@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: goader-smallios-testmultiple-1
+  namespace: testmultiple
+  labels:
+    app: goader-smallios-testmultiple-1
+    cluster: testmultiple-1
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  selector:
+    matchLabels:
+      app: goader-smallios-testmultiple-1
+      cluster: testmultiple-1
+  template:
+    metadata:
+      labels:
+        app: goader-smallios-testmultiple-1
+        cluster: testmultiple-1
+    spec:
+      nodeSelector:
+        weka.io/supports-clients: "true"
+      containers:
+        - name: goader
+          imagePullPolicy: Always
+          image: public.ecr.aws/weka/goader:latest
+          env:
+            - name: GOADER_PARAMS
+              value: "-wt=2 -rt=2 --body-size=128KiB --show-progress=False --max-requests=50000 --mkdirs --url /data/small/${NODE_NAME}/NN/NN"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: goader-storage
+              mountPath: /data
+      volumes:
+        - name: goader-storage
+          persistentVolumeClaim:
+            claimName: testmultiple-pvc-1

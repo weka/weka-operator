@@ -1,8 +1,8 @@
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: kristina
-  namespace: test-cluster-ready
+  name: testmultiple-1
+  namespace: testmultiple
 spec:
   cpuPolicy: auto
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002

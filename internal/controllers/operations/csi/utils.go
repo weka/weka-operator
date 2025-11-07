@@ -2,6 +2,7 @@ package csi
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
@@ -61,9 +62,7 @@ func GetCsiLabels(csiDriverName string, role CSIRole, parentLabels, csiLabels ma
 		}
 	}
 
-	for k, v := range csiLabels {
-		labels[k] = v
-	}
+	maps.Copy(labels, csiLabels)
 
 	return labels
 }
