@@ -139,10 +139,7 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 			return err
 		}
 	}
-	// delete csi node pod
-	if r.WekaContainerManagesCsi() {
-		return r.CleanupCsiNodeServerPod(ctx)
-	}
+	// CSI node DaemonSet is now managed by WekaClient, not by individual containers
 	return nil
 }
 
