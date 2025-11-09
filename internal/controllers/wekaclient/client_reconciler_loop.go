@@ -173,6 +173,14 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				ContinueOnError: true,
 			},
+			&lifecycle.SimpleStep{
+				Run: loop.UpdateCsiNodeDaemonSet,
+				Predicates: lifecycle.Predicates{
+					lifecycle.IsTrueCondition(condition.CondCsiDeployed, &wekaClient.Status.Conditions),
+					loop.clientManagesCsiDeployment,
+				},
+				ContinueOnError: true,
+			},
 			&lifecycle.SimpleStep{Run: loop.HandleSpecUpdates},
 			&lifecycle.SimpleStep{Run: loop.HandleUpgrade},
 			&lifecycle.SimpleStep{
@@ -266,6 +274,10 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		return errors.Wrap(err, "failed to mark containers destroying")
 	}
 
+	if len(c.containers) > 0 {
+		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
+	}
+
 	if c.clientManagesCsiDeployment() {
 		err = c.UndeployCsiPlugin(ctx)
 		if err != nil {
@@ -273,9 +285,6 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 		}
 	}
 
-	if len(c.containers) > 0 {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for client weka containers to be deleted"), time.Second*15)
-	}
 	return nil
 }
 
@@ -1258,4 +1267,79 @@ func (c *clientReconcilerLoop) isOwnedByDifferentWekaClient(ctx context.Context,
 	logger.Debug("CSI controller deployment is not owned by different WekaClient")
 
 	return false, nil
+}
+
+func (c *clientReconcilerLoop) UpdateCsiNodeDaemonSet(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	daemonSet, err := c.getExistingCsiNodeDaemonSet(ctx)
+	if err != nil {
+		return err
+	}
+	if daemonSet == nil {
+		logger.Info("CSI node daemonset not found, skipping update")
+		return nil
+	}
+
+	targetDaemonSet, err := csi.NewCsiNodeDaemonSet(ctx, c.GetCSIGroup(), c.wekaClient)
+	if err != nil {
+		return err
+	}
+
+	currentHash, _ := daemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
+	targetHash, _ := targetDaemonSet.Spec.Template.Annotations["weka.io/csi-node-hash"]
+	if targetHash != currentHash {
+		logger.Info("CSI node daemonset spec changed, updating daemonset",
+			"targetHash", targetHash, "currentHash", currentHash)
+
+		// Preserve the existing resource version and UID for proper updates
+		targetDaemonSet.ObjectMeta.ResourceVersion = daemonSet.ObjectMeta.ResourceVersion
+		targetDaemonSet.ObjectMeta.UID = daemonSet.ObjectMeta.UID
+
+		operatorDeployment, err := util2.GetOperatorDeployment(ctx, c.Client)
+		if err != nil {
+			return errors.Wrap(err, "failed to get operator deployment")
+		}
+
+		// set owner reference to the operator deployment
+		err = controllerutil.SetControllerReference(operatorDeployment, targetDaemonSet, c.Scheme)
+		if err != nil {
+			return err
+		}
+
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "doUpdateCsiNodeDaemonSet")
+		defer end()
+
+		return c.Client.Update(ctx, targetDaemonSet)
+	}
+
+	logger.Debug("CSI node daemonset is up to date", "targetHash", targetHash, "csiImage", config.Config.Csi.WekafsImage)
+	return nil
+}
+
+func (c *clientReconcilerLoop) getExistingCsiNodeDaemonSet(ctx context.Context) (*appsv1.DaemonSet, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getExistingCsiNodeDaemonSet")
+	defer end()
+
+	nodeDaemonSetName := csi.GetCSINodeDaemonSetName(c.GetCSIGroup())
+	namespace, err := util2.GetPodNamespace()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get pod namespace")
+	}
+
+	daemonSet := &appsv1.DaemonSet{}
+	err = c.Get(ctx, client.ObjectKey{
+		Name:      nodeDaemonSetName,
+		Namespace: namespace,
+	}, daemonSet)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("CSI node daemonset not found")
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "failed to get CSI node daemonset")
+	}
+
+	return daemonSet, nil
 }
