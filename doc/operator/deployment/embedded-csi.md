@@ -17,7 +17,8 @@ The CSI deployment in the operator follows a two-tier architecture:
     - CSI Driver resource
     - StorageClasses (optional)
     - CSI Controller Deployment (optional)
-2. **WekaContainer Reconciler** - Deploys CSI node pods alongside each client WekaContainer on the same Kubernetes node.
+    - CSI Node DaemonSet (runs on all nodes where WekaClient pods would run)
+2. **WekaContainer Reconciler** - Manages CSI topology labels on nodes based on container status.
 
 ## CSI Driver Naming
 
@@ -73,27 +74,28 @@ The deployment begins with the `deployCsiPlugin` function in the client reconcil
    - Deploys the CSI Driver resource
    - Creates default StorageClasses
    - Deploys the CSI Controller deployment
+   - Deploys the CSI Node DaemonSet
 2. Update container specs with the CSI parameters
 3. Mark CSI as deployed in the WekaClient status
 
-### 2. Container Reconciler - DeployCsiNodeServerPod
+### 2. Container Reconciler - CSI Topology Labels
 
 For each client WekaContainer, the container reconciler:
 
-1. Checks if a CSI node server pod exists for the container's node
-2. If not, creates a new CSI node server pod
-3. If one exists but is outdated (different driver name or tolerations), recreates it
+1. Monitors the container status and active mounts
+2. Manages CSI topology labels on the node to control volume scheduling
+3. Updates labels based on container health and mount state
 
 ## Node Selection and Resource Inheritance
 
 - **CSI Driver and StorageClass**: Global resources, not tied to specific nodes
 - **CSI Controller**: Inherits NodeSelector and Tolerations from the WekaClient
-- **CSI Node Server Pods**: 
-  - Automatically deployed alongside client containers on each node
-  - Inherit tolerations from the parent WekaClient
-  - Do not inherit NodeSelector (they must run on the same node as their client container)
+- **CSI Node DaemonSet**:
+  - Runs on all nodes where WekaClient pods would run
+  - Inherits NodeSelector and Tolerations from the parent WekaClient
+  - Managed as a single DaemonSet per WekaClient (not individual pods)
 
-When a client container is deleted (due to node tainting, NodeSelector mismatch, etc.), its CSI node server pod is automatically removed.
+The DaemonSet ensures that CSI node functionality is available on every node that can run Weka client containers.
 
 ## Update and Delete Flow
 
@@ -106,18 +108,19 @@ The operator detects CSI configuration changes through the `CheckCsiConfigChange
 3. If the CSI driver name has changed, undeploy and redeploys all CSI components
 4. If other configurations have changed, updates only the affected components
 
-### Node Server Updates
+### CSI Node DaemonSet Updates
 
-The `CheckAndDeleteOutdatedCsiNode` function ensures CSI node servers are up-to-date:
+The `UpdateCsiNodeDaemonSet` function ensures the CSI node DaemonSet is up-to-date:
 
-1. Compares CSI existing pod annotation hash, with the desired configuration hash
-2. If mismatched, deletes the pod so it can be recreated with updated settings
-3. The container reconciler then recreates it with the correct configuration
+1. Compares the existing DaemonSet annotation hash with the desired configuration hash
+2. If mismatched, updates the DaemonSet with the new configuration
+3. Kubernetes automatically rolls out the updated DaemonSet pods
 
 This handles scenarios like:
 - CSI driver name changes
-- Toleration updates
-- Other pod specification changes
+- Toleration or NodeSelector updates
+- Image version changes
+- Other DaemonSet specification changes
 
 ## Lifecycle Management
 
@@ -151,12 +154,18 @@ Check the status of the CSI controller deployment:
 kubectl get deployment -n <csi-namespace> | grep "csi-controller"
 ```
 
-### Viewing CSI Node Server Pods
+### Viewing CSI Node DaemonSet
 
-List all CSI node server pods:
+View the CSI node DaemonSet:
 
 ```bash
-kubectl get pods -n <csi-namespace> | grep "csi-node"
+kubectl get daemonset -n <csi-namespace> | grep "csi-node"
+```
+
+List all CSI node DaemonSet pods:
+
+```bash
+kubectl get pods -n <csi-namespace> -l component=<csi-group>-weka-csi-node
 ```
 
 

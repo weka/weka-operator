@@ -36,9 +36,10 @@ type DeployCsiOperation struct {
 	undeploy      bool
 	nodes         []corev1.Node
 	// existing resources
-	csiDriverExists     bool
-	storageClassesExist bool
-	csiControllerExists bool
+	csiDriverExists        bool
+	storageClassesExist    bool
+	csiControllerExists    bool
+	csiNodeDaemonSetExists bool
 }
 
 type DeployCsiResult struct {
@@ -100,6 +101,18 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
 				func() bool { return !o.csiControllerExists },
 			}},
+		&lifecycle.SimpleStep{
+			Name: "CleanupLegacyCsiNodePods",
+			Run:  o.cleanupLegacyCsiNodePods,
+			Predicates: lifecycle.Predicates{
+				func() bool { return !o.csiNodeDaemonSetExists },
+			}},
+		&lifecycle.SimpleStep{
+			Name: "DeployCsiNodeDaemonSet",
+			Run:  o.deployCsiNodeDaemonSet,
+			Predicates: lifecycle.Predicates{
+				func() bool { return !o.csiNodeDaemonSetExists },
+			}},
 	}
 	undeploySteps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
@@ -121,6 +134,10 @@ func (o *DeployCsiOperation) GetSteps() []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(o.wekaClient.Spec.CsiConfig == nil || !o.wekaClient.Spec.CsiConfig.DisableControllerCreation),
 			}},
+		&lifecycle.SimpleStep{
+			Name: "UndeployCsiNodeDaemonSet",
+			Run:  o.undeployCsiNodeDaemonSet,
+		},
 	}
 	if o.undeploy {
 		return undeploySteps
@@ -320,6 +337,20 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 		logger.Debug("Found existing CSI Controller Deployment", "name", existingDepList.Items[0].Name)
 	}
 
+	// Get existing CSI Node DaemonSet
+	listOpts = []client.ListOption{
+		client.MatchingLabels(csi.GetCsiLabels(o.csiDriverName, csi.CSINode, nil, nil)),
+	}
+	var existingDsList appsv1.DaemonSetList
+	if err := o.client.List(ctx, &existingDsList, listOpts...); err != nil {
+		logger.Error(err, "failed to list existing DaemonSets")
+		return err
+	}
+	if len(existingDsList.Items) > 0 {
+		o.csiNodeDaemonSetExists = true
+		logger.Debug("Found existing CSI Node DaemonSet", "name", existingDsList.Items[0].Name)
+	}
+
 	return nil
 }
 
@@ -439,4 +470,138 @@ func (s *CsiTopologyLabelsService) nodeIsCsiAccessible() bool {
 	allProcessesActive := processes.Active > 0 && processes.Active == processes.Desired
 
 	return allProcessesActive && time.Since(container.Status.Stats.LastUpdate.Time) < 5*time.Minute
+}
+
+func (o *DeployCsiOperation) deployCsiNodeDaemonSet(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deployCsiNodeDaemonSet")
+	defer end()
+
+	daemonSetSpec, err := csi.NewCsiNodeDaemonSet(ctx, o.csiGroupName, o.wekaClient)
+	if err != nil {
+		return err
+	}
+
+	operatorDeployment, err := util.GetOperatorDeployment(ctx, o.client)
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator deployment")
+	}
+
+	// set owner reference to the operator deployment
+	err = controllerutil.SetControllerReference(operatorDeployment, daemonSetSpec, o.client.Scheme())
+	if err != nil {
+		return err
+	}
+
+	err = o.client.Create(ctx, daemonSetSpec)
+	if err != nil {
+		return fmt.Errorf("failed to create CSI node daemonset: %w", err)
+	}
+	logger.Info("Created CSI node daemonset successfully")
+
+	return nil
+}
+
+func (o *DeployCsiOperation) undeployCsiNodeDaemonSet(ctx context.Context) error {
+	nodeDaemonSetName := csi.GetCSINodeDaemonSetName(o.csiGroupName)
+	if err := o.client.Delete(ctx, &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      nodeDaemonSetName,
+			Namespace: o.namespace,
+		},
+	}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete CSI node daemonset %s: %w", nodeDaemonSetName, err)
+		}
+	}
+	return nil
+}
+
+// cleanupLegacyCsiNodePods removes old CSI node pods that were created before
+// migrating to DaemonSet. This is needed for upgrade scenarios.
+func (o *DeployCsiOperation) cleanupLegacyCsiNodePods(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupLegacyCsiNodePods")
+	defer end()
+
+	// List all pods with CSI node labels for this driver
+	podList := &corev1.PodList{}
+	labelSelector := client.MatchingLabels{
+		"weka.io/csi-driver-name": o.csiDriverName,
+		"weka.io/mode":            string(csi.CSINode),
+	}
+
+	err := o.client.List(ctx, podList, labelSelector, client.InNamespace(o.namespace))
+	if err != nil {
+		return fmt.Errorf("failed to list CSI node pods: %w", err)
+	}
+
+	// Filter legacy pods (those NOT owned by a DaemonSet)
+	var legacyPods []corev1.Pod
+	for _, pod := range podList.Items {
+		isOwnedByDaemonSet := false
+		for _, ownerRef := range pod.OwnerReferences {
+			if ownerRef.Kind == "DaemonSet" {
+				isOwnedByDaemonSet = true
+				break
+			}
+		}
+		if !isOwnedByDaemonSet {
+			legacyPods = append(legacyPods, pod)
+		}
+	}
+
+	if len(legacyPods) == 0 {
+		logger.Info("No legacy CSI node pods found, skipping cleanup")
+		return nil
+	}
+
+	logger.Info("Found legacy CSI node pods to clean up", "count", len(legacyPods))
+
+	// Delete legacy pods
+	for _, pod := range legacyPods {
+		logger.Info("Deleting legacy CSI node pod", "pod", pod.Name, "node", pod.Spec.NodeName)
+		err := o.client.Delete(ctx, &pod, client.PropagationPolicy(metav1.DeletePropagationForeground))
+		if err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete legacy CSI node pod", "pod", pod.Name)
+			return fmt.Errorf("failed to delete legacy CSI node pod %s: %w", pod.Name, err)
+		}
+	}
+
+	// Wait for pods to be deleted (with timeout)
+	timeout := time.After(2 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for legacy CSI node pods to be deleted")
+		case <-ticker.C:
+			podList := &corev1.PodList{}
+			err := o.client.List(ctx, podList, labelSelector, client.InNamespace(o.namespace))
+			if err != nil {
+				return fmt.Errorf("failed to list CSI node pods: %w", err)
+			}
+
+			// Check if any legacy pods still exist
+			remainingLegacyPods := 0
+			for _, pod := range podList.Items {
+				isOwnedByDaemonSet := false
+				for _, ownerRef := range pod.OwnerReferences {
+					if ownerRef.Kind == "DaemonSet" {
+						isOwnedByDaemonSet = true
+						break
+					}
+				}
+				if !isOwnedByDaemonSet {
+					remainingLegacyPods++
+				}
+			}
+
+			if remainingLegacyPods == 0 {
+				logger.Info("All legacy CSI node pods have been cleaned up successfully")
+				return nil
+			}
+			logger.Info("Waiting for legacy CSI node pods to be deleted", "remaining", remainingLegacyPods)
+		}
+	}
 }
