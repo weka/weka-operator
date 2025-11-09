@@ -157,6 +157,7 @@ var Config struct {
 	MaintenanceSaName              string
 	MaintenanceImage               string
 	MaintenanceImagePullSecret     string
+	WekaRuntimePath                string
 	OcpCompatibility               OcpCompatibility
 	GkeCompatibility               GkeCompatibility
 	OkeCompatibility               OkeCompatibility
@@ -301,6 +302,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Upgrade.DriveThresholdPercent = getIntEnvOrDefault("UPGRADE_DRIVE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.MaxDeactivatingContainersPercent = getIntEnvOrDefault("UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT", 10)
 	Config.MaintenanceImagePullSecret = os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
+	Config.WekaRuntimePath = getEnvOrDefault("WEKA_K8S_RUNTIME_DIR", "")
 	Config.OcpCompatibility.DriverToolkitImageBaseUrl = getEnvOrDefault("WEKA_OCP_TOOLKIT_IMAGE_BASE_URL", "quay.io/openshift-release-dev/ocp-v4.0-art-dev")
 	Config.GkeCompatibility.DisableDriverSigning = getBoolEnvOrDefault("WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING", false)
 	Config.GkeCompatibility.HugepageConfiguration.Enabled = getBoolEnvOrDefault("WEKA_COS_ALLOW_HUGEPAGE_CONFIG", false)

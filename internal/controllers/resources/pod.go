@@ -561,6 +561,11 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		}
 	}
 
+	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+		Name:  "WEKA_K8S_RUNTIME_DIR",
+		Value: config.Config.WekaRuntimePath,
+	})
+
 	if f.container.IsDiscoveryContainer() {
 		allowCosHugepageConfig := config.Config.GkeCompatibility.HugepageConfiguration.Enabled
 		if allowCosHugepageConfig {
