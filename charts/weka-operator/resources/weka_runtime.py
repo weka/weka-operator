@@ -3188,7 +3188,7 @@ async def start_syslog():
 
 async def main():
     host_info = get_host_info()
-    global OS_DISTRO, OS_BUILD_ID
+    global OS_DISTRO, OS_BUILD_ID, NAME
     OS_DISTRO = host_info.os
     logging.info(f'OS_DISTRO={OS_DISTRO}')
 
@@ -3245,6 +3245,14 @@ async def main():
     global _server
     _server = await obtain_lock()  # then waiting for lock with short timeout
 
+    # for client-mode containers, check first if there is already a frontend with the same name
+    # connected to the driver (in /proc/wekafs/interface)
+    # NOTE: This check is needed for integration with "External" weka client - when customer had weka client
+    # on the host but outside of k8s cluster and wants to move it to k8s cluster.
+    # We must wait for the external frontend to disconnect before setting up the new k8s-managed container.
+    if MODE == "client":
+        await wait_for_existing_frontend_disconnect(NAME)
+
     if MODE != "adhoc-op":  # this can be specialized container that should not have agent
         await configure_agent()
         await start_syslog()
@@ -3272,7 +3280,6 @@ async def main():
         return
 
     if MODE == "adhoc-op-with-container":
-        global NAME
         NAME = "adhoc"
         await ensure_stem_container(NAME)
         await configure_traces()
@@ -3448,6 +3455,9 @@ async def takeover_shutdown():
     await run_command("weka local stop --force", capture_stdout=False)
 
 
+DRIVER_INTERFACE_PATH = "/proc/wekafs/interface"
+
+
 def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
     """Get the number of active mounts from the specified file.
     Return -1 if the number of active mounts cannot be determined.
@@ -3465,6 +3475,70 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
     except Exception as e:
         logging.error(f"Failed to get the number of active mounts: {e}")
     return -1
+
+
+def is_frontend_connected(container_name: str) -> bool:
+    """Check if a frontend container with the given name is connected to the driver.
+
+    Args:
+        container_name: The name of the container to check for
+
+    Returns:
+        True if a connected frontend with the given container name exists, False otherwise
+
+    Raises:
+        Exception: If the driver interface file cannot be read (except FileNotFoundError)
+    """
+    try:
+        with open(DRIVER_INTERFACE_PATH, "r") as file:
+            for line in file:
+                # Look for lines like: Container=150136828323client FE 0: Connected frontend pid 1226063
+                if line.startswith(f"Container={container_name}") and "Connected frontend" in line:
+                    return True
+        return False
+    except FileNotFoundError:
+        # File doesn't exist on new hosts - no frontends connected, safe to proceed
+        logging.debug(f"Driver interface file '{DRIVER_INTERFACE_PATH}' not found - no existing frontends")
+        return False
+    except Exception as e:
+        raise Exception(f"Failed to read driver interface file '{DRIVER_INTERFACE_PATH}': {e}")
+
+
+async def wait_for_existing_frontend_disconnect(container_name: str, timeout_seconds: int = 120):
+    """Wait for any existing connected frontend with the given container name to disconnect.
+
+    This function checks /proc/wekafs/interface for existing connected frontends with the same
+    container name. If found, it waits up to timeout_seconds for the frontend to disconnect.
+
+    Args:
+        container_name: The name of the container to check for
+        timeout_seconds: Maximum time to wait in seconds (default: 120 = 2 minutes)
+
+    Raises:
+        Exception: If a connected frontend with the same name still exists after timeout
+        Exception: If the driver interface file cannot be read
+    """
+    start_time = time.time()
+    check_interval = 5  # Check every 5 seconds
+
+    while is_frontend_connected(container_name):
+        elapsed = time.time() - start_time
+        remaining = timeout_seconds - elapsed
+
+        if elapsed >= timeout_seconds:
+            raise TimeoutError(
+                f"Timeout waiting for existing frontend container '{container_name}' to disconnect. "
+                f"A frontend with this name is still connected after {timeout_seconds} seconds. "
+                f"Cannot setup new weka local container while an existing one with the same name is connected."
+            )
+
+        logging.info(
+            f"Frontend container '{container_name}' is still connected. "
+            f"Waiting for it to disconnect... (timeout in {remaining:.0f} seconds)"
+        )
+        await asyncio.sleep(check_interval)
+
+    logging.info(f"No connected frontend with name '{container_name}' found - safe to proceed")
 
 
 async def wait_for_shutdown_instruction():

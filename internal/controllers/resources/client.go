@@ -8,5 +8,8 @@ import (
 )
 
 func GetWekaClientContainerName(wekaClient *weka.WekaClient) string {
+	if wekaClient.Spec.GetOverrides().WekaContainerName != "" {
+		return wekaClient.Spec.GetOverrides().WekaContainerName
+	}
 	return fmt.Sprintf("%sclient", util.GetLastGuidPart(wekaClient.GetUID()))
 }
