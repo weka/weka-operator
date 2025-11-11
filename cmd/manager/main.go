@@ -29,7 +29,6 @@ import (
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -40,7 +39,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -182,15 +180,17 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						"app.kubernetes.io/created-by": "weka-operator",
-					}),
-				},
-			},
-		},
+
+		// TODO: enable cache filtering when we have "app.kubernetes.io/created-by" label on all Weka pods
+		// Cache: cache.Options{
+		// 	ByObject: map[client.Object]cache.ByObject{
+		// 		&corev1.Pod{}: {
+		// 			Label: labels.SelectorFromSet(labels.Set{
+		// 				"app.kubernetes.io/created-by": "weka-operator",
+		// 			}),
+		// 		},
+		// 	},
+		// },
 	})
 	if err != nil {
 		logger.Error(err, "unable to start manager")

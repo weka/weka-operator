@@ -38,7 +38,11 @@ func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName 
 	defer end()
 
 	if nodeName == "" {
-		return nil, errors.New("node name is empty")
+		nodeNameStr, err := r.getCurrentPodNodeName()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get current pod node name")
+		}
+		nodeName = weka.NodeName(nodeNameStr)
 	}
 
 	nodeAgentNamespace, err := util.GetPodNamespace()

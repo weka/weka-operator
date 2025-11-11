@@ -254,7 +254,20 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "sendStopInstructionsViaAgent", "force", instructions.AllowForceStop, "instructions", instructions)
 	defer end()
 
-	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
+	var nodeName string
+	var err error
+
+	if r.node == nil {
+		// try to get node name from pod
+		nodeName, err = r.getCurrentPodNodeName()
+		if err != nil {
+			return fmt.Errorf("cannot get current pod node name: %v", err)
+		}
+	} else {
+		nodeName = r.node.Name
+	}
+
+	agentPod, err := r.GetNodeAgentPod(ctx, weka.NodeName(nodeName))
 	if err != nil {
 		return err
 	}
@@ -268,17 +281,6 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	executor, err := util.NewExecInPodByName(r.RestClient, r.Manager.GetConfig(), agentPod, "node-agent", &timeout)
 	if err != nil {
 		return err
-	}
-
-	var nodeName string
-	if r.node == nil {
-		// try to get node name from pod
-		nodeName, err = r.getCurrentPodNodeName()
-		if err != nil {
-			return fmt.Errorf("cannot get current pod node name: %v", err)
-		}
-	} else {
-		nodeName = r.node.Name
 	}
 
 	nodeInfo, err := r.GetNodeInfo(ctx, weka.NodeName(nodeName))

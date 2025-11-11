@@ -308,6 +308,8 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 	identifierLabels := map[string]string{
 		"app":                "weka-cluster-monitoring",
 		"weka.io/cluster-id": string(r.cluster.GetUID()),
+		// common label for all operator-created pods
+		"app.kubernetes.io/created-by": "weka-operator",
 	}
 
 	labels := make(map[string]string)

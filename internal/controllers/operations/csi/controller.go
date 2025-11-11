@@ -100,12 +100,14 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	name := GetCSIControllerName(csiGroupName)
 	csiDriverName := GetCsiDriverName(csiGroupName)
 	tolerations := util.ExpandTolerations([]corev1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
-	var csiLabels map[string]string
+	csiLabels := map[string]string{
+		"app.kubernetes.io/created-by": "weka-operator",
+	}
 	var enforceTrustedHttps bool
 	var skipGarbageCollection bool
 	if wekaClient.Spec.CsiConfig != nil && wekaClient.Spec.CsiConfig.Advanced != nil {
 		tolerations = append(tolerations, wekaClient.Spec.CsiConfig.Advanced.ControllerTolerations...)
-		csiLabels = wekaClient.Spec.CsiConfig.Advanced.ControllerLabels
+		csiLabels = util2.MergeMaps(csiLabels, wekaClient.Spec.CsiConfig.Advanced.ControllerLabels)
 		enforceTrustedHttps = wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 		skipGarbageCollection = wekaClient.Spec.CsiConfig.Advanced.SkipGarbageCollection
 	}

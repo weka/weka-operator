@@ -107,11 +107,13 @@ func (r *containerReconcilerLoop) DeployCsiNodeServerPod(ctx context.Context) er
 
 	csiNodeName := GetCsiNodeServerPodName(r.container.Name)
 
-	var csiNodeLabels map[string]string
+	csiNodeLabels := map[string]string{
+		"app.kubernetes.io/created-by": "weka-operator",
+	}
 	var csiNodeTolerations []corev1.Toleration
 	var enforceTrustedHttps bool
 	if r.wekaClient.Spec.CsiConfig != nil && r.wekaClient.Spec.CsiConfig.Advanced != nil {
-		csiNodeLabels = r.wekaClient.Spec.CsiConfig.Advanced.NodeLabels
+		csiNodeLabels = util.MergeMaps(csiNodeLabels, r.wekaClient.Spec.CsiConfig.Advanced.NodeLabels)
 		csiNodeTolerations = r.wekaClient.Spec.CsiConfig.Advanced.NodeTolerations
 		enforceTrustedHttps = r.wekaClient.Spec.CsiConfig.Advanced.EnforceTrustedHttps
 	}
