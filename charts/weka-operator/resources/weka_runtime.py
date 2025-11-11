@@ -83,6 +83,7 @@ KUBERNETES_DISTRO_OPENSHIFT = "openshift"
 KUBERNETES_DISTRO_GKE = "gke"
 OS_NAME_GOOGLE_COS = "cos"
 OS_NAME_REDHAT_COREOS = "rhcos"
+OS_NAME_UBUNTU = "ubuntu"
 
 MAX_TRACE_CAPACITY_GB = os.environ.get("MAX_TRACE_CAPACITY_GB", 10)
 ENSURE_FREE_SPACE_GB = os.environ.get("ENSURE_FREE_SPACE_GB", 20)
@@ -744,6 +745,31 @@ def is_rhcos():
     return OS_DISTRO == OS_NAME_REDHAT_COREOS
 
 
+def is_ubuntu():
+    return OS_DISTRO == OS_NAME_UBUNTU
+
+
+def get_ubuntu_major_version():
+    """Returns the major version number (e.g., 22 or 24) if Ubuntu, otherwise None"""
+    if not is_ubuntu() or not OS_BUILD_ID:
+        return None
+    try:
+        # VERSION_ID is typically in format "22.04" or "24.04"
+        return int(OS_BUILD_ID.split('.')[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def is_ubuntu_22():
+    """Check if running Ubuntu 22.x"""
+    return get_ubuntu_major_version() == 22
+
+
+def is_ubuntu_24():
+    """Check if running Ubuntu 24.x"""
+    return get_ubuntu_major_version() == 24
+
+
 async def ensure_drivers():
     logging.info("waiting for drivers")
     drivers = "wekafsio wekafsgw mpin_user".split()
@@ -1011,6 +1037,8 @@ async def load_drivers():
 
         if is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
+        elif is_ubuntu():
+            kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
         else:
             kernelBuildIdArg = ""
 
@@ -1145,13 +1173,16 @@ def read_siblings_list(cpu_index):
 class HostInfo:
     kubernetes_distro = 'k8s'
     os = 'unknown'
-    os_build_id = ''  # this is either COS build ID OR OpenShift version tag, e.g. 415.92.202406111137-0
+    os_build_id = ''  # this is either COS build ID, OpenShift version tag (e.g. 415.92.202406111137-0), or Ubuntu VERSION_ID (e.g. 22.04, 24.04)
 
     def is_rhcos(self):
         return self.os == OS_NAME_REDHAT_COREOS
 
     def is_cos(self):
         return self.os == OS_NAME_GOOGLE_COS
+
+    def is_ubuntu(self):
+        return self.os == OS_NAME_UBUNTU
 
 
 def get_host_info():
@@ -1175,6 +1206,9 @@ def get_host_info():
     elif ret.is_cos():
         ret.kubernetes_distro = KUBERNETES_DISTRO_GKE
         ret.os_build_id = raw_data.get("BUILD_ID", "")
+
+    elif ret.is_ubuntu():
+        ret.os_build_id = raw_data.get("VERSION_ID", "")
     return ret
 
 
