@@ -84,6 +84,12 @@ spec:
         - name: host-run
           hostPath:
             path: /run
+        # Mount /etc/os-release to detect OS distribution (e.g., Google COS)
+        # Required for COS-specific NVMe serial ID handling
+        - name: host-os-release
+          hostPath:
+            path: /etc/os-release
+            type: File
 
       containers:
         - command:
@@ -136,6 +142,9 @@ spec:
               name: dev
             - mountPath: /host/run
               name: host-run
+              readOnly: true
+            - mountPath: /host/etc/os-release
+              name: host-os-release
               readOnly: true
           name: node-agent
           securityContext:
