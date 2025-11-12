@@ -79,6 +79,11 @@ spec:
         - name: dev
           hostPath:
             path: /dev
+        # Mount /run to access udev data for retrieving drive serial IDs
+        # Required by findDrives handler to read /run/udev/data/b{devIndex} for SCSI devices
+        - name: host-run
+          hostPath:
+            path: /run
 
       containers:
         - command:
@@ -129,6 +134,9 @@ spec:
               readOnly: true
             - mountPath: /dev
               name: dev
+            - mountPath: /host/run
+              name: host-run
+              readOnly: true
           name: node-agent
           securityContext:
             privileged: true
