@@ -138,6 +138,13 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.EnsureNfs,
 		},
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasNfsContainers,
+				loop.ShouldConfigureNfsIpRanges,
+			},
+			Run: loop.EnsureNfsIpRanges,
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.WekaHomeConfigured,
 			},

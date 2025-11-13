@@ -200,6 +200,25 @@ type NFSParams struct {
 	IpRanges          []string
 }
 
+type NfsInterfaceGroupPort struct {
+	HostId   string `json:"host_id"`
+	HostUid  string `json:"host_uid"`
+	Port     string `json:"port"`
+	Status   string `json:"status"`
+}
+
+type NfsInterfaceGroup struct {
+	AllowManageGids bool                    `json:"allow_manage_gids"`
+	Gateway         string                  `json:"gateway"`
+	Ips             []string                `json:"ips"`
+	Name            string                  `json:"name"`
+	Ports           []NfsInterfaceGroupPort `json:"ports"`
+	Status          string                  `json:"status"`
+	SubnetMask      string                  `json:"subnet_mask"`
+	Type            string                  `json:"type"`
+	Uid             string                  `json:"uid"`
+}
+
 type WekaUserResponse struct {
 	//OrgId    int    `json:"org_id"`
 	//PosixGid string `json:"posix_gid"`
@@ -300,6 +319,7 @@ type WekaService interface {
 	CreateFilesystem(ctx context.Context, name, group string, params FSParams) error
 	CreateFilesystemGroup(ctx context.Context, name string) error
 	ConfigureNfs(ctx context.Context, nfsParams NFSParams) error
+	EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error
 	GetS3Cluster(ctx context.Context) (*S3Cluster, error)
 	CreateS3Cluster(ctx context.Context, s3Params S3Params) error
 	ListS3ClusterContainers(ctx context.Context) ([]int, error)
@@ -869,22 +889,98 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) 
 		}
 	}
 
-	// add floating ips, example: `weka nfs interface-group ip-range add MgmtInterfaceGroup 10.200.1.200-10.200.1.201`
-	for _, ip := range nfsParams.IpRanges {
+	return nil
+}
+
+// EnsureNfsIpRanges ensures the NFS interface group has the exact set of IP ranges specified.
+// It fetches the current IPs, compares with target, and adds/removes as needed to reach desired state.
+func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupName string, targetIpRanges []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsIpRanges")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	// Fetch current interface group configuration
+	cmd := []string{
+		"weka", "nfs", "interface-group", "--name", interfaceGroupName, "--json",
+	}
+	stdout, stderr, err := executor.ExecNamed(ctx, "GetNfsInterfaceGroup", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to get NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
+		return err
+	}
+
+	// Parse the response
+	var interfaceGroups []NfsInterfaceGroup
+	if err := json.Unmarshal(stdout.Bytes(), &interfaceGroups); err != nil {
+		logger.SetError(err, "Failed to parse NFS interface group JSON", "stdout", stdout.String())
+		return err
+	}
+
+	if len(interfaceGroups) == 0 {
+		return errors.Errorf("NFS interface group %s not found", interfaceGroupName)
+	}
+
+	currentIps := interfaceGroups[0].Ips
+	if currentIps == nil {
+		currentIps = []string{}
+	}
+
+	// Expand target IP ranges to individual IPs
+	targetIps, err := util.ExpandIpRanges(targetIpRanges)
+	if err != nil {
+		logger.SetError(err, "Failed to expand target IP ranges", "ipRanges", targetIpRanges)
+		return err
+	}
+
+	// Calculate what needs to be added and removed
+	toAdd := diffStringSlices(targetIps, currentIps)
+	toRemove := diffStringSlices(currentIps, targetIps)
+
+	logger.Info("IP range reconciliation", "current", currentIps, "target", targetIps, "toAdd", toAdd, "toRemove", toRemove)
+
+	// Aggregate IPs into ranges to reduce API calls
+	rangesToRemove, err := util.AggregateIpsToRanges(toRemove)
+	if err != nil {
+		logger.SetError(err, "Failed to aggregate IPs to remove into ranges")
+		return err
+	}
+
+	rangesToAdd, err := util.AggregateIpsToRanges(toAdd)
+	if err != nil {
+		logger.SetError(err, "Failed to aggregate IPs to add into ranges")
+		return err
+	}
+
+	logger.Info("Aggregated IP operations", "rangesToAdd", rangesToAdd, "rangesToRemove", rangesToRemove)
+
+	// Remove IP ranges that shouldn't be there
+	for _, ipRange := range rangesToRemove {
 		cmd = []string{
-			"wekaauthcli", "nfs", "interface-group", "ip-range", "add", interfaceGroupName, ip,
+			"weka", "nfs", "interface-group", "ip-range", "remove", interfaceGroupName, ipRange,
 		}
-		_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroupIpRange", cmd)
+		_, stderr, err = executor.ExecNamed(ctx, "RemoveNfsInterfaceGroupIpRange", cmd)
 		if err != nil {
-			// TODO: Unsafe, as we might want to add 2 ips, while conflicting just one one. We treat overlap as success
-			if strings.Contains(stderr.String(), "One or more of the IP addresses already exist for this interface group") {
-				logger.Info("NFS interface group IP range already exists", "ipRange", ip)
-				continue
-			} else {
-				logger.SetError(err, "Failed to configure NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ip, "stderr", stderr.String())
-				return err
-			}
+			logger.SetError(err, "Failed to remove NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ipRange, "stderr", stderr.String())
+			return err
 		}
+		logger.Info("Removed IP range from NFS interface group", "ipRange", ipRange, "interfaceGroup", interfaceGroupName)
+	}
+
+	// Add IP ranges that should be there
+	for _, ipRange := range rangesToAdd {
+		cmd = []string{
+			"wekaauthcli", "nfs", "interface-group", "ip-range", "add", interfaceGroupName, ipRange,
+		}
+		_, stderr, err = executor.ExecNamed(ctx, "AddNfsInterfaceGroupIpRange", cmd)
+		if err != nil {
+			logger.SetError(err, "Failed to add NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ipRange, "stderr", stderr.String())
+			return err
+		}
+		logger.Info("Added IP range to NFS interface group", "ipRange", ipRange, "interfaceGroup", interfaceGroupName)
 	}
 
 	return nil
@@ -896,6 +992,22 @@ func commaSeparatedInts(ids []int) string {
 		strIds = append(strIds, strconv.Itoa(id))
 	}
 	return strings.Join(strIds, ",")
+}
+
+// diffStringSlices returns elements in 'a' that are not in 'b'
+func diffStringSlices(a, b []string) []string {
+	bMap := make(map[string]bool)
+	for _, item := range b {
+		bMap[item] = true
+	}
+
+	var result []string
+	for _, item := range a {
+		if !bMap[item] {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func (c *CliWekaService) CreateFilesystemGroup(ctx context.Context, name string) error {
