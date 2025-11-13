@@ -957,20 +957,7 @@ func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupNa
 
 	logger.Info("Aggregated IP operations", "rangesToAdd", rangesToAdd, "rangesToRemove", rangesToRemove)
 
-	// Remove IP ranges that shouldn't be there
-	for _, ipRange := range rangesToRemove {
-		cmd = []string{
-			"weka", "nfs", "interface-group", "ip-range", "remove", interfaceGroupName, ipRange,
-		}
-		_, stderr, err = executor.ExecNamed(ctx, "RemoveNfsInterfaceGroupIpRange", cmd)
-		if err != nil {
-			logger.SetError(err, "Failed to remove NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ipRange, "stderr", stderr.String())
-			return err
-		}
-		logger.Info("Removed IP range from NFS interface group", "ipRange", ipRange, "interfaceGroup", interfaceGroupName)
-	}
-
-	// Add IP ranges that should be there
+	// IMPORTANT: Add new IP ranges BEFORE removing old ones to avoid deadlock/service interruption
 	for _, ipRange := range rangesToAdd {
 		cmd = []string{
 			"wekaauthcli", "nfs", "interface-group", "ip-range", "add", interfaceGroupName, ipRange,
@@ -981,6 +968,19 @@ func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupNa
 			return err
 		}
 		logger.Info("Added IP range to NFS interface group", "ipRange", ipRange, "interfaceGroup", interfaceGroupName)
+	}
+
+	// Now remove IP ranges that shouldn't be there (after adding new ones)
+	for _, ipRange := range rangesToRemove {
+		cmd = []string{
+			"weka", "nfs", "interface-group", "ip-range", "remove", interfaceGroupName, ipRange,
+		}
+		_, stderr, err = executor.ExecNamed(ctx, "RemoveNfsInterfaceGroupIpRange", cmd)
+		if err != nil {
+			logger.SetError(err, "Failed to remove NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ipRange, "stderr", stderr.String())
+			return err
+		}
+		logger.Info("Removed IP range from NFS interface group", "ipRange", ipRange, "interfaceGroup", interfaceGroupName)
 	}
 
 	return nil

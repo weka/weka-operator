@@ -459,7 +459,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			AdditionalSecrets:   additionalSecrets,
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
 			AllowHotUpgrade:     wekaClient.Spec.AllowHotUpgrade,
-			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
+			DriversLoaderImage:  wekaClient.Spec.GetOverrides().DriversLoaderImage,
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
 				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
@@ -1014,7 +1014,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		AdditionalMemory:      spec.AdditionalMemory,
 		UpgradePolicy:         spec.UpgradePolicy,
 		AllowHotUpgrade:       spec.AllowHotUpgrade,
-		DriversLoaderImage:    spec.DriversLoaderImage,
+		DriversLoaderImage:    spec.GetOverrides().DriversLoaderImage,
 		Port:                  spec.Port,
 		AgentPort:             spec.AgentPort,
 		PortRange:             spec.PortRange,
