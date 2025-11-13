@@ -24,8 +24,14 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 		containerIds = append(containerIds, *c.Status.ClusterContainerID)
 	}
 
+	ipRanges := []string{}
+	if r.cluster.Spec.NFSConfig != nil {
+		ipRanges = r.cluster.Spec.NFSConfig.IpRanges
+	}
+
 	err := wekaService.ConfigureNfs(ctx, services.NFSParams{
 		ConfigFilesystem: ".config_fs",
+		IpRanges:         ipRanges,
 	})
 
 	if err != nil {
@@ -36,6 +42,6 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	}
 
 	logger.SetStatus(codes.Ok, "NFS ensured")
-	
+
 	return nil
 }
