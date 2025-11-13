@@ -80,13 +80,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.deleteIfNoNode,
 		},
 		&lifecycle.SimpleStep{
-			Run: r.checkTolerations,
-			Predicates: lifecycle.Predicates{
-				lifecycle.IsNotFunc(r.NodeNotSet),
-				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
-			},
-		},
-		&lifecycle.SimpleStep{
 			Run: r.ensureFinalizer,
 		},
 		&lifecycle.SimpleStep{
@@ -103,6 +96,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.updatePodTolerationsOnChange,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.PodNotSet),
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.checkTolerations,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 			},
 		},
 		&lifecycle.SimpleStep{
