@@ -52,6 +52,7 @@ RESOURCES = {}  # to be populated at later stage
 MEMORY = os.environ.get("MEMORY", "")
 JOIN_IPS = os.environ.get("JOIN_IPS", "")
 DIST_SERVICE = os.environ.get("DIST_SERVICE")
+DRIVERS_BUILD_ID = os.environ.get("DRIVERS_BUILD_ID", "")
 OS_DISTRO = ""
 OS_BUILD_ID = ""
 DISCOVERY_SCHEMA = 1
@@ -764,11 +765,13 @@ def is_ubuntu_22():
     """Check if running Ubuntu 22.x"""
     return get_ubuntu_major_version() == 22
 
-
 def is_ubuntu_24():
     """Check if running Ubuntu 24.x"""
     return get_ubuntu_major_version() == 24
 
+def external_dist_service():
+    """Check if DIST_SERVICE is external (starts with https)"""
+    return DIST_SERVICE == 'https://drivers.weka.io'
 
 async def ensure_drivers():
     logging.info("waiting for drivers")
@@ -1035,12 +1038,13 @@ async def load_drivers():
                     logging.error(f"Failed to get drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
                     raise Exception(f"Failed to get drivers: {stderr.decode('utf-8')}")
 
-        if is_google_cos():
+        kernelBuildIdArg = ""
+        if DRIVERS_BUILD_ID != 'auto':
+            kernelBuildIdArg = f"--kernel-build-id {DRIVERS_BUILD_ID}"
+        elif is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
-        elif is_ubuntu():
-            kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
-        else:
-            kernelBuildIdArg = ""
+        elif is_ubuntu_24() and external_dist_service():
+            kernelBuildIdArg = f"--kernel-build-id ubuntu24.04"
 
         download_cmds = [
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version} {kernelBuildIdArg}", "Downloading drivers")

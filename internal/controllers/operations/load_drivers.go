@@ -59,6 +59,7 @@ type LoadDrivers struct {
 	scheme              *runtime.Scheme
 	containerDetails    weka.WekaOwnerDetails
 	driversLoaderImage  string
+	driversBuildId      *string
 	node                *v1.Node
 	distServiceEndpoint string
 	container           *weka.WekaContainer
@@ -68,7 +69,7 @@ type LoadDrivers struct {
 }
 
 func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails,
-	DriversLoaderImage string,
+	DriversLoaderImage string, DriversBuildId *string,
 	distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
 	ns, _ := util.GetPodNamespace()
@@ -79,6 +80,7 @@ func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwner
 		scheme:              mgr.GetScheme(),
 		containerDetails:    ownerDetails,
 		driversLoaderImage:  DriversLoaderImage,
+		driversBuildId:      DriversBuildId,
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
@@ -241,6 +243,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 			NodeAffinity:        weka.NodeName(o.node.Name),
 			DriversDistService:  o.distServiceEndpoint,
 			DriversLoaderImage:  o.driversLoaderImage,
+			DriversBuildId:      o.driversBuildId,
 			TracesConfiguration: weka.GetDefaultTracesConfiguration(),
 			Tolerations:         o.containerDetails.Tolerations,
 			ServiceAccountName:  serviceAccountName,
