@@ -214,7 +214,7 @@ type WekaContainerSpec struct {
 	NumDrives             int                  `json:"numDrives,omitempty"`
 	DriversDistService    string               `json:"driversDistService,omitempty"`
 	DriversLoaderImage    string               `json:"driversLoaderImage,omitempty"`
-	DriversBuildId        string               `json:"driversBuildId,omitempty"`
+	DriversBuildId        *string              `json:"driversBuildId,omitempty"`
 	WekaSecretRef         v1.EnvVarSource      `json:"wekaSecretRef,omitempty"`
 	JoinIps               []string             `json:"joinIpPorts,omitempty"`
 	TracesConfiguration   *TracesConfiguration `json:"tracesConfiguration,omitempty"`

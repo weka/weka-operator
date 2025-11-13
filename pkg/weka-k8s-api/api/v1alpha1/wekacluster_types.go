@@ -454,11 +454,11 @@ type WekaClusterSpecOverrides struct {
 	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
 	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
 	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
+	// can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default
+	DriversBuildId *string `json:"driversBuildId,omitempty"`
 	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
 	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
 	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
-	DriversBuildId string `json:"driversBuildId,omitempty"`
-	// if we want to specify a build id to be used when downloading/installing the drivers (in addition to the kernel detected by uname -r)
 	ForceAio bool `json:"forceAio,omitempty"`
 	// script to run post cluster create (i.e before starting io)
 	PostFormClusterScript string `json:"postFormClusterScript,omitempty"`

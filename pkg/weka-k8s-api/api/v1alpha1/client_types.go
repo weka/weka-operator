@@ -59,6 +59,9 @@ const (
 )
 
 type WekaClientSpecOverrides struct {
+	// can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default
+	DriversBuildId     *string `json:"driversBuildId,omitempty"`
+	DriversLoaderImage string  `json:"driversLoaderImage,omitempty"`
 	// used to override machine identifier node reference for client containers
 	MachineIdentifierNodeRef string `json:"machineIdentifierNodeRef,omitempty"`
 	// unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner
@@ -126,11 +129,8 @@ type WekaClientSpec struct {
 	WekaSecretRef      string            `json:"wekaSecretRef,omitempty"`
 	Network            Network           `json:"network,omitempty"`
 	DriversDistService string            `json:"driversDistService,omitempty"`
-	DriversLoaderImage string            `json:"driversLoaderImage,omitempty"`
-	DriversBuildId     string            `json:"driversBuildId,omitempty"`
-	// if we want to specify a build id to be used when downloading/installing the drivers (in addition to the kernel detected by uname -r)
-	JoinIps       []string        `json:"joinIpPorts,omitempty"`
-	TargetCluster ObjectReference `json:"targetCluster,omitempty"`
+	JoinIps            []string          `json:"joinIpPorts,omitempty"`
+	TargetCluster      ObjectReference   `json:"targetCluster,omitempty"`
 	// +kubebuilder:validation:Enum=auto;shared;dedicated;dedicated_ht;manual
 	//+kubebuilder:default=auto
 	CpuPolicy           CpuPolicy            `json:"cpuPolicy,omitempty"`
