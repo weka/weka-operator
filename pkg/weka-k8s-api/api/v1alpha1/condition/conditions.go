@@ -14,6 +14,7 @@ const (
 	CondS3ClusterCreated             = "CondS3ClusterCreated" // not pre-set on purpose, as optional
 	ConfNfsConfigured                = "NfsConfigured"
 	CondNfsInterfaceGroupsConfigured = "NfsInterfaceGroupsConfigured"
+	CondNfsIpRangesConfigured        = "NfsIpRangesConfigured"
 	CondPodsReady                    = "PodsReady"
 	CondClusterCreated               = "ClusterCreated"
 	CondPostClusterFormedScript      = "CondPostClusterFormedScript"
