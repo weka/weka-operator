@@ -329,6 +329,10 @@ type EncryptionConfig struct {
 	VaultConfig *VaultConfig `json:"vault,omitempty"`
 }
 
+type NfsConfig struct {
+	IpRanges []string `json:"ipRanges,omitempty"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -427,6 +431,7 @@ type WekaClusterSpec struct {
 	// drive container getting [4,5,6,7].
 	RoleCoreIds RoleCoreIds       `json:"roleCoreIds,omitempty"`
 	Encryption  *EncryptionConfig `json:"encryption,omitempty"`
+	NFSConfig   *NfsConfig        `json:"nfs,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
