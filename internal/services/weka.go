@@ -197,6 +197,7 @@ type S3Cluster struct {
 type NFSParams struct {
 	ConfigFilesystem  string
 	SupportedVersions []string
+	IpRanges          []string
 }
 
 type WekaUserResponse struct {
@@ -856,7 +857,7 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) 
 	// create interface group if it doesn't exist
 	interfaceGroupName := "MgmtInterfaceGroup"
 	cmd = []string{
-		"wekaauthcli", "nfs", "interface-group", "add", interfaceGroupName, "NFS",
+		"wekaauthcli", "nfs", "interface-group", "add", interfaceGroupName, "NFS", "--subnet", "0.0.0.0",
 	}
 	_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroup", cmd)
 	if err != nil {
@@ -867,6 +868,25 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) 
 			return err
 		}
 	}
+
+	// add floating ips, example: `weka nfs interface-group ip-range add MgmtInterfaceGroup 10.200.1.200-10.200.1.201`
+	for _, ip := range nfsParams.IpRanges {
+		cmd = []string{
+			"wekaauthcli", "nfs", "interface-group", "ip-range", "add", interfaceGroupName, ip,
+		}
+		_, stderr, err = executor.ExecNamed(ctx, "ConfigureNfsInterfaceGroupIpRange", cmd)
+		if err != nil {
+			// TODO: Unsafe, as we might want to add 2 ips, while conflicting just one one. We treat overlap as success
+			if strings.Contains(stderr.String(), "One or more of the IP addresses already exist for this interface group") {
+				logger.Info("NFS interface group IP range already exists", "ipRange", ip)
+				continue
+			} else {
+				logger.SetError(err, "Failed to configure NFS interface group IP range", "interfaceGroup", interfaceGroupName, "ipRange", ip, "stderr", stderr.String())
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
