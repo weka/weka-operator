@@ -55,7 +55,7 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 
 			details := r.container.ToOwnerDetails()
 			driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
-				r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
+				r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, r.container.HasFrontend(), true)
 			loaderErr := operations.ExecuteOperation(ctx, driversLoader)
 			if loaderErr != nil {
 				err := fmt.Errorf("drivers are not loaded: %v; %v", driversErr, loaderErr)

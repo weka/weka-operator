@@ -452,6 +452,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			HugepagesSize:       "2Mi",
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretName}},
 			DriversDistService:  wekaClient.Spec.DriversDistService,
+			DriversBuildId:      wekaClient.Spec.Overrides.DriversBuildId,
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
 			Tolerations:         tolerations,
@@ -459,7 +460,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			AdditionalSecrets:   additionalSecrets,
 			UpgradePolicyType:   wekaClient.Spec.UpgradePolicy.Type,
 			AllowHotUpgrade:     wekaClient.Spec.AllowHotUpgrade,
-			DriversLoaderImage:  wekaClient.Spec.DriversLoaderImage,
+			DriversLoaderImage:  wekaClient.Spec.Overrides.DriversLoaderImage,
 			Overrides: &weka.WekaContainerSpecOverrides{
 				MachineIdentifierNodeRef: wekaClient.Spec.GetOverrides().MachineIdentifierNodeRef,
 				ForceDrain:               wekaClient.Spec.GetOverrides().ForceDrain,
@@ -560,6 +561,11 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 
 	if container.Spec.DriversDistService != newClientSpec.DriversDistService {
 		container.Spec.DriversDistService = newClientSpec.DriversDistService
+		changed = true
+	}
+
+	if container.Spec.DriversBuildId != newClientSpec.DriversBuildId {
+		container.Spec.DriversBuildId = newClientSpec.DriversBuildId
 		changed = true
 	}
 
@@ -978,6 +984,7 @@ func isPortRangeEqual(a, b weka.PortRange) bool {
 
 type UpdatableClientSpec struct {
 	DriversDistService    string
+	DriversBuildId        *string
 	ImagePullSecret       string
 	WekaSecretRef         string
 	AdditionalMemory      int
@@ -1009,12 +1016,13 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 
 	return &UpdatableClientSpec{
 		DriversDistService:    spec.DriversDistService,
+		DriversBuildId:        spec.Overrides.DriversBuildId,
 		ImagePullSecret:       spec.ImagePullSecret,
 		WekaSecretRef:         spec.WekaSecretRef,
 		AdditionalMemory:      spec.AdditionalMemory,
 		UpgradePolicy:         spec.UpgradePolicy,
 		AllowHotUpgrade:       spec.AllowHotUpgrade,
-		DriversLoaderImage:    spec.DriversLoaderImage,
+		DriversLoaderImage:    spec.Overrides.DriversLoaderImage,
 		Port:                  spec.Port,
 		AgentPort:             spec.AgentPort,
 		PortRange:             spec.PortRange,
