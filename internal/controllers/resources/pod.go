@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-operator/pkg/util"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -333,6 +334,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						{
 							Name:  "DIST_SERVICE",
 							Value: f.container.Spec.DriversDistService,
+						},
+						{
+							Name:  "DRIVERS_BUILD_ID",
+							Value: util.StringPtrOrDefault(f.container.Spec.DriversBuildId, "auto"),
 						},
 						{
 							Name:  "MAX_TRACE_CAPACITY_GB",

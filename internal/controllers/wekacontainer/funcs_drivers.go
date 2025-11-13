@@ -61,7 +61,7 @@ func (r *containerReconcilerLoop) EnsureDrivers(ctx context.Context) error {
 	logger.Info("Loading drivers", "image", details.Image)
 
 	driversLoader := operations.NewLoadDrivers(r.Manager, r.node, *details, r.container.Spec.DriversLoaderImage,
-		r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
+		r.container.Spec.DriversBuildId, r.container.Spec.DriversDistService, r.container.HasFrontend(), false)
 	err := operations.ExecuteOperation(ctx, driversLoader)
 	if err != nil {
 		return err
