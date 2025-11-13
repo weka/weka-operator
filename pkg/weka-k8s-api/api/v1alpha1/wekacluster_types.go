@@ -457,6 +457,8 @@ type WekaClusterSpecOverrides struct {
 	// image to be used for loading drivers, do not use unless explicitly instructed by Weka team
 	DriversLoaderImage string `json:"driversLoaderImage,omitempty"`
 	// force weka to use drives in aio mode and not direct nvme (impacts performance, but might serve as a fallback in case of incompatible device)
+	DriversBuildId string `json:"driversBuildId,omitempty"`
+	// if we want to specify a build id to be used when downloading/installing the drivers (in addition to the kernel detected by uname -r)
 	ForceAio bool `json:"forceAio,omitempty"`
 	// script to run post cluster create (i.e before starting io)
 	PostFormClusterScript string `json:"postFormClusterScript,omitempty"`
