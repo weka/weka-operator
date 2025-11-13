@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,14 +31,14 @@ const (
 
 // if the container mode is not in the map, the default is 1 year
 var terminationGracePeriodSecondsMap = map[string]int64{
-	wekav1alpha1.WekaContainerModeDiscovery:      30,
-	wekav1alpha1.WekaContainerModeDist:           60 * 5,
-	wekav1alpha1.WekaContainerModeDriversDist:    60 * 5,
-	wekav1alpha1.WekaContainerModeDriversLoader:  60,
-	wekav1alpha1.WekaContainerModeDriversBuilder: 60 * 2,
-	wekav1alpha1.WekaContainerModeAdhocOpWC:      60,
-	wekav1alpha1.WekaContainerModeAdhocOp:        60,
-	wekav1alpha1.WekaContainerModeEnvoy:          60 * 5,
+	weka.WekaContainerModeDiscovery:      30,
+	weka.WekaContainerModeDist:           60 * 5,
+	weka.WekaContainerModeDriversDist:    60 * 5,
+	weka.WekaContainerModeDriversLoader:  60,
+	weka.WekaContainerModeDriversBuilder: 60 * 2,
+	weka.WekaContainerModeAdhocOpWC:      60,
+	weka.WekaContainerModeAdhocOp:        60,
+	weka.WekaContainerModeEnvoy:          60 * 5,
 }
 
 type WekaLocalStatusSlot struct {
@@ -62,7 +62,7 @@ type WekaLocalContainerGetIdentityResponse struct {
 type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type PodFactory struct {
-	container *wekav1alpha1.WekaContainer
+	container *weka.WekaContainer
 	nodeInfo  *discovery.DiscoveryNodeInfo
 }
 
@@ -81,7 +81,7 @@ func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
 
-func NewPodFactory(container *wekav1alpha1.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo) *PodFactory {
+func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo) *PodFactory {
 	return &PodFactory{
 		nodeInfo:  nodeInfo,
 		container: container,
@@ -159,10 +159,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.Spec.TracesConfiguration == nil {
-		f.container.Spec.TracesConfiguration = wekav1alpha1.GetDefaultTracesConfiguration()
+		f.container.Spec.TracesConfiguration = weka.GetDefaultTracesConfiguration()
 	}
 
-	tolerations := f.getTolerations()
+	tolerations := GetWekaPodTolerations(f.container)
 	debugSleep := config.Config.DebugSleep
 	if f.container.Spec.GetOverrides().DebugSleepOnTerminate > 0 {
 		debugSleep = f.container.Spec.GetOverrides().DebugSleepOnTerminate
@@ -639,7 +639,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDriversLoader && config.Config.Proxy != "" {
+	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader && config.Config.Proxy != "" {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "HTTPS_PROXY",
 			Value: config.Config.Proxy,
@@ -731,7 +731,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
 		if f.container.Spec.Instructions != nil && f.container.Spec.Instructions.Type ==
-			wekav1alpha1.InstructionCopyWekaFilesToDriverLoader {
+			weka.InstructionCopyWekaFilesToDriverLoader {
 			f.copyWekaVersionToDriverLoader(pod)
 		}
 		if f.nodeInfo.IsCos() {
@@ -849,13 +849,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "driver-toolkit-shared", MountPath: "/driver-toolkit-shared", ReadOnly: false, MountPropagation: &ContainerMountProp})
 
 		initContainerCmds := make(map[string][]string)
-		initContainerCmds[wekav1alpha1.OsNameOpenshift] = []string{"/bin/sh", "-c",
+		initContainerCmds[weka.OsNameOpenshift] = []string{"/bin/sh", "-c",
 			"mkdir -p /driver-toolkit-shared/lib; " +
 				"mkdir -p /driver-toolkit-shared/usr; " +
 				"cp -RLrf /usr/src /driver-toolkit-shared/usr; " +
 				"cp -RLrf /lib/modules /driver-toolkit-shared/lib"}
 
-		cmd := initContainerCmds[wekav1alpha1.OsNameOpenshift]
+		cmd := initContainerCmds[weka.OsNameOpenshift]
 		mountProp := corev1.MountPropagationBidirectional
 		buildkitContainer := corev1.Container{
 			Name:          "driver-toolkit-init",
@@ -1010,7 +1010,7 @@ func getPressureTolerations() []corev1.Toleration {
 	}
 }
 
-func (f *PodFactory) getTolerations() []corev1.Toleration {
+func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	tolerations := []corev1.Toleration{
 		{
 			Key:      "weka.io/shutdown-node",
@@ -1026,22 +1026,22 @@ func (f *PodFactory) getTolerations() []corev1.Toleration {
 	pressureTolerations := getPressureTolerations()
 	tolerations = append(tolerations, pressureTolerations...)
 
-	if !config.Config.SkipClientNoScheduleToleration && f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+	if !config.Config.SkipClientNoScheduleToleration && container.Spec.Mode == weka.WekaContainerModeClient {
 		tolerations = ExpandNoScheduleTolerations(tolerations)
 	}
 
 	auxModes := []string{
-		wekav1alpha1.WekaContainerModeAdhocOp,
-		wekav1alpha1.WekaContainerModeAdhocOpWC,
-		wekav1alpha1.WekaContainerModeDriversLoader,
-		wekav1alpha1.WekaContainerModeDiscovery,
+		weka.WekaContainerModeAdhocOp,
+		weka.WekaContainerModeAdhocOpWC,
+		weka.WekaContainerModeDriversLoader,
+		weka.WekaContainerModeDiscovery,
 	}
-	if !config.Config.SkipAuxNoScheduleToleration && slices.Contains(auxModes, f.container.Spec.Mode) {
+	if !config.Config.SkipAuxNoScheduleToleration && slices.Contains(auxModes, container.Spec.Mode) {
 		tolerations = ExpandNoScheduleTolerations(tolerations)
 	}
 
 	// expand with custom tolerations
-	tolerations = append(tolerations, f.container.Spec.Tolerations...)
+	tolerations = append(tolerations, container.Spec.Tolerations...)
 	return tolerations
 }
 
@@ -1090,7 +1090,7 @@ func (f *PodFactory) getHugePagesOffset() int {
 	offset := f.container.Spec.HugepagesOffset
 	// get default if not set
 	if offset == 0 {
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+		if f.container.Spec.Mode == weka.WekaContainerModeDrive {
 			offset = 200 * f.container.Spec.NumDrives
 		} else {
 			offset = 200
@@ -1101,19 +1101,19 @@ func (f *PodFactory) getHugePagesOffset() int {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+	if f.container.Spec.Mode == weka.WekaContainerModeCompute {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+	if f.container.Spec.Mode == weka.WekaContainerModeS3 {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfs {
+	if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1131,14 +1131,14 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	hgDetails := f.getHugePagesDetails()
 
-	if cpuPolicy == wekav1alpha1.CpuPolicyAuto {
+	if cpuPolicy == weka.CpuPolicyAuto {
 		if len(f.container.Spec.CoreIds) > 0 {
-			cpuPolicy = wekav1alpha1.CpuPolicyManual
+			cpuPolicy = weka.CpuPolicyManual
 		}
 		if f.nodeInfo.IsHt {
-			cpuPolicy = wekav1alpha1.CpuPolicyDedicatedHT
+			cpuPolicy = weka.CpuPolicyDedicatedHT
 		} else {
-			cpuPolicy = wekav1alpha1.CpuPolicyDedicated
+			cpuPolicy = weka.CpuPolicyDedicated
 		}
 	}
 
@@ -1152,38 +1152,38 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	resources := f.container.Spec.Resources
 	if f.container.Spec.Resources == nil {
-		resources = &wekav1alpha1.PodResourcesSpec{}
+		resources = &weka.PodResourcesSpec{}
 	}
 
 	switch cpuPolicy {
-	case wekav1alpha1.CpuPolicyDedicatedHT:
+	case weka.CpuPolicyDedicatedHT:
 		totalCores := totalNumCores*2 + 1
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
 		}
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+		if f.container.Spec.Mode == weka.WekaContainerModeCompute {
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+		if f.container.Spec.Mode == weka.WekaContainerModeDrive {
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+		if f.container.Spec.Mode == weka.WekaContainerModeS3 {
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 			// i.e: both for envoy and 3, extraCores(envoy is hard coded to 1 now), means "ht if possible", otherwise full core
 		}
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfs {
+		if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 			totalCores = totalCores - f.container.Spec.ExtraCores
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
-	case wekav1alpha1.CpuPolicyDedicated:
+	case weka.CpuPolicyDedicated:
 		totalCores := totalNumCores + 1
-		if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
-	case wekav1alpha1.CpuPolicyManual:
+	case weka.CpuPolicyManual:
 		if resources.Limits.Cpu.IsZero() {
 			cpuLimitStr = fmt.Sprintf("%dm", 1000*(totalNumCores+1))
 			cpuRequestStr = fmt.Sprintf("%dm", 1000*totalNumCores+100)
@@ -1191,26 +1191,26 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 			cpuLimitStr = resources.Limits.Cpu.String()
 			cpuRequestStr = resources.Requests.Cpu.String()
 		}
-	case wekav1alpha1.CpuPolicyShared:
+	case weka.CpuPolicyShared:
 		cpuLimitStr = resources.Limits.Cpu.String()
 		cpuRequestStr = resources.Requests.Cpu.String()
 	}
 
-	if cpuPolicy == wekav1alpha1.CpuPolicyDedicatedHT {
+	if cpuPolicy == weka.CpuPolicyDedicatedHT {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
 			Value: "auto",
 		})
 	}
 
-	if cpuPolicy == wekav1alpha1.CpuPolicyDedicated {
+	if cpuPolicy == weka.CpuPolicyDedicated {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "CORE_IDS",
 			Value: "auto",
 		})
 	}
 
-	if cpuPolicy == wekav1alpha1.CpuPolicyManual {
+	if cpuPolicy == weka.CpuPolicyManual {
 		if len(f.container.Spec.CoreIds) == 0 {
 			return errors.New("CPU policy manual is not supported without coreIds")
 		}
@@ -1227,13 +1227,13 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
 	}
-	if slices.Contains([]string{wekav1alpha1.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
+	if slices.Contains([]string{weka.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
 		memRequest = "500M"
 		cpuRequestStr = "500m"
 		cpuLimitStr = "500m"
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeClient {
+	if f.container.Spec.Mode == weka.WekaContainerModeClient {
 		managementMemory := 1965
 		perFrontendMemory := 3050
 		buffer := 2000
@@ -1245,7 +1245,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
 		managementMemory := 4000
 		perDriveProcessBuffer := 800
 		perDriveProcessMemory := 2200 + perDriveProcessBuffer
@@ -1259,7 +1259,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeCompute {
+	if f.container.Spec.Mode == weka.WekaContainerModeCompute {
 		managementMemory := 2700
 		perComputeBuffer := 800
 		perComputeMemory := 4400 + perComputeBuffer
@@ -1267,7 +1267,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perComputeMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeS3 {
+	if f.container.Spec.Mode == weka.WekaContainerModeS3 {
 		s3Memory := 16000
 		managementMemory := 1965 + s3Memory // 8000 per S3
 		perFrontendMemory := 2050
@@ -1275,7 +1275,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeNfs {
+	if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 		nfsMemory := 16000
 		managementMemory := 1965 + nfsMemory // 8000 per NFS
 		perFrontendMemory := 2050
@@ -1284,7 +1284,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
+	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
 		total := 1024 + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
 		memLimit = fmt.Sprintf("%dMi", total+8192)
@@ -1320,7 +1320,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		},
 	}
 
-	if f.container.Spec.Mode == wekav1alpha1.WekaContainerModeDrive {
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
 		pod.Spec.Containers[0].Resources.Requests["weka.io/drives"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 		pod.Spec.Containers[0].Resources.Limits["weka.io/drives"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 	}
@@ -1431,7 +1431,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			term := corev1.PodAffinityTerm{
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"weka.io/mode":       wekav1alpha1.WekaContainerModeS3,
+						"weka.io/mode":       weka.WekaContainerModeS3,
 						"weka.io/cluster-id": clusterId,
 					},
 				},
@@ -1468,7 +1468,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 	return nil
 }
 
-func LabelsForWekaPod(container *wekav1alpha1.WekaContainer) map[string]string {
+func LabelsForWekaPod(container *weka.WekaContainer) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/name":       "WekaContainer",
 		"app.kubernetes.io/part-of":    "weka-operator",
