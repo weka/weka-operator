@@ -24,8 +24,8 @@ type KubeService interface {
 	GetNode(ctx context.Context, nodeName types.NodeName) (*v1.Node, error)
 	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
 	GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error)
-	GetPodsSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1.Pod, error)
-	GetWekaContainersSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error)
+	GetPodsSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1.Pod, error)
+	GetWekaContainersSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error)
 	GetWekaContainers(ctx context.Context, options GetPodsOptions) ([]v1alpha1.WekaContainer, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
 	EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error
