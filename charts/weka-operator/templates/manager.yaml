@@ -192,6 +192,12 @@ spec:
               value: "{{ .Values.metrics.clusters.enabled }}"
             - name: METRICS_CLUSTERS_POLLING_RATE
               value: "{{ .Values.metrics.clusters.pollingRate }}"
+            - name: METRICS_CLUSTERS_IMAGE
+              value: "{{ .Values.metrics.clusters.image }}"
+            {{- if .Values.metrics.clusters.nodeSelector }}
+            - name: METRICS_CLUSTERS_NODE_SELECTOR
+              value: '{{ .Values.metrics.clusters.nodeSelector | toJson }}'
+            {{- end }}
             - name: METRICS_CONTAINERS_ENABLED
               value: "{{ .Values.metrics.containers.enabled }}"
             - name: METRICS_CONTAINERS_POLLING_RATE
