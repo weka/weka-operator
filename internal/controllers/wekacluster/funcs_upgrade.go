@@ -45,10 +45,12 @@ type UpdatableClusterSpec struct {
 	NfsNodeSelector           *util.HashableMap
 	ComputeNodeSelector       *util.HashableMap
 	DriveNodeSelector         *util.HashableMap
+	DataServicesNodeSelector  *util.HashableMap
 	S3Annotations             *util.HashableMap
 	NfsAnnotations            *util.HashableMap
 	ComputeAnnotations        *util.HashableMap
 	DriveAnnotations          *util.HashableMap
+	DataServicesAnnotations   *util.HashableMap
 	UpgradeForceReplace       bool
 	UpgradeForceReplaceDrives bool
 	Network                   weka.Network
@@ -61,6 +63,7 @@ type UpdatableClusterSpec struct {
 	DriveExtraCores           int
 	S3ExtraCores              int
 	NfsExtraCores             int
+	DataServicesExtraCores    int
 	DriversLoaderImage        string
 	DriversBuildId            *string
 }
@@ -79,11 +82,13 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 	driveExtraCores := 0
 	s3ExtraCores := 0
 	nfsExtraCores := 0
+	dataServicesExtraCores := 0
 	if spec.Dynamic != nil {
 		computeExtraCores = spec.Dynamic.ComputeExtraCores
 		driveExtraCores = spec.Dynamic.DriveExtraCores
 		s3ExtraCores = spec.Dynamic.S3ExtraCores
 		nfsExtraCores = spec.Dynamic.NfsExtraCores
+		dataServicesExtraCores = spec.Dynamic.DataServicesExtraCores
 	}
 
 	return &UpdatableClusterSpec{
@@ -99,10 +104,12 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		NfsNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Nfs),
 		ComputeNodeSelector:       safeHashableMap(spec.RoleNodeSelector.Compute),
 		DriveNodeSelector:         safeHashableMap(spec.RoleNodeSelector.Drive),
+		DataServicesNodeSelector:  safeHashableMap(spec.RoleNodeSelector.DataServices),
 		S3Annotations:             safeHashableMap(spec.RoleAnnotations.S3),
 		NfsAnnotations:            safeHashableMap(spec.RoleAnnotations.Nfs),
 		ComputeAnnotations:        safeHashableMap(spec.RoleAnnotations.Compute),
 		DriveAnnotations:          safeHashableMap(spec.RoleAnnotations.Drive),
+		DataServicesAnnotations:   safeHashableMap(spec.RoleAnnotations.DataServices),
 		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
 		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
 		Network:                   spec.Network,
@@ -115,6 +122,7 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		DriveExtraCores:           driveExtraCores,
 		S3ExtraCores:              s3ExtraCores,
 		NfsExtraCores:             nfsExtraCores,
+		DataServicesExtraCores:    dataServicesExtraCores,
 		DriversLoaderImage:        spec.GetOverrides().DriversLoaderImage,
 		DriversBuildId:            spec.GetOverrides().DriversBuildId,
 	}
@@ -306,6 +314,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			targetExtraCores = updatableSpec.S3ExtraCores
 		case weka.WekaContainerModeNfs:
 			targetExtraCores = updatableSpec.NfsExtraCores
+		case weka.WekaContainerModeDataServices:
+			targetExtraCores = updatableSpec.DataServicesExtraCores
 		}
 		if container.Spec.ExtraCores != targetExtraCores {
 			container.Spec.ExtraCores = targetExtraCores

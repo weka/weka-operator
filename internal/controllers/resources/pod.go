@@ -1016,19 +1016,8 @@ func (f *PodFactory) getHugePagesOffset() int {
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
-	if f.container.Spec.Mode == weka.WekaContainerModeCompute {
-		totalNumCores += f.container.Spec.ExtraCores
-	}
-
-	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
-		totalNumCores += f.container.Spec.ExtraCores
-	}
-
-	if f.container.Spec.Mode == weka.WekaContainerModeS3 {
-		totalNumCores += f.container.Spec.ExtraCores
-	}
-
-	if f.container.Spec.Mode == weka.WekaContainerModeNfs {
+	switch f.container.Spec.Mode {
+	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1076,18 +1065,9 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
 		}
-		if f.container.Spec.Mode == weka.WekaContainerModeCompute {
+		switch f.container.Spec.Mode {
+		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
-		}
-		if f.container.Spec.Mode == weka.WekaContainerModeDrive {
-			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
-		}
-		if f.container.Spec.Mode == weka.WekaContainerModeS3 {
-			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
-			// i.e: both for envoy and 3, extraCores(envoy is hard coded to 1 now), means "ht if possible", otherwise full core
-		}
-		if f.container.Spec.Mode == weka.WekaContainerModeNfs {
-			totalCores = totalCores - f.container.Spec.ExtraCores
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
@@ -1200,6 +1180,15 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		buffer := 450
 		total := buffer + managementMemory + nfsMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
+	}
+
+	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
+		// Data services require at least 3.5GB reserved memory
+		dataServicesMemory := 3584 // 3.5GB in MiB
+		managementMemory := 1965
+		perCoreMemory := 512 // minimal per-core overhead for data services
+		buffer := 450
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+dataServicesMemory+perCoreMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {

@@ -128,6 +128,8 @@
 | nodeSelectors | []map[string]string | NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building.<br>If empty, all nodes in the cluster are considered. |
 | kernelLabelKey | *string | KernelLabelKey is the custom label key to use for storing the node's kernel version.<br>If not specified, "weka.io/kernel" will be used. |
 | architectureLabelKey | *string | ArchitectureLabelKey is the custom label key to use for storing the node's architecture.<br>If not specified, "weka.io/architecture" will be used. |
+| osLabelKey | *string | OsLabelKey is the custom label key to use for storing the node's os.<br>If not specified, "weka.io/os" will be used. |
+| builderImageOverride | string | BuilderImageOverride is an optional image that you can specify for the builder |
 | builderPreRunScript | *string | BuilderPreRunScript is an optional script to run on builder containers after kernel validation. |
 | distNodeSelector | map[string]string | DistNodeSelector is the node selector for the drivers distribution (dist) container.<br>If not specified, the dist container will be scheduled on any available node. |
 

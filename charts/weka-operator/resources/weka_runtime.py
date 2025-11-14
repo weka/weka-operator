@@ -120,18 +120,18 @@ exiting = 0
 
 def setup_otel_logging():
     """Setup OpenTelemetry logging with OTLP exporter."""
-    
+
     # Check if init container successfully installed OTEL packages
     otel_packages_dir = "/shared-python-packages"
     success_marker = os.path.join(otel_packages_dir, ".otel-packages-installed")
     failure_marker = os.path.join(otel_packages_dir, ".otel-packages-failed")
-    
+
     if os.path.exists(success_marker):
         print("OTEL packages were successfully installed by init container")
         # Add the shared packages directory to Python path if not already there
         if otel_packages_dir not in sys.path:
             sys.path.insert(0, otel_packages_dir)
-        
+
         # Try to import OTEL packages that should now be available
         try:
             global OTEL_AVAILABLE
@@ -150,17 +150,17 @@ def setup_otel_logging():
         OTEL_AVAILABLE = False
     else:
         print("No OTEL package installation markers found. Checking for pre-installed packages...")
-    
+
     if not OTEL_AVAILABLE or not OTEL_LOGS_ENABLED:
         return setup_standard_logging()
-    
+
     try:
         # Determine the OTLP endpoint for logs
         logs_endpoint = OTEL_EXPORTER_OTLP_LOGS_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
         if not logs_endpoint:
             print("Warning: No OTEL endpoint configured. Falling back to standard logging.")
             return setup_standard_logging()
-        
+
         # Parse headers for logs
         headers = {}
         headers_str = OTEL_EXPORTER_OTLP_LOGS_HEADERS or OTEL_EXPORTER_OTLP_HEADERS
@@ -169,7 +169,7 @@ def setup_otel_logging():
                 if '=' in header:
                     key, value = header.strip().split('=', 1)
                     headers[key] = value
-        
+
         # Create resource with service information
         resource = Resource.create({
             ResourceAttributes.SERVICE_NAME: OTEL_SERVICE_NAME,
@@ -180,48 +180,48 @@ def setup_otel_logging():
             "k8s.pod.name": POD_NAME,
             "k8s.namespace.name": POD_NAMESPACE,
         })
-        
+
         # Create OTLP log exporter
         otlp_exporter = OTLPLogExporter(
             endpoint=logs_endpoint,
             headers=headers,
         )
-        
+
         # Create logger provider
         logger_provider = LoggerProvider(resource=resource)
-        
+
         # Add batch processor
         logger_provider.add_log_record_processor(
             BatchLogRecordProcessor(otlp_exporter)
         )
-        
+
         # Create OTEL logging handler
         otel_handler = LoggingHandler(
             level=logging.DEBUG,
             logger_provider=logger_provider,
         )
-        
+
         # Create standard handlers for local logging
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setLevel(logging.DEBUG)
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.WARNING)
-        
+
         # Formatter
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         stdout_handler.setFormatter(formatter)
         stderr_handler.setFormatter(formatter)
-        
+
         # Configure root logger with both OTEL and standard handlers
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
         root_logger.addHandler(otel_handler)
         root_logger.addHandler(stdout_handler)
         root_logger.addHandler(stderr_handler)
-        
+
         print(f"OTEL logging configured successfully. Endpoint: {logs_endpoint}")
         return True
-        
+
     except Exception as e:
         print(f"Failed to setup OTEL logging: {e}. Falling back to standard logging.")
         return setup_standard_logging()
@@ -231,7 +231,7 @@ def setup_standard_logging():
     """Setup standard logging as fallback."""
     # Formatter with channel name
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
+
     # Define handlers for stdout and stderr
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
@@ -240,7 +240,7 @@ def setup_standard_logging():
 
     stdout_handler.setFormatter(formatter)
     stderr_handler.setFormatter(formatter)
-    
+
     # Basic configuration
     logging.basicConfig(
         level=logging.DEBUG,  # Global minimum logging level
@@ -1908,7 +1908,7 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs"]:
+    if MODE not in ["compute", "drive", "client", "s3", "nfs", "data-services"]:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -1923,6 +1923,8 @@ async def create_container():
         mode_part = "--only-frontend-cores"
     elif MODE == "nfs":
         mode_part = "--only-frontend-cores"
+    elif MODE == "data-services":
+        mode_part = "--only-dataserv-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -1971,7 +1973,8 @@ async def create_container():
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
         {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
-        {f"--failure-domain {failure_domain}" if failure_domain else ""}
+        {f"--failure-domain {failure_domain}" if failure_domain else ""} \
+        {f"--allow-mix-setting" if MODE == 'data-services' else ""}
     """)
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
@@ -2965,7 +2968,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry', 'data-services']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -3157,7 +3160,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client', 'data-services']:
         return
 
     ipAddresses = []
@@ -3816,7 +3819,7 @@ async def shutdown():
             force_stop = True
         if is_wrong_generation():
             force_stop = True
-        if MODE not in ["s3", "drive", "compute", "nfs"]:
+        if MODE not in ["s3", "drive", "compute", "nfs", "data-services"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
 
@@ -3827,7 +3830,7 @@ async def shutdown():
         while await is_container_running(no_agent_as_not_running=force_stop):
             await run_command(f"timeout 180 weka local stop {stop_flag}", capture_stdout=False)
             await asyncio.sleep(3)
-            
+
         if force_shutdown_task is not None:
             force_shutdown_task.cancel()
         logging.info("finished stopping weka container")
