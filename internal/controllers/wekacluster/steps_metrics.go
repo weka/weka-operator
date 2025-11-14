@@ -4,6 +4,7 @@ package wekacluster
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"sync"
 	"time"
@@ -29,6 +30,64 @@ import (
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	util2 "github.com/weka/weka-operator/pkg/util"
 )
+
+// MonitoringServiceHashableSpec represents the fields that should trigger a monitoring service update
+type MonitoringServiceHashableSpec struct {
+	Image           string
+	Labels          *util2.HashableMap
+	Annotations     *util2.HashableMap
+	Tolerations     []v1.Toleration
+	NodeSelector    *util2.HashableMap
+	ImagePullSecret string
+}
+
+// GetMonitoringServiceIdentifierLabels returns the core identifier labels used for pod lookup
+func GetMonitoringServiceIdentifierLabels(cluster *weka.WekaCluster) map[string]string {
+	return map[string]string{
+		"app":                "weka-cluster-monitoring",
+		"weka.io/cluster-id": string(cluster.GetUID()),
+	}
+}
+
+// GetMonitoringServiceLabels returns the complete labels for the monitoring service deployment
+func GetMonitoringServiceLabels(cluster *weka.WekaCluster) map[string]string {
+	labels := GetMonitoringServiceIdentifierLabels(cluster)
+	labels["app.kubernetes.io/created-by"] = "weka-operator"
+	maps.Copy(labels, cluster.Labels)
+	return labels
+}
+
+// GetMonitoringServiceAnnotations returns the annotations for the monitoring service
+func GetMonitoringServiceAnnotations() map[string]string {
+	return map[string]string{
+		"prometheus.io/scrape": "true",
+		"prometheus.io/port":   "80",
+		"prometheus.io/path":   "/metrics",
+	}
+}
+
+// GetMonitoringServiceHash generates a hash for the monitoring service deployment
+func GetMonitoringServiceHash(cluster *weka.WekaCluster) (string, error) {
+	labels := GetMonitoringServiceLabels(cluster)
+	annotations := GetMonitoringServiceAnnotations()
+	tolerations := util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+
+	var nodeSelectorHashable *util2.HashableMap
+	if cluster.Spec.NodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(cluster.Spec.NodeSelector)
+	}
+
+	spec := MonitoringServiceHashableSpec{
+		Image:           config.Config.Metrics.Clusters.Image,
+		Labels:          util2.NewHashableMap(labels),
+		Annotations:     util2.NewHashableMap(annotations),
+		Tolerations:     tolerations,
+		NodeSelector:    nodeSelectorHashable,
+		ImagePullSecret: cluster.Spec.ImagePullSecret,
+	}
+
+	return util2.HashStruct(spec)
+}
 
 // GetThrottledMetricsSteps returns the metrics steps with appropriate throttling settings
 func GetThrottledMetricsSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
@@ -303,29 +362,22 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 }
 
 func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.Context) error {
-	// TODO: Re-wrap as operation
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
 
-	identifierLabels := map[string]string{
-		"app":                "weka-cluster-monitoring",
-		"weka.io/cluster-id": string(r.cluster.GetUID()),
-		// common label for all operator-created pods
-		"app.kubernetes.io/created-by": "weka-operator",
-	}
+	// Get labels using helper functions
+	labels := GetMonitoringServiceLabels(r.cluster)
+	identifierLabels := GetMonitoringServiceIdentifierLabels(r.cluster)
 
-	labels := make(map[string]string)
-	for k, v := range identifierLabels {
-		labels[k] = v
-	}
-	for k, v := range r.cluster.Labels {
-		labels[k] = v
+	// Calculate hash for the monitoring service spec
+	targetHash, err := GetMonitoringServiceHash(r.cluster)
+	if err != nil {
+		return errors.Wrap(err, "Failed to calculate monitoring service hash")
 	}
 
-	annototations := map[string]string{
-		// prometheus annotations
-		"prometheus.io/scrape": "true",
-		"prometheus.io/port":   "80",
-		"prometheus.io/path":   "/metrics",
-	}
+	// Get base annotations and add hash
+	annototations := GetMonitoringServiceAnnotations()
+	annototations["weka.io/monitoring-service-hash"] = targetHash
 
 	deployment := apps.Deployment{
 		ObjectMeta: ctrl.ObjectMeta{
@@ -394,30 +446,40 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 			},
 		},
 	}
-	err := ctrl.SetControllerReference(r.cluster, &deployment, r.Manager.GetScheme())
-	if err != nil {
+	if err := ctrl.SetControllerReference(r.cluster, &deployment, r.Manager.GetScheme()); err != nil {
 		return err
 	}
 
 	upsert := func() error {
-		err = r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
+		existingDeployment := &apps.Deployment{}
+		err := r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, existingDeployment)
 		if err == nil {
-			// already exists, no need to stress api with creates
+			// Deployment exists, check if hash changed
+			currentHash := existingDeployment.Spec.Template.Annotations["weka.io/monitoring-service-hash"]
+			if currentHash != targetHash {
+				logger.Info("Monitoring service spec changed, updating deployment",
+					"targetHash", targetHash, "currentHash", currentHash)
+
+				// Preserve the existing resource version and UID for proper updates
+				deployment.ObjectMeta.ResourceVersion = existingDeployment.ObjectMeta.ResourceVersion
+				deployment.ObjectMeta.UID = existingDeployment.ObjectMeta.UID
+
+				if err := r.getClient().Update(ctx, &deployment); err != nil {
+					return errors.Wrap(err, "Failed to update monitoring deployment")
+				}
+				logger.Info("Monitoring service deployment updated successfully")
+				return nil
+			}
+			// Hash matches, deployment is up to date
+			logger.Debug("Monitoring service deployment is up to date", "hash", targetHash)
 			return nil
 		}
 
-		err = r.getClient().Create(ctx, &deployment)
-		if err != nil {
-			if alreadyExists := client.IgnoreAlreadyExists(err); alreadyExists == nil {
-				//fetch current deployment
-				err = r.getClient().Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &deployment)
-				if err != nil {
-					return err
-				}
-				return nil
-			}
-			return err
+		// Deployment doesn't exist, create it
+		if err := r.getClient().Create(ctx, &deployment); err != nil {
+			return errors.Wrap(err, "Failed to create monitoring deployment")
 		}
+		logger.Info("Monitoring service deployment created", "hash", targetHash)
 		return nil
 	}
 
@@ -427,7 +489,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 
 	// we should have deployment at hand now
 	kubeService := kubernetes.NewKubeService(r.getClient())
-	// searching for own pods
+	// searching for own pods using identifier labels
 	pods, err := kubeService.GetPodsSimple(ctx, r.cluster.Namespace, "", identifierLabels)
 	if err != nil {
 		return err
