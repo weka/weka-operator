@@ -46,6 +46,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.NfsCores
 		hugePagesNum = template.NfsFrontendHugepages
 		hugePagesOffset = template.NfsFrontendHugepagesOffset
+	} else if role == "data-services" {
+		numCores = template.DataServicesCores
+		hugePagesNum = template.DataServicesFrontendHugepages
+		hugePagesOffset = template.DataServicesFrontendHugepagesOffset
 	} else {
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -72,6 +76,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "nfs":
 		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
 		extraCores = template.NfsExtraCores
+	case "data-services":
+		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
+		extraCores = template.DataServicesExtraCores
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 	}
@@ -125,7 +132,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			NumDrives:             numDrives,
 			WekaSecretRef:         v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService:    cluster.Spec.DriversDistService,
-			CpuPolicy:             cluster.Spec.CpuPolicy,
+			CpuPolicy:             cluster.GetCpuPolicyForRole(role),
 			CoreIds:               cluster.GetCoreIdsForRole(role),
 			TracesConfiguration:   cluster.Spec.TracesConfiguration,
 			Tolerations:           util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),

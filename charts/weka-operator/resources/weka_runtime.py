@@ -1706,7 +1706,7 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs"]:
+    if MODE not in ["compute", "drive", "client", "s3", "nfs", "data-services"]:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -1721,6 +1721,8 @@ async def create_container():
         mode_part = "--only-frontend-cores"
     elif MODE == "nfs":
         mode_part = "--only-frontend-cores"
+    elif MODE == "data-services":
+        mode_part = "--only-dataserv-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -1769,7 +1771,8 @@ async def create_container():
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
         {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
-        {f"--failure-domain {failure_domain}" if failure_domain else ""}
+        {f"--failure-domain {failure_domain}" if failure_domain else ""} \
+        {f"--memory 3.5GB --allow-mix-setting" if MODE == 'data-services' else ""}
     """)
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
@@ -3298,6 +3301,18 @@ async def main():
     # Start periodic CPU affinity management for drive, compute, and client containers
     if MODE in ["drive", "compute", "client"]:
         asyncio.create_task(periodic_cpu_affinity_management())
+
+    if MODE == "data-services":
+        # Configure data services global config once per cluster (idempotent operation)
+        logging.info("Configuring data services global config")
+        try:
+            stdout, stderr, ec = await run_command("weka dataservice global-config set --config-fs .config_fs")
+            if ec != 0:
+                logging.warning(f"Failed to set data services global config (may already be set): {stderr}")
+            else:
+                logging.info("Data services global config set successfully")
+        except Exception as e:
+            logging.warning(f"Error setting data services global config (may already be set): {e}")
 
     if MODE == "drive":
         await ensure_drives()

@@ -1117,6 +1117,10 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
+	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
+		totalNumCores += f.container.Spec.ExtraCores
+	}
+
 	_, logger, end := instrumentation.GetLogSpan(ctx, "setResources",
 		"cores", totalNumCores,
 		"mode", f.container.Spec.Mode,
@@ -1174,6 +1178,9 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 			totalCores = totalCores - f.container.Spec.ExtraCores
 		}
+		if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
+			totalCores = totalCores - f.container.Spec.ExtraCores
+		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
 		cpuLimitStr = cpuRequestStr
 	case weka.CpuPolicyDedicated:
@@ -1192,8 +1199,15 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 			cpuRequestStr = resources.Requests.Cpu.String()
 		}
 	case weka.CpuPolicyShared:
-		cpuLimitStr = resources.Limits.Cpu.String()
-		cpuRequestStr = resources.Requests.Cpu.String()
+		if resources.Limits.Cpu.IsZero() {
+			// Default for shared mode: request = numCores, limit = totalNumCores + 1
+			// This allows the container to burst beyond the cores assigned to Weka
+			cpuRequestStr = fmt.Sprintf("%d", f.container.Spec.NumCores)
+			cpuLimitStr = fmt.Sprintf("%d", totalNumCores+1)
+		} else {
+			cpuLimitStr = resources.Limits.Cpu.String()
+			cpuRequestStr = resources.Requests.Cpu.String()
+		}
 	}
 
 	if cpuPolicy == weka.CpuPolicyDedicatedHT {
@@ -1282,6 +1296,15 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		buffer := 450
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 
+	}
+
+	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
+		// Data services require at least 3.5GB reserved memory
+		dataServicesMemory := 3584 // 3.5GB in MiB
+		managementMemory := 1965
+		perCoreMemory := 512 // minimal per-core overhead for data services
+		buffer := 450
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+dataServicesMemory+perCoreMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
