@@ -179,6 +179,12 @@ metrics:
   clusters:
     enabled: true
     pollingRate: 60s
+    image: nginx:1.27.3
+    # nodeSelector: Optional node selector for monitoring service pods
+    # If not set, inherits from WekaCluster nodeSelector
+    # Example:
+    #   nodeSelector:
+    #     weka.io/monitoring: "true"
   containers:
     enabled: true
     pollingRate: 60s

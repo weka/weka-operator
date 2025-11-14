@@ -66,15 +66,25 @@ func GetMonitoringServiceAnnotations() map[string]string {
 	}
 }
 
+// GetMonitoringServiceNodeSelector returns the node selector for the monitoring service
+// Uses monitoring-specific node selector if configured, otherwise falls back to cluster's node selector
+func GetMonitoringServiceNodeSelector(cluster *weka.WekaCluster) map[string]string {
+	if config.Config.Metrics.Clusters.NodeSelector != nil {
+		return config.Config.Metrics.Clusters.NodeSelector
+	}
+	return cluster.Spec.NodeSelector
+}
+
 // GetMonitoringServiceHash generates a hash for the monitoring service deployment
 func GetMonitoringServiceHash(cluster *weka.WekaCluster) (string, error) {
 	labels := GetMonitoringServiceLabels(cluster)
 	annotations := GetMonitoringServiceAnnotations()
 	tolerations := util.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations)
+	nodeSelector := GetMonitoringServiceNodeSelector(cluster)
 
 	var nodeSelectorHashable *util2.HashableMap
-	if cluster.Spec.NodeSelector != nil {
-		nodeSelectorHashable = util2.NewHashableMap(cluster.Spec.NodeSelector)
+	if nodeSelector != nil {
+		nodeSelectorHashable = util2.NewHashableMap(nodeSelector)
 	}
 
 	spec := MonitoringServiceHashableSpec{
@@ -403,7 +413,7 @@ func (r *wekaClusterReconcilerLoop) EnsureClusterMonitoringService(ctx context.C
 						{Name: r.cluster.Spec.ImagePullSecret},
 					},
 					Tolerations:  util.ExpandTolerations([]v1.Toleration{}, r.cluster.Spec.Tolerations, r.cluster.Spec.RawTolerations),
-					NodeSelector: r.cluster.Spec.NodeSelector, //TODO: Monitoring-specific node-selector
+					NodeSelector: GetMonitoringServiceNodeSelector(r.cluster),
 					Containers: []v1.Container{
 						{
 							Name:  "weka-cluster-metrics",

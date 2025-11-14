@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -206,9 +207,10 @@ type NodeAgentRequestsTimeouts struct {
 
 type Metrics struct {
 	Clusters struct {
-		Enabled     bool
-		PollingRate time.Duration
-		Image       string
+		Enabled      bool
+		PollingRate  time.Duration
+		Image        string
+		NodeSelector map[string]string
 	}
 	Containers struct {
 		Enabled          bool
@@ -326,11 +328,12 @@ func ConfigureEnv(ctx context.Context) {
 
 	Config.Metrics.Clusters.Enabled = getBoolEnvOrDefault("METRICS_CLUSTERS_ENABLED", true)
 	Config.Metrics.Clusters.PollingRate = getDurationEnvOrDefault("METRICS_CLUSTERS_POLLING_RATE", time.Second*60)
+	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
+	Config.Metrics.Clusters.NodeSelector = getMapEnvOrDefault("METRICS_CLUSTERS_NODE_SELECTOR", nil)
 	Config.Metrics.Containers.Enabled = getBoolEnvOrDefault("METRICS_CONTAINERS_ENABLED", true)
 	Config.Metrics.Containers.PollingRate = getDurationEnvOrDefault("METRICS_CONTAINERS_POLLING_RATE", time.Second*60)
 	Config.Metrics.Containers.RequestsTimeouts.Register = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_REGISTER", time.Second*3)
 	Config.Metrics.Containers.RequestsTimeouts.GetContainerInfo = getDurationEnvOrDefault("METRICS_CONTAINERS_REQUEST_TIMEOUT_GET_CONTAINER_INFO", time.Second*10)
-	Config.Metrics.Clusters.Image = env.GetString("METRICS_CLUSTERS_IMAGE", "nginx:1.27.3")
 	Config.Metrics.NodeAgentSecretName = env.GetString("METRICS_NODE_AGENT_TOKEN", "weka-node-agent-secret")
 	Config.LocalDataPvc = env.GetString("LOCAL_DATA_PVC", "")
 	Config.DNSPolicy.K8sNetwork = env.GetString("DNS_POLICY_K8S_NETWORK", "")
@@ -496,6 +499,21 @@ func getDurationEnvOrDefault(envKey string, defaultVal time.Duration) time.Durat
 	}
 
 	return duration
+}
+
+func getMapEnvOrDefault(envKey string, defaultVal map[string]string) map[string]string {
+	val, found := os.LookupEnv(envKey)
+	if !found || val == "" {
+		return defaultVal
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(val), &result); err != nil {
+		klog.Error(err, "failed to parse JSON map from env var", "key", envKey, "value", val)
+		os.Exit(1)
+	}
+
+	return result
 }
 
 func parseCsiControllerResources() CsiControllerResources {
