@@ -97,6 +97,21 @@ func (r *wekaClusterReconcilerLoop) SelectNfsContainers(containers []*weka.WekaC
 	return nfsContainers
 }
 
+func (r *wekaClusterReconcilerLoop) HasDataServicesContainers() bool {
+	return len(r.SelectDataServicesContainers(r.containers)) > 0
+}
+
+func (r *wekaClusterReconcilerLoop) SelectDataServicesContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
+	var dataServicesContainers []*weka.WekaContainer
+	for _, container := range containers {
+		if container.Spec.Mode == weka.WekaContainerModeDataServices {
+			dataServicesContainers = append(dataServicesContainers, container)
+		}
+	}
+
+	return dataServicesContainers
+}
+
 // ValidateDriveTypesRatio validates that driveTypesRatio.tlc > 0 when driveTypesRatio is specified.
 // This prevents QLC-only configurations which are not supported.
 func (r *wekaClusterReconcilerLoop) ValidateDriveTypesRatio(ctx context.Context) error {

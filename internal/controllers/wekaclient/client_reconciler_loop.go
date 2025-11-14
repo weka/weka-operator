@@ -959,22 +959,22 @@ func getDefaultedWekaSecretRef(wekaSecretRef string, targetClusterName string) s
 }
 
 type UpdatableClientSpec struct {
-	DriversDistService      string
-	DriversBuildId          *string
-	ImagePullSecret         string
-	WekaSecretRef           string
-	AdditionalMemory        int
-	UpgradePolicy           weka.UpgradePolicy
-	AllowHotUpgrade         bool
-	DriversLoaderImage      string
-	Port                    int
-	AgentPort               int
-	PortRange               *weka.PortRange
-	CoresNumber             int
-	Tolerations             []string
-	RawTolerations          []v1.Toleration
-	Labels                  *util2.HashableMap
-	Annotations             *util2.HashableMap
+	DriversDistService string
+	DriversBuildId     *string
+	ImagePullSecret    string
+	WekaSecretRef      string
+	AdditionalMemory   int
+	UpgradePolicy      weka.UpgradePolicy
+	AllowHotUpgrade    bool
+	DriversLoaderImage string
+	Port               int
+	AgentPort          int
+	PortRange          *weka.PortRange
+	CoresNumber        int
+	Tolerations        []string
+	RawTolerations     []v1.Toleration
+	Labels             *util2.HashableMap
+	Annotations        *util2.HashableMap
 	// NodeSelector is propagated to client containers for container-level node selector
 	// mismatch validation. Not used for scheduling (clients use NodeAffinity).
 	NodeSelector            *util2.HashableMap

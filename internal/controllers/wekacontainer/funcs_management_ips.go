@@ -39,8 +39,7 @@ func (r *containerReconcilerLoop) reconcileManagementIPs(ctx context.Context) er
 
 	ipAddresses, err := r.getManagementIps(ctx)
 	if err != nil {
-		err = errors.New("waiting for management IPs")
-		return err
+		return errors.Wrap(err, "waiting for management IPs")
 	}
 
 	logger.WithValues("management_ips", ipAddresses).Info("Got management IPs")

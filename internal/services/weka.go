@@ -350,6 +350,7 @@ type WekaService interface {
 	ListLocalContainers(ctx context.Context) ([]WekaLocalContainer, error)
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
+	ConfigureDataServicesGlobalConfig(ctx context.Context) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -918,6 +919,28 @@ func (c *CliWekaService) ConfigureNfs(ctx context.Context, nfsParams NFSParams) 
 			logger.SetError(err, "Failed to configure NFS interface group", "interfaceGroup", interfaceGroupName, "stderr", stderr.String())
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) ConfigureDataServicesGlobalConfig(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ConfigureDataServicesGlobalConfig")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"weka", "dataservice", "global-config", "set", "--config-fs", ".config_fs",
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "ConfigureDataServicesGlobalConfig", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to configure data services global config", "stderr", stderr.String())
+		return err
 	}
 
 	return nil

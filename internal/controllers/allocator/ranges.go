@@ -194,4 +194,3 @@ func EnsureGlobalRangeWithOffset(cluster *weka.WekaCluster, name string, size in
 	}
 	return Range{Base: rangeBase, Size: size}, nil
 }
-

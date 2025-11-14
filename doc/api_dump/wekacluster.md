@@ -24,6 +24,8 @@
 - [RoleCoreIds](#rolecoreids)
 - [EncryptionConfig](#encryptionconfig)
 - [NfsConfig](#nfsconfig)
+- [S3Config](#s3config)
+- [SmbwConfig](#smbwconfig)
 - [TelemetryConfig](#telemetryconfig)
 - [ClusterMetrics](#clustermetrics)
 - [ClusterPrinterColumns](#clusterprintercolumns)
@@ -33,6 +35,7 @@
 - [NetworkSelector](#networkselector)
 - [AdvancedCsiConfig](#advancedcsiconfig)
 - [VaultConfig](#vaultconfig)
+- [InternalEncryptionConfig](#internalencryptionconfig)
 - [TelemetryExport](#telemetryexport)
 - [ContainersMetrics](#containersmetrics)
 - [IoStats](#iostats)
@@ -97,6 +100,8 @@
 | roleCoreIds | RoleCoreIds | RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should<br>be assigned to containers of the specific role when CpuPolicy is set to<br>"manual". If the slice for the given role is empty, core ids will not be<br>set for that role, and the manual policy will fail validation on pod start.<br>NOTE: The semantics are the same as for NodeSelector/Annotations structures –<br>a single list per role which will be copied to every container of that role.<br>Users are responsible to provide a set that makes sense for their topology.<br>Example:<br>roleCoreIds:<br>compute: [0,1,2,3]<br>drive:   [4,5,6,7]<br>will result in every compute container getting coreIds [0,1,2,3] and every<br>drive container getting [4,5,6,7]. |
 | encryption | *EncryptionConfig |  |
 | nfs | *NfsConfig |  |
+| s3 | *S3Config |  |
+| smbw | *SmbwConfig |  |
 | telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
 
 ---
@@ -135,6 +140,8 @@
 | drive | *map[string]string | nodeSelector for drive weka containers |
 | s3 | *map[string]string | nodeSelector for s3 weka containers |
 | nfs | *map[string]string | nodeSelector for nfs weka containers |
+| smbw | *map[string]string | nodeSelector for smbw weka containers |
+| dataServices | *map[string]string | nodeSelector for data services weka containers |
 
 ---
 
@@ -146,6 +153,8 @@
 | drive | *map[string]string | annotations for drive weka containers |
 | s3 | *map[string]string | annotations for s3 weka containers |
 | nfs | *map[string]string | annotations for nfs weka containers |
+| smbw | *map[string]string | annotations for smbw weka containers |
+| dataServices | *map[string]string | annotations for data services weka containers |
 
 ---
 
@@ -157,6 +166,8 @@
 | drive | *Network | network selector for drive weka containers |
 | s3 | *Network | network selector for s3 weka containers |
 | nfs | *Network | network selector for nfs weka containers |
+| smbw | *Network | network selector for smbw weka containers |
+| dataServices | *Network | network selector for data services weka containers |
 
 ---
 
@@ -211,6 +222,8 @@
 | s3 | int |  |
 | nfs | int |  |
 | envoy | int |  |
+| smbw | int |  |
+| dataServices | int |  |
 
 ---
 
@@ -253,9 +266,19 @@
 | nfsExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container |
 | nfsFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend |
 | nfsFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend |
+| smbwContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8) |
+| smbwCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container |
+| smbwExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container |
+| smbwFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend |
+| smbwFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend |
 | driveCapacity | int | DriveCapacity is the capacity in GiB to allocate per single virtual drive.<br>NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.<br>This value determines how much capacity each container receives from shared drives. |
 | containerCapacity | int | ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.<br>This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation. |
 | driveTypesRatio | *DriveTypesRatio | DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster. |
+| dataServicesContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services containers |
+| dataServicesCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services cores per container |
+| dataServicesExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container |
+| dataServicesHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend |
+| dataServicesHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend |
 
 ---
 
@@ -288,6 +311,7 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | allowS3ClusterDestroy | bool |  |
+| allowSmbwClusterDestroy | bool |  |
 | disregardRedundancy | bool | disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains |
 | driversBuildId | *string | can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default |
 | driversLoaderImage | string | image to be used for loading drivers, do not use unless explicitly instructed by Weka team |
@@ -330,6 +354,8 @@
 | drive | []int |  |
 | s3 | []int |  |
 | nfs | []int |  |
+| smbw | []int |  |
+| dataServices | []int |  |
 
 ---
 
@@ -338,6 +364,7 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | vault | *VaultConfig |  |
+| internal | *InternalEncryptionConfig | InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems |
 
 ---
 
@@ -347,6 +374,26 @@
 |------------|------|-------------|
 | interfaces | []string |  |
 | ipRanges | []string |  |
+
+---
+
+## S3Config
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| clusterCreateArgs | []string | No overlap validation, only appended to the cluster create command as-is<br>Useful for settings such as: `--envoy-max-requests 1150 --envoy-max-connections 1300 --envoy-max-pending-requests 1450`<br>Not propagated to already created cluster, and direct weka control should be used for that |
+
+---
+
+## SmbwConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| clusterName | string | ClusterName is the SMB-W cluster name, defaults to "default" |
+| domainName | string | DomainName is the domain name for SMB-W, required for SMB-W cluster creation |
+| domainJoinSecret | string |  |
+| userName | string |  |
+| ipRanges | []string | IpRanges specifies floating IP ranges for SMB-W high availability |
 
 ---
 
@@ -395,6 +442,7 @@
 | drive | []v1.TopologySpreadConstraint |  |
 | s3 | []v1.TopologySpreadConstraint |  |
 | nfs | []v1.TopologySpreadConstraint |  |
+| smbw | []v1.TopologySpreadConstraint |  |
 
 ---
 
@@ -406,6 +454,7 @@
 | drive | *v1.Affinity |  |
 | s3 | *v1.Affinity |  |
 | nfs | *v1.Affinity |  |
+| smbw | *v1.Affinity |  |
 
 ---
 
@@ -452,6 +501,14 @@
 | transitPath | string | Transit engine mount path, defaults "transit". |
 | method | string | Vault Auth method (only “kubernetes” is supported  on operator side.) |
 | keyName | string | Name of the transit key. defaults to "weka-key" |
+
+---
+
+## InternalEncryptionConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| enabled | bool |  |
 
 ---
 

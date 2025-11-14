@@ -50,6 +50,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "telemetry":
 		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
 		numCores = 0
+	case "data-services":
+		numCores = template.DataServicesCores
+		hugePagesNum = template.DataServicesHugepages
+		hugePagesOffset = template.DataServicesHugepagesOffset
 	default:
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -80,6 +84,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "nfs":
 		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
 		extraCores = template.NfsExtraCores
+	case "data-services":
+		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
+		extraCores = template.DataServicesExtraCores
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 	}

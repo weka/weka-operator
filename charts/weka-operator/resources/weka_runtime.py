@@ -2350,7 +2350,7 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs"]:
+    if MODE not in ["compute", "drive", "client", "s3", "nfs", "data-services"]:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -2365,6 +2365,8 @@ async def create_container():
         mode_part = "--only-frontend-cores"
     elif MODE == "nfs":
         mode_part = "--only-frontend-cores"
+    elif MODE == "data-services":
+        mode_part = "--only-dataserv-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -2413,7 +2415,8 @@ async def create_container():
         {f"--join-ips {JOIN_IPS}" if JOIN_IPS else ""} \
         {f"--client" if MODE == 'client' else ""} \
         {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
-        {f"--failure-domain {failure_domain}" if failure_domain else ""}
+        {f"--failure-domain {failure_domain}" if failure_domain else ""} \
+        {f"--allow-mix-setting" if MODE == 'data-services' else ""}
     """)
     # join_secret_cmd is a shell command substitution "$(cat /path/to/secret)", not the secret value itself
     # The actual secret is read by the shell at runtime and never appears in this logged string
@@ -3529,7 +3532,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry', 'data-services']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -3721,7 +3724,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client', 'data-services']:
         return
 
     ipAddresses = []
@@ -4395,7 +4398,7 @@ async def shutdown():
             force_stop = True
         if is_wrong_generation():
             force_stop = True
-        if MODE not in ["s3", "drive", "compute", "nfs"]:
+        if MODE not in ["s3", "drive", "compute", "nfs", "data-services"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
 

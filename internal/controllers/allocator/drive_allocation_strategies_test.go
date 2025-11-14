@@ -648,9 +648,9 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			enforceMinDrivesPerTypePerCore: true,
 			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 5000, qlcCount: 1, qlcCapacity: 5000},
 			containerCapacity:              5000,
-			tlcRatio:                       1,  // TLC = 5000 * 1/5 = 1000 GiB (configured)
-			qlcRatio:                       4,  // QLC = 5000 * 4/5 = 4000 GiB (configured)
-			numCores:                       5,  // need 5*384=1920 GiB per type → TLC too small
+			tlcRatio:                       1, // TLC = 5000 * 1/5 = 1000 GiB (configured)
+			qlcRatio:                       4, // QLC = 5000 * 4/5 = 4000 GiB (configured)
+			numCores:                       5, // need 5*384=1920 GiB per type → TLC too small
 			expectError:                    true,
 			errorContains:                  "insufficient TLC capacity",
 		},
@@ -659,9 +659,9 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			enforceMinDrivesPerTypePerCore: true,
 			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 5000, qlcCount: 1, qlcCapacity: 5000},
 			containerCapacity:              5000,
-			tlcRatio:                       4,  // TLC = 5000 * 4/5 = 4000 GiB (configured)
-			qlcRatio:                       1,  // QLC = 5000 * 1/5 = 1000 GiB (configured)
-			numCores:                       5,  // need 5*384=1920 GiB per type → QLC too small
+			tlcRatio:                       4, // TLC = 5000 * 4/5 = 4000 GiB (configured)
+			qlcRatio:                       1, // QLC = 5000 * 1/5 = 1000 GiB (configured)
+			numCores:                       5, // need 5*384=1920 GiB per type → QLC too small
 			expectError:                    true,
 			errorContains:                  "insufficient QLC capacity",
 		},
@@ -670,8 +670,8 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			enforceMinDrivesPerTypePerCore: false,
 			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 10000, qlcCount: 2, qlcCapacity: 10000},
 			containerCapacity:              3000,
-			tlcRatio:                       1,  // TLC = 3000 * 1/6 = 500 GiB → 1 drive
-			qlcRatio:                       5,  // QLC = 3000 * 5/6 = 2500 GiB → 5 drives
+			tlcRatio:                       1, // TLC = 3000 * 1/6 = 500 GiB → 1 drive
+			qlcRatio:                       5, // QLC = 3000 * 5/6 = 2500 GiB → 5 drives
 			numCores:                       6,
 			expectError:                    false,
 			expectedTlcDrives:              1,
@@ -682,8 +682,8 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			enforceMinDrivesPerTypePerCore: false,
 			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 1, qlcCapacity: 10000},
 			containerCapacity:              3000,
-			tlcRatio:                       4,  // TLC = 3000 * 4/6 = 2000 GiB → 4 drives
-			qlcRatio:                       2,  // QLC = 3000 * 2/6 = 1000 GiB → 2 drives
+			tlcRatio:                       4, // TLC = 3000 * 4/6 = 2000 GiB → 4 drives
+			qlcRatio:                       2, // QLC = 3000 * 2/6 = 1000 GiB → 2 drives
 			numCores:                       6,
 			expectError:                    false,
 			expectedTlcDrives:              4,
@@ -694,8 +694,8 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			enforceMinDrivesPerTypePerCore: false,
 			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 1, qlcCapacity: 10000},
 			containerCapacity:              1500,
-			tlcRatio:                       2,  // TLC = 1500 * 2/3 = 1000 GiB → 2 drives
-			qlcRatio:                       1,  // QLC = 1500 * 1/3 = 500 GiB → 1 drive
+			tlcRatio:                       2, // TLC = 1500 * 2/3 = 1000 GiB → 2 drives
+			qlcRatio:                       1, // QLC = 1500 * 1/3 = 500 GiB → 1 drive
 			numCores:                       3,
 			expectError:                    false,
 			expectedTlcDrives:              2,
@@ -708,7 +708,7 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			containerCapacity:              1000,
 			tlcRatio:                       1,
 			qlcRatio:                       1,
-			numCores:                       5,  // need 5*384=1920 GiB total
+			numCores:                       5, // need 5*384=1920 GiB total
 			expectError:                    true,
 			errorContains:                  "insufficient total capacity",
 		},
