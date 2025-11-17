@@ -29,6 +29,11 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+type SignedDrivesExtendedPayload struct {
+	weka.SignDrivesPayload
+	ExcludedSerialIds []string `json:"excludedSerialIds,omitempty"`
+}
+
 type SignDrivesOperation struct {
 	client          client.Client
 	kubeService     kubernetes.KubeService
@@ -120,14 +125,9 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	payloadBytes, err := json.Marshal(o.payload)
+	instructions, err := o.createInstructions(nil)
 	if err != nil {
 		return err
-	}
-
-	instructions := &weka.Instructions{
-		Type:    "sign-drives",
-		Payload: string(payloadBytes),
 	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
@@ -163,6 +163,20 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			if node.Annotations["weka.io/sign-drives-hash"] == targetHash {
 				skip += 1
 				continue
+			}
+		}
+
+		if o.payload.SignOptions != nil && o.payload.SignOptions.AllowEraseNonWekaPartitions {
+			// read signed drives from weka.io/weka-drives node annotation and add to exclusions
+			alreadySignedDrives := getAlreadySignedDrives(&node)
+			if len(alreadySignedDrives) > 0 {
+				// re-create instructions with updated exclusions
+				instructions, err = o.createInstructions(alreadySignedDrives)
+				if err != nil {
+					return err
+				}
+
+				logger.Info("Updated exclusions to avoid erasing non-Weka partitions on already signed drives", "node", node.Name, "excludedDrives", alreadySignedDrives)
 			}
 		}
 
@@ -340,4 +354,47 @@ func (o *SignDrivesOperation) RecordEvent(reason string, message string) error {
 
 	o.recorder.Event(o.ownerRef, v1.EventTypeNormal, reason, message)
 	return nil
+}
+
+// getAlreadySignedDrives extracts the list of already signed drives from the node's weka.io/weka-drives annotation
+func getAlreadySignedDrives(node *v1.Node) []string {
+	alreadySignedDrives := []string{}
+
+	if node.Annotations == nil {
+		return alreadySignedDrives
+	}
+
+	if drivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok && drivesStr != "" {
+		err := json.Unmarshal([]byte(drivesStr), &alreadySignedDrives)
+		if err != nil {
+			// If unmarshal fails, return empty slice to be safe
+			return []string{}
+		}
+	}
+
+	return alreadySignedDrives
+}
+
+func (o *SignDrivesOperation) createInstructions(alreadySignedDrives []string) (*weka.Instructions, error) {
+	// Create a copy of the original payload to avoid modifying it
+	extendedPayload := SignedDrivesExtendedPayload{
+		SignDrivesPayload: *o.payload,
+	}
+
+	if len(alreadySignedDrives) > 0 {
+		extendedPayload.ExcludedSerialIds = alreadySignedDrives
+	}
+
+	// Marshal the extended payload
+	payloadBytes, err := json.Marshal(extendedPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	instructions := &weka.Instructions{
+		Type:    "sign-drives",
+		Payload: string(payloadBytes),
+	}
+
+	return instructions, nil
 }

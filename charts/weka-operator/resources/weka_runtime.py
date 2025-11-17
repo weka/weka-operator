@@ -27,6 +27,8 @@ class SignOptions:
     skipTrimFormat: bool = False
 
 
+
+
 @dataclass
 class Disk:
     path: str
@@ -65,6 +67,7 @@ IS_IPV6 = os.environ.get("IS_IPV6", "false") == "true"
 MANAGEMENT_IPS = []  # to be populated at later stage
 UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
+EXCLUDED_DRIVE_PATHS = []  # List of device paths to exclude from signing
 
 # OpenTelemetry configuration
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
@@ -475,6 +478,11 @@ class SignException(Exception):
 
 
 async def sign_device_path(device_path, options: SignOptions):
+    # Check if device path should be excluded
+    if device_path in EXCLUDED_DRIVE_PATHS:
+        logging.info(f"Skipping drive {device_path} - in exclusion list")
+        return
+
     logging.info(f"Signing drive {device_path}")
     params = []
     if options.allowEraseWekaPartitions:
@@ -525,8 +533,14 @@ done"""
     return signed_drives
 
 async def sign_drives(instruction: dict) -> List[str]:
+    global EXCLUDED_DRIVE_PATHS
+
     type = instruction['type']
     options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
+
+    # Extract and convert excluded serial IDs to device paths
+    excluded_serials = instruction.get('excludedSerialIds', [])
+    EXCLUDED_DRIVE_PATHS = await convert_serials_to_device_paths(excluded_serials)
 
     if type == "aws-all":
         return await sign_drives_by_pci_info(
@@ -587,9 +601,37 @@ async def get_block_device_path_by_serial(serial: str):
         "lsblk -dpno NAME | grep -w $(basename $(ls -la /dev/disk/by-id/ | grep -m 1 " + serial + " | awk '{print $NF}'))")
     if ec != 0:
         logging.error(f"Failed to get block device path by serial {serial}: {stderr}")
-        return
+        return None
     device_path = stdout.decode().strip()
     return device_path
+
+
+async def convert_serials_to_device_paths(serials: List[str]) -> List[str]:
+    """
+    Convert serial IDs to device paths.
+
+    :param serials: List of serial IDs to convert
+    :return: List of device paths
+    """
+    if not serials:
+        return []
+
+    excluded_paths = []
+    logging.info(f"Converting {len(serials)} excluded serials to device paths")
+
+    for serial in serials:
+        try:
+            device_path = await get_block_device_path_by_serial(serial)
+            if device_path:
+                excluded_paths.append(device_path)
+                logging.info(f"Serial {serial} maps to device path {device_path}")
+            else:
+                logging.warning(f"Could not find device path for serial {serial}")
+        except Exception as e:
+            logging.error(f"Error converting serial {serial} to device path: {e}")
+
+    logging.info(f"Total excluded device paths: {excluded_paths}")
+    return excluded_paths
 
 
 async def discover_drives():
