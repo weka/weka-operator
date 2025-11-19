@@ -1,7 +1,22 @@
 <documentation>
+    <!-- Operator Concepts -->
     <file relpath="operator/concepts/project-overview.md">
         <tags>operator architecture, wekacluster, wekacontainer, container types, lifecycle, overrides, custom resources</tags>
         <summary>Core project overview defining Weka Operator architecture, including WekaCluster and WekaContainer custom resources, container types and modes, lifecycle management, and resource override mechanisms.</summary>
+    </file>
+    <file relpath="operator/concepts/cpu-policy.md">
+        <tags>cpuPolicy, auto, manual, coreIds, hyperthreading, core allocation, DPDK processes, management processes</tags>
+        <summary>Explains CPU policy configuration options for WekaCluster and WekaClient resources, including automatic hyperthreading detection, manual core assignment, and core allocation best practices for DPDK and management processes.</summary>
+    </file>
+
+    <!-- Operator Deployment -->
+    <file relpath="operator/deployment/pre-requisites.md">
+        <tags>pre-requisites, huge pages, hugepages, compute core, drive core, client core, machine configuration, kubernetes setup</tags>
+        <summary>Lists and explains the machine pre-requisites for running Weka in Kubernetes, specifically focusing on huge pages configuration for different container types.</summary>
+    </file>
+    <file relpath="operator/deployment/helm-install.md">
+        <tags>helm, install, upgrade, oci, quay.io, weka-operator, namespace, version, values, operator_values.yaml, localDataPvc, globalPVC</tags>
+        <summary>Describes how to install and upgrade the Weka operator using Helm, including the command syntax and notable Helm-level values like `localDataPvc` and `globalPVC`.</summary>
     </file>
     <file relpath="operator/deployment/cluster-provisioning.md">
         <tags>cluster provision, wekacluster yaml, templates, gracefulDestroyDuration, dynamicTemplate, redundancyLevel, stripeWidth, raft, hotSpare</tags>
@@ -11,22 +26,48 @@
         <tags>AWS, EKS, bliss, provisioning, IAM role, subnet, security groups, region, key pair, kubeconfig, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, cleanup, pre-requisites, ensure nics, sign drives, instance types</tags>
         <summary>Guide on provisioning Weka clusters in AWS EKS using the bliss tool. Covers EKS setup requirements, bliss commands, template files for node groups, required IAM roles, secrets management, port configuration, cleanup, and pre-requisite policies like ensure-nics and sign-drives.</summary>
     </file>
-    <file relpath="operator/deployment/helm-install.md">
-        <tags>helm, install, upgrade, oci, quay.io, weka-operator, namespace, version, values, operator_values.yaml, localDataPvc, globalPVC</tags>
-        <summary>Describes how to install and upgrade the Weka operator using Helm, including the command syntax and notable Helm-level values like `localDataPvc` and `globalPVC`.</summary>
-    </file>
-    <file relpath="operator/deployment/pre-requisites.md">
-        <tags>pre-requisites, huge pages, hugepages, compute core, drive core, client core, machine configuration, kubernetes setup</tags>
-        <summary>Lists and explains the machine pre-requisites for running Weka in Kubernetes, specifically focusing on huge pages configuration for different container types.</summary>
+    <file relpath="operator/deployment/cluster-oci-oke.md">
+        <tags>OCI, OKE, bliss, provisioning, subnet, security groups, compartment, availability domain, image, SSH key, template, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, cleanup, ensure nics, sign drives</tags>
+        <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE) and the bliss tool. Covers OKE setup requirements, bliss commands, template files for node groups, VNIC configuration, required secrets management, port configuration, and cleanup procedures.</summary>
     </file>
     <file relpath="operator/deployment/driver-distribution.md">
         <tags>driver distribution, drivers-dist, drivers-builder, wekacontainer, service, helm install, quay.io, imagePullSecret, mode, numCores, port, uploadResultsTo, preRunScript, nodeAffinity, nodeSelector</tags>
         <summary>Explains the driver distribution service and driver builder components, including example YAML for setting them up as WekaContainers and associated Service. Notes on matching versions and scheduling considerations are included.</summary>
     </file>
+    <file relpath="operator/deployment/embedded-csi.md">
+        <tags>embedded CSI, CSI deployment, CSI driver, StorageClass, CSI controller, CSI node server, targetCluster, csiConfig, lifecycle management, migration</tags>
+        <summary>Comprehensive guide for the operator-embedded CSI deployment capabilities, covering CSI driver naming conventions, StorageClass creation, controller and node server deployment, configuration options, update flows, and migration from separate CSI to embedded CSI.</summary>
+    </file>
+
+    <!-- Operator Networking -->
     <file relpath="operator/networking/network-configuration.md">
         <tags>network, deviceSubnets, ethDevice, ethDevices, udpMode, physical environment, cloud</tags>
         <summary>Networking configuration options for Weka clusters, detailing physical environment requirements, device selection methods, subnet configuration, UDP mode settings, and best practices for different deployment environments.</summary>
     </file>
+
+    <!-- Operator Operations -->
+    <file relpath="operator/operations/weka-cluster-ops.md">
+        <tags>weka status, cluster processes, leadership, container correlation, container name mapping, kubectl</tags>
+        <summary>Operations guide covering cluster status monitoring, health status interpretation, common command execution, and methods for correlating Weka containers with Kubernetes resources.</summary>
+    </file>
+    <file relpath="operator/operations/upgrade.md">
+        <tags>upgrade, image, lastAppliedImage, cluster upgrade, client upgrade, toleration, workload eviction</tags>
+        <summary>Process and best practices for upgrading Weka clusters and clients, monitoring upgrade progress, detecting failures, and handling workloads during upgrades.</summary>
+    </file>
+    <file relpath="operator/operations/secrets-management.md">
+        <tags>secrets, credentials, operator secret, admin secret, client secret, CSI secret, authentication</tags>
+        <summary>Detailed guide on the Kubernetes secrets created and managed by the Weka operator, including their purpose, content, naming conventions, and usage in different components.</summary>
+    </file>
+    <file relpath="operator/operations/weka-s3.md">
+        <tags>s3, weka s3, s3 status, s3 containers, object storage</tags>
+        <summary>S3 functionality guide detailing container types, status monitoring, provisioning S3 capabilities, and accessing S3 storage in Weka clusters.</summary>
+    </file>
+    <file relpath="operator/operations/drive-signing.md">
+        <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
+        <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
+    </file>
+
+    <!-- Operator Clients -->
     <file relpath="operator/clients/wekaclient-and-workload.md">
         <tags>wekaclient, csi, storage class, pvc, workload, goader, mountOptions, persistentvolumeclaim</tags>
         <summary>End-to-end guide for deploying WekaClient resources, CSI drivers, storage classes, PVCs, and workloads on Weka storage, including configuration details, resource relationships, and proper cleanup procedures.</summary>
@@ -35,54 +76,34 @@
         <tags>NFS, CSI, NFS-only, wekaclient local data, PVC, mountProtocol, nfs-csi.weka.io, storage class, weka-nfs-sc, forcedirect</tags>
         <summary>Explains how to use Weka CSI in NFS-only mode, useful for cases without standard WekaClients or when wekacontainer local data needs to be on PVC. Provides configuration details for CSI installation and storage class.</summary>
     </file>
-    <file relpath="operator/operations/upgrade.md">
-        <tags>upgrade, image, lastAppliedImage, cluster upgrade, client upgrade, toleration, workload eviction</tags>
-        <summary>Process and best practices for upgrading Weka clusters and clients, monitoring upgrade progress, detecting failures, and handling workloads during upgrades.</summary>
-    </file>
-    <file relpath="operator/operations/weka-cluster-ops.md">
-        <tags>weka status, cluster processes, leadership, container correlation, container name mapping, kubectl</tags>
-        <summary>Operations guide covering cluster status monitoring, health status interpretation, common command execution, and methods for correlating Weka containers with Kubernetes resources.</summary>
-    </file>
-    <file relpath="operator/operations/weka-s3.md">
-        <tags>s3, weka s3, s3 status, s3 containers, object storage</tags>
-        <summary>S3 functionality guide detailing container types, status monitoring, provisioning S3 capabilities, and accessing S3 storage in Weka clusters.</summary>
-    </file>
-    <file relpath="operator/operations/secrets-management.md">
-        <tags>secrets, credentials, operator secret, admin secret, client secret, CSI secret, authentication</tags>
-        <summary>Detailed guide on the Kubernetes secrets created and managed by the Weka operator, including their purpose, content, naming conventions, and usage in different components.</summary>
-    </file>
+
+    <!-- Weka CLI and Utilities -->
     <file relpath="weka/cli/weka.md">
         <tags>weka status, json output, cluster status, API reference, monitoring, diagnostics</tags>
-        <summary>Complete reference for the Weka CLI command structure, focusing on the \'weka status --json\' command with a full example of all fields returned by a demo cluster, serving as a comprehensive reference of available status information.</summary>
+        <summary>Complete reference for the Weka CLI command structure, focusing on the 'weka status --json' command with a full example of all fields returned by a demo cluster, serving as a comprehensive reference of available status information.</summary>
     </file>
+    <file relpath="weka/drives/drives_signing.md">
+        <tags>drive signing, drive investigation, partition types, cluster ID, drive signatures, drive states, hexdump, blkid, drive activation, drive deactivation, force resign, orphaned drives, troubleshooting</tags>
+        <summary>Comprehensive technical guide explaining WEKA drive signing mechanism, partition type GUIDs, cluster ID signatures, drive state transitions, and detailed procedures for investigating drives on nodes using Linux tools. Includes investigation scripts, common scenarios, and troubleshooting for drive ownership and visibility issues.</summary>
+    </file>
+
+    <!-- AI Assistant Guidelines -->
     <file relpath="ai/ai-assist-guidelines.md">
         <tags>ai assistance, aimust, autogenerated name, test automation, cluster provisioning rules</tags>
         <summary>Guidelines for AI assistants when supporting Weka Operator users, including critical steps, environment determination, cluster provisioning rules, command execution best practices, and error handling recommendations.</summary>
+    </file>
+
+    <!-- Documentation Meta -->
+    <file relpath="missing_data.md">
+        <tags>documentation gaps, proposed documentation, future topics, troubleshooting, performance tuning, disaster recovery, security, scaling, monitoring</tags>
+        <summary>Documents identified gaps in current documentation and proposes new documentation files to address these gaps, including troubleshooting guides, performance tuning, disaster recovery, security configuration, advanced networking, scaling, monitoring, and NFS functionality.</summary>
     </file>
     <file relpath="structure.md">
         <tags>documentation structure, guidelines, file naming, content organization, maintenance</tags>
         <summary>Guidelines for maintaining and extending the Weka Operator documentation, including directory structure, file naming conventions, content structure, and procedures for adding or updating documentation.</summary>
     </file>
-    <file relpath="operator/deployment/cluster-oci-oke.md">
-        <tags>OCI, OKE, bliss, provisioning, subnet, security groups, compartment, availability domain, image, SSH key, template, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, cleanup, ensure nics, sign drives</tags>
-        <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE) and the bliss tool. Covers OKE setup requirements, bliss commands, template files for node groups, VNIC configuration, required secrets management, port configuration, and cleanup procedures.</summary>
-    </file>
-    <file relpath="operator/deployment/embedded-csi.md">
-        <tags>embedded CSI, CSI deployment, CSI driver, StorageClass, CSI controller, CSI node server, targetCluster, csiConfig, lifecycle management, migration</tags>
-        <summary>Comprehensive guide for the operator-embedded CSI deployment capabilities, covering CSI driver naming conventions, StorageClass creation, controller and node server deployment, configuration options, update flows, and migration from separate CSI to embedded CSI.</summary>
-    </file>
-    <file relpath="operator/concepts/cpu-policy.md">
-        <tags>cpuPolicy, auto, manual, coreIds, hyperthreading, core allocation, DPDK processes, management processes</tags>
-        <summary>Explains CPU policy configuration options for WekaCluster and WekaClient resources, including automatic hyperthreading detection, manual core assignment, and core allocation best practices for DPDK and management processes.</summary>
-    </file>
-    <file relpath="operator/operations/drive-signing.md">
-        <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
-        <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
-    </file>
-    <file relpath="api_dump/wekaclient.md">
-        <tags>WekaClient API, custom resource, client specification, networking, port allocation, CSI configuration, pod resources, upgrade policy, affinity</tags>
-        <summary>Complete API reference for WekaClient custom resource including all spec fields, status structures, networking configuration, resource allocation, CSI integration options, and client container management parameters.</summary>
-    </file>
+
+    <!-- API Reference Documentation -->
     <file relpath="api_dump/wekacluster.md">
         <tags>WekaCluster API, cluster specification, dynamic template, redundancy, stripe width, networking, CSI config, container roles, failure domains</tags>
         <summary>Comprehensive API reference for WekaCluster custom resource covering cluster provisioning parameters, networking configuration, role-specific settings, CSI integration, redundancy configuration, and cluster lifecycle management options.</summary>
@@ -91,12 +112,16 @@
         <tags>WekaContainer API, container specification, node affinity, port configuration, resource allocation, CPU policy, drive management, upgrade handling</tags>
         <summary>Detailed API reference for WekaContainer custom resource defining individual container specifications, scheduling constraints, resource allocation, network configuration, and container lifecycle management parameters.</summary>
     </file>
-    <file relpath="api_dump/wekamanualoperation.md">
-        <tags>WekaManualOperation API, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces</tags>
-        <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing, discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
+    <file relpath="api_dump/wekaclient.md">
+        <tags>WekaClient API, custom resource, client specification, networking, port allocation, CSI configuration, pod resources, upgrade policy, affinity</tags>
+        <summary>Complete API reference for WekaClient custom resource including all spec fields, status structures, networking configuration, resource allocation, CSI integration options, and client container management parameters.</summary>
     </file>
     <file relpath="api_dump/wekapolicy.md">
         <tags>WekaPolicy API, policy automation, scheduled operations, drive signing policy, driver distribution, NIC policies, scheduling config, interval execution</tags>
         <summary>API reference for WekaPolicy custom resource providing automated policy execution including scheduled drive operations, driver distribution management, NIC configuration policies, and recurring operational tasks with interval-based scheduling.</summary>
+    </file>
+    <file relpath="api_dump/wekamanualoperation.md">
+        <tags>WekaManualOperation API, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces</tags>
+        <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing, discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
     </file>
 </documentation>
