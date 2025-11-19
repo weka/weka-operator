@@ -110,7 +110,7 @@ rbac: $(RBAC) ## Generate RBAC objects.
 	$(CONTROLLER_GEN) rbac:roleName=weka-operator-manager-role paths="./internal/controllers/..." output:rbac:artifacts:config=charts/weka-operator/templates
 
 .PHONY: manifests
-manifests: crd rbac ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: crd rbac api-docs## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 
 api-docs: ## Generate API reference documentation from source files
 	@echo "Generating API documentation..."

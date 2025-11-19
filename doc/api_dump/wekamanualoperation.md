@@ -23,8 +23,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| spec | WekaManualOperationSpec | WekaManualOperation is the Schema for the wekamanualoperations API |
-| status | WekaManualOperationStatus | WekaManualOperation is the Schema for the wekamanualoperations API |
+| spec | WekaManualOperationSpec |  |
+| status | WekaManualOperationStatus |  |
 
 ---
 
@@ -32,12 +32,13 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| action | string | WekaManualOperationSpec defines the desired state of WekaManualOperation |
+| action | string |  |
 | payload | ManualOperatorPayload |  |
 | image | *string |  |
 | imagePullSecret | *string |  |
 | tolerations | []v1.Toleration |  |
 | serviceAccountName | string |  |
+| deletionDelay | *metav1.Duration | DeletionDelay specifies how long to wait after completion before deleting the resource.<br>Defaults to 5m if not specified. |
 
 ---
 
@@ -45,9 +46,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| result | string | WekaManualOperationStatus defines the observed state of WekaManualOperation |
-| status | string | WekaManualOperationStatus defines the observed state of WekaManualOperation |
-| completedAt | metav1.Time | WekaManualOperationStatus defines the observed state of WekaManualOperation |
+| result | string |  |
+| status | string |  |
+| completedAt | metav1.Time |  |
 
 ---
 
@@ -55,7 +56,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| items | []WekaManualOperation | WekaManualOperationList contains a list of WekaManualOperation |
+| items | []WekaManualOperation |  |
 
 ---
 
@@ -79,8 +80,8 @@
 | type | string |  |
 | nodeSelector | map[string]string |  |
 | devicePaths | []string |  |
-| pciDevices | *PCIDevices | vendor and device IDs in square brackets in the format [vendorId:deviceId]. |
-| options | *SignOptions | For example: |
+| pciDevices | *PCIDevices | PCI vendor and device IDs of the drives to sign.<br>To get the values for VendorId and DeviceId:<br>1. Run the following command to list all PCI devices on your system:<br>```bash<br>lspci -nn<br>```<br>2. Find the relevant PCI device in the output, which will display both the<br>vendor and device IDs in square brackets in the format [vendorId:deviceId].<br>For example:<br>```<br>00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]<br>``` |
+| options | *SignOptions |  |
 
 ---
 
@@ -105,7 +106,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | NICType | default for AWS: `cd01` (NVMe SSD) |
+| type | NICType |  |
 | nodeSelector | map[string]string |  |
 | dataNICsNumber | int |  |
 
@@ -127,7 +128,8 @@
 |------------|------|-------------|
 | cluster | ObjectReference |  |
 | nodeSelector | map[string]string |  |
-| duration | metav1.Duration |  |
+| hostNetwork | bool |  |
+| duration | metav1.Duration | Duration specifies how long the trace session should run.<br>WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.<br>WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.<br>Examples: "30m", "2h", "7d", "168h" |
 | wekahomeEndpointOverride | string |  |
 | allowHttpWekahomeEndpoint | bool |  |
 | allowInsecureWekahomeEndpoint | bool |  |
@@ -139,8 +141,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| vendorId | string | VendorId is the 4-digit hexadecimal vendor ID |
-| deviceId | string | DeviceId is the 4-digit hexadecimal device ID |
+| vendorId | string | VendorId is the 4-digit hexadecimal vendor ID<br>default for AWS: `1d0f` (Amazon.com, Inc.) |
+| deviceId | string | DeviceId is the 4-digit hexadecimal device ID<br>default for AWS: `cd01` (NVMe SSD) |
 
 ---
 
@@ -148,7 +150,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| allowEraseWekaPartitions | bool | 00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01] |
+| allowEraseWekaPartitions | bool |  |
 | allowEraseNonWekaPartitions | bool |  |
 | allowNonEmptyDevice | bool |  |
 | skipTrimFormat | bool |  |

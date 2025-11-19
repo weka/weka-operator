@@ -29,8 +29,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| spec | WekaClientSpec | WekaClient is the Schema for the clients API |
-| status | WekaClientStatus | WekaClient is the Schema for the clients API |
+| spec | WekaClientSpec |  |
+| status | WekaClientStatus |  |
 
 ---
 
@@ -38,16 +38,15 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| image | string | WekaClientSpec defines the desired state of WekaClient |
-| imagePullSecret | string | full container image in format of quay.io/weka.io/weka-in-container:VERSION |
+| image | string | full container image in format of quay.io/weka.io/weka-in-container:VERSION |
+| imagePullSecret | string |  |
 | port | int | if not set (0), weka will find a free port from the portRange |
 | agentPort | int | if not set (0), weka will find a free port from the portRange |
-| portRange | *PortRange | if not set (0), weka will find a free port from the portRange |
-| nodeSelector | map[string]string | if not set (0), weka will find a free port from the portRange |
-| wekaSecretRef | string | used for dynamic port allocation |
+| portRange | *PortRange | used for dynamic port allocation |
+| nodeSelector | map[string]string |  |
+| wekaSecretRef | string |  |
 | network | Network |  |
 | driversDistService | string |  |
-| driversLoaderImage | string |  |
 | joinIpPorts | []string |  |
 | targetCluster | ObjectReference |  |
 | cpuPolicy | CpuPolicy |  |
@@ -59,16 +58,16 @@
 | rawTolerations | []v1.Toleration |  |
 | serviceAccountName | string |  |
 | additionalMemory | int | memory to add/decrease from "auto-calculated" memory |
-| resources | *PodResourcesSpec | memory to add/decrease from "auto-calculated" memory |
-| hugepages | int | experimental: pod resources to be proxied as-is to the pod spec |
-| hugepagesOffset | *int | experimental: pod resources to be proxied as-is to the pod spec |
-| wekaHomeConfig | WekahomeClientConfig | value in megabytes to offset |
-| wekaHome | *WekahomeClientConfig | DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version |
-| upgradePolicy | UpgradePolicy | DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version |
+| resources | *PodResourcesSpec | experimental: pod resources to be proxied as-is to the pod spec |
+| hugepages | int | hugepages, value in megabytes |
+| hugepagesOffset | *int | value in megabytes to offset |
+| wekaHomeConfig | WekahomeClientConfig | DEPRECATED, kept for compatibility with old API clients, not taking any action, to be removed on new API version |
+| wekaHome | *WekahomeClientConfig |  |
+| upgradePolicy | UpgradePolicy |  |
 | allowHotUpgrade | bool |  |
 | overrides | *WekaClientSpecOverrides |  |
 | autoRemoveTimeout | metav1.Duration | sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config |
-| globalPVC | *PVCConfig | sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config |
+| globalPVC | *PVCConfig |  |
 | csiConfig | *ClientCsiConfig | EXPERIMENTAL, ALPHA STATE, should not be used in production: if set, allows to reuse the same csi resources for multiple clients |
 
 ---
@@ -77,8 +76,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| conditions | []metav1.Condition | WekaClientStatus defines the observed state of WekaClient |
-| lastAppliedSpec | string | WekaClientStatus defines the observed state of WekaClient |
+| conditions | []metav1.Condition |  |
+| lastAppliedSpec | string |  |
 | status | WekaClientStatusEnum |  |
 | stats | *ClientMetrics |  |
 | printer | ClientPrinterColumns |  |
@@ -89,7 +88,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| items | []WekaClient | WekaClientList contains a list of WekaClient |
+| items | []WekaClient |  |
 
 ---
 
@@ -98,7 +97,7 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | basePort | int |  |
-| portRange | int | number of ports to check for availability |
+| portRange | int | number of ports to check for availability<br>if 0 - will check all ports from basePort to 65535 |
 
 ---
 
@@ -111,8 +110,9 @@
 | gateway | string |  |
 | udpMode | bool |  |
 | deviceSubnets | []string | subnet that is used for devices auto-discovery |
-| selectors | []NetworkSelector | subnet that is used for devices auto-discovery |
+| selectors | []NetworkSelector |  |
 | managementIpsSelectors | []NetworkSelector |  |
+| bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |
 
 ---
 
@@ -129,8 +129,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| maxCapacityPerIoNode | int | TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes |
-| ensureFreeSpace | int | TraceConfiguration defines the configuration for the traces, accepts parameters in gigabytes |
+| maxCapacityPerIoNode | int |  |
+| ensureFreeSpace | int |  |
 | dumperConfigMode | DumperConfigMode |  |
 
 ---
@@ -156,7 +156,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | UpgradePolicyType | unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host |
+| type | UpgradePolicyType |  |
 
 ---
 
@@ -164,10 +164,12 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
+| driversBuildId | *string | can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default |
+| driversLoaderImage | string |  |
 | machineIdentifierNodeRef | string | used to override machine identifier node reference for client containers |
 | forceDrain | bool | unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner |
-| skipActiveMountsCheck | bool | unsafe operation, forces drain on the node where the container is running, should not be used unless instructed explicitly by weka personnel, the effect of drain is throwing away all IOs and acknowledging all umounts in unsafe manner |
-| umountOnHost | bool | option to skip active mounts check before deleting client containers |
+| skipActiveMountsCheck | bool | option to skip active mounts check before deleting client containers |
+| umountOnHost | bool | unsafe operation, runs nsenter in root namespace to umount all wekafs mounts visible on host |
 
 ---
 
@@ -221,8 +223,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| cpu | resource.Quantity | number of ports to check for availability |
-| memory | resource.Quantity | number of ports to check for availability |
+| cpu | resource.Quantity |  |
+| memory | resource.Quantity |  |
 
 ---
 

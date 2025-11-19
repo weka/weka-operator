@@ -13,9 +13,11 @@
 - [DiscoverDrivesPayload](#discoverdrivespayload)
 - [EnsureNICsPayload](#ensurenicspayload)
 - [DriverDistPayload](#driverdistpayload)
+- [RemoteTracesSessionConfig](#remotetracessessionconfig)
 - [DistServiceStatus](#distservicestatus)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
+- [ObjectReference](#objectreference)
 
 ---
 
@@ -23,8 +25,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| spec | WekaPolicySpec | WekaPolicy is the Schema for the wekapolicies API |
-| status | WekaPolicyStatus | WekaPolicy is the Schema for the wekapolicies API |
+| spec | WekaPolicySpec |  |
+| status | WekaPolicyStatus |  |
 
 ---
 
@@ -32,10 +34,10 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | string | WekaPolicySpec defines the desired state of WekaPolicy |
-| payload | PolicyPayload | WekaPolicySpec defines the desired state of WekaPolicy |
-| image | *string | WekaPolicySpec defines the desired state of WekaPolicy |
-| imagePullSecret | *string | WekaPolicySpec defines the desired state of WekaPolicy |
+| type | string |  |
+| payload | PolicyPayload |  |
+| image | *string |  |
+| imagePullSecret | *string |  |
 | tolerations | []v1.Toleration |  |
 | serviceAccountName | string |  |
 
@@ -45,10 +47,10 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| status | string | WekaPolicyStatus defines the observed state of WekaPolicy |
-| result | string | WekaPolicyStatus defines the observed state of WekaPolicy |
-| lastRunTime | metav1.Time | WekaPolicyStatus defines the observed state of WekaPolicy |
-| progress | string | WekaPolicyStatus defines the observed state of WekaPolicy |
+| status | string |  |
+| result | string |  |
+| lastRunTime | metav1.Time |  |
+| progress | string |  |
 | typedStatus | *TypedPolicyStatus |  |
 
 ---
@@ -57,7 +59,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| items | []WekaPolicy | WekaPolicyList contains a list of WekaPolicy |
+| items | []WekaPolicy |  |
 
 ---
 
@@ -65,11 +67,12 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| signDrivesPayload | *SignDrivesPayload | WekaPolicyList contains a list of WekaPolicy |
+| signDrivesPayload | *SignDrivesPayload |  |
 | schedulingConfigPayload | *SchedulingConfigPayload |  |
 | discoverDrivesPayload | *DiscoverDrivesPayload |  |
 | ensureNICsPayload | *EnsureNICsPayload |  |
 | driverDistPayload | *DriverDistPayload |  |
+| remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
 | interval | metav1.Duration |  |
 | waitForPolicies | []string |  |
 
@@ -79,7 +82,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| distService | *DistServiceStatus | TypedPolicyStatus holds status fields specific to a policy type |
+| distService | *DistServiceStatus |  |
 
 ---
 
@@ -90,8 +93,8 @@
 | type | string |  |
 | nodeSelector | map[string]string |  |
 | devicePaths | []string |  |
-| pciDevices | *PCIDevices | vendor and device IDs in square brackets in the format [vendorId:deviceId]. |
-| options | *SignOptions | For example: |
+| pciDevices | *PCIDevices | PCI vendor and device IDs of the drives to sign.<br>To get the values for VendorId and DeviceId:<br>1. Run the following command to list all PCI devices on your system:<br>```bash<br>lspci -nn<br>```<br>2. Find the relevant PCI device in the output, which will display both the<br>vendor and device IDs in square brackets in the format [vendorId:deviceId].<br>For example:<br>```<br>00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01]<br>``` |
+| options | *SignOptions |  |
 
 ---
 
@@ -111,7 +114,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| type | NICType | default for AWS: `cd01` (NVMe SSD) |
+| type | NICType |  |
 | nodeSelector | map[string]string |  |
 | dataNICsNumber | int |  |
 
@@ -121,12 +124,27 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| ensureImages | []string | DriverDistPayload defines the parameters for the enable-local-drivers-distribution policy |
-| nodeSelectors | []map[string]string | NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building. |
-| kernelLabelKey | *string | KernelLabelKey is the custom label key to use for storing the node's kernel version. |
-| architectureLabelKey | *string | ArchitectureLabelKey is the custom label key to use for storing the node's architecture. |
-| builderPreRunScript | *string | If not specified, "weka.io/architecture" will be used. |
-| distNodeSelector | map[string]string | DistNodeSelector is the node selector for the drivers distribution (dist) container. |
+| ensureImages | []string | EnsureImages is a list of Weka images for which drivers should be proactively built. |
+| nodeSelectors | []map[string]string | NodeSelectors is a list of node selectors. Nodes matching any of these selectors will be considered for driver building.<br>If empty, all nodes in the cluster are considered. |
+| kernelLabelKey | *string | KernelLabelKey is the custom label key to use for storing the node's kernel version.<br>If not specified, "weka.io/kernel" will be used. |
+| architectureLabelKey | *string | ArchitectureLabelKey is the custom label key to use for storing the node's architecture.<br>If not specified, "weka.io/architecture" will be used. |
+| builderPreRunScript | *string | BuilderPreRunScript is an optional script to run on builder containers after kernel validation. |
+| distNodeSelector | map[string]string | DistNodeSelector is the node selector for the drivers distribution (dist) container.<br>If not specified, the dist container will be scheduled on any available node. |
+
+---
+
+## RemoteTracesSessionConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| cluster | ObjectReference |  |
+| nodeSelector | map[string]string |  |
+| hostNetwork | bool |  |
+| duration | metav1.Duration | Duration specifies how long the trace session should run.<br>WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.<br>WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.<br>Examples: "30m", "2h", "7d", "168h" |
+| wekahomeEndpointOverride | string |  |
+| allowHttpWekahomeEndpoint | bool |  |
+| allowInsecureWekahomeEndpoint | bool |  |
+| wekahomeCaSecret | string |  |
 
 ---
 
@@ -134,7 +152,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| serviceUrl | string | Add other policy-specific statuses here in the future |
+| serviceUrl | string |  |
 
 ---
 
@@ -142,8 +160,8 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| vendorId | string | VendorId is the 4-digit hexadecimal vendor ID |
-| deviceId | string | DeviceId is the 4-digit hexadecimal device ID |
+| vendorId | string | VendorId is the 4-digit hexadecimal vendor ID<br>default for AWS: `1d0f` (Amazon.com, Inc.) |
+| deviceId | string | DeviceId is the 4-digit hexadecimal device ID<br>default for AWS: `cd01` (NVMe SSD) |
 
 ---
 
@@ -151,10 +169,19 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| allowEraseWekaPartitions | bool | 00:1f.0 Non-Volatile memory controller [0108]: Amazon.com, Inc. NVMe SSD Controller [1d0f:cd01] |
+| allowEraseWekaPartitions | bool |  |
 | allowEraseNonWekaPartitions | bool |  |
 | allowNonEmptyDevice | bool |  |
 | skipTrimFormat | bool |  |
+
+---
+
+## ObjectReference
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| name | string |  |
+| namespace | string |  |
 
 ---
 
