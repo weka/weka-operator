@@ -166,18 +166,16 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			}
 		}
 
-		if o.payload.SignOptions != nil && o.payload.SignOptions.AllowEraseNonWekaPartitions {
-			// read signed drives from weka.io/weka-drives node annotation and add to exclusions
-			alreadySignedDrives := getAlreadySignedDrives(&node)
-			if len(alreadySignedDrives) > 0 {
-				// re-create instructions with updated exclusions
-				instructions, err = o.createInstructions(alreadySignedDrives)
-				if err != nil {
-					return err
-				}
-
-				logger.Info("Updated exclusions to avoid erasing non-Weka partitions on already signed drives", "node", node.Name, "excludedDrives", alreadySignedDrives)
+		// read signed drives from weka.io/weka-drives node annotation and add to exclusions
+		alreadySignedDrives := getAlreadySignedDrives(&node)
+		if len(alreadySignedDrives) > 0 {
+			// re-create instructions with updated exclusions
+			instructions, err = o.createInstructions(alreadySignedDrives)
+			if err != nil {
+				return err
 			}
+
+			logger.Info("Updating exclusions with previously signed drives to avoid re-signing", "node", node.Name, "excludedDrives", alreadySignedDrives)
 		}
 
 		labels := util.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeAdhocOp))
