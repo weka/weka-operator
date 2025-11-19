@@ -9,9 +9,10 @@ WEKA uses a drive signing mechanism to claim ownership of storage devices and pr
 1. [How WEKA Drive Signing Works](#how-weka-drive-signing-works)
 2. [Drive States and Visibility](#drive-states-and-visibility)
 3. [Drive Signatures Explained](#drive-signatures-explained)
-4. [Investigating Drives on a Node](#investigating-drives-on-a-node)
-5. [Common Scenarios](#common-scenarios)
-6. [Troubleshooting](#troubleshooting)
+4. [Sign Drives Operation Details](#sign-drives-operation-details)
+5. [Investigating Drives on a Node](#investigating-drives-on-a-node)
+6. [Common Scenarios](#common-scenarios)
+7. [Troubleshooting](#troubleshooting)
 
 ## How WEKA Drive Signing Works
 
@@ -84,6 +85,96 @@ A drive signature is the **cluster ID written to the drive without dashes**.
 ### Code Implementation
 
 WEKA compares drive signatures by stripping dashes from cluster IDs to match the drive signature format. This allows the system to identify which drives belong to which cluster.
+
+## Sign Drives Operation Details
+
+### How the Force Parameter Works
+
+The `force` parameter controls two key behaviors in the sign-drives operation:
+
+1. **Skip Optimization**
+   - When `force=false`: Skips nodes where `weka.io/sign-drives-hash` annotation matches the calculated hash
+   - This avoids redundant signing operations on nodes where nothing has changed
+   - When `force=true`: Re-signs all matching nodes regardless of hash
+
+2. **Result Waiting**
+   - When `force=false`: Returns as soon as the first result is ready
+   - When `force=true`: Waits for all nodes to complete before returning
+
+### Node Reboot Detection with weka.io/sign-drives-hash
+
+The `weka.io/sign-drives-hash` annotation tracks when drives need re-signing after node reboots.
+
+**How it works:**
+- Hash value is calculated as `SHA256(node.Status.NodeInfo.BootID)`
+- When a node reboots, the `BootID` changes, causing the hash to change
+- The changed hash triggers automatic re-signing on the next sign-drives operation
+- The annotation is set after successful signing
+- The annotation is deleted when drives are blocked to force a re-scan
+
+**Example flow:**
+```
+Node boots → BootID = "abc123" → Hash = SHA256("abc123") → Sign drives → Store hash
+Node reboots → BootID = "def456" → Hash = SHA256("def456") → Hash mismatch → Re-sign drives
+```
+
+### Understanding Partition Types
+
+When a drive is signed by WEKA:
+- A **WEKA partition** is created with partition type GUID `993ec906-b4e2-11e7-a205-a0a8cd3ea1de`
+- The cluster ID is written as a signature
+- The drive is now considered to have a "WEKA partition"
+
+Drives with other filesystems (ext4, NTFS, xfs, etc.) have **non-WEKA partitions**.
+
+### Protection for Previously Signed Drives
+
+The operator automatically protects drives that have been signed before from being re-signed:
+
+**Protection mechanism:**
+1. When a drive is successfully signed, its serial ID is stored in the `weka.io/weka-drives` node annotation
+2. On subsequent sign-drives operations, these serial IDs are read from the annotation
+3. They are passed as `excludedSerialIds` in the operation payload
+4. Python runtime converts serial IDs to device paths
+5. Excluded drives are skipped entirely during the signing process
+
+**Why this matters:**
+- Prevents re-signing drives that were signed before and potentially added to the cluster
+- Protects against accidental disruption of drives that may be in use
+- Ensures sign-drives operations only affect new or unclaimed drives
+
+**Important:** This protection is always active, regardless of which signing options are used. Once a drive serial is in the `weka.io/weka-drives` annotation, it will not be re-signed by subsequent operations.
+
+### Sign Drives Options
+
+The following options are available in `SignOptions` and are passed to the `/weka-sign-drive` tool:
+
+| Option | Description | Use Case |
+|--------|-------------|----------|
+| `allowEraseWekaPartitions` | Allow erasing existing WEKA partitions (from any cluster) | Re-signing drives from different clusters or force re-signing current cluster drives |
+| `allowEraseNonWekaPartitions` | Allow erasing non-WEKA partitions (ext4, NTFS, xfs, etc.) | Adding new drives that have existing filesystems. Current cluster drives are automatically excluded. |
+| `allowNonEmptyDevice` | Allow signing devices with existing data | Sign drives that contain data but no partitions |
+| `skipTrimFormat` | Skip TRIM/format operations during signing | Faster signing when TRIM is not needed |
+
+**Special case - Force Resign:**
+- The `force-resign-drives` operation uses `allowEraseWekaPartitions=true`
+- This unconditionally re-signs drives, erasing any existing WEKA signatures
+- Used for recovering drives from different clusters or cleaning up orphaned drives
+
+**Example usage:**
+```yaml
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: force-resign-drives
+spec:
+  action: "force-resign-drives"
+  payload:
+    forceResignDrivesPayload:
+      nodeName: "node-name"
+      deviceSerials:
+        - "SERIAL123456"
+```
 
 ## Investigating Drives on a Node
 
