@@ -14,15 +14,16 @@ This document provides guidelines for maintaining and extending the Weka Operato
 ```
 ./
 ├── operator/                        # Operator documentation organized by topic
-│   ├── ai/                          # AI assistant guidelines
 │   ├── clients/                     # Client-related documentation
 │   ├── concepts/                    # Fundamental concepts and architecture
 │   ├── deployment/                  # Deployment-related documentation
 │   ├── networking/                  # Networking documentation
 │   └── operations/                  # Operational procedures
+├── ai/                              # AI assistant guidelines
 ├── weka/                            # Weka-specific documentation
-│   └── cli/                         # CLI reference documentation
-├── spec_dump/                       # Custom resource specifications (DO NOT MODIFY)
+│   ├── cli/                         # CLI reference documentation
+│   └── drives/                      # Drive-related technical documentation
+├── api_dump/                        # API reference documentation (AUTO-GENERATED)
 ├── missing_data.md                  # Identified gaps in documentation
 ├── structure.md                     # This file - documentation guidelines
 └── summary.xml                       # Reference guide for all documentation
@@ -81,7 +82,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 - Include workload examples with PVCs and volumes
 - Explain performance optimization for client workloads
 
-### operator/ai/
+### ai/
 - Maintain guidelines for AI assistants
 - Document important conventions and patterns
 - Keep critical instructions updated with AIMUST tags
@@ -93,6 +94,12 @@ This document provides guidelines for maintaining and extending the Weka Operato
 - Include JSON reference for programmatic usage
 - Document command parameters and options
 
+### weka/drives/
+- Document drive-related technical details and mechanisms
+- Explain drive signing, partitioning, and cluster ID signatures
+- Provide drive investigation procedures and troubleshooting
+- Include partition type GUIDs and state transitions
+
 ## Special Files
 
 ### summary.xml
@@ -100,7 +107,7 @@ This document provides guidelines for maintaining and extending the Weka Operato
 - Should be updated whenever new documentation is added
 - Includes keywords for each document to aid in discovery
 - Provides concise summaries of each document's content
-- Also includes information about spec_dump contents
+- Includes information about api_dump and all other documentation
 
 ### missing_data.md
 - Documents gaps in current documentation
@@ -108,11 +115,12 @@ This document provides guidelines for maintaining and extending the Weka Operato
 - Should be updated as gaps are filled or new gaps identified
 - Prioritizes documentation tasks
 
-### spec_dump/ Directory
-- Contains generated custom resource specifications
+### api_dump/ Directory
+- Contains generated API reference documentation in markdown format
 - Generated automatically from code - DO NOT MANUALLY EDIT
-- Referenced by other documentation for API details
+- Includes comprehensive API references for all custom resources
 - Critical resource for understanding available configuration options
+- Includes: WekaCluster, WekaContainer, WekaClient, WekaPolicy, WekaManualOperation
 
 ## Maintenance Guidelines
 
