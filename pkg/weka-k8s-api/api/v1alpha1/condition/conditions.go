@@ -42,4 +42,5 @@ const (
 	CondContainerMigratedOutFromPVC  = "MigratedOutFromPVC"
 	CondCsiDeployed                  = "CsiDeployed"
 	CondClusterKMSConfigured         = "KMSConfigured"
+	CondManagementServiceConfigured  = "ManagementServiceConfigured"
 )
