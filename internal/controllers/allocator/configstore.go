@@ -32,10 +32,9 @@ type ConfigMapStore struct {
 func NewConfigMapStore(ctx context.Context, k8sClient client.Client) (AllocationsStore, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetOrInitAllocMap")
 	defer end()
-	// fetch alloc map from configmap
+	// fetch allocations (global only now) from configmap
 	allocations := InitAllocationsMap()
-	allocMap := allocations.NodeMap
-	yamlData, err := yaml.Marshal(&allocMap)
+	yamlData, err := yaml.Marshal(allocations)
 	if err != nil {
 		logger.Error(err, "Failed to marshal alloc map")
 		return nil, err
@@ -109,7 +108,6 @@ func (c *ConfigMapStore) GetAllocations(ctx context.Context) (*Allocations, erro
 
 func InitAllocationsMap() *Allocations {
 	return &Allocations{
-		NodeMap: NodeAllocMap{},
 		Global: GlobalAllocations{
 			ClusterRanges:   map[OwnerCluster]Range{},
 			AllocatedRanges: map[OwnerCluster]map[string]Range{},

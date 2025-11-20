@@ -44,8 +44,6 @@ type manualOpLoop struct {
 	Op        operations.Operation
 }
 
-func (r *WekaManualOperationReconciler) RunGC(ctx context.Context) {}
-
 func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaManualOperationReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()

@@ -2,23 +2,18 @@ package allocator
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
-	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 const (
 	SinglePortsOffset = 300
+	WekaPortRangeSize = 100
 )
 
 type AllocateClusterRangeError struct {
@@ -30,33 +25,19 @@ func (e *AllocateClusterRangeError) Error() string {
 }
 
 type Allocator interface {
-	// AllocateClusterPorts allocates ranges only, not specific ports, that is responsibility of WekaCluster controller
 	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error
-	AllocateContainers(ctx context.Context, cluster *weka.WekaCluster, containers []*weka.WekaContainer) error
-	//ClaimResources(ctx context.Context, cluster v1alpha1.WekaCluster, containers []*v1alpha1.WekaContainer) error
 	DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error
 	GetAllocations(ctx context.Context) (*Allocations, error)
-	// Deletes drive allocations for the specified serial IDs from the container
-	DeallocateContainerDrives(ctx context.Context, container *weka.WekaContainer, serialIds []string) error
-	// Attempts to allocate missing drives for the container, based on its current allocations and requested number of drives
-	AllocateContainerDrives(ctx context.Context, container *weka.WekaContainer) error
-	DeallocateContainer(ctx context.Context, container *weka.WekaContainer) error
-	DeallocateNamespacedObject(ctx context.Context, namespacedObject client.ObjectKey) error
-	// EnsureManagementProxyPort allocates management proxy port for existing clusters (backward compatibility)
 	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error
-	//DeallocateContainers(ctx context.Context, containers []v1alpha1.WekaContainer) error
 }
 
 type AllocatorNodeInfo struct {
 	AvailableDrives []string
 }
 
-type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
-
 type ResourcesAllocator struct {
-	configStore    AllocationsStore
-	client         client.Client
-	nodeInfoGetter NodeInfoGetter
+	configStore AllocationsStore
+	client      client.Client
 }
 
 func newResourcesAllocator(ctx context.Context, client client.Client) (Allocator, error) {
@@ -66,157 +47,11 @@ func newResourcesAllocator(ctx context.Context, client client.Client) (Allocator
 	}
 
 	resAlloc := &ResourcesAllocator{
-		configStore:    cs,
-		client:         client,
-		nodeInfoGetter: NewK8sNodeInfoGetter(client),
+		configStore: cs,
+		client:      client,
 	}
 
 	return resAlloc, nil
-}
-
-func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
-	return func(ctx context.Context, nodeName weka.NodeName) (nodeInfo *AllocatorNodeInfo, err error) {
-		node := &v1.Node{}
-		err = k8sClient.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node)
-		if err != nil {
-			return
-		}
-
-		nodeInfo = &AllocatorNodeInfo{}
-
-		// get from annotations, all serial ids minus blocked-drives serial ids
-		allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]
-		if !ok {
-			nodeInfo.AvailableDrives = []string{}
-			return
-		}
-		blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]
-		if !ok {
-			blockedDrivesStr = "[]"
-		}
-		// blockedDrivesStr is json list, unwrap it
-		blockedDrives := []string{}
-		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
-		if err != nil {
-			err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
-			return
-		}
-
-		availableDrives := []string{}
-		allDrives := []string{}
-		err = json.Unmarshal([]byte(allDrivesStr), &allDrives)
-		if err != nil {
-			err = fmt.Errorf("failed to unmarshal weka-drives: %v", err)
-			return
-		}
-
-		for _, drive := range allDrives {
-			if !slices.Contains(blockedDrives, drive) {
-				availableDrives = append(availableDrives, drive)
-			}
-		}
-
-		nodeInfo.AvailableDrives = availableDrives
-		return
-	}
-}
-
-// getContainerOwnerInfo extracts ownerCluster and owner from a container
-func getContainerOwnerInfo(container *weka.WekaContainer) (OwnerCluster, Owner, error) {
-	clusterName, ok := container.Labels[domain.WekaLabelClusterName]
-	if !ok {
-		return OwnerCluster{}, Owner{}, fmt.Errorf("container %s missing cluster-name label", container.Name)
-	}
-
-	ownerCluster := OwnerCluster{ClusterName: clusterName, Namespace: container.Namespace}
-	owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: container.Spec.Mode}
-
-	return ownerCluster, owner, nil
-}
-
-func (t *ResourcesAllocator) DeallocateContainerDrives(ctx context.Context, container *weka.WekaContainer, serialIds []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeallocateContainerDrives", "container", container.Name, "serialIds", serialIds)
-	defer end()
-
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get allocations: %w", err)
-	}
-
-	_, owner, err := getContainerOwnerInfo(container)
-	if err != nil {
-		return err
-	}
-
-	nodeName := container.GetNodeAffinity()
-	if _, ok := allocations.NodeMap[nodeName]; !ok {
-		return fmt.Errorf("node %s not found in allocations", nodeName)
-	}
-	nodeAlloc := allocations.NodeMap[nodeName]
-
-	nodeAlloc.dealocateDrivesBySerials(owner, serialIds)
-
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return fmt.Errorf("failed to update allocations: %w", err)
-	}
-
-	logger.Debug("Deallocated drives for container", "container", container.Name, "drives", serialIds)
-
-	return nil
-}
-
-func (t *ResourcesAllocator) AllocateContainerDrives(ctx context.Context, container *weka.WekaContainer) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateContainerDrives", "container", container.Name)
-	defer end()
-
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get allocations: %w", err)
-	}
-
-	_, owner, err := getContainerOwnerInfo(container)
-	if err != nil {
-		return err
-	}
-
-	nodeName := container.GetNodeAffinity()
-	if _, ok := allocations.NodeMap[nodeName]; !ok {
-		return fmt.Errorf("node %s not found in allocations", nodeName)
-	}
-	nodeAlloc := allocations.NodeMap[nodeName]
-	currentDrives := nodeAlloc.Drives[owner]
-
-	numDrivesToAllocate := container.Spec.NumDrives - len(currentDrives)
-	if numDrivesToAllocate <= 0 {
-		logger.Debug("No additional drives to allocate for container", "container", container.Name)
-		return nil
-	}
-	nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
-	if err != nil {
-		return err
-	}
-
-	allDrives := nodeInfo.AvailableDrives
-	if len(allDrives) < container.Spec.NumDrives {
-		logger.Warn("Not enough drives to allocate", "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-		return fmt.Errorf("not enough drives to allocate")
-	}
-
-	allocatedDrives := nodeAlloc.allocateDrives(owner, numDrivesToAllocate, allDrives)
-	if allocatedDrives == nil {
-		logger.Info("Not enough free drives to allocate", "requiredDrives", numDrivesToAllocate)
-		return fmt.Errorf("not enough free drives to allocate")
-	}
-
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return fmt.Errorf("failed to update allocations: %w", err)
-	}
-
-	logger.Debug("Allocated drives for container", "container", container.Name, "drives", allocatedDrives)
-
-	return nil
 }
 
 func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, error) {
@@ -243,8 +78,13 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 		return nil
 	}
 
+	nodePortClaims, err := t.AggregateNodePortClaims(ctx, owner)
+	if err != nil {
+		return fmt.Errorf("failed to aggregate node port claims: %w", err)
+	}
+
 	// Allocate management proxy port using the global allocations
-	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, SinglePortsOffset)
+	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, SinglePortsOffset, nodePortClaims)
 	if err != nil {
 		return err
 	}
@@ -259,6 +99,47 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 	}
 
 	return nil
+}
+
+// AggregateNodePortClaims aggregates all per-container port claims from node annotations
+// across all nodes in the cluster. This is used to ensure global port allocations don't
+// conflict with existing container allocations.
+func (t *ResourcesAllocator) AggregateNodePortClaims(ctx context.Context, ownerCluster OwnerCluster) ([]Range, error) {
+	// List all nodes
+	nodeList := &v1.NodeList{}
+	err := t.client.List(ctx, nodeList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	aggregatedRanges := []Range{}
+
+	// Parse port claims from each node
+	for _, node := range nodeList.Items {
+		claims, err := ParseNodeClaims(&node)
+		if err != nil {
+			// Skip nodes with invalid annotations
+			continue
+		}
+
+		// Extract port ranges for this cluster only
+		for portRangeStr, claimKey := range claims.Ports {
+			// Parse ClaimKey to check if it belongs to this cluster
+			owner, err := ParseClaimKey(claimKey)
+			if err != nil {
+				continue
+			}
+
+			// Only include ranges for the target cluster
+			if owner.ClusterName == ownerCluster.ClusterName && owner.Namespace == ownerCluster.Namespace {
+				var base, size int
+				fmt.Sscanf(portRangeStr, "%d,%d", &base, &size)
+				aggregatedRanges = append(aggregatedRanges, Range{Base: base, Size: size})
+			}
+		}
+	}
+
+	return aggregatedRanges, nil
 }
 
 func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error {
@@ -317,31 +198,38 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		Size: targetSize,
 	}
 
+	// Aggregate per-container port claims from node annotations to prevent conflicts
+	// with global singleton ports (LB, S3, LbAdmin)
+	nodePortClaims, err := t.AggregateNodePortClaims(ctx, owner)
+	if err != nil {
+		return fmt.Errorf("failed to aggregate node port claims: %w", err)
+	}
+
 	var envoyPort, envoyAdminPort, s3Port Range
 
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
 	if cluster.Spec.Ports.LbPort != 0 {
-		envoyPort, err = allocations.EnsureSpecificGlobalRange(owner, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1})
+		envoyPort, err = allocations.EnsureSpecificGlobalRange(owner, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset)
+		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
 	}
 
 	if cluster.Spec.Ports.LbAdminPort != 0 {
-		envoyAdminPort, err = allocations.EnsureSpecificGlobalRange(owner, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1})
+		envoyAdminPort, err = allocations.EnsureSpecificGlobalRange(owner, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset)
+		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
 	}
 
 	if cluster.Spec.Ports.S3Port != 0 {
-		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1})
+		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1}, nodePortClaims)
 	} else {
-		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset)
+		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
@@ -365,15 +253,6 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	return nil
 }
 
-func (t *ResourcesAllocator) GetNode(ctx context.Context, nodeName weka.NodeName) (*v1.Node, error) {
-	node := &v1.Node{}
-	err := t.client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node)
-	if err != nil {
-		return nil, err
-	}
-	return node, nil
-}
-
 type AllocationFailure struct {
 	Err       error
 	Container *weka.WekaContainer
@@ -390,241 +269,9 @@ func (f *FailedAllocations) Error() string {
 	return strBuilder.String()
 }
 
-func (t *ResourcesAllocator) AllocateContainers(ctx context.Context, cluster *weka.WekaCluster, containers []*weka.WekaContainer) error {
-	// At this point containers are landed on specific node, so we dont check what which node to use, we only allocate some resources out of the node to let container know what it should be using
-	// Alternative thoughts:
-	// - drive _could_ just find for free drive
-	// - port-wise, more difficult. we cant just take port, we could share nodemap locally? and acquire from there?
-	// for now going for this way, as very close to original implementation...
-
-	//TODO: Re-Do this as operation, as this also clearly have failable and conditional steps
-
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateContainers")
-	defer end()
-
-	changed := false
-
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return nil
-	}
-	nodeMap := allocations.NodeMap
-	ownerCluster := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
-	//
-	//// TODO:If not pre-populated can cause fetches for each node making it serial and impossibly slow on huge clusters
-	failedAllocations := FailedAllocations{}
-
-	for _, container := range containers {
-		logger.Debug("Allocating container", "name", container.ObjectMeta.Name)
-		// check if node already has same role-container, if yes - return as unschedulable
-		// if not, allocate resources and update nodeMap
-
-		if container.Status.Allocations != nil {
-			logger.Info("Container already allocated", "name", container.ObjectMeta.Name)
-			continue
-		}
-
-		//var requiredNics int
-		role := container.Spec.Mode
-		logger := logger.WithValues("role", role, "name", container.ObjectMeta.Name)
-
-		owner := Owner{OwnerCluster: ownerCluster, Container: container.Name, Role: role}
-		nodeName := container.GetNodeAffinity()
-
-		if _, ok := nodeMap[nodeName]; !ok {
-			nodeAlloc := NodeAllocations{
-				AllocatedRanges: make(map[Owner]map[string]Range),
-				Drives:          make(map[Owner][]string),
-				EthSlots:        make(map[Owner][]string),
-			}
-			nodeMap[nodeName] = nodeAlloc
-		}
-		nodeAlloc := nodeMap[nodeName]
-
-		if nodeAlloc.AllocatedRanges[owner] == nil {
-			nodeAlloc.AllocatedRanges[owner] = make(map[string]Range)
-		}
-
-		// if allocations for container failed, we need to revert all changes
-		revertFuncs := []func(){}
-		revert := func(err error, container *weka.WekaContainer) {
-			for _, f := range revertFuncs {
-				f()
-			}
-			delete(nodeAlloc.AllocatedRanges, owner)
-			logger.Error(err, "Reverted allocation", "container", container.Name)
-			failedAllocations = append(failedAllocations, AllocationFailure{Err: err, Container: container})
-		}
-
-		if nodeAlloc.HasDifferentContainerSameClusterRole(owner) && !cluster.Spec.GetOverrides().DisregardRedundancy {
-			revert(errors.New("role container already allocated on this node"), container)
-			continue
-		}
-
-		if container.Spec.NumDrives > 0 {
-			if len(nodeAlloc.Drives[owner]) == 0 {
-				nodeInfo, err := t.nodeInfoGetter(ctx, nodeName)
-				if err != nil {
-					logger.Info("Failed to get node", "error", err)
-					revert(err, container)
-					continue
-				}
-
-				allDrives := nodeInfo.AvailableDrives
-				if len(allDrives) < container.Spec.NumDrives {
-					logger.Info("Not enough drives to allocate request even on fully free node", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-					revert(fmt.Errorf("not enough drives to allocate request"), container)
-					continue
-				}
-
-				//TODO: Merge above check with below, they are doing same, but below might have a bug
-				allocatedDrives := nodeAlloc.allocateDrives(owner, container.Spec.NumDrives, allDrives)
-				if allocatedDrives == nil {
-					logger.Info("Not enough drives free to allocate request", "role", role, "totalDrives", len(allDrives), "requiredDrives", container.Spec.NumDrives)
-					revert(fmt.Errorf("not enough drives to allocate request"), container)
-					continue
-				}
-				revertFuncs = append(revertFuncs, func() {
-					nodeAlloc.deallocateDrives(owner)
-				})
-				changed = true
-			}
-		}
-
-		baseWekaPort := 0
-		if container.IsHostNetwork() && !container.IsEnvoy() {
-			if currentRanges, ok := nodeAlloc.AllocatedRanges[owner]; !ok || currentRanges["weka"].Base == 0 {
-				basePortRange, err := allocations.FindNodeRange(owner, nodeName, 100)
-				if err != nil {
-					logger.Info("failed to allocate base port range", "error", err)
-					revert(err, container)
-					continue
-				}
-				baseWekaPort = basePortRange.Base
-				nodeAlloc.AllocatedRanges[owner]["weka"] = Range{Base: baseWekaPort, Size: 100}
-				revertFuncs = append(revertFuncs, func() {
-					nodeAlloc.DeallocateNodeRange(owner, baseWekaPort)
-				})
-				changed = true
-			}
-		}
-		if container.HasAgent() {
-			if currentRanges, ok := nodeAlloc.AllocatedRanges[owner]; !ok || currentRanges["agent"].Base == 0 {
-				agentPort, err := allocations.FindNodeRangeWithOffset(owner, nodeName, 1, SinglePortsOffset)
-				if err != nil {
-					if baseWekaPort != 0 {
-						//TODO: If we reverting here, why we dont revert drives? we probably should? or drop reverting altogether. How? We want to commit all containers at once
-						logger.Info("failed to allocate agent port", "error", err, "ranges", allocations.Global.ClusterRanges, "node_ranges", nodeAlloc.AllocatedRanges)
-						revert(err, container)
-						continue
-					}
-				}
-				nodeAlloc.AllocatedRanges[owner]["agent"] = Range{Base: agentPort.Base, Size: 1}
-				changed = true
-			}
-		}
-
-		//if container.Spec.Mode == weka.WekaContainerModeEnvoy {
-		// Strange datab modeling, ignoring for now
-		//	container.Spec.Port = cluster.Status.Ports.LbPort
-		//}
-
-		//TODO: MaxFD not supported, will need to rely on admission controller or custom scheduler
-		//TODO: Prioritizing nodes not supported, will need to rely on custom scheduler
-		//TODO: (doable) Maximum number of s3 pods not supported, can do with just custom resource on nodes
-		//TODO: (doable) EthSlot support removed right now as it was proxied via topology which is dropped, need to integrate into node info
-
-	}
-
-	if changed {
-		err = t.configStore.UpdateAllocations(ctx, allocations)
-		if err != nil {
-			return err
-		}
-	}
-
-	//	nodeAlloc := nodeMap[node]
-	//
-	//	maxFdsPerNode := cluster.Spec.MaxFdsPerNode
-	//	if maxFdsPerNode == 0 {
-	//		maxFdsPerNode = 1
-	//	}
-	//	if nodeAlloc.NumRoleContainerOwnedByCluster(owner) >= maxFdsPerNode {
-	//		logger.Info("MaxFdsPerNode reached", "role", role, "owner", owner)
-	//		continue
-	//	}
-	//	if nodeAlloc.NumRoleContainerOwnedByCluster(owner) >= 1 && container.IsHostWideSingleton() {
-	//		logger.Info("Role container already allocated on this node", "role", role, "owner", owner, "node", node)
-	//		continue
-	//	}
-	//
-	//	if container.Spec.Mode == v1alpha1.WekaContainerModeS3 {
-	//		if nodeAlloc.NumS3ContainersInTotal() >= t.Topology.MaxS3Containers {
-	//			logger.Info("MaxS3Containers reached", "role", role, "owner", owner)
-	//			continue
-	//		}
-	//	}
-	//
-	//	if role == v1alpha1.WekaContainerModeS3 {
-	//		requiredCpus = container.Spec.NumCores + container.Spec.ExtraCores
-	//	}
-	//
-	//	availableCpus, err := t.Topology.GetAvailableCpus(ctx, node)
-	//	if err != nil {
-	//		logger.Info("Failed to get available CPUs", "error", err)
-	//		continue
-	//	}
-	//	freeCpus := availableCpus - nodeAlloc.GetUsedCpuCount()
-	//	if freeCpus < requiredCpus {
-	//		logger.Info("Not enough CPUs to allocate request", "role", role, "availableCpus", availableCpus, "freeCpus", freeCpus, "requiredCpus", requiredCpus)
-	//		continue
-	//	}
-	//
-	//	//TODO: Node-level NICs instead of homogeneous topology wide
-	//	if requiredNics > 0 {
-	//		freeNics := nodeAlloc.GetFreeEthSlots(t.Topology.Network.EthSlots)
-	//		if len(freeNics) < requiredNics {
-	//			logger.Info("Not enough NICs to allocate request", "role", role, "freeNics", freeNics, "requiredNics", requiredNics)
-	//			continue
-	//		}
-	//	}
-	//
-	//
-	//	if requiredNics > 0 {
-	//		freeNics := nodeAlloc.GetFreeEthSlots(t.Topology.Network.EthSlots)
-	//		nodeAlloc.EthSlots[owner] = append(nodeAlloc.EthSlots[owner], freeNics[0:requiredNics]...)
-	//		container.Spec.Network.EthDevices = freeNics[0:requiredNics]
-	//	}
-	//
-	//	if numDrives > 0 {
-	//		nodeAlloc.DriveCount[owner] += numDrives
-	//	}
-	//
-	//	nodeAlloc.CpuCount[owner] += requiredCpus
-	//
-	//	if container.Spec.CpuPolicy == "shared" {
-	//		container.Spec.NumCores = requiredCpus
-	//	}
-	//	container.Spec.NodeAffinity = node
-	//
-	//	if t.Topology.NodeConfigMapPattern != "" {
-	//		container.Spec.NodeInfoConfigMap = fmt.Sprintf(t.Topology.NodeConfigMapPattern, node)
-	//	}
-	//
-	//	continue CONTAINERS
-	//}
-	//	logger.Info("Not enough resources to allocate request")
-	//	return fmt.Errorf("Not enough resources to allocate request")
-	////}
-	//
-
-	if len(failedAllocations) > 0 {
-		return &failedAllocations
-	}
-
-	return nil
-}
-
+// DeallocateCluster removes global cluster port range allocations from ConfigMap.
+// Per-container resources (drives, ports) are cleaned up via node annotations
+// when containers are deleted (see CleanupClaimsOnNode in funcs_node_claims.go).
 func (t *ResourcesAllocator) DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error {
 	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
 
@@ -633,81 +280,9 @@ func (t *ResourcesAllocator) DeallocateCluster(ctx context.Context, cluster *wek
 		return nil
 	}
 
+	// Only clean up global cluster port ranges
 	delete(allocations.Global.ClusterRanges, owner)
 	delete(allocations.Global.AllocatedRanges, owner)
-
-	// clear nodes as well
-	for _, nodeAlloc := range allocations.NodeMap {
-		for allocOwner, _ := range nodeAlloc.Drives {
-			if allocOwner.OwnerCluster == owner {
-				delete(nodeAlloc.Drives, allocOwner)
-			}
-		}
-		for allocOwner, _ := range nodeAlloc.EthSlots {
-			if allocOwner.OwnerCluster == owner {
-				delete(nodeAlloc.EthSlots, allocOwner)
-			}
-		}
-
-		for allocOwner, _ := range nodeAlloc.AllocatedRanges {
-			if allocOwner.OwnerCluster == owner {
-				delete(nodeAlloc.AllocatedRanges, allocOwner)
-			}
-		}
-	}
-
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (t *ResourcesAllocator) DeallocateContainer(ctx context.Context, container *weka.WekaContainer) error {
-	if !container.IsAllocatable() {
-		return nil
-	}
-
-	return t.DeallocateNamespacedObject(ctx, client.ObjectKeyFromObject(container))
-}
-
-func (t *ResourcesAllocator) DeallocateNamespacedObject(ctx context.Context, namespacedObject client.ObjectKey) error {
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return nil
-	}
-
-	ownersToDelete := make([]Owner, 0)
-
-	for _, nodeAlloc := range allocations.NodeMap {
-		for owner := range nodeAlloc.AllocatedRanges {
-			if owner.ToNamespacedName() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-		for owner := range nodeAlloc.EthSlots {
-			if owner.ToNamespacedName() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-		for owner := range nodeAlloc.Drives {
-			if owner.ToNamespacedName() == namespacedObject {
-				ownersToDelete = append(ownersToDelete, owner)
-			}
-		}
-
-	}
-
-	for _, owner := range ownersToDelete {
-		for _, nodeAlloc := range allocations.NodeMap {
-			delete(nodeAlloc.AllocatedRanges, owner)
-			delete(nodeAlloc.EthSlots, owner)
-			delete(nodeAlloc.Drives, owner)
-		}
-	}
 
 	err = t.configStore.UpdateAllocations(ctx, allocations)
 	if err != nil {
