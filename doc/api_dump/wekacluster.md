@@ -218,6 +218,7 @@
 | lbPort | int |  |
 | lbAdminPort | int |  |
 | s3Port | int |  |
+| managementProxyPort | int |  |
 
 ---
 

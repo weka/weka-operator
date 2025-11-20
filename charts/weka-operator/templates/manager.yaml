@@ -242,6 +242,8 @@ spec:
               value: "{{ .Values.defaultIntervals.deleteUnschedulablePodsAfter }}"
             - name: REMOVE_FAILED_DRIVES_FROM_WEKA
               value: "{{ .Values.removeFailedDrives }}"
+            - name: MANAGEMENT_PROXY_HOST_NETWORK
+              value: "{{ .Values.managementProxy.hostNetwork }}"
             - name: CSI_INSTALLATION_ENABLED
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_STORAGE_CLASS_CREATION_DISABLED

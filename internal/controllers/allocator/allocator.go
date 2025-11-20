@@ -42,6 +42,8 @@ type Allocator interface {
 	AllocateContainerDrives(ctx context.Context, container *weka.WekaContainer) error
 	DeallocateContainer(ctx context.Context, container *weka.WekaContainer) error
 	DeallocateNamespacedObject(ctx context.Context, namespacedObject client.ObjectKey) error
+	// EnsureManagementProxyPort allocates management proxy port for existing clusters (backward compatibility)
+	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error
 	//DeallocateContainers(ctx context.Context, containers []v1alpha1.WekaContainer) error
 }
 
@@ -221,6 +223,44 @@ func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, 
 	return t.configStore.GetAllocations(ctx)
 }
 
+func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error {
+	// If port already allocated in cluster status, nothing to do
+	if cluster.Status.Ports.ManagementProxyPort != 0 {
+		return nil
+	}
+
+	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
+
+	allocations, err := t.configStore.GetAllocations(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Check if already allocated in the global allocations (but not in cluster status yet)
+	if existingPort, ok := allocations.Global.AllocatedRanges[owner]["managementProxy"]; ok {
+		// Port is allocated in ConfigMap but not in cluster status, just update status
+		cluster.Status.Ports.ManagementProxyPort = existingPort.Base
+		return nil
+	}
+
+	// Allocate management proxy port using the global allocations
+	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, SinglePortsOffset)
+	if err != nil {
+		return err
+	}
+
+	// Update cluster status
+	cluster.Status.Ports.ManagementProxyPort = managementProxyPort.Base
+
+	// Persist the allocations back to the ConfigMap (with optimistic locking)
+	err = t.configStore.UpdateAllocations(ctx, allocations)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error {
 	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
 
@@ -310,6 +350,9 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	cluster.Status.Ports.LbPort = envoyPort.Base
 	cluster.Status.Ports.LbAdminPort = envoyAdminPort.Base
 	cluster.Status.Ports.S3Port = s3Port.Base
+
+	// Management proxy port is allocated on-demand when the management proxy is first enabled
+	// This avoids wasting a port if the feature is not used
 
 	err = t.configStore.UpdateAllocations(ctx, allocations)
 	if err != nil {

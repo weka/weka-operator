@@ -14,6 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
@@ -42,9 +44,16 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 		return nil
 	}
 
+	// Ensure management proxy port is allocated (only when we have active containers)
+	err := r.ensureManagementProxyPortAllocated(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to allocate management proxy port")
+		return err
+	}
+
 	// Check if we need to update the ConfigMap
 	existingConfigMap := &corev1.ConfigMap{}
-	err := r.getClient().Get(ctx, client.ObjectKey{Name: configMapName, Namespace: namespace}, existingConfigMap)
+	err = r.getClient().Get(ctx, client.ObjectKey{Name: configMapName, Namespace: namespace}, existingConfigMap)
 	needsUpdate := true
 	if err == nil {
 		// ConfigMap exists, check if containers changed
@@ -113,12 +122,33 @@ func (r *wekaClusterReconcilerLoop) ensureManagementConfigMap(ctx context.Contex
 	return err
 }
 
+// ensureManagementProxyPortAllocated ensures management proxy port is allocated (backward compatibility)
+func (r *wekaClusterReconcilerLoop) ensureManagementProxyPortAllocated(ctx context.Context) error {
+	// If port already allocated, nothing to do
+	if r.cluster.Status.Ports.ManagementProxyPort != 0 {
+		return nil
+	}
+
+	// Use the allocator interface which handles concurrency safely with optimistic locking
+	allocatorInstance, err := allocator.GetAllocator(ctx, r.getClient())
+	if err != nil {
+		return err
+	}
+
+	// Allocate the port using the allocator interface
+	err = allocatorInstance.EnsureManagementProxyPort(ctx, r.cluster)
+	if err != nil {
+		return err
+	}
+
+	// Update cluster status with the allocated port
+	return r.getClient().Status().Update(ctx, r.cluster)
+}
+
 // generateEnvoyConfig generates the Envoy configuration YAML
 func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka.WekaContainer) string {
 	clusterBasePort := r.cluster.Status.Ports.BasePort
-	if clusterBasePort == 0 {
-		clusterBasePort = 14000
-	}
+	managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
 
 	// Build endpoints list
 	endpoints := []string{}
@@ -184,7 +214,7 @@ admin:
     socket_address:
       address: 0.0.0.0
       port_value: 9901
-`, clusterBasePort, strings.Join(endpoints, "\n"))
+`, managementProxyPort, strings.Join(endpoints, "\n"))
 
 	return config
 }
@@ -200,6 +230,9 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.getClient(), deployment, func() error {
 		replicas := int32(2)
+
+		// Use allocated management proxy port
+		managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
 
 		// Labels
 		labels := map[string]string{
@@ -235,7 +268,7 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 							Ports: []corev1.ContainerPort{
 								{
 									Name:          "weka-api",
-									ContainerPort: int32(r.cluster.Status.Ports.BasePort),
+									ContainerPort: int32(managementProxyPort),
 									Protocol:      corev1.ProtocolTCP,
 								},
 								{
@@ -290,6 +323,8 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 							},
 						},
 					},
+					// Set hostNetwork based on configuration
+					HostNetwork: config.Config.ManagementProxyHostNetwork,
 				},
 			},
 		}
@@ -327,15 +362,12 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyService(ctx context.Con
 			"weka.io/component": "management-proxy",
 		}
 
-		// Define ports
-		clusterBasePort := r.cluster.Status.Ports.BasePort
-		if clusterBasePort == 0 {
-			clusterBasePort = 14000
-		}
+		// Use allocated management proxy port
+		managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Name:       "weka-api",
-				Port:       int32(clusterBasePort),
+				Port:       int32(managementProxyPort),
 				TargetPort: intstr.FromString("weka-api"),
 				Protocol:   corev1.ProtocolTCP,
 			},

@@ -212,6 +212,11 @@ defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
   deleteUnschedulablePodsAfter: 1m
 
+# Management proxy configuration
+managementProxy:
+  # If true, deploy Envoy proxy on host network
+  hostNetwork: false
+
 # Syslog package choice
 # Supported values: "auto", "go-syslog", "syslog-ng"
 # - "auto": automatically choose go-syslog if available, otherwise use syslog-ng (default behavior)
