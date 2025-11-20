@@ -194,6 +194,8 @@ var Config struct {
 	DeleteUnschedulablePodsAfter           time.Duration
 	RemoveFailedDrivesFromWeka             bool
 	ManagementProxyHostNetwork             bool
+	ManagementProxyIngressBaseDomain       string
+	ManagementProxyIngressClass            string
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
@@ -360,6 +362,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.ManagementProxyHostNetwork = getBoolEnvOrDefault("MANAGEMENT_PROXY_HOST_NETWORK", false)
+	Config.ManagementProxyIngressBaseDomain = env.GetString("MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN", "")
+	Config.ManagementProxyIngressClass = env.GetString("MANAGEMENT_PROXY_INGRESS_CLASS", "")
 
 	// Metrics server environment configuration
 	Config.MetricsServerEnv.NodeName = env.GetString("NODE_NAME", "")

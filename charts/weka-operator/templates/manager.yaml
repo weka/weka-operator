@@ -244,6 +244,10 @@ spec:
               value: "{{ .Values.removeFailedDrives }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
+            - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN
+              value: "{{ .Values.managementProxy.ingressBaseDomain }}"
+            - name: MANAGEMENT_PROXY_INGRESS_CLASS
+              value: "{{ .Values.managementProxy.ingressClass }}"
             - name: CSI_INSTALLATION_ENABLED
               value: "{{ .Values.csi.installationEnabled }}"
             - name: CSI_STORAGE_CLASS_CREATION_DISABLED

@@ -9,6 +9,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -80,6 +81,13 @@ func (r *wekaClusterReconcilerLoop) EnsureManagementProxy(ctx context.Context) e
 	err = r.ensureManagementProxyService(ctx, proxyName, namespace)
 	if err != nil {
 		logger.Error(err, "Failed to create or update management proxy Service")
+		return err
+	}
+
+	// Ensure the Ingress (if configured)
+	err = r.ensureManagementProxyIngress(ctx, proxyName, namespace)
+	if err != nil {
+		logger.Error(err, "Failed to create or update management proxy Ingress")
 		return err
 	}
 
@@ -444,4 +452,74 @@ func (r *wekaClusterReconcilerLoop) getManagementProxyName() string {
 // getManagementConfigMapName returns the name of the management proxy ConfigMap
 func (r *wekaClusterReconcilerLoop) getManagementConfigMapName() string {
 	return fmt.Sprintf("%s-%s", r.cluster.Name, ManagementConfigMapName)
+}
+
+// ensureManagementProxyIngress creates or updates the Ingress for the management proxy
+func (r *wekaClusterReconcilerLoop) ensureManagementProxyIngress(ctx context.Context, serviceName, namespace string) error {
+	// Check if ingress is configured (only baseDomain is required)
+	if config.Config.ManagementProxyIngressBaseDomain == "" {
+		// Ingress not configured, nothing to do
+		return nil
+	}
+
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.getClient(), ingress, func() error {
+		// Set labels
+		if ingress.Labels == nil {
+			ingress.Labels = make(map[string]string)
+		}
+		ingress.Labels["weka.io/cluster"] = r.cluster.Name
+		ingress.Labels["weka.io/service-type"] = "management"
+
+		// Generate hostname: namespace--clustername.basedomain
+		hostname := fmt.Sprintf("%s--%s.%s", namespace, r.cluster.Name, config.Config.ManagementProxyIngressBaseDomain)
+
+		// Use allocated management proxy port
+		managementProxyPort := r.cluster.Status.Ports.ManagementProxyPort
+
+		// Configure ingress spec
+		pathTypePrefix := networkingv1.PathTypePrefix
+		ingressSpec := networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: hostname,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: serviceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: int32(managementProxyPort),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		// Set ingress class if specified, otherwise use cluster default
+		if config.Config.ManagementProxyIngressClass != "" {
+			ingressSpec.IngressClassName = &config.Config.ManagementProxyIngressClass
+		}
+
+		ingress.Spec = ingressSpec
+
+		return controllerutil.SetControllerReference(r.cluster, ingress, r.Manager.GetScheme())
+	})
+
+	return err
 }

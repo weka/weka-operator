@@ -216,6 +216,12 @@ defaultIntervals:
 managementProxy:
   # If true, deploy Envoy proxy on host network
   hostNetwork: false
+  # Base domain for ingress hostname generation (format: namespace--clustername.basedomain)
+  # If empty, ingress creation is disabled
+  ingressBaseDomain: ""
+  # Ingress class to use for the ingress resource (optional)
+  # If empty, will use the default ingress class configured in the cluster
+  ingressClass: ""
 
 # Syslog package choice
 # Supported values: "auto", "go-syslog", "syslog-ng"
