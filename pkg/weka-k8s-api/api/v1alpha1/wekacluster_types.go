@@ -494,11 +494,12 @@ func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
 type ClusterPorts struct {
 	// We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
 	// Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
-	BasePort    int `json:"basePort,omitempty"`
-	PortRange   int `json:"portRange,omitempty"`
-	LbPort      int `json:"lbPort,omitempty"`
-	LbAdminPort int `json:"lbAdminPort,omitempty"`
-	S3Port      int `json:"s3Port,omitempty"`
+	BasePort            int `json:"basePort,omitempty"`
+	PortRange           int `json:"portRange,omitempty"`
+	LbPort              int `json:"lbPort,omitempty"`
+	LbAdminPort         int `json:"lbAdminPort,omitempty"`
+	S3Port              int `json:"s3Port,omitempty"`
+	ManagementProxyPort int `json:"managementProxyPort,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
