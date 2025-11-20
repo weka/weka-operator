@@ -117,6 +117,44 @@ func GetCluster(ctx context.Context, c client.Client, name weka.ObjectReference)
 	return cluster, nil
 }
 
+// IsContainerOperational checks if a container is operational and ready for operations
+func IsContainerOperational(container *weka.WekaContainer) bool {
+	// Container must have a cluster container ID assigned
+	if container.Status.ClusterContainerID == nil {
+		return false
+	}
+
+	// Container must be in READY internal status
+	if container.Status.InternalStatus != "READY" {
+		return false
+	}
+
+	// Container must have at least one management IP
+	if len(container.Status.GetManagementIps()) == 0 {
+		return false
+	}
+
+	// Container must have WekaPort allocated
+	if container.Status.Allocations == nil || container.Status.Allocations.WekaPort == 0 {
+		return false
+	}
+
+	// Container must not be in unsuitable statuses
+	notSuitableStatuses := []weka.ContainerStatus{
+		weka.PodNotRunning,
+		weka.Stopped,
+		weka.Starting,
+		weka.Destroying,
+		weka.Deleting,
+		weka.Paused,
+	}
+	if slices.Contains(notSuitableStatuses, container.Status.Status) {
+		return false
+	}
+
+	return true
+}
+
 func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers int, roles []string) []*weka.WekaContainer {
 	firstPassSuitable := []*weka.WekaContainer{}
 	selected := []*weka.WekaContainer{}
@@ -139,25 +177,9 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 				continue
 			}
 		}
-		if container.Status.ClusterContainerID == nil {
-			continue
-		}
-		if container.Status.InternalStatus != "READY" {
-			continue
-		}
-		if len(container.Status.GetManagementIps()) == 0 {
-			continue
-		}
 
-		notSuitableStatuses := []weka.ContainerStatus{
-			weka.PodNotRunning,
-			weka.Stopped,
-			weka.Starting,
-			weka.Destroying,
-			weka.Deleting,
-			weka.Paused,
-		}
-		if slices.Contains(notSuitableStatuses, container.Status.Status) {
+		// Use common validation function
+		if !IsContainerOperational(container) {
 			continue
 		}
 

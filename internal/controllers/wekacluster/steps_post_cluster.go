@@ -153,6 +153,18 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
+				Name: condition.CondManagementServiceConfigured,
+			},
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:          config.Consts.ManagementServiceUpdateInterval,
+				EnsureStepSuccess: true,
+			},
+			SkipStepStateCheck: true,
+			Run:                loop.EnsureManagementService,
+			ContinueOnError:    true,
+		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
 				Name: condition.CondClusterReady,
 			},
 			Run: loop.MarkAsReady,

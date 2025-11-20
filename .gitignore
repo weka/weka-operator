@@ -60,3 +60,4 @@ changelog_generator.log
 test_artifacts/
 .env*
 manager
+.temp

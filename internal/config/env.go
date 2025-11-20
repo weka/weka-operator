@@ -254,6 +254,8 @@ var Consts struct {
 	SelectorMismatchCleanupInterval time.Duration
 	// Interval for cleanup of containers on tolerations mismatch
 	TolerationsMismatchCleanupInterval time.Duration
+	// Management service update interval
+	ManagementServiceUpdateInterval time.Duration
 }
 
 func init() {
@@ -274,6 +276,7 @@ func init() {
 	Consts.MaxContainersDeletedOnSelectorMismatch = 4
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 	Consts.TolerationsMismatchCleanupInterval = 1 * time.Minute
+	Consts.ManagementServiceUpdateInterval = 1 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {
