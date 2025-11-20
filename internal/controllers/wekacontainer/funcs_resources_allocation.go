@@ -16,6 +16,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
@@ -229,71 +230,6 @@ func (r *containerReconcilerLoop) getExpectedAllocations(ctx context.Context) (*
 	return allocations, nil
 }
 
-func (r *containerReconcilerLoop) selfUpdateAllocations(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	container := r.container
-	sleepBetween := config.Consts.ContainerUpdateAllocationsSleep
-
-	cs, err := allocator.NewConfigMapStore(ctx, r.Client)
-	if err != nil {
-		return err
-	}
-
-	allAllocations, err := cs.GetAllocations(ctx)
-	if err != nil {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("allocations are not set yet"), sleepBetween)
-	}
-
-	owner := container.GetOwnerReferences()
-	nodeName := container.GetNodeAffinity()
-	nodeAlloc, ok := allAllocations.NodeMap[nodeName]
-	if !ok {
-		return lifecycle.NewWaitErrorWithDuration(errors.New("node allocations are not set yet"), sleepBetween)
-	}
-
-	allocOwner := allocator.Owner{
-		OwnerCluster: allocator.OwnerCluster{
-			ClusterName: owner[0].Name,
-			Namespace:   container.Namespace,
-		},
-		Container: container.Name,
-		Role:      container.Spec.Mode,
-	}
-
-	allocatedDrives, ok := nodeAlloc.Drives[allocOwner]
-	if !ok && container.IsDriveContainer() {
-		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("no drives allocated for owner %v", allocOwner), sleepBetween)
-	}
-
-	currentRanges, ok := nodeAlloc.AllocatedRanges[allocOwner]
-	if !ok {
-		return lifecycle.NewWaitErrorWithDuration(fmt.Errorf("no ranges allocated for owner %v", allocOwner), sleepBetween)
-	}
-	wekaPort := currentRanges["weka"].Base
-	agentPort := currentRanges["agent"].Base
-
-	failureDomain := r.getFailureDomain(ctx)
-
-	allocations := &weka.ContainerAllocations{
-		Drives:        allocatedDrives,
-		WekaPort:      wekaPort,
-		AgentPort:     agentPort,
-		FailureDomain: failureDomain,
-	}
-	logger.Info("Updating container with allocations", "allocations", allocations)
-
-	container.Status.Allocations = allocations
-
-	err = r.Status().Update(ctx, container)
-	if err != nil {
-		err = fmt.Errorf("cannot update container status with allocations: %w", err)
-		return err
-	}
-	return nil
-}
-
 func (r *containerReconcilerLoop) verifyResourcesJson(ctx context.Context, executor util.Exec, expectedAllocations *weka.ContainerAllocations) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "verifyResourcesJson")
 	defer end()
@@ -372,72 +308,50 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 
 	container := r.container
 
-	resourceAllocator, err := allocator.GetAllocator(ctx, r.Client)
-	if err != nil {
-		return err
-	}
-
-	allocations, err := resourceAllocator.GetAllocations(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get resource allocations")
-	}
-
+	// Get the node
 	nodeName := container.GetNodeAffinity()
-	nodeAlloc, ok := allocations.NodeMap[nodeName]
-	if !ok {
-		return fmt.Errorf("node %s allocations not found", nodeName)
+	if nodeName == "" {
+		return errors.New("container has no node affinity")
 	}
 
-	owners := container.GetOwnerReferences()
-	if len(owners) == 0 {
-		return errors.New("no owner reference found")
-	}
-	owner := owners[0]
-
-	ownerCluster := allocator.OwnerCluster{
-		ClusterName: owner.Name,
-		Namespace:   container.Namespace,
+	node := &v1.Node{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	allocOwner := allocator.Owner{
-		OwnerCluster: ownerCluster,
-		Container:    container.Name,
-		Role:         container.Spec.Mode,
+	// Calculate how many drives we need
+	currentDrives := container.Status.Allocations.Drives
+	numDrivesToAllocate := container.Spec.NumDrives - len(currentDrives)
+	if numDrivesToAllocate <= 0 {
+		logger.Debug("No additional drives to allocate for container", "container", container.Name)
+		return nil
 	}
 
-	// Allocate replacement drives
-	err = resourceAllocator.AllocateContainerDrives(ctx, container)
+	// Use ContainerResourceAllocator to reallocate drives
+	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
+	reallocRequest := &allocator.DriveReallocationRequest{
+		Container:    container,
+		Node:         node,
+		FailedDrives: []string{}, // No failed drives, just adding more
+		NumNewDrives: numDrivesToAllocate,
+	}
+
+	result, err := containerAllocator.ReallocateDrives(ctx, reallocRequest)
 	if err != nil {
 		logger.Error(err, "Failed to allocate replacement drives for container", "container", container.Name)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute)
 		return err
 	}
 
-	// get updated allocations
-	allocations, err = resourceAllocator.GetAllocations(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get resource allocations after drive allocation")
-	}
-
-	nodeAlloc, ok = allocations.NodeMap[nodeName]
-	if !ok {
-		return fmt.Errorf("node %s allocations not found", nodeName)
-	}
-
-	driveAllocations, ok := nodeAlloc.Drives[allocOwner]
-	if !ok {
-		return fmt.Errorf("no drive allocations found for owner %s on node %s after re-allocation", allocOwner, nodeName)
-	}
-
-	// update container status with new drive allocations
-	container.Status.Allocations.Drives = driveAllocations
+	// Update container status with new drive allocations
+	container.Status.Allocations.Drives = result.AllDrives
 	err = r.Status().Update(ctx, container)
 	if err != nil {
 		err = fmt.Errorf("cannot update container status with new drive allocations: %w", err)
 		return err
 	}
 
-	logger.Info("Drive re-allocation completed", "new_drives", driveAllocations)
+	logger.Info("Drive re-allocation completed", "new_drives", result.NewDrives, "total_drives", len(result.AllDrives))
 
 	// trigger resources.json re-write
 	logger.Info("Re-writing resources.json after drive re-allocation")
@@ -456,19 +370,32 @@ func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, b
 
 	container := r.container
 
-	resourceAllocator, err := allocator.GetAllocator(ctx, r.Client)
-	if err != nil {
-		return err
+	// Get the node
+	nodeName := container.GetNodeAffinity()
+	if nodeName == "" {
+		return errors.New("container has no node affinity")
 	}
 
-	err = resourceAllocator.DeallocateContainerDrives(ctx, container, blockedDrives)
+	node := &v1.Node{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
+	deallocRequest := &allocator.DriveDeallocRequest{
+		Container:      container,
+		Node:           node,
+		DrivesToRemove: blockedDrives,
+	}
+
+	err := containerAllocator.DeallocateDrives(ctx, deallocRequest)
 	if err != nil {
 		logger.Error(err, "Failed to deallocate drives for container", "container", container.Name, "drives", blockedDrives)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DeallocateContainerDrivesError", err.Error(), time.Minute)
 		return err
 	}
 
-	// self-update drive allocations in container status
+	// Update drive allocations in container status
 	updatedDriveAllocations := make([]string, 0)
 	for _, drive := range container.Status.Allocations.Drives {
 		if !slices.Contains(blockedDrives, drive) {
@@ -482,6 +409,8 @@ func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, b
 		err = fmt.Errorf("cannot update container status with deallocated drives: %w", err)
 		return err
 	}
+
+	logger.Info("Drive deallocation completed", "removed_drives", blockedDrives, "remaining_drives", len(updatedDriveAllocations))
 
 	return nil
 }
