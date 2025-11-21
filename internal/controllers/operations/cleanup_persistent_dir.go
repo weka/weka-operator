@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -15,7 +16,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -26,6 +26,7 @@ type CleanupPersistentDirPayload struct {
 	NodeName        v1alpha1.NodeName `json:"node_name"`
 	ContainerId     string            `json:"container_id"`
 	PersistencePath string            `json:"persistence_path"`
+	RunPrivileged   bool              `json:"run_privileged"` // whether to run the cleanup job in privileged mode
 }
 
 type CleanupPersistentDirOperation struct {
@@ -188,6 +189,12 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 				},
 			},
 		},
+	}
+
+	if o.payload.RunPrivileged {
+		job.Spec.Template.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
+			Privileged: &[]bool{true}[0],
+		}
 	}
 
 	if o.payload.NodeName != "" {
