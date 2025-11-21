@@ -2101,6 +2101,17 @@ async def ensure_weka_container():
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
     resources["ips"] = MANAGEMENT_IPS
+    # update join ips
+    if JOIN_IPS:
+        # update backend_endpoints
+        backend_endpoints = []
+        for join_ip in JOIN_IPS.split(','):
+            ip, port = join_ip.split(':')
+            backend_endpoints.append({
+                "ip": ip,
+                "port": int(port),
+            })
+        resources['backend_endpoints'] = backend_endpoints
     ff = await get_feature_flags()
     if ff.supports_binding_to_not_all_interfaces and os.environ.get("BIND_MANAGEMENT_ALL", "false").lower() == "false":
         resources["restrict_listen"] = True
