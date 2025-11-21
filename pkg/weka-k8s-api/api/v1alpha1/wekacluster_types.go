@@ -485,6 +485,8 @@ type WekaClusterSpecOverrides struct {
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +optional
 	PodTerminationDeactivationTimeout *metav1.Duration `json:"podTerminationDeactivationTimeout,omitempty"`
+	// Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism
+	CancelDeletion bool `json:"cancelDeletion,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetAdditionalMemory(mode string) int {
