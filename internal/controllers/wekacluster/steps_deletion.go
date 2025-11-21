@@ -129,6 +129,49 @@ func (r *wekaClusterReconcilerLoop) ensureContainersPaused(ctx context.Context, 
 	}).AsError()
 }
 
+func (r *wekaClusterReconcilerLoop) ensureContainersNotPaused(ctx context.Context, mode string) error {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersNotPaused", "mode", mode)
+	defer end()
+
+	return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureContainersNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer end()
+		if mode != "" && container.Spec.Mode != mode {
+			return nil
+		}
+
+		ctx, _, end2 := instrumentation.GetLogSpan(ctx, "ensureMatchingContainerNotPaused", "container", container.Name, "mode", mode, "container_mode", container.Spec.Mode)
+		defer end2()
+
+		if container.IsPaused() {
+			patch := map[string]interface{}{
+				"spec": map[string]interface{}{
+					"state": weka.ContainerStateActive,
+				},
+			}
+
+			patchBytes, err := json.Marshal(patch)
+			if err != nil {
+				return fmt.Errorf("failed to marshal patch for container %s: %w", container.Name, err)
+			}
+
+			err = errors.Wrap(
+				r.getClient().Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)),
+				fmt.Sprintf("failed to update container state %s: %v", container.Name, err),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if container.Status.Status == weka.Paused {
+			return fmt.Errorf("container %s is still paused", container.Name)
+		}
+
+		return nil
+	}).AsError()
+}
+
 func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()

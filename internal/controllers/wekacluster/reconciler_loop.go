@@ -80,9 +80,18 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 		Name: "DeletionPath",
 		Predicates: lifecycle.Predicates{
 			loop.cluster.IsMarkedForDeletion,
+			lifecycle.IsNotFunc(loop.ClusterDeletionCancelled),
 		},
 		Steps:           GetDeletionSteps(loop),
 		FinishOnSuccess: true,
+	})
+
+	steps = append(steps, &lifecycle.SimpleStep{
+		Predicates: lifecycle.Predicates{
+			loop.ClusterDeletionCancelled,
+		},
+		Run:             loop.RecoverPausedContainers,
+		ContinueOnError: true,
 	})
 
 	clusterSetupSteps := GetClusterSetupSteps(loop)
@@ -139,4 +148,12 @@ func (r *wekaClusterReconcilerLoop) RecordEventThrottled(eventtype, reason, mess
 	}
 
 	return r.RecordEvent(eventtype, reason, message)
+}
+
+func (r *wekaClusterReconcilerLoop) ClusterDeletionCancelled() bool {
+	return r.cluster.Spec.GetOverrides().CancelDeletion
+}
+
+func (r *wekaClusterReconcilerLoop) RecoverPausedContainers(ctx context.Context) error {
+	return r.ensureContainersNotPaused(ctx, "")
 }
