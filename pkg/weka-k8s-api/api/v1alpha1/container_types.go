@@ -92,6 +92,7 @@ const (
 	WekaContainerModeS3             = "s3"
 	WekaContainerModeNfs            = "nfs"
 	WekaContainerModeEnvoy          = "envoy"
+	WekaContainerModeSSDProxy       = "ssdproxy"
 	WekaContainerModeAdhocOpWC      = "adhoc-op-with-container"
 	WekaContainerModeAdhocOp        = "adhoc-op"
 	PersistencePathBase             = "/opt/k8s-weka"
@@ -198,7 +199,7 @@ type WekaContainerSpec struct {
 	Image             string             `json:"image"`
 	ImagePullSecret   string             `json:"imagePullSecret,omitempty"`
 	WekaContainerName string             `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;ssdproxy
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -235,6 +236,15 @@ type WekaContainerSpec struct {
 	// +kubebuilder:default=active
 	State           ContainerState `json:"state,omitempty"`
 	AllowHotUpgrade bool           `json:"allowHotUpgrade,omitempty"`
+	// DriveCapacity specifies the capacity (in GiB) per virtual drive, indicates this container uses shared drives via SSD proxy.
+	// When enabled, the container will:
+	// - Use virtual UUIDs instead of device paths for drives
+	// - Allocate capacity from shared drives rather than exclusive drives
+	// - Require an SSD proxy container to be running on the same node
+	// This value is copied from the cluster's DriveSharing.DriveCapacity configuration.
+	// Used to calculate total capacity request: NumDrives * DriveCapacity
+	// +kubebuilder:validation:Minimum=1024
+	DriveCapacity int `json:"driveCapacity,omitempty"`
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
@@ -252,6 +262,18 @@ type AWSNetwork struct {
 	DeviceSlots []int `json:"deviceSlots,omitempty"`
 }
 
+// VirtualDrive represents a virtual drive allocation in drive sharing mode
+type VirtualDrive struct {
+	// VirtualUUID is the virtual drive identifier
+	VirtualUUID string `json:"virtualUUID"`
+	// PhysicalUUID is the physical drive UUID obtained from proxy signing
+	PhysicalUUID string `json:"physicalUUID"`
+	// CapacityGiB is the allocated capacity in GiB
+	CapacityGiB int `json:"capacityGiB"`
+	// Serial is the serial number of the physical drive
+	Serial string `json:"serial"`
+}
+
 type ContainerAllocations struct {
 	Drives    []string `json:"drives,omitempty"`
 	EthSlots  []string `json:"ethSlots,omitempty"`
@@ -262,6 +284,9 @@ type ContainerAllocations struct {
 	FailureDomain     *string  `json:"failureDomain,omitempty"`
 	MachineIdentifier string   `json:"machineIdentifier,omitempty"`
 	NetDevices        []string `json:"netDevices,omitempty"`
+	// VirtualDrives contains virtual drive allocations for drive sharing mode.
+	// Each VirtualDrive maps a virtual UUID to a physical drive UUID with allocated capacity.
+	VirtualDrives []VirtualDrive `json:"virtualDrives,omitempty"`
 }
 
 func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
@@ -286,7 +311,35 @@ func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
 	if c.MachineIdentifier != other.MachineIdentifier {
 		return false
 	}
+	// Compare VirtualDrives slices
+	if len(c.VirtualDrives) != len(other.VirtualDrives) {
+		return false
+	}
+	for i := range c.VirtualDrives {
+		if c.VirtualDrives[i].VirtualUUID != other.VirtualDrives[i].VirtualUUID ||
+			c.VirtualDrives[i].PhysicalUUID != other.VirtualDrives[i].PhysicalUUID ||
+			c.VirtualDrives[i].CapacityGiB != other.VirtualDrives[i].CapacityGiB ||
+			c.VirtualDrives[i].Serial != other.VirtualDrives[i].Serial {
+			return false
+		}
+	}
 	return true
+}
+
+func (c *ContainerAllocations) GetVirtualDrivesUuids() []string {
+	uuids := make([]string, 0, len(c.VirtualDrives))
+	for _, d := range c.VirtualDrives {
+		uuids = append(uuids, d.VirtualUUID)
+	}
+	return uuids
+}
+
+func (c *ContainerAllocations) GetVirtualDrivesPhysicalUuids() []string {
+	uuids := make([]string, 0, len(c.VirtualDrives))
+	for _, d := range c.VirtualDrives {
+		uuids = append(uuids, d.PhysicalUUID)
+	}
+	return uuids
 }
 
 type Drive struct {
@@ -357,6 +410,14 @@ func (s *WekaContainerStatus) GetAddedDrivesSerials() []string {
 		serials = append(serials, d.SerialNumber)
 	}
 	return serials
+}
+
+func (s *WekaContainerStatus) GetAddedDrivesUuids() []string {
+	uuids := make([]string, 0, len(s.AddedDrives))
+	for _, d := range s.AddedDrives {
+		uuids = append(uuids, d.Uuid)
+	}
+	return uuids
 }
 
 func (s *WekaContainerStatus) GetManagementIps() []string {
@@ -477,11 +538,11 @@ func (w *WekaContainer) IsServiceContainer() bool {
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsSSDProxyContainer()
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsSSDProxyContainer()
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
@@ -519,6 +580,7 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 		WekaContainerModeNfs,
+		WekaContainerModeSSDProxy,
 	}, w.Spec.Mode)
 }
 
@@ -557,6 +619,7 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeDriversDist,
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeNfs,
+		WekaContainerModeSSDProxy,
 	}, w.Spec.Mode)
 }
 
@@ -579,6 +642,7 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeNfs,
+		WekaContainerModeSSDProxy,
 	}, w.Spec.Mode)
 }
 
@@ -618,6 +682,14 @@ func (w *WekaContainer) IsClientContainer() bool {
 
 func (w *WekaContainer) IsProtocolContainer() bool {
 	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsSSDProxyContainer() bool {
+	return w.Spec.Mode == WekaContainerModeSSDProxy
+}
+
+func (w *WekaContainer) UsesDriveSharing() bool {
+	return w.Spec.DriveCapacity > 0
 }
 
 func (w *WekaContainer) GetParentClusterId() string {

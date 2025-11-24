@@ -105,6 +105,13 @@ type SignDrivesPayload struct {
 	//    ```
 	PCIDevices  *PCIDevices  `json:"pciDevices,omitempty"`
 	SignOptions *SignOptions `json:"options,omitempty"`
+	// ForProxy signs drives for proxy mode using 'weka-sign-drive sign proxy' command.
+	// When enabled:
+	// - Drives are signed with a proxy system GUID
+	// - Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)
+	// - Physical UUIDs, serial IDs, and capacities are captured
+	// - Enables multi-tenant drive sharing via SSD proxy
+	ForProxy bool `json:"forProxy,omitempty"`
 }
 
 type SignOptions struct {
@@ -121,8 +128,9 @@ type ForceResignDrivesPayload struct {
 }
 
 type BlockDrivesPayload struct {
-	SerialIDs []string `json:"serialIDs"`
-	Node      string   `json:"node"`
+	SerialIDs     []string `json:"serialIDs,omitempty"`
+	PhysicalUUIDs []string `json:"physicalUUIDs,omitempty"`
+	Node          string   `json:"node"`
 }
 
 type DiscoverDrivesPayload struct {
