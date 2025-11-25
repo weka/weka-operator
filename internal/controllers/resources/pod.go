@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
@@ -513,6 +514,15 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, envVars...)
 	}
 
+	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		// Set SSD_PROXY_MEMORY for explicit proxy configuration
+		// weka_runtime.py will use this, falling back to MEMORY if not set
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "SSD_PROXY_MEMORY",
+			Value: config.Config.SsdProxy.Memory,
+		})
+	}
+
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
@@ -597,6 +607,32 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 				Value: "global",
 			})
 		}
+	}
+
+	// Proxy and drive-with-sharing containers need access to proxy socket directory
+	needsProxyMount := f.container.Spec.Mode == weka.WekaContainerModeSSDProxy ||
+		(f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing)
+
+	if needsProxyMount {
+		// Node-level path for proxy state (shared across all drive containers on the node)
+		hostsideProxyPersistence := f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/ssdproxy/"
+		volumeName := "weka-proxy-socket-dir"
+		pathType := corev1.HostPathDirectoryOrCreate
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: inPodHostBinds + "/ssdproxy",
+		})
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideProxyPersistence,
+					Type: &pathType,
+				},
+			},
+		})
 	}
 
 	if f.container.IsDiscoveryContainer() {
@@ -1238,6 +1274,12 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuLimitStr = "500m"
 	}
 
+	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		cpuRequestStr = "500m"
+		cpuLimitStr = "2000m"
+		memRequest = "2Gi"
+	}
+
 	if f.container.Spec.Mode == weka.WekaContainerModeClient {
 		managementMemory := 1965
 		perFrontendMemory := 3050
@@ -1325,9 +1367,17 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		},
 	}
 
-	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
-		pod.Spec.Containers[0].Resources.Requests["weka.io/drives"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
-		pod.Spec.Containers[0].Resources.Limits["weka.io/drives"] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.Spec.UseDriveSharing {
+		// Regular drive mode: request exclusive drives (count)
+		pod.Spec.Containers[0].Resources.Requests[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
+		pod.Spec.Containers[0].Resources.Limits[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
+	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
+		// Drive sharing mode: request capacity from shared drives pool
+		// Total capacity = NumDrives * DriveCapacity (in GiB)
+		totalCapacityGiB := f.container.Spec.NumDrives * f.container.Spec.DriveCapacity
+		capacityStr := strconv.Itoa(totalCapacityGiB)
+		pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
+		pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
 	}
 
 	if f.nodeInfo.ShouldRequestNICs() && !f.container.Spec.Network.UdpMode && !f.container.IsDriversContainer() {

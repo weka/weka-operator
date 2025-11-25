@@ -19,6 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -126,7 +127,7 @@ func (o *DiscoverNodeOperation) GetDrivesNum() int {
 		return 0
 	}
 
-	if drivesStr, ok := o.node.Annotations["weka.io/weka-drives"]; ok {
+	if drivesStr, ok := o.node.Annotations[consts.AnnotationWekaDrives]; ok {
 		// unmarshal first, as a list of strings
 		var drives []string
 		err := json.Unmarshal([]byte(drivesStr), &drives)

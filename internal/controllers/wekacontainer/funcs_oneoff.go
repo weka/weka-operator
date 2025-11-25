@@ -12,9 +12,11 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
@@ -113,10 +115,17 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 
-	// Update weka.io/weka-drives annotation
+	// Check if this is a proxy mode operation
+	isProxyMode := len(opResult.ProxyDrives) > 0
+
+	if isProxyMode {
+		return r.updateProxyModeAnnotations(ctx, node, opResult)
+	}
+
+	// Update weka.io/weka-drives annotation (regular mode)
 	previousDrives := []string{}
 	newDrivesFound := 0
-	if existingDrivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok {
+	if existingDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
 		_ = json.Unmarshal([]byte(existingDrivesStr), &previousDrives)
 	}
 
@@ -157,12 +166,12 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 
-	node.Annotations["weka.io/weka-drives"] = string(newDrivesStr)
+	node.Annotations[consts.AnnotationWekaDrives] = string(newDrivesStr)
 	// calculate hash, based on o.node.Status.NodeInfo.BootID
-	node.Annotations["weka.io/sign-drives-hash"] = domain.CalculateNodeDriveSignHash(node)
+	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
 	blockedDrives := []string{}
-	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
 		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
 		if err != nil {
 			err = fmt.Errorf("error unmarshalling blocked drives: %w", err)
@@ -192,15 +201,15 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	}
 
 	// Update weka.io/drives extended resource
-	node.Status.Capacity["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
-	node.Status.Allocatable["weka.io/drives"] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	node.Status.Capacity[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceDrives] = *resource.NewQuantity(int64(availableDrives), resource.DecimalSI)
 	//marshal blocked drives back and update annotation
 	blockedDrivesStr, err := json.Marshal(blockedDrives)
 	if err != nil {
 		err = fmt.Errorf("error marshalling blocked drives: %w", err)
 		return err
 	}
-	node.Annotations["weka.io/blocked-drives"] = string(blockedDrivesStr)
+	node.Annotations[consts.AnnotationBlockedDrives] = string(blockedDrivesStr)
 
 	if err := r.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
@@ -212,4 +221,54 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 	return complete()
+}
+
+func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context, node *v1.Node, opResult *operations.DriveNodeResults) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "updateProxyModeAnnotations")
+	defer end()
+
+	logger.Info("Updating node annotations for proxy mode")
+
+	// Convert ProxyDriveInfo structs to compact annotation format: [[uuid, serial, capacity_gib, device_path], ...]
+	// This saves space in the annotation compared to JSON objects
+	annotationData := make([][]any, 0, len(opResult.ProxyDrives))
+	totalCapacityGiB := int64(0)
+
+	for _, drive := range opResult.ProxyDrives {
+		annotationData = append(annotationData, []any{
+			drive.PhysicalUUID,
+			drive.Serial,
+			drive.CapacityGiB,
+			drive.DevicePath,
+		})
+		totalCapacityGiB += int64(drive.CapacityGiB)
+	}
+
+	// Write proxy drives to weka.io/shared-drives annotation
+	proxyDrivesJSON, err := json.Marshal(annotationData)
+	if err != nil {
+		return fmt.Errorf("error marshalling proxy drives: %w", err)
+	}
+
+	node.Annotations[consts.AnnotationSharedDrives] = string(proxyDrivesJSON)
+	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
+
+	// Update weka.io/shared-drives-capacity extended resource
+	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+
+	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "totalCapacityGiB", totalCapacityGiB)
+
+	// Update node status and annotations
+	if err := r.Status().Update(ctx, node); err != nil {
+		return fmt.Errorf("error updating node status: %w", err)
+	}
+
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("error updating node annotations: %w", err)
+	}
+
+	// Mark container as completed
+	r.container.Status.Status = weka.Completed
+	return r.Status().Update(ctx, r.container)
 }

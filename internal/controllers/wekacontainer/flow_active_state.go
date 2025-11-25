@@ -274,6 +274,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
 		},
+		// Ensure SSD proxy container exists before resource allocation (for drive sharing)
+		&lifecycle.SimpleStep{
+			Run: r.ensureProxyContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+			},
+		},
 		// Backend containers allocate their own resources
 		&lifecycle.SimpleStep{
 			Run: r.AllocateResources,
@@ -416,6 +424,32 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.reconcileClusterStatus,
 			Predicates: lifecycle.Predicates{
 				r.container.ShouldJoinCluster,
+			},
+		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name: condition.CondVirtualDrivesAdded,
+			},
+			Run: r.AddVirtualDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				func() bool {
+					return r.container.Spec.UseDriveSharing
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
+			Name: "AddVirtualDrivesPeriodic",
+			Run:  r.AddVirtualDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				func() bool {
+					return r.container.Spec.UseDriveSharing
+				},
+			},
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:          config.Consts.PeriodicDrivesCheckInterval,
+				EnsureStepSuccess: true,
 			},
 		},
 		&lifecycle.SimpleStep{

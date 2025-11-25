@@ -102,16 +102,27 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	}
 
 	allocatedDrives := result.Drives
+	allocatedVirtualDrives := result.VirtualDrives
 	wekaPort := result.WekaPort
 	agentPort := result.AgentPort
 
 	// Get claim key for this container
 	claimKey := allocator.ClaimKeyFromContainer(r.container)
 
-	// Add claims to node annotation (atomic operation)
-	for _, drive := range allocatedDrives {
-		if err := claims.AddDriveClaim(drive, claimKey); err != nil {
-			return fmt.Errorf("failed to add drive claim: %w", err)
+	// Add drive claims to node annotation (atomic operation)
+	if r.container.Spec.UseDriveSharing {
+		// Add virtual drive claims for shared drives
+		for _, vd := range allocatedVirtualDrives {
+			if err := claims.AddVirtualDriveClaim(vd.VirtualUUID, vd.PhysicalUUID, vd.CapacityGiB, claimKey); err != nil {
+				return fmt.Errorf("failed to add virtual drive claim: %w", err)
+			}
+		}
+	} else {
+		// Add regular drive claims for exclusive drives
+		for _, drive := range allocatedDrives {
+			if err := claims.AddDriveClaim(drive, claimKey); err != nil {
+				return fmt.Errorf("failed to add drive claim: %w", err)
+			}
 		}
 	}
 
@@ -146,15 +157,24 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	// Update container status with allocations
 	allocations := &weka.ContainerAllocations{
 		Drives:        allocatedDrives,
+		VirtualDrives: allocatedVirtualDrives,
 		WekaPort:      wekaPort,
 		AgentPort:     agentPort,
 		FailureDomain: failureDomain,
 	}
 
-	logger.Info("Successfully allocated resources",
-		"drives", len(allocatedDrives),
-		"wekaPort", wekaPort,
-		"agentPort", agentPort)
+	// Log appropriate message based on drive type
+	if r.container.Spec.UseDriveSharing {
+		logger.Info("Successfully allocated resources",
+			"virtualDrives", len(allocatedVirtualDrives),
+			"wekaPort", wekaPort,
+			"agentPort", agentPort)
+	} else {
+		logger.Info("Successfully allocated resources",
+			"drives", len(allocatedDrives),
+			"wekaPort", wekaPort,
+			"agentPort", agentPort)
+	}
 
 	r.container.Status.Allocations = allocations
 	err = r.Status().Update(ctx, r.container)
@@ -166,14 +186,19 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 
 	// Build resource allocation message
 	var allocMsg string
+	driveCount := len(allocatedDrives)
+	if r.container.Spec.UseDriveSharing {
+		driveCount = len(allocatedVirtualDrives)
+	}
+
 	if wekaPort > 0 && agentPort > 0 {
-		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d, agent port %d", len(allocatedDrives), wekaPort, wekaPort+allocator.WekaPortRangeSize-1, agentPort)
+		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d, agent port %d", driveCount, wekaPort, wekaPort+allocator.WekaPortRangeSize-1, agentPort)
 	} else if wekaPort > 0 {
-		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d", len(allocatedDrives), wekaPort, wekaPort+allocator.WekaPortRangeSize-1)
+		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d", driveCount, wekaPort, wekaPort+allocator.WekaPortRangeSize-1)
 	} else if agentPort > 0 {
-		allocMsg = fmt.Sprintf("Allocated %d drives, agent port %d", len(allocatedDrives), agentPort)
+		allocMsg = fmt.Sprintf("Allocated %d drives, agent port %d", driveCount, agentPort)
 	} else {
-		allocMsg = fmt.Sprintf("Allocated %d drives", len(allocatedDrives))
+		allocMsg = fmt.Sprintf("Allocated %d drives", driveCount)
 	}
 	r.RecordEvent(v1.EventTypeNormal, "ResourcesAllocated", allocMsg)
 
