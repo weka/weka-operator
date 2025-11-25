@@ -143,6 +143,16 @@ type NfsConfig struct {
 	NotifyPort      int
 }
 
+type SsdProxy struct {
+	// Memory is the memory allocation for the proxy (e.g., "2gb", "2048mb", "2GiB")
+	// Passed directly to: weka local setup ssdproxy --memory={Memory}
+	// Default: "2gb"
+	Memory string
+	// HugepagesMi is the hugepages allocation for the proxy in MiB (2Mi hugepages)
+	// Default: 2048 (2GB)
+	HugepagesMi int
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -207,6 +217,7 @@ var Config struct {
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
 	Proxy           string
+	SsdProxy        SsdProxy
 	PriorityClasses PriorityClasses
 	Nfs             NfsConfig
 }
@@ -393,6 +404,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.NodeResources = parseCsiNodeResources()
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")
 	Config.Proxy = getEnvOrDefault("PROXY", "")
+
+	// SSD Proxy configuration
+	Config.SsdProxy.Memory = getEnvOrDefault("SSD_PROXY_MEMORY", "2gb")
+	Config.SsdProxy.HugepagesMi = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_MI", 2048)
 
 	// Priority classes configuration
 	Config.PriorityClasses.Initial = getEnvOrDefault("PRIORITY_CLASS_INITIAL", "weka-initial-no-evict")

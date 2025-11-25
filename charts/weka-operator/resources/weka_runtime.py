@@ -502,6 +502,294 @@ async def sign_device_path(device_path, options: SignOptions):
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
 
+
+async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
+    """
+    Sign a drive for proxy mode using weka-sign-drive sign proxy.
+    Sets the proxy SystemGUID automatically.
+    """
+    logging.info(f"Signing drive for proxy: {device_path}")
+    params = ["sign", "proxy"]
+    if options.allowEraseWekaPartitions:
+        params.append("--allow-erase-weka-partitions")
+    if options.allowEraseNonWekaPartitions:
+        params.append("--allow-erase-non-weka-partitions")
+    if options.allowNonEmptyDevice:
+        params.append("--allow-non-empty-device")
+    if options.skipTrimFormat:
+        params.append("--skip-trim-format")
+
+    stdout, stderr, ec = await run_command(
+        f"/weka-sign-drive {' '.join(params)} -- {device_path}")
+    if ec != 0:
+        # Check if drive is already signed for proxy
+        if "already a Weka partition" in stderr.decode():
+            logging.info(f"Drive {device_path} already signed for proxy, querying info")
+            return await get_proxy_drive_info(device_path)
+        
+        err = f"Failed to sign drive {device_path} for proxy: {stderr}"
+        logging.error(err)
+        raise SignException(err)
+
+    # Parse signing output (may contain info, but we'll use show command for consistency)
+    logging.info(f"Successfully signed {device_path} for proxy")
+    return await get_proxy_drive_info(device_path)
+
+
+async def get_device_serial_id(device_path: str) -> str:
+    """
+    Get serial ID for a block device.
+    Supports both NVMe and SCSI/SATA devices.
+    Returns serial ID string, or empty string if not found.
+    """
+    try:
+        # Get the block device name (e.g., nvme0n1, sda, nvme0n1p1)
+        device_name = os.path.basename(device_path)
+
+        # Resolve to the actual device in sysfs
+        pci_device_path = subprocess.check_output(
+            f"readlink -f /sys/class/block/{device_name}",
+            shell=True
+        ).decode().strip()
+
+        if "nvme" in device_name.lower():
+            # NVMe device: serial is 1 directory up from the namespace
+            # /sys/devices/pci.../nvme/nvme0/nvme0n1 -> need /sys/devices/pci.../nvme/nvme0/serial
+            # Remove last element (nvme0n1) to get the nvme0 directory
+            serial_id_path = "/".join(pci_device_path.split("/")[:-1]) + "/serial"
+            serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
+
+            # Google COS specific handling if needed
+            if is_google_cos():
+                base_device = pci_device_path.split("/")[-2]  # e.g., nvme0
+                serial_id = await get_serial_id_cos_specific(base_device)
+
+            return serial_id
+        else:
+            # SCSI/SATA device: get from udev data
+            device_base_name = pci_device_path.split("/")[-2]
+            dev_index = subprocess.check_output(
+                f"cat /sys/block/{device_base_name}/dev",
+                shell=True
+            ).decode().strip()
+
+            serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
+            serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
+            return serial_id
+
+    except Exception as e:
+        logging.warning(f"Failed to get serial ID for {device_path}: {e}")
+        return ""
+
+
+async def get_proxy_drive_info(device_path: str):
+    """
+    Get drive information after proxy signing using weka-sign-drive show.
+    Returns dict with physical_uuid, serial, and capacity_gib.
+    """
+    logging.info(f"Getting proxy drive info for {device_path}")
+    stdout, stderr, ec = await run_command(f"/weka-sign-drive show {device_path} --json")
+    if ec != 0:
+        raise SignException(f"Failed to get drive info for {device_path}: {stderr}")
+
+    try:
+        drive_info = json.loads(stdout.decode())
+        logging.debug(f"Drive info JSON for {device_path}: {json.dumps(drive_info, indent=2)}")
+
+        if not drive_info.get('partitions') or len(drive_info['partitions']) == 0:
+            raise SignException(f"No partitions found for {device_path}")
+
+        partition = drive_info['partitions'][0]
+        header = partition.get('header', {})
+
+        if not header.get('is_proxy'):
+            raise SignException(f"Drive {device_path} is not signed for proxy mode")
+
+        physical_uuid = header.get('physical_uuid')
+        if not physical_uuid:
+            raise SignException(f"No physical_uuid found for {device_path}")
+
+        # Get serial number - try multiple sources
+        serial = None
+
+        # 1. Try from JSON hardware_info first (most reliable if present)
+        hardware_info = drive_info.get('hardware_info', {})
+        if hardware_info:
+            serial = hardware_info.get('serial_number') or hardware_info.get('serial')
+            if serial:
+                logging.debug(f"Serial from hardware_info: {serial}")
+
+        # 2. Use generic serial resolution function (same logic as find_weka_drives)
+        if not serial:
+            serial = await get_device_serial_id(device_path)
+            if serial:
+                logging.debug(f"Serial from get_device_serial_id: {serial}")
+
+        # Get capacity in GiB from partition size
+        capacity_bytes = partition.get('size', 0)
+
+        # If size is 0 or not present, try to get from device using lsblk
+        if capacity_bytes == 0:
+            try:
+                # Use head -1 to get only the device size (not partition sizes)
+                lsblk_cmd = f"lsblk -bno SIZE {device_path} | head -1"
+                size_stdout, _, size_ec = await run_command(lsblk_cmd)
+                if size_ec == 0:
+                    size_str = size_stdout.decode().strip()
+                    if size_str:
+                        capacity_bytes = int(size_str)
+                        logging.debug(f"Capacity from lsblk: {capacity_bytes} bytes")
+            except Exception as e:
+                logging.warning(f"Failed to get capacity from lsblk for {device_path}: {e}")
+
+        capacity_gib = int(capacity_bytes / (1024 ** 3)) if capacity_bytes > 0 else 0
+
+        logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB")
+
+        return {
+            'physical_uuid': physical_uuid,
+            'serial': serial or 'UNKNOWN',
+            'capacity_gib': capacity_gib,
+            'device_path': device_path
+        }
+    except (json.JSONDecodeError, KeyError) as e:
+        raise SignException(f"Failed to parse drive info for {device_path}: {e}")
+
+
+async def sign_not_mounted_for_proxy(options: SignOptions) -> List[dict]:
+    """
+    Sign unmounted drives for proxy mode.
+    Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
+    """
+    logging.info("Signing unmounted drives for proxy mode")
+    all_disks = await find_disks()
+    signed_drives_info = []
+
+    unmounted_disks = [disk for disk in all_disks if not disk.is_mounted]
+    logging.info(f"Found {len(unmounted_disks)} unmounted disks to sign for proxy: {[d.path for d in unmounted_disks]}")
+
+    for disk in unmounted_disks:
+        if disk.path in EXCLUDED_DRIVE_PATHS:
+            logging.info(f"Skipping excluded drive: {disk.path}")
+            continue
+
+        try:
+            drive_info = await sign_device_path_for_proxy(disk.path, options)
+            signed_drives_info.append(drive_info)
+        except SignException as e:
+            logging.error(str(e))
+            continue
+
+    return signed_drives_info
+
+
+async def sign_device_paths_for_proxy(devices_paths: List[str], options: SignOptions) -> List[dict]:
+    """
+    Sign specific device paths for proxy mode.
+    Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
+    """
+    logging.info(f"Signing {len(devices_paths)} device paths for proxy mode: {devices_paths}")
+    signed_drives_info = []
+
+    for device_path in devices_paths:
+        if device_path in EXCLUDED_DRIVE_PATHS:
+            logging.info(f"Skipping excluded drive: {device_path}")
+            continue
+
+        try:
+            drive_info = await sign_device_path_for_proxy(device_path, options)
+            signed_drives_info.append(drive_info)
+        except SignException as e:
+            logging.error(str(e))
+            continue
+
+    return signed_drives_info
+
+
+async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, options: SignOptions) -> List[dict]:
+    """
+    Sign drives for proxy mode by PCI info (uses lspci and /dev/disk/by-path/).
+    Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
+    """
+    logging.info(f"Signing drives for proxy (PCI). Vendor ID: {vendor_id}, Device ID: {device_id}")
+
+    if not vendor_id or not device_id:
+        raise ValueError("Vendor ID and Device ID are required")
+
+    # Find PCI devices matching vendor and device ID
+    cmd = f"lspci -d {vendor_id}:{device_id}" + " | sort | awk '{print $1}'"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        logging.info("No devices found matching PCI info")
+        return []
+
+    signed_drives_info = []
+    pci_devices = stdout.decode().strip().split()
+    for pci_device in pci_devices:
+        device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
+
+        if device in EXCLUDED_DRIVE_PATHS:
+            logging.info(f"Skipping excluded drive: {device}")
+            continue
+
+        try:
+            drive_info = await sign_device_path_for_proxy(device, options)
+            signed_drives_info.append(drive_info)
+        except SignException as e:
+            logging.error(str(e))
+            continue
+
+    return signed_drives_info
+
+
+async def sign_drives_for_proxy_gke(vendor_id: str, device_id: str, options: SignOptions) -> List[dict]:
+    """
+    Sign drives for proxy mode using GKE/sysfs discovery (uses /sys/block/ and /dev/ paths).
+    Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
+    """
+    logging.info(f"Signing drives for proxy (GKE). Vendor ID: {vendor_id}, Device ID: {device_id}")
+
+    if not vendor_id or not device_id:
+        raise ValueError("Vendor ID and Device ID are required")
+
+    # Use sysfs to find block devices by vendor/device ID
+    cmd = f"""for dev in /sys/block/*; do
+if [ -f "$dev/device/device/vendor" ] &&
+   [ "$(cat $dev/device/device/vendor 2>/dev/null)" = "{vendor_id}" ] &&
+   [ "$(cat $dev/device/device/device 2>/dev/null)" = "{device_id}" ]; then
+    echo $(basename $dev)
+fi
+done"""
+
+    stdout, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        logging.info("No devices found via sysfs")
+        return []
+
+    logging.info(f"Found {len(stdout.decode().strip().split())} drives to sign for proxy")
+    signed_drives_info = []
+    dev_devices = stdout.decode().strip().split("\n")
+
+    for dev_device in dev_devices:
+        if not dev_device:  # Skip empty lines
+            continue
+
+        device = f"/dev/{dev_device}"
+
+        if device in EXCLUDED_DRIVE_PATHS:
+            logging.info(f"Skipping excluded drive: {device}")
+            continue
+
+        try:
+            drive_info = await sign_device_path_for_proxy(device, options)
+            signed_drives_info.append(drive_info)
+        except SignException as e:
+            logging.error(str(e))
+            continue
+
+    return signed_drives_info
+
+
 async def sign_drives_gke(vendor_id: str, device_id: str, options: dict) -> List[str]:
     logging.info("Signing drives (GKE). Vendor ID: %s, Device ID: %s", vendor_id, device_id)
 
@@ -534,16 +822,50 @@ done"""
             continue
     return signed_drives
 
-async def sign_drives(instruction: dict) -> List[str]:
+async def sign_drives(instruction: dict):
+    """
+    Sign drives for either regular or proxy mode.
+    Returns either List[str] for regular mode or List[dict] for proxy mode.
+    """
     global EXCLUDED_DRIVE_PATHS
 
     type = instruction['type']
+    for_proxy = instruction.get('forProxy', False)
     options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
 
     # Extract and convert excluded serial IDs to device paths
     excluded_serials = instruction.get('excludedSerialIds', [])
     EXCLUDED_DRIVE_PATHS = await convert_serials_to_device_paths(excluded_serials)
 
+    # Route to proxy signing functions if forProxy is true
+    if for_proxy:
+        logging.info("Signing drives for proxy mode")
+        if type == "aws-all":
+            return await sign_drives_for_proxy_by_pci_info(
+                vendor_id=AWS_VENDOR_ID,
+                device_id=AWS_DEVICE_ID,
+                options=options
+            )
+        elif type == "gcp-all":
+            return await sign_drives_for_proxy_gke(
+                vendor_id=GCP_VENDOR_ID,
+                device_id=GCP_DEVICE_ID,
+                options=options
+            )
+        elif type == "device-identifiers":
+            return await sign_drives_for_proxy_by_pci_info(
+                vendor_id=instruction.get('pciDevices', {}).get('vendorId'),
+                device_id=instruction.get('pciDevices', {}).get('deviceId'),
+                options=options
+            )
+        elif type == "all-not-root":
+            return await sign_not_mounted_for_proxy(options)
+        elif type == "device-paths":
+            return await sign_device_paths_for_proxy(instruction['devicePaths'], options)
+        else:
+            raise ValueError(f"Proxy signing not supported for instruction type: {type}")
+
+    # Regular signing (non-proxy)
     if type == "aws-all":
         return await sign_drives_by_pci_info(
             vendor_id=AWS_VENDOR_ID,
@@ -2226,24 +2548,27 @@ async def start_weka_container():
 
 
 async def configure_persistency():
-    if not os.path.exists("/host-binds/opt-weka"):
-        return
-
+    # Conditional persistent storage setup
+    # External mounts (ssdproxy, shared, etc.) should work even without persistent storage
     command = dedent(f"""
-        mkdir -p /opt/weka-preinstalled
-        # --- save weka image data separately
-        mount -o bind /opt/weka /opt/weka-preinstalled
-        # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
-        # --- put existing drivers from persistent dir to weka-preinstalled
-        mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
-        mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka-preinstalled/dist/drivers
-        mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
-        mkdir -p /opt/weka/dist
-        # --- put weka dist back on top
-        mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
-        # --- make drivers dir persistent
-        mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
+        # Main persistent storage setup (only if /host-binds/opt-weka exists)
+        if [ -d /host-binds/opt-weka ]; then
+            mkdir -p /opt/weka-preinstalled
+            # --- save weka image data separately
+            mount -o bind /opt/weka /opt/weka-preinstalled
+            # --- WEKA_PERSISTENCE_DIR - is HostPath (persistent volume)
+            # --- put existing drivers from persistent dir to weka-preinstalled
+            mkdir -p {WEKA_PERSISTENCE_DIR}/dist/drivers
+            mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka-preinstalled/dist/drivers
+            mount -o bind {WEKA_PERSISTENCE_DIR} /opt/weka
+            mkdir -p /opt/weka/dist
+            # --- put weka dist back on top
+            mount -o bind /opt/weka-preinstalled/dist /opt/weka/dist
+            # --- make drivers dir persistent
+            mount -o bind {WEKA_PERSISTENCE_DIR}/dist/drivers /opt/weka/dist/drivers
+        fi
 
+        # External mounts - always check and mount if they exist
         if [ -d /host-binds/boot-level ]; then
             BOOT_DIR=/host-binds/boot-level/$(cat /proc/sys/kernel/random/boot_id)/cleanup
             mkdir -p $BOOT_DIR
@@ -2273,6 +2598,13 @@ async def configure_persistency():
         fi
 
         mkdir -p {WEKA_K8S_RUNTIME_DIR}
+
+        # SSD proxy mount (for proxy containers and drive containers with sharing)
+        if [ -d /host-binds/ssdproxy ]; then
+            mkdir -p /opt/weka/external-mounts/ssdproxy
+            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/ssdproxy
+        fi
+
         touch {PERSISTENCY_CONFIGURED}
     """)
 
@@ -2683,6 +3015,21 @@ async def ensure_envoy_container():
     _, _, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to ensure envoy container")
+    pass
+
+
+async def ensure_ssdproxy_container():
+    logging.info("ensuring ssdproxy container")
+    # Use SSD_PROXY_MEMORY if set, otherwise fall back to MEMORY env var
+    proxy_memory = os.getenv("SSD_PROXY_MEMORY") or os.getenv("MEMORY")
+    if not proxy_memory:
+        raise Exception("SSD_PROXY_MEMORY or MEMORY environment variable must be set for ssdproxy")
+    cmd = dedent(f"""
+        weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory}
+    """)
+    _, _, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to ensure ssdproxy container")
     pass
 
 
@@ -3324,10 +3671,20 @@ async def main():
         elif instruction.get('type') and instruction['type'] == 'sign-drives':
             logging.info(f"sign-drives instruction: {instruction}")
             payload = json.loads(instruction['payload'])
+            for_proxy = payload.get('forProxy', False)
             signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
-            await discover_drives()
+
+            if for_proxy:
+                write_results(dict(
+                    err=None,
+                    proxy_drives=signed_drives,
+                    drive_count=len(signed_drives)
+                ))
+            else:
+                # Regular mode: discover drives and write annotation
+                await discover_drives()
         elif instruction.get('type') and instruction['type'] == 'debug':
             # TODO: Wrap this as conditional based on payload, as might fail in some cases
             raw_disks = await find_disks()
@@ -3385,6 +3742,10 @@ async def main():
 
     if MODE == "envoy":
         await ensure_envoy_container()
+        return
+
+    if MODE == "ssdproxy":
+        await ensure_ssdproxy_container()
         return
 
     await ensure_weka_container()

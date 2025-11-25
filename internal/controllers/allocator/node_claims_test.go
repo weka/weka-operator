@@ -9,6 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/consts"
 )
 
 func TestNewNodeClaims(t *testing.T) {
@@ -292,8 +294,8 @@ func TestParseNodeClaims(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "node1",
 			Annotations: map[string]string{
-				NodeDriveClaimsAnnotation: `{"drive1":"cluster1:default:container1","drive2":"cluster1:default:container1"}`,
-				NodePortClaimsAnnotation:  `{"15000,100":"cluster1:default:container1"}`,
+				consts.AnnotationDriveClaims: `{"drive1":"cluster1:default:container1","drive2":"cluster1:default:container1"}`,
+				consts.AnnotationPortClaims:  `{"15000,100":"cluster1:default:container1"}`,
 			},
 		},
 	}
@@ -350,11 +352,11 @@ func TestSaveToNode(t *testing.T) {
 		t.Fatal("Node annotations not set")
 	}
 
-	if _, ok := node.Annotations[NodeDriveClaimsAnnotation]; !ok {
+	if _, ok := node.Annotations[consts.AnnotationDriveClaims]; !ok {
 		t.Error("Drive claims annotation not set")
 	}
 
-	if _, ok := node.Annotations[NodePortClaimsAnnotation]; !ok {
+	if _, ok := node.Annotations[consts.AnnotationPortClaims]; !ok {
 		t.Error("Port claims annotation not set")
 	}
 

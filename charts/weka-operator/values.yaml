@@ -159,7 +159,7 @@ tolerationsMismatchSettings:
     - "node.kubernetes.io/not-ready"
     - "node.kubernetes.io/unreachable"
 
-signDrivesImage: quay.io/weka.io/weka-sign-tool:b1fa0a139479f2489d176a6f1235c36beb179410_x86_64
+signDrivesImage: quay.io/weka.io/weka-sign-tool:4868ef688dc37aaa95d9aa027805bf52be5bfc57
 
 taskmon:
   defaultImage: quay.io/weka.io/taskmon:b1fa0a139479f2489d176a6f1235c36beb179410_x86_64
@@ -245,6 +245,18 @@ syslogPackage: "auto"
 
 # Proxy configuration for drivers loader pod and weka home
 proxy: ""
+
+# SSD Proxy configuration for drive sharing mode
+# The proxy manages shared drive access for multi-tenant clusters
+ssdProxy:
+  # Memory allocation for the proxy (passed to weka local setup ssdproxy --memory)
+  # Accepts any format: "2gb", "2048mb", "2GiB", etc.
+  # Default: "2gb" for typical deployments
+  memory: "2gb"
+  # Hugepages allocation for the proxy in MiB (2Mi hugepages)
+  # Default: 2Gb (for proxy) + 500MiB (for other overheads)
+  # NOTE: 2256 - was too little for proxy with --memory 2gb
+  hugepagesMi: 2500
 
 # Priority classes configuration
 priorityClasses:

@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -48,10 +49,21 @@ type DriveRawInfo struct {
 	IsMounted bool   `json:"is_mounted"`
 }
 
+// ProxyDriveInfo represents a signed drive for proxy mode
+// This matches the format returned by weka_runtime.py sign_device_path_for_proxy()
+type ProxyDriveInfo struct {
+	PhysicalUUID string `json:"physical_uuid"` // Physical UUID from proxy signing
+	Serial       string `json:"serial"`        // Drive serial number
+	CapacityGiB  int    `json:"capacity_gib"`  // Capacity in GiB
+	DevicePath   string `json:"device_path"`   // Device path (e.g., /dev/nvme0n1)
+}
+
 type DriveNodeResults struct {
-	Err       error              `json:"err"`
-	Drives    []domain.DriveInfo `json:"drives"`
-	RawDrives []DriveRawInfo     `json:"raw_drives"`
+	Err         error              `json:"err"`
+	Drives      []domain.DriveInfo `json:"drives"`
+	RawDrives   []DriveRawInfo     `json:"raw_drives"`
+	ProxyDrives []ProxyDriveInfo   `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
+	DriveCount  int                `json:"drive_count,omitempty"`  // Number of proxy drives signed
 }
 
 type DiscoverDrivesResult struct {
@@ -133,7 +145,7 @@ func (o *DiscoverDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 		//if data exists and not force - skip
 		if !o.force {
-			if node.Annotations["weka.io/weka-drives"] != "" {
+			if node.Annotations[consts.AnnotationWekaDrives] != "" {
 				continue
 			}
 		}

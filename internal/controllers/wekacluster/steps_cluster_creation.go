@@ -25,9 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -145,7 +145,7 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 	defer end()
 
 	wekaCluster := r.cluster
-	if !controllerutil.ContainsFinalizer(wekaCluster, resources.WekaFinalizer) {
+	if !controllerutil.ContainsFinalizer(wekaCluster, consts.WekaFinalizer) {
 
 		wekaCluster.Status.InitStatus()
 		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
@@ -155,7 +155,7 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 			logger.Error(err, "failed to init states")
 		}
 
-		if updated := controllerutil.AddFinalizer(wekaCluster, resources.WekaFinalizer); updated {
+		if updated := controllerutil.AddFinalizer(wekaCluster, consts.WekaFinalizer); updated {
 			logger.Info("Adding Finalizer for weka cluster")
 			if err := r.getClient().Update(ctx, wekaCluster); err != nil {
 				logger.Error(err, "Failed to update custom resource to add finalizer")

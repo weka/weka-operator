@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -80,7 +81,7 @@ func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 
 	container := r.container
 
-	if ok := controllerutil.AddFinalizer(container, resources.WekaFinalizer); !ok {
+	if ok := controllerutil.AddFinalizer(container, consts.WekaFinalizer); !ok {
 		return nil
 	}
 

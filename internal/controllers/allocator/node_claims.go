@@ -12,13 +12,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
-)
-
-// Node annotation keys for resource claims
-const (
-	NodeDriveClaimsAnnotation = "weka.io/drive-claims"
-	NodePortClaimsAnnotation  = "weka.io/port-claims"
 )
 
 // ClaimKey uniquely identifies a container making a claim
@@ -53,18 +48,28 @@ func ClaimKeyFromContainer(container *weka.WekaContainer) ClaimKey {
 	return NewClaimKey(clusterName, container.Namespace, container.Name)
 }
 
+// VirtualDriveClaim represents a virtual drive allocation claim (drive sharing mode)
+type VirtualDriveClaim struct {
+	Container    ClaimKey `json:"container"`    // Container that owns this virtual drive
+	PhysicalUUID string   `json:"physicalUUID"` // Physical drive UUID (from proxy signing)
+	CapacityGiB  int      `json:"capacityGiB"`  // Allocated capacity in GiB
+}
+
 // NodeClaims represents all resource claims on a node
 type NodeClaims struct {
 	// Drive serial ID -> ClaimKey
 	Drives map[string]ClaimKey `json:"drives,omitempty"`
 	// Port range (e.g., "15000,100" for base,count) -> ClaimKey
 	Ports map[string]ClaimKey `json:"ports,omitempty"`
+	// Virtual drive UUID -> VirtualDriveClaim (drive sharing mode)
+	VirtualDrives map[string]VirtualDriveClaim `json:"virtualDrives,omitempty"`
 }
 
 func NewNodeClaims() *NodeClaims {
 	return &NodeClaims{
-		Drives: make(map[string]ClaimKey),
-		Ports:  make(map[string]ClaimKey),
+		Drives:        make(map[string]ClaimKey),
+		Ports:         make(map[string]ClaimKey),
+		VirtualDrives: make(map[string]VirtualDriveClaim),
 	}
 }
 
@@ -73,16 +78,58 @@ func ParseNodeClaims(node *v1.Node) (*NodeClaims, error) {
 	claims := NewNodeClaims()
 
 	// Parse drive claims
-	if driveClaimsStr, ok := node.Annotations[NodeDriveClaimsAnnotation]; ok && driveClaimsStr != "" {
+	if driveClaimsStr, ok := node.Annotations[consts.AnnotationDriveClaims]; ok && driveClaimsStr != "" {
 		if err := json.Unmarshal([]byte(driveClaimsStr), &claims.Drives); err != nil {
 			return nil, fmt.Errorf("failed to parse drive claims: %w", err)
 		}
 	}
 
 	// Parse port claims
-	if portClaimsStr, ok := node.Annotations[NodePortClaimsAnnotation]; ok && portClaimsStr != "" {
+	if portClaimsStr, ok := node.Annotations[consts.AnnotationPortClaims]; ok && portClaimsStr != "" {
 		if err := json.Unmarshal([]byte(portClaimsStr), &claims.Ports); err != nil {
 			return nil, fmt.Errorf("failed to parse port claims: %w", err)
+		}
+	}
+
+	// Parse virtual drive claims (compact format: array of values)
+	if virtualDriveClaimsStr, ok := node.Annotations[consts.AnnotationVirtualDriveClaims]; ok && virtualDriveClaimsStr != "" {
+		// Parse compact format: {"virtualUUID": [container, physicalUUID, capacityGiB], ...}
+		var compactClaims map[string][]any
+		if err := json.Unmarshal([]byte(virtualDriveClaimsStr), &compactClaims); err != nil {
+			return nil, fmt.Errorf("failed to parse virtual drive claims: %w", err)
+		}
+
+		// Convert from compact format to VirtualDriveClaim structs
+		for virtualUUID, arr := range compactClaims {
+			if len(arr) != 3 {
+				return nil, fmt.Errorf("virtual drive claim %s has %d fields, expected 3 (container, physicalUUID, capacityGiB)", virtualUUID, len(arr))
+			}
+
+			container, ok := arr[0].(string)
+			if !ok {
+				return nil, fmt.Errorf("virtual drive claim %s: container (field 0) is not a string", virtualUUID)
+			}
+
+			physicalUUID, ok := arr[1].(string)
+			if !ok {
+				return nil, fmt.Errorf("virtual drive claim %s: physicalUUID (field 1) is not a string", virtualUUID)
+			}
+
+			var capacityGiB int
+			switch v := arr[2].(type) {
+			case float64:
+				capacityGiB = int(v)
+			case int:
+				capacityGiB = v
+			default:
+				return nil, fmt.Errorf("virtual drive claim %s: capacityGiB (field 2) is not a number", virtualUUID)
+			}
+
+			claims.VirtualDrives[virtualUUID] = VirtualDriveClaim{
+				Container:    ClaimKey(container),
+				PhysicalUUID: physicalUUID,
+				CapacityGiB:  capacityGiB,
+			}
 		}
 	}
 
@@ -103,14 +150,29 @@ func (nc *NodeClaims) SaveToNode(ctx context.Context, k8sClient client.Client, n
 	if err != nil {
 		return fmt.Errorf("failed to marshal drive claims: %w", err)
 	}
-	node.Annotations[NodeDriveClaimsAnnotation] = string(drivesJSON)
+	node.Annotations[consts.AnnotationDriveClaims] = string(drivesJSON)
 
 	// Serialize port claims
 	portsJSON, err := json.Marshal(nc.Ports)
 	if err != nil {
 		return fmt.Errorf("failed to marshal port claims: %w", err)
 	}
-	node.Annotations[NodePortClaimsAnnotation] = string(portsJSON)
+	node.Annotations[consts.AnnotationPortClaims] = string(portsJSON)
+
+	// Serialize virtual drive claims (compact array format: [container, physicalUUID, capacityGiB])
+	compactVirtualDrives := make(map[string][]any, len(nc.VirtualDrives))
+	for virtualUUID, claim := range nc.VirtualDrives {
+		compactVirtualDrives[virtualUUID] = []any{
+			string(claim.Container),
+			claim.PhysicalUUID,
+			claim.CapacityGiB,
+		}
+	}
+	virtualDrivesJSON, err := json.Marshal(compactVirtualDrives)
+	if err != nil {
+		return fmt.Errorf("failed to marshal virtual drive claims: %w", err)
+	}
+	node.Annotations[consts.AnnotationVirtualDriveClaims] = string(virtualDrivesJSON)
 
 	// Update node with optimistic locking (ResourceVersion)
 	err = k8sClient.Update(ctx, node)
@@ -121,7 +183,8 @@ func (nc *NodeClaims) SaveToNode(ctx context.Context, k8sClient client.Client, n
 		return err
 	}
 
-	logger.Debug("Successfully saved claims to node", "node", node.Name, "drives", len(nc.Drives), "ports", len(nc.Ports))
+	logger.Debug("Successfully saved claims to node", "node", node.Name,
+		"drives", len(nc.Drives), "ports", len(nc.Ports), "virtualDrives", len(nc.VirtualDrives))
 	return nil
 }
 
@@ -151,6 +214,23 @@ func (nc *NodeClaims) AddPortClaim(portRange string, claimKey ClaimKey) error {
 	return nil
 }
 
+// AddVirtualDriveClaim adds a virtual drive claim for a container (drive sharing mode)
+func (nc *NodeClaims) AddVirtualDriveClaim(virtualUUID string, physicalUUID string, capacityGiB int, claimKey ClaimKey) error {
+	if existingClaim, exists := nc.VirtualDrives[virtualUUID]; exists {
+		if existingClaim.Container != claimKey {
+			return fmt.Errorf("virtual drive %s already claimed by %s", virtualUUID, existingClaim.Container)
+		}
+		// Already claimed by us, no-op
+		return nil
+	}
+	nc.VirtualDrives[virtualUUID] = VirtualDriveClaim{
+		Container:    claimKey,
+		PhysicalUUID: physicalUUID,
+		CapacityGiB:  capacityGiB,
+	}
+	return nil
+}
+
 // RemoveClaims removes all claims for a specific container
 func (nc *NodeClaims) RemoveClaims(claimKey ClaimKey) {
 	// Remove drive claims
@@ -164,6 +244,13 @@ func (nc *NodeClaims) RemoveClaims(claimKey ClaimKey) {
 	for portRange, owner := range nc.Ports {
 		if owner == claimKey {
 			delete(nc.Ports, portRange)
+		}
+	}
+
+	// Remove virtual drive claims
+	for virtualUUID, claim := range nc.VirtualDrives {
+		if claim.Container == claimKey {
+			delete(nc.VirtualDrives, virtualUUID)
 		}
 	}
 }
@@ -199,6 +286,17 @@ func (nc *NodeClaims) GetClaimedPorts(claimKey ClaimKey) []string {
 	return ports
 }
 
+// GetClaimedVirtualDrives returns all virtual drives claimed by a specific container
+func (nc *NodeClaims) GetClaimedVirtualDrives(claimKey ClaimKey) map[string]VirtualDriveClaim {
+	virtualDrives := make(map[string]VirtualDriveClaim)
+	for virtualUUID, claim := range nc.VirtualDrives {
+		if claim.Container == claimKey {
+			virtualDrives[virtualUUID] = claim
+		}
+	}
+	return virtualDrives
+}
+
 // Equals checks if two NodeClaims are identical
 func (nc *NodeClaims) Equals(other *NodeClaims) bool {
 	if nc == nil && other == nil {
@@ -208,7 +306,7 @@ func (nc *NodeClaims) Equals(other *NodeClaims) bool {
 		return false
 	}
 
-	if len(nc.Drives) != len(other.Drives) || len(nc.Ports) != len(other.Ports) {
+	if len(nc.Drives) != len(other.Drives) || len(nc.Ports) != len(other.Ports) || len(nc.VirtualDrives) != len(other.VirtualDrives) {
 		return false
 	}
 
@@ -220,6 +318,15 @@ func (nc *NodeClaims) Equals(other *NodeClaims) bool {
 
 	for portRange, owner := range nc.Ports {
 		if other.Ports[portRange] != owner {
+			return false
+		}
+	}
+
+	for virtualUUID, claim := range nc.VirtualDrives {
+		otherClaim, exists := other.VirtualDrives[virtualUUID]
+		if !exists || otherClaim.Container != claim.Container ||
+			otherClaim.PhysicalUUID != claim.PhysicalUUID ||
+			otherClaim.CapacityGiB != claim.CapacityGiB {
 			return false
 		}
 	}
@@ -256,6 +363,15 @@ func BuildClaimsFromContainers(containers []weka.WekaContainer) *NodeClaims {
 				agentPortRange := fmt.Sprintf("%d,1",
 					container.Status.Allocations.AgentPort)
 				claims.Ports[agentPortRange] = claimKey
+			}
+		}
+
+		// Add virtual drive claims (drive sharing mode)
+		for _, vd := range container.Status.Allocations.VirtualDrives {
+			claims.VirtualDrives[vd.VirtualUUID] = VirtualDriveClaim{
+				Container:    claimKey,
+				PhysicalUUID: vd.PhysicalUUID,
+				CapacityGiB:  vd.CapacityGiB,
 			}
 		}
 	}

@@ -57,6 +57,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	additionalMemory := 0
 	extraCores := 0
 	numDrives := 0
+	driveCapacity := 0
+	useDriveSharing := false
 
 	switch role {
 	case "compute":
@@ -66,6 +68,11 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
 		numDrives = template.NumDrives
 		extraCores = template.DriveExtraCores
+		// Set drive sharing configuration from cluster spec
+		if cluster.Spec.DriveSharing != nil && cluster.Spec.DriveSharing.Enabled {
+			useDriveSharing = true
+			driveCapacity = cluster.Spec.DriveSharing.DriveSize
+		}
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores
@@ -123,6 +130,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			HugepagesSize:         template.HugePageSize,
 			HugepagesOverride:     template.HugePagesOverride,
 			NumDrives:             numDrives,
+			UseDriveSharing:       useDriveSharing,
+			DriveCapacity:         driveCapacity,
 			WekaSecretRef:         v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService:    cluster.Spec.DriversDistService,
 			CpuPolicy:             cluster.Spec.CpuPolicy,

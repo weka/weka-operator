@@ -213,6 +213,13 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.RemoveVirtualDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondContainerDrivesResigned,
 				Reason: "Deletion",
@@ -222,6 +229,15 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.CanSkipDrivesForceResign),
 				r.container.IsDriveContainer,
 			},
+		},
+		// Cleanup SSD proxy container if this is the last drive container on the node
+		&lifecycle.SimpleStep{
+			Run: r.cleanupProxyIfNeeded,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+			},
+			ContinueOnError: true, // Don't block deletion if proxy cleanup fails
 		},
 		&lifecycle.SimpleStep{
 			Run: r.HandleDeletion,

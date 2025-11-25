@@ -57,6 +57,7 @@ go.work*
 
 changelog_generator.log
 
+.values/
 test_artifacts/
 .env*
 manager
