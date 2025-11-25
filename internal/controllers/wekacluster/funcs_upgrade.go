@@ -61,6 +61,8 @@ type UpdatableClusterSpec struct {
 	DriveExtraCores           int
 	S3ExtraCores              int
 	NfsExtraCores             int
+	DriversLoaderImage        string
+	DriversBuildId            *string
 }
 
 func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
@@ -113,6 +115,8 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		DriveExtraCores:           driveExtraCores,
 		S3ExtraCores:              s3ExtraCores,
 		NfsExtraCores:             nfsExtraCores,
+		DriversLoaderImage:        spec.GetOverrides().DriversLoaderImage,
+		DriversBuildId:            spec.GetOverrides().DriversBuildId,
 	}
 }
 
@@ -305,6 +309,16 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		}
 		if container.Spec.ExtraCores != targetExtraCores {
 			container.Spec.ExtraCores = targetExtraCores
+		}
+
+		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
+			container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage
+		}
+
+		if (container.Spec.DriversBuildId == nil && updatableSpec.DriversBuildId != nil) ||
+			(container.Spec.DriversBuildId != nil && updatableSpec.DriversBuildId == nil) ||
+			(container.Spec.DriversBuildId != nil && updatableSpec.DriversBuildId != nil && *container.Spec.DriversBuildId != *updatableSpec.DriversBuildId) {
+			container.Spec.DriversBuildId = updatableSpec.DriversBuildId
 		}
 
 		err = r.getClient().Patch(ctx, container, patch)
