@@ -10,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -529,6 +530,9 @@ func (o *MaintainTraceSession) getK8sRoutingKeyName() string {
 
 func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Context) error {
 	// another discovery mechanism, this one will map k8s pod name to endpoint of trace server that serves that pod
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	err := o.ensureClusterContainers(ctx)
 	if err != nil {
 		return err
@@ -537,10 +541,13 @@ func (o *MaintainTraceSession) EnsureK8sContainerRoutingConfigMap(ctx context.Co
 		Pods: make(map[string]ContainerInfo),
 	}
 	for _, container := range o.containers {
+		if container.IsServiceContainer() {
+			continue
+		}
 		mggmtIps := container.Status.GetManagementIps()
 		if len(mggmtIps) == 0 {
-			err = fmt.Errorf("no management ips found for container %s", container.Name)
-			return err
+			logger.Debug("skipping container with no management ips", "container", container.Name)
+			continue
 		}
 		data.Pods[container.Name] = ContainerInfo{
 			Name:                container.Spec.WekaContainerName,
