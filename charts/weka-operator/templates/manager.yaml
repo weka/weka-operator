@@ -350,6 +350,12 @@ spec:
               value: "{{ .Values.priorityClasses.initial }}"
             - name: PRIORITY_CLASS_TARGETED
               value: "{{ .Values.priorityClasses.targeted }}"
+            - name: NFS_MOUNTD_PORT
+              value: "{{ .Values.nfs.mountdPort }}"
+            - name: NFS_LOCKMANAGER_PORT
+              value: "{{ .Values.nfs.lockmanagerPort }}"
+            - name: NFS_NOTIFY_PORT
+              value: "{{ .Values.nfs.notifyPort }}"
             - name: LOG_LEVEL
               value: "{{ .Values.manager.loggerSettings.level }}"
             - name: LOG_FORMAT

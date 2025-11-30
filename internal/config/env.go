@@ -137,6 +137,12 @@ type PriorityClasses struct {
 	Targeted string
 }
 
+type NfsConfig struct {
+	MountdPort      int
+	LockmanagerPort int
+	NotifyPort      int
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -201,6 +207,7 @@ var Config struct {
 	SyslogPackage   string
 	Proxy           string
 	PriorityClasses PriorityClasses
+	Nfs             NfsConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -390,6 +397,11 @@ func ConfigureEnv(ctx context.Context) {
 	Config.PriorityClasses.Targeted = getEnvOrDefault("PRIORITY_CLASS_TARGETED", "weka-targeted-no-evict")
 
 	Config.OkeCompatibility.EnableNicsAllocation = getBoolEnvOrDefault("OKE_ENABLE_NICS_ALLOCATION", false)
+
+	// NFS configuration
+	Config.Nfs.MountdPort = getIntEnvOrDefault("NFS_MOUNTD_PORT", 0)
+	Config.Nfs.LockmanagerPort = getIntEnvOrDefault("NFS_LOCKMANAGER_PORT", 0)
+	Config.Nfs.NotifyPort = getIntEnvOrDefault("NFS_NOTIFY_PORT", 0)
 }
 
 func getEnvOrFail(envKey string) string {

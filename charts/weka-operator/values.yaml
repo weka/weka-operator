@@ -212,6 +212,15 @@ defaultIntervals:
   deleteEnvoyWithoutS3NeighborTimeout: 5m
   deleteUnschedulablePodsAfter: 1m
 
+# NFS global configuration
+nfs:
+  # Port for mountd service
+  mountdPort: 18000
+  # Port for lock manager service
+  lockmanagerPort: 18001
+  # Port for notify service
+  notifyPort: 18002
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network

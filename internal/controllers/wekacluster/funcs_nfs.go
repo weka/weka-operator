@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
@@ -32,6 +33,9 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 
 	err := wekaService.ConfigureNfs(ctx, services.NFSParams{
 		ConfigFilesystem: ".config_fs",
+		MountdPort:       config.Config.Nfs.MountdPort,
+		LockmanagerPort:  config.Config.Nfs.LockmanagerPort,
+		NotifyPort:       config.Config.Nfs.NotifyPort,
 	})
 
 	if err != nil {

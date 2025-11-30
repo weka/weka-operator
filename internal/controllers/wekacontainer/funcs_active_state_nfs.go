@@ -2,17 +2,115 @@ package wekacontainer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/services"
 )
 
-func (r *containerReconcilerLoop) JoinNfsInterfaceGroups(ctx context.Context) error {
-	wekaService := services.NewWekaService(r.ExecService, r.container)
-	err := wekaService.JoinNfsInterfaceGroups(ctx, *r.container.Status.ClusterContainerID)
-	var nfsErr *services.NfsInterfaceGroupAlreadyJoined
-	if !errors.As(err, &nfsErr) {
+const nfsInterfaceGroupName = "MgmtInterfaceGroup"
+
+// getTargetNfsInterfaces determines which interfaces should be used for NFS.
+// Priority order:
+//  1. NFSConfig.Interfaces from WekaCluster spec (explicit cluster-level config)
+//  2. EthDevice from container spec (single interface)
+//  3. EthDevices from container spec (multiple interfaces)
+//
+// Note: DeviceSubnets/Selectors are used for data interface auto-discovery, but NFS requires
+// explicit interface names. If only auto-discovery is configured without explicit interfaces,
+// an error is returned.
+func (r *containerReconcilerLoop) getTargetNfsInterfaces() ([]string, error) {
+	// Priority 1: Use cluster-level NFS interfaces if specified
+	if r.cluster != nil && r.cluster.Spec.NFSConfig != nil && len(r.cluster.Spec.NFSConfig.Interfaces) > 0 {
+		return r.cluster.Spec.NFSConfig.Interfaces, nil
+	}
+
+	// Priority 2: Use EthDevice if set (single interface)
+	if r.container.Spec.Network.EthDevice != "" {
+		return []string{r.container.Spec.Network.EthDevice}, nil
+	}
+
+	// Priority 3: Use EthDevices if set (multiple interfaces)
+	if len(r.container.Spec.Network.EthDevices) > 0 {
+		return r.container.Spec.Network.EthDevices, nil
+	}
+
+	// No explicit interfaces available - check if auto-discovery is configured
+	// (which doesn't work for NFS)
+	if len(r.container.Spec.Network.DeviceSubnets) > 0 {
+		return nil, errors.New("NFS interface group configuration with DeviceSubnets is not supported; use EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces instead")
+	}
+	if len(r.container.Spec.Network.Selectors) > 0 {
+		return nil, errors.New("NFS interface group configuration with network Selectors is not supported; use EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces instead")
+	}
+
+	return nil, errors.New("no network interfaces configured for NFS; configure EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces")
+}
+
+// calculateInterfacesHash creates a deterministic hash of interfaces for change detection
+func calculateInterfacesHash(interfaces []string) string {
+	if len(interfaces) == 0 {
+		return "empty"
+	}
+
+	// Sort to ensure consistent hash regardless of order
+	sorted := make([]string, len(interfaces))
+	copy(sorted, interfaces)
+	sort.Strings(sorted)
+
+	// Calculate SHA256 hash
+	hash := sha256.Sum256([]byte(strings.Join(sorted, ",")))
+	return hex.EncodeToString(hash[:8]) // Use first 8 bytes for shorter hash
+}
+
+// ShouldEnsureNfsInterfaceGroupPorts returns true if NFS interface group ports need to be configured.
+// It checks the condition hash against the current target interfaces hash.
+func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts() bool {
+	targetInterfaces, err := r.getTargetNfsInterfaces()
+	if err != nil {
+		// If we can't determine interfaces, we should try to run (and fail with proper error)
+		return true
+	}
+
+	currentHash := calculateInterfacesHash(targetInterfaces)
+
+	// Check if condition exists and hash matches
+	cond := meta.FindStatusCondition(r.container.Status.Conditions, condition.CondNfsInterfaceGroupsConfigured)
+	if cond != nil && cond.Status == metav1.ConditionTrue && cond.Message == currentHash {
+		return false // Already configured with current spec
+	}
+
+	return true // Needs configuration
+}
+
+func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Context) error {
+	targetInterfaces, err := r.getTargetNfsInterfaces()
+	if err != nil {
 		return err
 	}
+
+	currentHash := calculateInterfacesHash(targetInterfaces)
+
+	wekaService := services.NewWekaService(r.ExecService, r.container)
+	err = wekaService.EnsureNfsInterfaceGroupPorts(ctx, nfsInterfaceGroupName, *r.container.Status.ClusterContainerID, targetInterfaces)
+	if err != nil {
+		return err
+	}
+
+	// Update condition with the hash as the message for change detection
+	meta.SetStatusCondition(&r.container.Status.Conditions, metav1.Condition{
+		Type:    condition.CondNfsInterfaceGroupsConfigured,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Configured",
+		Message: currentHash,
+	})
+
 	return nil
 }

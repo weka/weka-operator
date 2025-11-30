@@ -56,7 +56,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.NodeIsSet,
 				r.ShouldDeactivate,
 				lifecycle.IsNotTrueCondition(condition.CondContainerDeactivated, &r.container.Status.Conditions),
-				lifecycle.IsNotFunc(r.container.IsS3Container), // no need to recover S3 container on deactivate
+				lifecycle.IsNotFunc(r.container.IsProtocolContainer), // no need to recover S3 container on deactivate
 			},
 			ContinueOnError: true,
 		},
@@ -322,8 +322,9 @@ func (r *containerReconcilerLoop) RemoveFromNfs(ctx context.Context) error {
 
 	logger.Info("Removing container from NFS", "container_id", *containerId)
 
+	// Pass empty target interfaces to remove all ports for this container
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
-	return wekaService.RemoveNfsInterfaceGroups(ctx, *containerId)
+	return wekaService.EnsureNfsInterfaceGroupPorts(ctx, "MgmtInterfaceGroup", *containerId, nil)
 }
 
 func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) error {
@@ -335,7 +336,7 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 		return errors.New("Container ID is not set")
 	}
 
-	if r.container.IsS3Container() {
+	if r.container.IsProtocolContainer() {
 		err := r.stopAndEnsureNoPod(ctx)
 		if err != nil {
 			return err
@@ -439,7 +440,7 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainers(ctx context.Contex
 	// do not reactivate more then one container per role per minute
 	reset := func() {}
 	if config.Config.RemovalThrottlingEnabled {
-		if !r.container.IsS3Container() {
+		if !r.container.IsProtocolContainer() {
 			throttler := r.ThrottlingMap.WithPartition("cluster/" + r.container.Status.ClusterID + "/" + r.container.Spec.Mode)
 			if !throttler.ShouldRun("removeDeactivatedContainers", &throttling.ThrottlingSettings{
 				Interval:                    time.Minute,

@@ -142,7 +142,8 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				loop.HasNfsContainers,
 				loop.ShouldConfigureNfsIpRanges,
 			},
-			Run: loop.EnsureNfsIpRanges,
+			ContinueOnError: true,
+			Run:             loop.EnsureNfsIpRanges,
 		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{

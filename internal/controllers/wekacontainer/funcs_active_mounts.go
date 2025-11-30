@@ -76,7 +76,7 @@ func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, er
 
 func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context) (bool, error) {
 	// do not check active mounts for s3 containers
-	if r.container.IsS3Container() {
+	if r.container.IsProtocolContainer() {
 		return true, nil
 	}
 
