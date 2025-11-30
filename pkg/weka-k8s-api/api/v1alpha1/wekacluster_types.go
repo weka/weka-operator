@@ -330,7 +330,8 @@ type EncryptionConfig struct {
 }
 
 type NfsConfig struct {
-	IpRanges []string `json:"ipRanges,omitempty"`
+	Interfaces []string `json:"interfaces,omitempty"`
+	IpRanges   []string `json:"ipRanges,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
