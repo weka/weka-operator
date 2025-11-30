@@ -2905,7 +2905,7 @@ async def get_single_device_ip(device_name: str = "default") -> str:
             # use ULA/GUA address for ipv6 (WEKA does not support link-local addresses)
             cmd = f"ip -6 addr show dev {device_name} | grep -E 'inet6 (fd|2)' | head -n1 | awk '{{print $2}}' | cut -d/ -f1"
         else:
-            cmd = f"ip addr show dev {device_name} | grep 'inet ' | awk '{{print $2}}' | cut -d/ -f1"
+            cmd = f"ip addr show dev {device_name} | grep 'inet ' | head -n1 | awk '{{print $2}}' | cut -d/ -f1"
 
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
