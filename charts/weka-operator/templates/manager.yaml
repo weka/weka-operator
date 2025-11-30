@@ -356,8 +356,6 @@ spec:
               value: "{{ .Values.nfs.lockmanagerPort }}"
             - name: NFS_NOTIFY_PORT
               value: "{{ .Values.nfs.notifyPort }}"
-            - name: LOG_LEVEL
-              value: "{{ .Values.manager.loggerSettings.level }}"
             - name: LOG_FORMAT
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL
