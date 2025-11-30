@@ -51,10 +51,11 @@ async def publish_operator_helm_chart(src: Directory, sock: Socket, repository: 
     make generate
     make rbac
     make crd
+    rm -f charts/weka-operator-*.tgz
     make chart VERSION={version}
         """])
         .with_exec(["sh", "-ec", f"""
-        helm push charts/weka-operator-*.tgz oci://{repository}
+        helm push charts/weka-operator-{version}.tgz oci://{repository}
 """])
         .stdout()
     )
