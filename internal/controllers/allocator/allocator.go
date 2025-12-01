@@ -9,6 +9,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 const (
@@ -81,9 +83,9 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 		return nil
 	}
 
-	nodePortClaims, err := t.AggregateNodePortClaims(ctx, owner)
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, owner)
 	if err != nil {
-		return fmt.Errorf("failed to aggregate node port claims: %w", err)
+		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
 	// Allocate management proxy port using the global allocations
@@ -104,10 +106,10 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 	return nil
 }
 
-// AggregateNodePortClaims aggregates all per-container port claims from node annotations
-// across all nodes in the cluster. This is used to ensure global port allocations don't
-// conflict with existing container allocations.
-func (t *ResourcesAllocator) AggregateNodePortClaims(ctx context.Context, ownerCluster OwnerCluster) ([]Range, error) {
+// AggregateContainerPortAllocations aggregates all per-container port allocations from WekaContainer Status
+// across all nodes. This is used to ensure global port allocations don't conflict with existing
+// container allocations.
+func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Context, ownerCluster OwnerCluster) ([]Range, error) {
 	// List all nodes
 	nodeList := &v1.NodeList{}
 	err := t.client.List(ctx, nodeList)
@@ -116,28 +118,34 @@ func (t *ResourcesAllocator) AggregateNodePortClaims(ctx context.Context, ownerC
 	}
 
 	aggregatedRanges := []Range{}
+	kubeService := kubernetes.NewKubeService(t.client)
 
-	// Parse port claims from each node
+	// Aggregate port allocations from all containers on each node
 	for _, node := range nodeList.Items {
-		claims, err := ParseNodeClaims(&node)
+		containers, err := kubeService.GetWekaContainersSimple(ctx, "", node.Name, nil)
 		if err != nil {
-			// Skip nodes with invalid annotations
 			continue
 		}
 
-		// Extract port ranges for this cluster only
-		for portRangeStr, claimKey := range claims.Ports {
-			// Parse ClaimKey to check if it belongs to this cluster
-			owner, err := ParseClaimKey(claimKey)
-			if err != nil {
+		for _, container := range containers {
+			if container.Status.Allocations == nil {
 				continue
 			}
 
-			// Only include ranges for the target cluster
-			if owner.ClusterName == ownerCluster.ClusterName && owner.Namespace == ownerCluster.Namespace {
-				var base, size int
-				fmt.Sscanf(portRangeStr, "%d,%d", &base, &size)
-				aggregatedRanges = append(aggregatedRanges, Range{Base: base, Size: size})
+			// Add WekaPort range (100 consecutive ports)
+			if container.Status.Allocations.WekaPort > 0 {
+				aggregatedRanges = append(aggregatedRanges, Range{
+					Base: container.Status.Allocations.WekaPort,
+					Size: WekaPortRangeSize,
+				})
+			}
+
+			// Add AgentPort (single port)
+			if container.Status.Allocations.AgentPort > 0 {
+				aggregatedRanges = append(aggregatedRanges, Range{
+					Base: container.Status.Allocations.AgentPort,
+					Size: 1,
+				})
 			}
 		}
 	}
@@ -203,9 +211,9 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 
 	// Aggregate per-container port claims from node annotations to prevent conflicts
 	// with global singleton ports (LB, S3, LbAdmin)
-	nodePortClaims, err := t.AggregateNodePortClaims(ctx, owner)
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, owner)
 	if err != nil {
-		return fmt.Errorf("failed to aggregate node port claims: %w", err)
+		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
 	var envoyPort, envoyAdminPort, s3Port Range
