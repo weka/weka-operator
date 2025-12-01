@@ -24,7 +24,6 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -34,13 +33,7 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 
 	logger.Info("Handling container deletion", "container", r.container.Name)
 
-	err := r.removeAllocations(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to remove container allocations annotations from node")
-		return err
-	}
-
-	err = r.finalizeContainer(ctx)
+	err := r.finalizeContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -53,54 +46,8 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) removeAllocations(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeAllocations")
-	defer end()
-
-	if r.node == nil {
-		return nil
-	}
-
-	logger.Info("Removing allocations", "container_id", r.container.Status.ClusterContainerID, "container_name", r.container.Name)
-	annotationAllocations := make(domain.Allocations)
-	patch := client.MergeFrom(r.node.DeepCopy())
-	allocationsStr, ok := r.node.Annotations[domain.WEKAAllocations]
-	if ok {
-		err := json.Unmarshal([]byte(allocationsStr), &annotationAllocations)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
-		}
-	} else {
-		logger.Info("No allocations found in node annotations")
-		return nil
-	}
-	updated := false
-	updatedAnnotationAllocations := make(domain.Allocations)
-	for key, alloc := range annotationAllocations {
-		if domain.GetAllocationIdentifier(r.container.ObjectMeta.Namespace, r.container.ObjectMeta.Name) == key {
-			logger.Info("Removing allocation", "allocation_id", key)
-			updated = true
-		} else {
-			updatedAnnotationAllocations[key] = alloc
-		}
-	}
-	if updated {
-		allocationsBytes, err := json.Marshal(updatedAnnotationAllocations)
-		if err != nil {
-			return fmt.Errorf("failed to marshal weka-allocations: %v", err)
-		}
-		r.node.Annotations[domain.WEKAAllocations] = string(allocationsBytes)
-		err = r.Patch(ctx, r.node, patch)
-		if err != nil {
-			return fmt.Errorf("failed to patch node annotations: %v", err)
-		}
-	}
-
-	return nil
-}
-
 func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
 
 	// first ensure no pod exists
@@ -113,14 +60,6 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	err = r.cleanupPersistentDir(ctx)
 	if err != nil {
 		return err
-	}
-
-	// Cleanup node claims (hybrid approach) - removes claims from node annotations
-	err = r.CleanupClaimsOnNode(ctx)
-	if err != nil {
-		logger.Error(err, "Error cleaning up node claims, continuing with other cleanup")
-		// Don't fail finalization if we can't clean up claims
-		// They will be rebuilt on next allocation if needed
 	}
 
 	// remove csi node topology labels
