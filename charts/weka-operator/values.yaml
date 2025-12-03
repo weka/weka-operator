@@ -10,6 +10,7 @@ image:
   repository: quay.io/weka.io/weka-operator
   # Override only, default equals to the chart version
   tag: ""
+kubeProxyImage: "gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1"
 
 imagePullSecret: quay-io-robot-secret
 deployController: true
