@@ -69,7 +69,7 @@ spec:
             - --upstream=http://127.0.0.1:8080/
             - --logtostderr=true
             - --v=0
-          image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+          image: {{ .Values.kubeProxyImage }}
           name: kube-rbac-proxy
           ports:
             - containerPort: 8443
@@ -90,9 +90,9 @@ spec:
         - command:
             - /weka-operator
           ports:
-              - containerPort: 8080
-                name: metrics
-                protocol: TCP
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
           env:
             - name: POD_NAME
               valueFrom:
