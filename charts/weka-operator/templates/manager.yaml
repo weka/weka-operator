@@ -242,6 +242,8 @@ spec:
               value: "{{ .Values.defaultIntervals.deleteUnschedulablePodsAfter }}"
             - name: REMOVE_FAILED_DRIVES_FROM_WEKA
               value: "{{ .Values.removeFailedDrives }}"
+            - name: ALLOW_MULTIPLE_PROTOCOLS_PER_NODE
+              value: "{{ .Values.allowMultipleProtocolsPerNode }}"
             - name: MANAGEMENT_PROXY_HOST_NETWORK
               value: "{{ .Values.managementProxy.hostNetwork }}"
             - name: MANAGEMENT_PROXY_INGRESS_BASE_DOMAIN

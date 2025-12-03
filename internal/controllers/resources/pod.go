@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-operator/pkg/util"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1402,7 +1402,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			LabelSelector: &metav1.LabelSelector{},
 			TopologyKey:   "kubernetes.io/hostname",
 		}
-		if f.container.HasFrontend() {
+		if f.container.HasFrontend() && !config.Config.AllowMultipleProtocolsPerNode {
 			// we don't want to allow more than one s3 or client container per node
 			// Other types of containers we validate to be once for cluster
 			term.LabelSelector.MatchExpressions = []metav1.LabelSelectorRequirement{

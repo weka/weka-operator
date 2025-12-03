@@ -562,7 +562,7 @@ func (r *containerReconcilerLoop) enforceNodeAffinity(ctx context.Context) error
 
 		var wekaContainers []weka.WekaContainer
 		var err error
-		if !r.container.IsProtocolContainer() {
+		if !(r.container.IsProtocolContainer() && !config.Config.AllowMultipleProtocolsPerNode) {
 			wekaContainers, err = r.KubeService.GetWekaContainersSimple(ctx, r.container.GetNamespace(), node, r.container.GetLabels())
 			if err != nil {
 				return err
