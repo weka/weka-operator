@@ -46,6 +46,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.NfsCores
 		hugePagesNum = template.NfsFrontendHugepages
 		hugePagesOffset = template.NfsFrontendHugepagesOffset
+	} else if role == "telemetry" {
+		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
+		numCores = 0
 	} else {
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -80,6 +83,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if slices.Contains([]string{"s3", "envoy"}, role) {
 		containerGroup = "s3"
 	}
+	if slices.Contains([]string{"compute", "telemetry"}, role) {
+		containerGroup = "compute"
+	}
 
 	wekahomeConfig, err := domain.GetWekahomeConfig(cluster)
 	if err != nil {
@@ -98,6 +104,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
 		nodeSelector = map[string]string{}
 	}
+	if role == wekav1alpha1.WekaContainerModeTelemetry { // telemetry sticks to compute, so does not need explicit node selector
+		nodeSelector = map[string]string{}
+	}
 
 	container := &wekav1alpha1.WekaContainer{
 		TypeMeta: metav1.TypeMeta{
@@ -114,10 +123,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			Image:                 cluster.Spec.Image,
 			ImagePullSecret:       cluster.Spec.ImagePullSecret,
 			WekaContainerName:     strings.Replace(name, "-", "x", -1),
-			Mode:                  role,
-			NumCores:              numCores,
-			ExtraCores:            extraCores,
-			Network:               network,
+			Mode:       role,
+			NumCores:   numCores,
+			ExtraCores: extraCores,
+			Network:    network,
 			Hugepages:             hugePagesNum,
 			HugepagesOffset:       hugePagesOffset,
 			HugepagesSize:         template.HugePageSize,

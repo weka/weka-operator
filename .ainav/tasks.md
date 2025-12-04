@@ -2,13 +2,14 @@
 
 Quick reference for common modifications.
 
+> **Note**: After completing any task, update relevant `.ainav` files if your changes affect navigation (new files, changed purposes, new features).
+
 ## Adding a Controller Operation
 
 1. Review existing patterns in `internal/controllers/operations/`
 2. Create operation file (e.g., `my_operation.go`)
 3. Define operation struct and execute method
 4. Wire into controller (WekaPolicy or WekaManualOperation)
-5. Update `.ainav/operations/index.md`
 
 See [operations/index.md](operations/index.md) for file organization.
 
@@ -19,7 +20,6 @@ See [operations/index.md](operations/index.md) for file organization.
    - State flow: `wekacontainer/flow_{state}.go`
    - Specific logic: `wekacontainer/funcs_{topic}.go`
 3. Follow step-based pattern using `go-steps-engine`
-4. Update `.ainav/controllers/wekacontainer.md` if adding files
 
 See [controllers/wekacontainer.md](controllers/wekacontainer.md) for file map.
 
@@ -28,7 +28,6 @@ See [controllers/wekacontainer.md](controllers/wekacontainer.md) for file map.
 1. Add env var to `internal/config/env.go`
 2. Add default to `charts/weka-operator/values.yaml`
 3. Wire env var in `charts/weka-operator/templates/manager.yaml`
-4. Update `.ainav/config/index.md` if significant
 
 See [config/index.md](config/index.md) for config overview.
 
@@ -37,7 +36,6 @@ See [config/index.md](config/index.md) for config overview.
 1. Edit types in `pkg/weka-k8s-api/api/v1alpha1/`
 2. Run `make manifests` to regenerate CRDs
 3. Run `make generate-api-docs` to update docs
-4. Update `.ainav` if adding new resources
 
 ## Adding CSI Functionality
 

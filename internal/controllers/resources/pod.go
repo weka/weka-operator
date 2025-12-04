@@ -40,6 +40,7 @@ var terminationGracePeriodSecondsMap = map[string]int64{
 	weka.WekaContainerModeAdhocOpWC:      60,
 	weka.WekaContainerModeAdhocOp:        60,
 	weka.WekaContainerModeEnvoy:          60 * 5,
+	weka.WekaContainerModeTelemetry:      60 * 5,
 }
 
 type WekaLocalStatusSlot struct {
@@ -545,6 +546,16 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			MountPath: inPodHostBinds + "/shared-configs",
 			SubPath:   "shared-configs",
 		})
+
+		// Telemetry container needs shared-configs mounted to /opt/weka/external_mounts/shared_boot_level
+		// so that the telemetry gateway can auto-discover its configuration
+		if f.container.IsTelemetry() {
+			pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+				Name:      "weka-cluster-persistence-dir",
+				MountPath: "/opt/weka/external_mounts/shared_boot_level",
+				SubPath:   "shared-configs",
+			})
+		}
 
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "weka-container-persistence-dir",
@@ -1198,6 +1209,14 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memLimit = fmt.Sprintf("%dMi", total+8192)
 	}
 
+	// Telemetry container has hardcoded resources: 1 CPU request, 4 CPUs limit, 4GiB RAM request, 32GiB RAM limit
+	if f.container.Spec.Mode == weka.WekaContainerModeTelemetry {
+		cpuRequestStr = "1"
+		cpuLimitStr = "4"
+		memRequest = "4Gi"
+		memLimit = "32Gi"
+	}
+
 	if memLimit == "" {
 		memLimit = memRequest
 	}
@@ -1339,6 +1358,28 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"weka.io/mode":       weka.WekaContainerModeS3,
+						"weka.io/cluster-id": clusterId,
+					},
+				},
+				TopologyKey: "kubernetes.io/hostname",
+			}
+			if pod.Spec.Affinity.PodAffinity == nil {
+				pod.Spec.Affinity.PodAffinity = &corev1.PodAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{term},
+				}
+			} else {
+				terms := pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+				terms = append(terms, term)
+				pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = terms
+			}
+		}
+
+		if f.container.IsTelemetry() {
+			// schedule together with compute, required during scheduling
+			term := corev1.PodAffinityTerm{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"weka.io/mode":       weka.WekaContainerModeCompute,
 						"weka.io/cluster-id": clusterId,
 					},
 				},

@@ -139,6 +139,9 @@ func (r *containerReconcilerLoop) checkContainerNotFound(localPsResponse []servi
 		} else if c.Name == "envoy" && container.IsEnvoy() {
 			found = true
 			break
+		} else if c.Name == "telemetry" && container.IsTelemetry() {
+			found = true
+			break
 		}
 	}
 

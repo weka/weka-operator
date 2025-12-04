@@ -196,8 +196,9 @@ var Config struct {
 	RemovalThrottlingEnabled               bool
 	SkipClientsTolerationValidation        bool
 	TolerationsMismatchSettings            TolerationsMismatchSettings
-	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
-	DeleteUnschedulablePodsAfter           time.Duration
+	DeleteEnvoyWithoutS3NeighborTimeout          time.Duration
+	DeleteTelemetryWithoutComputeNeighborTimeout time.Duration
+	DeleteUnschedulablePodsAfter                 time.Duration
 	RemoveFailedDrivesFromWeka             bool
 	AllowMultipleProtocolsPerNode          bool
 	ManagementProxyHostNetwork             bool
@@ -367,6 +368,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.TolerationsMismatchSettings.EnableIgnoredTaints = getBoolEnvOrDefault("TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS", true)
 	Config.TolerationsMismatchSettings.IgnoredTaints = getStringSlice("TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS")
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
+	Config.DeleteTelemetryWithoutComputeNeighborTimeout = getDurationEnvOrDefault("DELETE_TELEMETRY_WITHOUT_COMPUTE_NEIGHBOR_TIMEOUT", 5*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)
