@@ -95,6 +95,10 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			logger.Info("container marked for deletion, skipping", "container", container.Name)
 			continue
 		}
+		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage == "" {
+			logger.Info("container is a new container and does not need upgrade", "container_name", container.Name)
+			continue
+		}
 		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage != container.Spec.Image {
 			if container.GetNodeAffinity() == "" {
 				logger.Debug("container does not have node affinity, skipping", "container", container.Name)
