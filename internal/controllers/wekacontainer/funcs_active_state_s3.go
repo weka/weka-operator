@@ -122,3 +122,85 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 
 	return nil
 }
+
+func (r *containerReconcilerLoop) deleteTelemetryIfNoComputeNeighbor(ctx context.Context) error {
+	if !r.container.IsTelemetry() {
+		return nil // only telemetry containers should be checked
+	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	nodeName := r.container.GetNodeAffinity()
+
+	if nodeName != "" {
+		ownerRefs := r.container.GetOwnerReferences()
+		if len(ownerRefs) == 0 {
+			return errors.New("no owner references found")
+		} else if len(ownerRefs) > 1 {
+			return errors.New("more than one owner reference found")
+		}
+
+		ownerUid := string(ownerRefs[0].UID)
+		// Check if there are any compute wekacontainers on the same node
+		computeContainers, err := discovery.GetClusterContainersByClusterUID(ctx, r.Manager.GetClient(), ownerUid, r.container.Namespace, weka.WekaContainerModeCompute)
+		if err != nil {
+			return err
+		}
+
+		foundComputeNeighbor := false
+		for _, computeContainer := range computeContainers {
+			if computeContainer.GetNodeAffinity() == nodeName {
+				foundComputeNeighbor = true
+				break
+			}
+		}
+		if foundComputeNeighbor {
+			logger.Debug("Found compute neighbor, not deleting telemetry container")
+			return nil
+		}
+	}
+
+	noComputeNeighborKey := "NoComputeNeighbor"
+
+	if r.container.Status.Timestamps == nil {
+		r.container.Status.Timestamps = make(map[string]metav1.Time)
+	}
+	if since, ok := r.container.Status.Timestamps[noComputeNeighborKey]; !ok {
+		r.container.Status.Timestamps[noComputeNeighborKey] = metav1.Time{Time: time.Now()}
+		if err := r.Status().Update(ctx, r.container); err != nil {
+			return err
+		}
+
+		return lifecycle.NewWaitErrorWithDuration(
+			errors.New("Telemetry container has no compute neighbor, waiting before deleting it"),
+			time.Second*15,
+		)
+	} else if time.Since(since.Time) < config.Config.DeleteTelemetryWithoutComputeNeighborTimeout {
+		logger.Info("Telemetry container has no compute neighbor, but waiting before deleting it",
+			"waited", time.Since(since.Time).String(),
+			"node", nodeName,
+		)
+		return nil
+	}
+
+	_ = r.RecordEvent(
+		v1.EventTypeNormal,
+		"TelemetryContainerWithoutComputeNeighbor",
+		"Telemetry container has no compute neighbor, deleting it",
+	)
+
+	if err := r.Client.Delete(ctx, r.container); err != nil {
+		return errors.Wrap(err, "failed to delete telemetry container")
+	}
+
+	// Clear the timestamp to avoid re-deleting the container on next reconcile
+	delete(r.container.Status.Timestamps, noComputeNeighborKey)
+	if err := r.Status().Update(ctx, r.container); err != nil {
+		return errors.Wrap(err, "failed to update container status after deleting telemetry")
+	}
+
+	logger.Info("Telemetry container deleted as it has no compute neighbor")
+
+	return nil
+}

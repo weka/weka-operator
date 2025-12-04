@@ -134,6 +134,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deleteTelemetryIfNoComputeNeighbor,
+			Predicates: lifecycle.Predicates{
+				r.container.IsTelemetry,
+			},
+		},
+		&lifecycle.SimpleStep{
 			// let drivers being re-built if node with drivers container is not found
 			Run: r.clearStatusOnNodeNotFound,
 			Predicates: lifecycle.Predicates{
