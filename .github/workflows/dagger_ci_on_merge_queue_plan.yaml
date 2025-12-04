@@ -9,8 +9,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha"
-  NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3"
+  INITIAL_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3"
+  NEW_WEKA_VERSION: "quay.io/weka.io/weka-in-container:4.4.10.183"
 
 jobs:
   optimize_ci:
