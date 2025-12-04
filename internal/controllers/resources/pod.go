@@ -609,13 +609,14 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		}
 	}
 
-	// Proxy and drive-with-sharing containers need access to proxy socket directory
-	needsProxyMount := f.container.Spec.Mode == weka.WekaContainerModeSSDProxy ||
-		(f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing)
-
-	if needsProxyMount {
-		// Node-level path for proxy state (shared across all drive containers on the node)
-		hostsideProxyPersistence := f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/ssdproxy/"
+	// Proxy containers need access to their per-container socket directory
+	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		// Use per-container path like other weka containers
+		// On host: /opt/k8s-weka/shared/containers/{UID}/local-sockets/ssdproxy/
+		// This follows the same pattern as other containers for consistency
+		containerUID := string(f.container.GetUID())
+		hostsideProxySocketDir := f.nodeInfo.GetHostsidePersistenceBaseLocation() +
+			"/shared/containers/" + containerUID + "/local-sockets/ssdproxy"
 		volumeName := "weka-proxy-socket-dir"
 		pathType := corev1.HostPathDirectoryOrCreate
 
@@ -628,12 +629,16 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideProxyPersistence,
+					Path: hostsideProxySocketDir,
 					Type: &pathType,
 				},
 			},
 		})
 	}
+
+	// Drive-with-sharing containers need access to the ssdproxy's socket
+	// They will look it up via the standard /host-binds/shared/containers/{ssdproxy-UID}/local-sockets/ssdproxy/ path
+	// which is already mounted via the shared volume, so no special mount needed
 
 	if f.container.IsDiscoveryContainer() {
 		allowCosHugepageConfig := config.Config.GkeCompatibility.HugepageConfiguration.Enabled
@@ -1277,7 +1282,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
-		memRequest = "2Gi"
+		// Memory needs to account for hugepages allocation
+		// Base memory (2Gi) + overhead buffer
+		baseMemory := 2048
+		buffer := 512
+		memRequest = fmt.Sprintf("%dMi", baseMemory+buffer+hgDetails.HugePagesMb)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeClient {

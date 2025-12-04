@@ -13,15 +13,16 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"go.opentelemetry.io/otel/codes"
-	v1 "k8s.io/api/core/v1"
-
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/utils"
+	"github.com/weka/weka-operator/internal/node_agent"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
+	"go.opentelemetry.io/otel/codes"
+	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // AddVirtualDrives signs virtual drives on physical proxy devices using weka-sign-drive virtual add
@@ -31,7 +32,6 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	defer end()
 
 	container := r.container
-	pod := r.pod
 
 	// Only for drive sharing mode
 	if !container.Spec.UseDriveSharing {
@@ -51,14 +51,26 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
 
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	// Find the ssdproxy container on the same node
+	// The JSONRPC call must be made to the ssdproxy, not the drive container
+	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to find ssdproxy container on node: %w", err)
+	}
+
+	// Get the node agent pod for making JSONRPC calls
+	agentPod, err := r.GetNodeAgentPod(ctx, container.GetNodeAffinity())
 	if err != nil {
 		return err
 	}
 
-	// Get list of virtual drives already signed on proxy devices (not yet added to cluster)
-	// This checks the actual device state via weka-sign-drive list --json
-	signedVirtualDrives, err := r.getSignedVirtualDrives(ctx, executor)
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Get list of virtual drives already signed on proxy devices via JSONRPC
+	signedVirtualDrives, err := r.getSignedVirtualDrives(ctx, ssdproxyContainer, agentPod, token)
 	if err != nil {
 		return fmt.Errorf("failed to get signed virtual drives: %w", err)
 	}
@@ -89,33 +101,75 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 			continue
 		}
 
-		l.Info("Signing virtual drive on physical device")
+		l.Info("Adding virtual drive via ssdproxy JSONRPC through node agent",
+			"ssdproxy_name", ssdproxyContainer.Name,
+			"ssdproxy_uid", ssdproxyContainer.UID,
+			"node", container.GetNodeAffinity())
 
-		// Build weka-sign-drive virtual add command
-		// Command: weka-sign-drive virtual add {device} --virtual-uuid {uuid} --owner-cluster-guid {cluster} --size {capacity}
-		cmd := fmt.Sprintf(
-			"weka-sign-drive virtual add %s --virtual-uuid %s --owner-cluster-guid %s --size %d",
-			vd.DevicePath,
-			vd.VirtualUUID,
-			container.Status.ClusterID,
-			vd.CapacityGiB,
-		)
+		// Call ssd_proxy JSONRPC API via node agent
+		// The node agent will handle the Unix socket communication
+		method := "ssd_proxy_add_virtual_drive"
 
-		stdout, stderr, err := executor.ExecNamed(ctx, "SignVirtualDrive", []string{"bash", "-ce", cmd})
+		params := map[string]any{
+			"virtualUuid":  vd.VirtualUUID,
+			"physicalUuid": vd.PhysicalUUID,
+			"clusterGuid":  container.Status.ClusterID,
+			"sizeGB":       vd.CapacityGiB,
+		}
+
+		payload := node_agent.JSONRPCProxyPayload{
+			ContainerId: string(ssdproxyContainer.GetUID()),
+			Method:      method,
+			Params:      params,
+		}
+
+		l.Info("Calling ssdproxy JSONRPC via node agent",
+			"method", method,
+			"params", params,
+			"ssdproxy_container_id", ssdproxyContainer.UID,
+			"node", container.GetNodeAffinity())
+
+		// Marshal payload to JSON
+		jsonData, err := json.Marshal(payload)
 		if err != nil {
-			l.Error(err, "Failed to sign virtual drive", "stderr", stderr.String())
-			errs = append(errs, fmt.Errorf("failed to sign virtual drive %s: %w, stderr: %s", vd.VirtualUUID, err, stderr.String()))
+			l.Error(err, "Failed to marshal payload")
+			errs = append(errs, fmt.Errorf("failed to marshal payload for virtual drive %s: %w", vd.VirtualUUID, err))
 			continue
 		}
 
-		l.Info("Virtual drive signed successfully", "stdout", stdout.String())
+		// Call node agent's /jsonrpc endpoint
+		url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+		resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+		if err != nil {
+			l.Error(err, "Failed to call node agent", "node", container.GetNodeAffinity())
+			errs = append(errs, fmt.Errorf("failed to add virtual drive %s on node %s: %w", vd.VirtualUUID, container.GetNodeAffinity(), err))
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Read response body for logging
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			l.Error(readErr, "Failed to read response body", "node", container.GetNodeAffinity())
+			errs = append(errs, fmt.Errorf("failed to read response for virtual drive %s on node %s: %w", vd.VirtualUUID, container.GetNodeAffinity(), readErr))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			err := fmt.Errorf("node agent returned status: %s, body: %s", resp.Status, string(respBody))
+			l.Error(err, "Failed to add virtual drive via JSONRPC", "node", container.GetNodeAffinity())
+			errs = append(errs, fmt.Errorf("failed to add virtual drive %s on node %s: %w", vd.VirtualUUID, container.GetNodeAffinity(), err))
+			continue
+		}
+
+		l.Info("Virtual drive added successfully via ssdproxy JSONRPC", "response", string(respBody))
 	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors while signing virtual drives: %v", errs)
 	}
 
-	logger.InfoWithStatus(codes.Ok, "All virtual drives signed successfully")
+	logger.InfoWithStatus(codes.Ok, "All virtual drives added successfully")
 	return nil
 }
 
@@ -274,8 +328,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding virtual drive to cluster")
 
-			// Add drive using device path (virtual drive UUID was already signed via AddVirtualDrives)
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.DevicePath)
+			// Add drive using virtual UUID (virtual UUID was already signed on device via AddVirtualDrives)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID)
 			if err != nil {
 				l.Error(err, "Error adding virtual drive to cluster")
 				errs = append(errs, err)
@@ -695,4 +749,49 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 
 	logger.Info("Drive removed from weka")
 	return nil
+}
+
+// findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container
+func (r *containerReconcilerLoop) findSSDProxyOnNode(ctx context.Context) (*weka.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "findSSDProxyOnNode")
+	defer end()
+
+	container := r.container
+	nodeName := container.GetNodeAffinity()
+	if nodeName == "" {
+		return nil, errors.New("container has no node affinity")
+	}
+
+	// Get the operator namespace where ssdproxy containers are deployed
+	operatorNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get operator namespace: %w", err)
+	}
+
+	// List all ssdproxy containers in the operator namespace
+	// Note: We don't filter by cluster because ssdproxy containers are shared across clusters on the same node
+	containerList := &weka.WekaContainerList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(operatorNamespace),
+		client.MatchingLabels{"weka.io/mode": weka.WekaContainerModeSSDProxy},
+	}
+
+	err = r.Manager.GetClient().List(ctx, containerList, listOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list ssdproxy containers: %w", err)
+	}
+
+	// Find the ssdproxy on the same node
+	for i := range containerList.Items {
+		proxy := &containerList.Items[i]
+		if proxy.GetNodeAffinity() == nodeName {
+			logger.Info("Found ssdproxy container on node",
+				"ssdproxy_name", proxy.Name,
+				"ssdproxy_uid", proxy.UID,
+				"node", nodeName)
+			return proxy, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no ssdproxy container found on node %s", nodeName)
 }
