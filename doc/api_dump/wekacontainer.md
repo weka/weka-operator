@@ -55,6 +55,7 @@
 | mode | string |  |
 | numCores | int | numCores is weka-specific cores |
 | extraCores | int | extraCores is temporary solution for S3 containers, cores allocation on top of weka cores |
+| tgCores | int | tgCores is cores for telemetry gateway, only applied when telemetry exports are configured |
 | coreIds | []int |  |
 | cpuPolicy | CpuPolicy |  |
 | network | Network |  |

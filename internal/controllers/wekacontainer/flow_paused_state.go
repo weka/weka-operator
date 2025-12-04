@@ -21,6 +21,12 @@ func PausedStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deleteTelemetryIfNoComputeNeighbor,
+			Predicates: lifecycle.Predicates{
+				r.container.IsTelemetry,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.handleStatePaused,
 		},
 	}

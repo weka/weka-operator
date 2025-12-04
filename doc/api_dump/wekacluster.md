@@ -24,6 +24,7 @@
 - [RoleCoreIds](#rolecoreids)
 - [EncryptionConfig](#encryptionconfig)
 - [NfsConfig](#nfsconfig)
+- [TelemetryConfig](#telemetryconfig)
 - [ClusterMetrics](#clustermetrics)
 - [ClusterPrinterColumns](#clusterprintercolumns)
 - [RoleTopologySpreadConstraints](#roletopologyspreadconstraints)
@@ -31,11 +32,13 @@
 - [NetworkSelector](#networkselector)
 - [AdvancedCsiConfig](#advancedcsiconfig)
 - [VaultConfig](#vaultconfig)
+- [TelemetryExport](#telemetryexport)
 - [ContainersMetrics](#containersmetrics)
 - [IoStats](#iostats)
 - [DriveMetrics](#drivemetrics)
 - [CapacityMetrics](#capacitymetrics)
 - [FilesystemMetrics](#filesystemmetrics)
+- [SplunkExportConfig](#splunkexportconfig)
 - [ContainerMetrics](#containermetrics)
 - [StatusThroughput](#statusthroughput)
 - [StatusIops](#statusiops)
@@ -93,6 +96,7 @@
 | roleCoreIds | RoleCoreIds | RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should<br>be assigned to containers of the specific role when CpuPolicy is set to<br>"manual". If the slice for the given role is empty, core ids will not be<br>set for that role, and the manual policy will fail validation on pod start.<br>NOTE: The semantics are the same as for NodeSelector/Annotations structures –<br>a single list per role which will be copied to every container of that role.<br>Users are responsible to provide a set that makes sense for their topology.<br>Example:<br>roleCoreIds:<br>compute: [0,1,2,3]<br>drive:   [4,5,6,7]<br>will result in every compute container getting coreIds [0,1,2,3] and every<br>drive container getting [4,5,6,7]. |
 | encryption | *EncryptionConfig |  |
 | nfs | *NfsConfig |  |
+| telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
 
 ---
 
@@ -248,6 +252,7 @@
 | nfsExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container |
 | nfsFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend |
 | nfsFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend |
+| tgCores | *int | TgCores is the number of cores for telemetry gateway container.<br>nil means auto-defined (default is 1 when telemetry exports are configured).<br>0 means explicitly no additional cores despite telemetry being enabled.<br>These cores are allocated only when telemetry exports are enabled. |
 
 ---
 
@@ -290,6 +295,7 @@
 | upgradePaused | bool | Pause upgrade |
 | upgradePausePreCompute | bool | Prevent from moving into compute phase |
 | podTerminationDeactivationTimeout | *metav1.Duration | Timeout duration for deactivating pods that are terminating longer than this duration.<br>When nil (default), the default timeout of 5 minutes is used.<br>When set to 0, deactivation of terminating pods is disabled.<br>Otherwise, the specified duration is used. |
+| cancelDeletion | bool | Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism |
 
 ---
 
@@ -335,7 +341,16 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
+| interfaces | []string |  |
 | ipRanges | []string |  |
+
+---
+
+## TelemetryConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| exports | []TelemetryExport | List of telemetry exports to configure |
 
 ---
 
@@ -427,6 +442,16 @@
 
 ---
 
+## TelemetryExport
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| name | string | Name is the unique identifier for this export |
+| sources | []string | Sources specifies which telemetry sources to export (e.g., "audit") |
+| splunk | *SplunkExportConfig | Splunk configuration for Splunk HEC export |
+
+---
+
 ## ContainersMetrics
 
 | JSON Field | Type | Description |
@@ -481,6 +506,15 @@
 | totalObsCapacity | IntMetric |  |
 | obsBucketCount | IntMetric |  |
 | activeObsBucketCount | IntMetric |  |
+
+---
+
+## SplunkExportConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| authTokenSecretRef | string | AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.<br>Format: "secretName.keyName" where secretName is the name of the secret in the same namespace<br>and keyName is the key within the secret's data that contains the token. |
+| endpoint | string | Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI) |
 
 ---
 

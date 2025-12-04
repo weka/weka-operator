@@ -1020,12 +1020,12 @@ async def list_weka_proxy_drives_with_sign_tool():
         # Parse JSON output - skip non-JSON lines at the beginning
         try:
             output_text = stdout.decode('utf-8')
-            
+
             # Find the start of JSON (first '{' character)
             json_start = output_text.find('{')
             if json_start == -1:
                 raise ValueError("No JSON found in weka-sign-drive output")
-            
+
             # Extract JSON portion
             json_text = output_text[json_start:]
             drive_data = json.loads(json_text)
@@ -2800,11 +2800,21 @@ async def configure_persistency():
         fi
 
         if [ -d /host-binds/shared-configs ]; then
+            # Generic, all uses should migrate to this variant
+            mkdir -p /opt/weka/external-mounts/shared_boot_level
+            mount -o bind /host-binds/shared-configs /opt/weka/external-mounts/shared_boot_level
+        
+            # Envoy-specific due to lack of generic support
             ENVOY_DIR=/opt/weka/envoy
             EXT_ENVOY_DIR=/host-binds/shared-configs/envoy
             mkdir -p $ENVOY_DIR
             mkdir -p $EXT_ENVOY_DIR
             mount -o bind $EXT_ENVOY_DIR $ENVOY_DIR
+            
+            # Audit-traces specific due to lack of generic support
+            mkdir -p /opt/weka/wtracer
+            mkdir -p /host-binds/shared-configs/audit-traces
+            mount -o bind /host-binds/shared-configs/audit-traces /opt/weka/wtracer
         fi
 
         mkdir -p {WEKA_K8S_RUNTIME_DIR}
@@ -3222,6 +3232,84 @@ async def ensure_envoy_container():
     pass
 
 
+async def ensure_telemetry_container():
+    logging.info("ensuring telemetry container")
+    cmd = dedent(f"""
+        weka local ps | grep telemetry || weka local setup telemetry --not-dependent
+    """)
+    _, _, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to ensure telemetry container")
+    pass
+
+
+def write_telemetry_config_override():
+    """Write config override for telemetry container audit traces.
+
+    Sets tracesRetentionSize to 10GiB and minimumFreeSpace to 80% of total capacity.
+    Only writes if file doesn't exist or content differs. Uses atomic write pattern.
+    """
+    config_path = "/opt/weka/external-mounts/shared_boot_level/audit-traces/override.config.json"
+    audit_traces_dir = "/opt/weka/external-mounts/shared_boot_level/audit-traces"
+
+    if not os.path.isdir(audit_traces_dir):
+        logging.info(f"Audit traces directory {audit_traces_dir} does not exist, skipping config override")
+        return
+
+    # Calculate minimumFreeSpace as 80% of total capacity
+    try:
+        stat = os.statvfs(audit_traces_dir)
+        total_capacity = stat.f_blocks * stat.f_frsize
+        minimum_free_space = int(total_capacity * 0.2)
+    except Exception as e:
+        logging.warning(f"Failed to get filesystem stats for {audit_traces_dir}: {e}, using default minimumFreeSpace")
+        minimum_free_space = 5368709120  # fallback to ~5GiB
+
+    # 10GiB in bytes
+    traces_retention_size = 10 * 1024 * 1024 * 1024  # 10737418240
+
+    config_override = {
+        "global": {
+            "dumping": {
+                "histogramRetentionSize": 134217728,
+                "maxHistograms": 30000,
+                "minimumFreeSpace": minimum_free_space,
+                "tracesRetentionSize": traces_retention_size
+            }
+        }
+    }
+
+    new_content = json.dumps(config_override)
+
+    # Check if file exists and content matches
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                existing_content = f.read()
+            if existing_content == new_content:
+                logging.info(f"Telemetry config override already up to date at {config_path}")
+                return
+        except Exception as e:
+            logging.warning(f"Failed to read existing config at {config_path}: {e}")
+
+    # Atomic write: write to temp file then move
+    temp_path = os.path.join(audit_traces_dir, f".config.json.tmp.{os.getpid()}")
+    logging.info(f"Writing telemetry config override: tracesRetentionSize={traces_retention_size}, minimumFreeSpace={minimum_free_space}")
+    try:
+        with open(temp_path, 'w') as f:
+            f.write(new_content)
+        os.rename(temp_path, config_path)
+        logging.info(f"Telemetry config override written to {config_path}")
+    except Exception as e:
+        logging.error(f"Failed to write telemetry config override: {e}")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise
+
+
 async def ensure_ssdproxy_container():
     logging.info("ensuring ssdproxy container")
     # Use SSD_PROXY_MEMORY if set, otherwise fall back to MEMORY env var
@@ -3390,7 +3478,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -3448,9 +3536,9 @@ async def wait_for_resources():
     if "failureDomain" in data:
         FAILURE_DOMAIN = data["failureDomain"]
         logging.info("Failure Domain: %s", FAILURE_DOMAIN)
-    if parse_port(PORT) == 0 and MODE != 'envoy':
+    if parse_port(PORT) == 0 and MODE not in ['envoy', 'telemetry']:
         PORT = data["wekaPort"]
-    if parse_port(AGENT_PORT) == 0:
+    if parse_port(AGENT_PORT) == 0 and MODE != 'telemetry':
         AGENT_PORT = data["agentPort"]
 
     await save_weka_ports_data()
@@ -3855,7 +3943,7 @@ async def main():
 
     await override_dependencies_flag()
     if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
-                    "adhoc-op"]:
+                    "adhoc-op", "telemetry"]:
         await ensure_drivers()
 
     if MODE != "adhoc-op":
@@ -3988,8 +4076,15 @@ async def main():
         await ensure_ssdproxy_container()
         return
 
+    if MODE == "telemetry":
+        await ensure_telemetry_container()
+        write_telemetry_config_override()
+        return
+
     await ensure_weka_container()
     await configure_traces()
+    if MODE == "compute":
+        write_telemetry_config_override()
     await start_weka_container()
     await ensure_container_exec()
     await write_feature_flags_json()

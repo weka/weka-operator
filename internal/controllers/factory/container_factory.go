@@ -47,6 +47,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.NfsCores
 		hugePagesNum = template.NfsFrontendHugepages
 		hugePagesOffset = template.NfsFrontendHugepagesOffset
+	case "telemetry":
+		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
+		numCores = 0
 	default:
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -85,6 +88,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	if slices.Contains([]string{"s3", "envoy"}, role) {
 		containerGroup = "s3"
 	}
+	if slices.Contains([]string{"compute", "telemetry"}, role) {
+		containerGroup = "compute"
+	}
 
 	wekahomeConfig, err := domain.GetWekahomeConfig(cluster)
 	if err != nil {
@@ -101,6 +107,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
 	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+		nodeSelector = map[string]string{}
+	}
+	if role == wekav1alpha1.WekaContainerModeTelemetry { // telemetry sticks to compute, so does not need explicit node selector
 		nodeSelector = map[string]string{}
 	}
 
