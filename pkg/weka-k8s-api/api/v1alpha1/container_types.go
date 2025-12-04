@@ -93,6 +93,7 @@ const (
 	WekaContainerModeNfs            = "nfs"
 	WekaContainerModeEnvoy          = "envoy"
 	WekaContainerModeSSDProxy       = "ssdproxy"
+	WekaContainerModeTelemetry      = "telemetry"
 	WekaContainerModeAdhocOpWC      = "adhoc-op-with-container"
 	WekaContainerModeAdhocOp        = "adhoc-op"
 	PersistencePathBase             = "/opt/k8s-weka"
@@ -199,7 +200,7 @@ type WekaContainerSpec struct {
 	Image             string             `json:"image"`
 	ImagePullSecret   string             `json:"imagePullSecret,omitempty"`
 	WekaContainerName string             `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;ssdproxy
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;telemetry;ssdproxy
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -521,7 +522,7 @@ func (w *WekaContainer) IsDriversLoaderMode() bool {
 }
 
 func (w *WekaContainer) RequiresDrivers() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsTelemetry()
 }
 
 func (w *WekaContainer) IsServiceContainer() bool {
@@ -538,11 +539,11 @@ func (w *WekaContainer) IsServiceContainer() bool {
 }
 
 func (w *WekaContainer) IsHostNetwork() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsSSDProxyContainer()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
 }
 
 func (w *WekaContainer) ShouldJoinCluster() bool {
-	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsSSDProxyContainer()
+	return w.IsWekaContainer() && !w.IsDriversContainer() && !w.IsEnvoy() && !w.IsSSDProxyContainer() && !w.IsTelemetry()
 }
 
 func (w *WekaContainer) IsDriversContainer() bool {
@@ -581,6 +582,7 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeDriversDist,
 		WekaContainerModeNfs,
 		WekaContainerModeSSDProxy,
+		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
@@ -620,15 +622,16 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeNfs,
 		WekaContainerModeSSDProxy,
+		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeTelemetry}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
-	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy()
+	return w.IsAllocatable() && w.IsBackend() || w.IsEnvoy() || w.IsTelemetry()
 }
 
 func (w *WekaContainer) HasAgent() bool {
@@ -643,11 +646,12 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeNfs,
 		WekaContainerModeSSDProxy,
+		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeTelemetry}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) GetNodeAffinity() NodeName {
@@ -704,6 +708,10 @@ func (w *WekaContainer) GetParentClusterId() string {
 
 func (w *WekaContainer) IsEnvoy() bool {
 	return w.Spec.Mode == WekaContainerModeEnvoy
+}
+
+func (w *WekaContainer) IsTelemetry() bool {
+	return w.Spec.Mode == WekaContainerModeTelemetry
 }
 
 func (w *WekaContainer) GetPort() int {

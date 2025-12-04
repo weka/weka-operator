@@ -44,4 +44,5 @@ const (
 	CondClusterKMSConfigured         = "KMSConfigured"
 	CondManagementServiceConfigured  = "ManagementServiceConfigured"
 	CondVirtualDrivesAdded           = "VirtualDrivesAdded"
+	CondTelemetryConfigured          = "TelemetryConfigured"
 )

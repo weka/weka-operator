@@ -339,6 +339,34 @@ type NfsConfig struct {
 	IpRanges   []string `json:"ipRanges,omitempty"`
 }
 
+// TelemetryConfig defines the telemetry export configuration for the Weka cluster
+type TelemetryConfig struct {
+	// List of telemetry exports to configure
+	Exports []TelemetryExport `json:"exports,omitempty"`
+}
+
+// TelemetryExport defines a single telemetry export destination
+type TelemetryExport struct {
+	// Name is the unique identifier for this export
+	Name string `json:"name"`
+	// Sources specifies which telemetry sources to export (e.g., "audit")
+	Sources []string `json:"sources"`
+	// Splunk configuration for Splunk HEC export
+	Splunk *SplunkExportConfig `json:"splunk,omitempty"`
+	// Future: S3 *S3ExportConfig `json:"s3,omitempty"`
+	// Future: Kafka *KafkaExportConfig `json:"kafka,omitempty"`
+}
+
+// SplunkExportConfig defines Splunk-specific export configuration
+type SplunkExportConfig struct {
+	// AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.
+	// Format: "secretName.keyName" where secretName is the name of the secret in the same namespace
+	// and keyName is the key within the secret's data that contains the token.
+	AuthTokenSecretRef string `json:"authTokenSecretRef"`
+	// Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI)
+	Endpoint string `json:"endpoint"`
+}
+
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
 	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
@@ -438,6 +466,8 @@ type WekaClusterSpec struct {
 	RoleCoreIds RoleCoreIds       `json:"roleCoreIds,omitempty"`
 	Encryption  *EncryptionConfig `json:"encryption,omitempty"`
 	NFSConfig   *NfsConfig        `json:"nfs,omitempty"`
+	// Telemetry configuration for exporting audit logs and other telemetry data
+	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
