@@ -515,21 +515,27 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		nfsContainres, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeNfs)
+		if err != nil {
+			return err
+		}
+		feContainers := append(s3Containers, nfsContainres...)
+
 		prepareForUpgrade = true
-		// if any s3 container changed version - do not prepare for s3
-		for _, container := range s3Containers {
+		// if any s3 container or any NFS container changed version - do not prepare for frontends
+		for _, container := range feContainers {
 			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
 				prepareForUpgrade = false
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeS3(ctx, s3Containers, targetVersion)
+			err := r.prepareForUpgradeS3(ctx, feContainers, targetVersion)
 			if err != nil {
 				return err
 			}
 		}
 
-		uController = upgrade.NewUpgradeController(r.getClient(), s3Containers, cluster.Spec.Image)
+		uController = upgrade.NewUpgradeController(r.getClient(), feContainers, cluster.Spec.Image)
 		err = uController.RollingUpgrade(ctx)
 		if err != nil {
 			return err
