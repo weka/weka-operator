@@ -261,6 +261,24 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				lifecycle.IsNotFunc(r.HasStatusNodeAffinity),
 			},
 		},
+		// Ensure SSD proxy container exists before setting proxy UID (for drive sharing)
+		&lifecycle.SimpleStep{
+			Run: r.ensureProxyContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+				r.HasNodeAffinity,
+			},
+		},
+		// Set ssdproxy UID after proxy exists and before pod is created
+		&lifecycle.SimpleStep{
+			Run: r.SetSSDProxyUID,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+				r.HasNodeAffinity,
+			},
+		},
 		&lifecycle.SimpleStep{
 			Run: r.EnsureDrivers, // drivers might be off at this point if we had to wait for node affinity
 			Predicates: lifecycle.Predicates{
@@ -273,14 +291,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
-		},
-		// Ensure SSD proxy container exists before resource allocation (for drive sharing)
-		&lifecycle.SimpleStep{
-			Run: r.ensureProxyContainer,
-			Predicates: lifecycle.Predicates{
-				r.container.IsDriveContainer,
-				r.container.UsesDriveSharing,
-			},
 		},
 		// Backend containers allocate their own resources
 		&lifecycle.SimpleStep{
