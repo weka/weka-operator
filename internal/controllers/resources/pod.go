@@ -523,6 +523,24 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
+		// Set USE_DRIVE_SHARING to indicate drive sharing mode
+		// weka_runtime.py will use this to mount the ssdproxy socket
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "USE_DRIVE_SHARING",
+			Value: "true",
+		})
+
+		// Set SSDPROXY_CONTAINER_UID so we know which proxy socket to use
+		// This will be set by the reconciler after finding the proxy on the same node
+		if f.container.Status.SSDProxyUID != "" {
+			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+				Name:  "SSDPROXY_CONTAINER_UID",
+				Value: f.container.Status.SSDProxyUID,
+			})
+		}
+	}
+
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
@@ -637,8 +655,29 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	// Drive-with-sharing containers need access to the ssdproxy's socket
-	// They will look it up via the standard /host-binds/shared/containers/{ssdproxy-UID}/local-sockets/ssdproxy/ path
-	// which is already mounted via the shared volume, so no special mount needed
+	// Add a mount to the node-level containers directory so they can access other containers' sockets
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
+		// Mount the node-level containers directory to access ssdproxy sockets
+		// Note: This is /containers not /shared/containers - we need per-container persistence directories
+		hostsideAllContainersDir := f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/containers"
+		volumeName := "weka-all-containers-dir"
+		pathType := corev1.HostPathDirectoryOrCreate
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: inPodHostBinds + "/all-containers",
+		})
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideAllContainersDir,
+					Type: &pathType,
+				},
+			},
+		})
+	}
 
 	if f.container.IsDiscoveryContainer() {
 		allowCosHugepageConfig := config.Config.GkeCompatibility.HugepageConfiguration.Enabled

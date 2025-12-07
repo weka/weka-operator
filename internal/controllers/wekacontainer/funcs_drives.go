@@ -25,6 +25,62 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// SetSSDProxyUID finds and records the ssdproxy container UID for drive-sharing containers
+// This must be called after node affinity is set but before the pod is created
+func (r *containerReconcilerLoop) SetSSDProxyUID(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetSSDProxyUID")
+	defer end()
+
+	container := r.container
+
+	// Only for drive sharing mode
+	if !container.Spec.UseDriveSharing {
+		return nil
+	}
+
+	// Find the ssdproxy container on the same node
+	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to find ssdproxy container on node: %w", err)
+	}
+
+	// Use the WekaContainer CR UID because that's what determines the directory structure
+	// on the host: /opt/k8s-weka/containers/<CR_UID>/
+	proxyUID := string(ssdproxyContainer.GetUID())
+	oldProxyUID := container.Status.SSDProxyUID
+
+	// If already set to the correct value, nothing to do
+	if oldProxyUID == proxyUID {
+		return nil
+	}
+
+	// If pod exists and we're changing the proxy UID (or setting it for first time),
+	// the pod needs to be recreated with the correct SSDPROXY_CONTAINER_UID env var
+	if r.pod != nil && oldProxyUID != proxyUID {
+		logger.Info("SSDProxy UID needs to be set/updated, pod needs to be recreated",
+			"old_proxy_uid", oldProxyUID,
+			"new_proxy_uid", proxyUID,
+			"pod_name", r.pod.Name)
+		// Delete the pod so it gets recreated with correct proxy UID env var
+		if err := r.Manager.GetClient().Delete(ctx, r.pod); err != nil {
+			return fmt.Errorf("failed to delete pod for ssdproxy UID update: %w", err)
+		}
+		logger.Info("Deleted pod, it will be recreated with correct SSDPROXY_CONTAINER_UID")
+	}
+
+	logger.Info("Setting ssdproxy UID for drive-sharing container",
+		"proxy_uid", proxyUID,
+		"proxy_name", ssdproxyContainer.Name,
+		"old_proxy_uid", oldProxyUID)
+
+	container.Status.SSDProxyUID = proxyUID
+	if err := r.Status().Update(ctx, container); err != nil {
+		return fmt.Errorf("failed to update container status with ssdproxy UID: %w", err)
+	}
+
+	return nil
+}
+
 // AddVirtualDrives signs virtual drives on physical proxy devices using weka-sign-drive virtual add
 // This is only called for drive containers in drive sharing mode
 func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
