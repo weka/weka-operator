@@ -233,7 +233,6 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 // This is called during container deletion for drive containers in drive sharing mode
 func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error {
 	container := r.container
-	pod := r.pod
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveVirtualDrives")
 	defer end()
 
@@ -249,54 +248,54 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 		return nil
 	}
 
-	// Check if cluster ID is available (needed for --owner-cluster-guid)
-	if container.Status.ClusterID == "" {
-		logger.Warn("Cluster ID is not set, cannot remove virtual drives safely")
-		// We can't remove without cluster ID, but we don't want to block deletion
-		// Log warning and continue
+	// Get node affinity for this container
+	nodeAffinity := container.GetNodeAffinity()
+	if nodeAffinity == "" {
+		logger.Warn("Node affinity is not set, cannot remove virtual drives")
 		return nil
 	}
 
-	// Check if pod is available for exec
-	if pod == nil {
-		logger.Warn("Pod is not available, cannot remove virtual drives")
-		// Pod might be deleted already, don't block deletion
-		return nil
-	}
-
-	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	// Find SSDProxy container on this node
+	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
 	if err != nil {
-		logger.Warn("Failed to create executor, cannot remove virtual drives", "error", err)
-		// Don't block deletion if we can't exec
+		logger.Warn("Failed to find SSDProxy container, cannot remove virtual drives via JSONRPC", "error", err)
+		// Don't block deletion if we can't find SSDProxy
+		return nil
+	}
+
+	// Get node agent pod
+	agentPod, err := r.GetNodeAgentPod(ctx, nodeAffinity)
+	if err != nil {
+		logger.Warn("Failed to find node agent pod, cannot remove virtual drives via JSONRPC", "error", err)
+		// Don't block deletion if we can't find agent
+		return nil
+	}
+
+	// Get auth token
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		logger.Warn("Failed to get node agent token, cannot remove virtual drives via JSONRPC", "error", err)
+		// Don't block deletion if we can't get token
 		return nil
 	}
 
 	var errs []error
 	removedCount := 0
 
-	// Remove each virtual drive
+	// Remove each virtual drive via JSONRPC
 	for _, vd := range container.Status.Allocations.VirtualDrives {
-		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "devicePath", vd.DevicePath)
+		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
 
-		l.Info("Removing virtual drive from physical device")
+		l.Info("Removing virtual drive via JSONRPC")
 
-		// Build weka-sign-drive virtual remove command
-		// Command: weka-sign-drive virtual remove {device} --virtual-uuid {uuid} --owner-cluster-guid {cluster}
-		cmd := fmt.Sprintf(
-			"weka-sign-drive virtual remove %s --virtual-uuid %s --owner-cluster-guid %s",
-			vd.DevicePath,
-			vd.VirtualUUID,
-			container.Status.ClusterID,
-		)
-
-		stdout, stderr, err := executor.ExecNamed(ctx, "RemoveVirtualDrive", []string{"bash", "-ce", cmd})
+		err := r.removeVirtualDriveViaJSONRPC(ctx, ssdproxyContainer, agentPod, token, vd.VirtualUUID)
 		if err != nil {
-			l.Error(err, "Failed to remove virtual drive", "stderr", stderr.String())
-			errs = append(errs, fmt.Errorf("failed to remove virtual drive %s: %w, stderr: %s", vd.VirtualUUID, err, stderr.String()))
+			l.Error(err, "Failed to remove virtual drive via JSONRPC")
+			errs = append(errs, fmt.Errorf("failed to remove virtual drive %s: %w", vd.VirtualUUID, err))
 			continue
 		}
 
-		l.Info("Virtual drive removed successfully", "stdout", stdout.String())
+		l.Info("Virtual drive removed successfully via JSONRPC")
 		removedCount++
 	}
 
@@ -306,6 +305,73 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 	}
 
 	logger.InfoWithStatus(codes.Ok, "Virtual drive removal completed", "removedCount", removedCount)
+	return nil
+}
+
+// removeVirtualDriveViaJSONRPC removes a virtual drive by calling ssd_proxy_remove_virtual_drive via node agent
+func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainer *weka.WekaContainer, agentPod *v1.Pod, token string, virtualUUID string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeVirtualDriveViaJSONRPC")
+	defer end()
+
+	logger.Info("Calling ssd_proxy_remove_virtual_drive via JSONRPC", "virtual_uuid", virtualUUID)
+
+	method := "ssd_proxy_remove_virtual_drive"
+	params := map[string]any{
+		"virtualUuid": virtualUUID,
+	}
+
+	payload := node_agent.JSONRPCProxyPayload{
+		ContainerId: string(ssdproxyContainer.GetUID()),
+		Method:      method,
+		Params:      params,
+	}
+
+	// Marshal payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
+	}
+
+	// Call node agent's /jsonrpc endpoint
+	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
+	}
+
+	// Log the JSONRPC response for debugging
+	logger.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse response to check for JSONRPC errors
+	var jsonrpcResp struct {
+		Result interface{} `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	err = json.Unmarshal(respBody, &jsonrpcResp)
+	if err != nil {
+		return fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+	}
+
+	if jsonrpcResp.Error != nil {
+		return fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
+	}
+
+	logger.Info("Virtual drive removed successfully via JSONRPC", "virtual_uuid", virtualUUID, "result", jsonrpcResp.Result)
 	return nil
 }
 
