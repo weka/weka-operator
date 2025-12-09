@@ -53,14 +53,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 		return errors.New("node affinity is not set")
 	}
 
-	activeMounts, err := r.getCachedActiveMounts(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get active mounts")
-	}
-
-	hasActiveMounts := activeMounts != nil && *activeMounts > 0
-
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container, hasActiveMounts)
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container)
 	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
 		ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
 		defer end()
@@ -70,7 +63,7 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 
 		node := csiTopologyLabelsService.UpdateNodeLabels(r.node, expectedLabels)
 
-		err = r.Update(ctx, node)
+		err := r.Update(ctx, node)
 		if err != nil {
 			return errors.Wrap(err, "failed to update node with CSI topology labels")
 		}
@@ -88,7 +81,7 @@ func (r *containerReconcilerLoop) UnsetCsiNodeTopologyLabels(ctx context.Context
 
 	logger.Info("Unsetting CSI node topology labels", "node", r.node.Name, "csiDriverName", csiDriverName)
 
-	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, r.container, false)
+	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, nodeName, r.container)
 	node := csiTopologyLabelsService.UpdateNodeLabels(r.node, nil)
 
 	err := r.Update(ctx, node)
