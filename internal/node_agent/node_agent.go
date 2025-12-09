@@ -64,6 +64,7 @@ type ContainerInfo struct {
 	pendingIOsFromProcfsLastPoll time.Time
 	podStatus                    string
 	podStatusStartTime           time.Time
+	featureFlags                 map[string]bool // feature flags map
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -98,6 +99,7 @@ type RegisterContainerPayload struct {
 	ScrapeTargets      []ScrapeTarget    `json:"scrape_targets"`
 	PodStatus          string            `json:"pod_status"`
 	PodStatusStartTime time.Time         `json:"pod_status_start_time"`
+	FeatureFlags       map[string]bool   `json:"feature_flags,omitempty"` // feature flags map
 }
 
 type ProcessSummary struct {
@@ -545,6 +547,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 		mode:               payload.Mode,
 		podStatus:          payload.PodStatus,
 		podStatusStartTime: podStatusStartTime,
+		featureFlags:       payload.FeatureFlags,
 		//scrapeTargets:     payload.ScrapeTargets,
 	}
 
@@ -994,15 +997,45 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get container name from query parameter
+	// Get query parameters
 	containerName := r.URL.Query().Get("container_name")
+	containerUuid := r.URL.Query().Get("container_uuid")
 
-	// path to driver interface file
-	filePath := "/proc/wekafs/interface"
+	// Validate: if container_name is set, container_uuid must also be set
+	if containerName != "" && containerUuid == "" {
+		http.Error(w, "container_uuid is required when container_name is specified", http.StatusBadRequest)
+		return
+	}
+
+	// Determine the file path based on feature flags
+	var filePath string
+	shouldCheckContainerSpecific := false
+
+	if containerName != "" && containerUuid != "" {
+		// Look up container by UUID for efficient O(1) access
+		a.containersData.lock.RLock()
+		container, exists := a.containersData.data[containerUuid]
+		a.containersData.lock.RUnlock()
+
+		if exists && container.featureFlags != nil {
+			// Check if allow_per_container_driver_interface feature flag is enabled
+			shouldCheckContainerSpecific = container.featureFlags["allow_per_container_driver_interface"]
+		}
+
+		if shouldCheckContainerSpecific {
+			filePath = fmt.Sprintf("/proc/wekafs/%s/interface", containerName)
+		} else {
+			// Feature flag not enabled, use default path
+			filePath = "/proc/wekafs/interface"
+		}
+	} else {
+		// No container specified, use default path for backward compatibility
+		filePath = "/proc/wekafs/interface"
+	}
 
 	file, err := os.Open(filePath)
-	if err != nil && os.IsNotExist(err) && containerName != "" {
-		// If container-specific path doesn't exist, fallback to default path
+	if err != nil && os.IsNotExist(err) && shouldCheckContainerSpecific {
+		// If container-specific path doesn't exist and feature flag was enabled, fallback to default path
 		logger.Debug("Container-specific interface file not found, falling back to default", "tried_path", filePath)
 		filePath = "/proc/wekafs/interface"
 		file, err = os.Open(filePath)

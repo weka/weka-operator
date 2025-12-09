@@ -276,7 +276,9 @@ class FeaturesFlags:
     # Bit positions (class-level ints) – will be shadowed by bools on the instance
     traces_override_partial_support: Union[bool, int] = 0
     traces_override_in_slash_traces: Union[bool, int] = 1
-    supports_binding_to_not_all_interfaces: Union[bool, int] = 1
+    supports_binding_to_not_all_interfaces: Union[bool, int] = 2
+    agent_validate_60_ports_per_container: Union[bool, int] = 3
+    allow_per_container_driver_interfaces: Union[bool, int] = 4
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -289,6 +291,20 @@ class FeaturesFlags:
 
         # Store raw list/set if needed elsewhere
         self._active_bits: Set[int] = active
+
+
+    def get_feature_map(self) -> Dict[str, bool]:
+        """
+        Returns a dictionary mapping feature names to their boolean values.
+        """
+        feature_map: Dict[str, bool] = {}
+        for name in dir(self):
+            if not name.startswith('_'):
+                value = getattr(self, name)
+                if isinstance(value, bool):
+                    feature_map[name] = value
+
+        return feature_map
 
 
 def parse_feature_bitmap(b64_str: str) -> list[int]:
@@ -958,6 +974,21 @@ async def get_release_spec() -> ReleaseSpec:
 async def get_feature_flags() -> FeaturesFlags:
     spec = await get_release_spec()
     return FeaturesFlags(spec.feature_flags)
+
+
+async def write_feature_flags_json():
+    ff = await get_feature_flags()
+    feature_flags_dict = ff.get_feature_map()
+
+    # Write to temporary file first, then rename for atomicity
+    temp_path = "/opt/weka/k8s-runtime/feature_flags.json.tmp"
+    final_path = "/opt/weka/k8s-runtime/feature_flags.json"
+
+    with open(temp_path, "w") as f:
+        json.dump(feature_flags_dict, f)
+
+    os.rename(temp_path, final_path)
+    logging.info(f"Feature flags written to {final_path}: {feature_flags_dict}")
 
 
 async def load_drivers():
@@ -3391,6 +3422,7 @@ async def main():
     await configure_traces()
     await start_weka_container()
     await ensure_container_exec()
+    await write_feature_flags_json()
     logging.info("Container is UP and running")
 
     # Start periodic CPU affinity management for drive, compute, and client containers
