@@ -269,6 +269,7 @@ func (a *NodeAgent) ConfigureHttpServer(ctx context.Context) (*http.Server, erro
 	mux.HandleFunc("/register", a.registerHandler)
 	mux.HandleFunc("/deregister", a.deregisterHandler)
 	mux.HandleFunc("/findDrives", a.findDrivesHandler)
+	mux.HandleFunc("/jsonrpc", a.jsonrpcHandler)
 
 	// IMPORTANT: Add OpenTelemetry HTTP middleware FIRST to extract trace context from incoming requests
 	// This must be the outermost wrapper to ensure trace context is available to all inner middleware
@@ -595,6 +596,69 @@ func (a *NodeAgent) deregisterHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
+// JSONRPCProxyPayload represents a generic JSONRPC call to be proxied to a container
+type JSONRPCProxyPayload struct {
+	ContainerId string         `json:"container_id"`
+	Method      string         `json:"method"`
+	Params      map[string]any `json:"params"`
+}
+
+// jsonrpcHandler is a generic JSONRPC proxy that forwards calls to container Unix sockets
+func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
+	ctx, logger, end := instrumentation.GetLogSpan(r.Context(), "jsonrpc_proxy")
+	defer end()
+
+	if a.validateAuth(w, r, logger) {
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload JSONRPCProxyPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// Add payload information to the span for better observability
+	logger.SetValues(
+		"container_id", payload.ContainerId,
+		"method", payload.Method,
+	)
+
+	// Get the container info
+	a.containersData.lock.RLock()
+	container, exists := a.containersData.data[payload.ContainerId]
+	a.containersData.lock.RUnlock()
+
+	if !exists {
+		logger.Error(errors.New("container not found"), "Container not registered")
+		http.Error(w, "Container not registered", http.StatusNotFound)
+		return
+	}
+
+	// Make the JSONRPC call via the WekaJSONRPCService
+	var result interface{}
+	if err := a.jrpcCall(ctx, container, payload.Method, payload.Params, &result); err != nil {
+		logger.SetError(err, "JSONRPC call failed")
+		http.Error(w, fmt.Sprintf("JSONRPC call failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("JSONRPC call succeeded", "method", payload.Method)
+
+	response := map[string]interface{}{
+		"message": "JSONRPC call succeeded",
+		"result":  result,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger *instrumentation.SpanLogger) bool {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != fmt.Sprintf("Token %s", a.getCurrentToken()) {
@@ -609,6 +673,21 @@ func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger 
 type WekaJSONRPCService struct {
 	clients map[string]*http.Client // Map of containerId -> HTTP client for connection reuse
 	mu      sync.RWMutex
+}
+
+// JSONRPCResponse represents a JSONRPC 2.0 response
+type JSONRPCResponse struct {
+	ID      interface{}     `json:"id"`
+	JSONRPC string          `json:"jsonrpc"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *JSONRPCError   `json:"error,omitempty"`
+}
+
+// JSONRPCError represents a JSONRPC 2.0 error object
+type JSONRPCError struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // NewWekaJSONRPCService creates a new JSONRPC service
@@ -636,9 +715,11 @@ func (s *WekaJSONRPCService) getOrCreateClient(container *ContainerInfo) (*http.
 		return client, nil
 	}
 
+	// All containers (including ssdproxy) now use per-container socket paths
 	socketPath := fmt.Sprintf("/host-binds/shared/containers/%s/local-sockets/%s/container.sock", container.containerId, container.wekaContainerName)
+
 	if !util.FileExists(socketPath) {
-		return nil, errors.New("socket not found")
+		return nil, fmt.Errorf("socket not found at path: %s", socketPath)
 	}
 
 	// create symlink for a socket within tmp
@@ -670,7 +751,7 @@ func (s *WekaJSONRPCService) getOrCreateClient(container *ContainerInfo) (*http.
 }
 
 // Call makes a JSONRPC call to the specified container
-func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
+func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo, method string, params map[string]any, data interface{}) error {
 	// Create a descriptive span for the JSONRPC call
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "weka.jsonrpc_call",
 		"jsonrpc.method", method,
@@ -687,12 +768,17 @@ func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo,
 		return err
 	}
 
+	// Use empty params map if nil
+	if params == nil {
+		params = map[string]any{}
+	}
+
 	requestId := rand.Uint64()
 	payload := map[string]any{
 		"id":      requestId,
 		"jsonrpc": "2.0",
 		"method":  method,
-		"params":  map[string]any{},
+		"params":  params,
 	}
 
 	// Marshal payload to JSON
@@ -732,9 +818,27 @@ func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo,
 		return err
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(data); err != nil {
+	// Decode the JSONRPC response envelope first
+	var jrpcResp JSONRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jrpcResp); err != nil {
 		logger.SetError(err, "Failed to decode JSONRPC response")
 		return err
+	}
+
+	// Check if the JSONRPC response contains an error
+	if jrpcResp.Error != nil {
+		err := fmt.Errorf("JSONRPC error %d: %s", jrpcResp.Error.Code, jrpcResp.Error.Message)
+		logger.SetError(err, "JSONRPC call returned error")
+		logger.SetValues("jsonrpc.error.code", jrpcResp.Error.Code, "jsonrpc.error.message", jrpcResp.Error.Message)
+		return err
+	}
+
+	// Decode the result into the provided data structure
+	if len(jrpcResp.Result) > 0 {
+		if err := json.Unmarshal(jrpcResp.Result, data); err != nil {
+			logger.SetError(err, "Failed to unmarshal JSONRPC result")
+			return err
+		}
 	}
 
 	logger.Debug("jsonrpc call succeeded")
@@ -759,8 +863,8 @@ func (s *WekaJSONRPCService) RemoveContainer(containerId string) {
 	delete(s.clients, containerId)
 }
 
-func (a *NodeAgent) jrpcCall(ctx context.Context, container *ContainerInfo, method string, data interface{}) error {
-	return a.jsonrpcService.Call(ctx, container, method, data)
+func (a *NodeAgent) jrpcCall(ctx context.Context, container *ContainerInfo, method string, params map[string]any, data interface{}) error {
+	return a.jsonrpcService.Call(ctx, container, method, params, data)
 }
 
 // createInstrumentedHTTPClient creates an HTTP client with OpenTelemetry instrumentation
@@ -804,7 +908,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 
 	if container.mode != weka.WekaContainerModeEnvoy {
 		var response LocalConfigStateResponse
-		err := a.jrpcCall(ctx, container, "get_local_config_summary", &response)
+		err := a.jrpcCall(ctx, container, "get_local_config_summary", nil, &response)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
@@ -815,7 +919,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 
 		var cpuResponse LocalCpuUtilizationResponse
-		err = a.jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", &cpuResponse)
+		err = a.jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", nil, &cpuResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local realtime cpu usage, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
@@ -825,7 +929,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 
 		var statsResponse StatsResponse
-		err = a.jrpcCall(ctx, container, "fetch_local_stats", &statsResponse)
+		err = a.jrpcCall(ctx, container, "fetch_local_stats", nil, &statsResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch stats")
 		} else {

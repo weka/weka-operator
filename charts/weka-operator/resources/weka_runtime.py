@@ -2611,7 +2611,12 @@ async def configure_persistency():
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
 
-        if [ -d /host-binds/shared ]; then
+        # Mount local-sockets directory for inter-container communication
+        # For ssdproxy containers, use the per-container socket directory
+        if [ "{MODE}" = "ssdproxy" ] && [ -d /host-binds/ssdproxy ]; then
+            mkdir -p /opt/weka/external-mounts/local-sockets/ssdproxy
+            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/local-sockets/ssdproxy
+        elif [ -d /host-binds/shared ]; then
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
@@ -2633,12 +2638,6 @@ async def configure_persistency():
         fi
 
         mkdir -p {WEKA_K8S_RUNTIME_DIR}
-
-        # SSD proxy mount (for proxy containers and drive containers with sharing)
-        if [ -d /host-binds/ssdproxy ]; then
-            mkdir -p /opt/weka/external-mounts/ssdproxy
-            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/ssdproxy
-        fi
 
         touch {PERSISTENCY_CONFIGURED}
     """)

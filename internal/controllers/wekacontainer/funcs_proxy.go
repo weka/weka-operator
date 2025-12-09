@@ -41,11 +41,17 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 	proxyName := getProxyContainerName(nodeName)
 	logger.SetValues("proxyName", proxyName, "node", nodeName)
 
+	// Get operator namespace where proxy containers are deployed
+	operatorNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return errors.Wrap(err, "failed to get operator namespace")
+	}
+
 	// Check if proxy container already exists
 	existingProxy := &weka.WekaContainer{}
-	err := r.Client.Get(ctx, client.ObjectKey{
+	err = r.Client.Get(ctx, client.ObjectKey{
 		Name:      proxyName,
-		Namespace: r.container.Namespace,
+		Namespace: operatorNamespace,
 	}, existingProxy)
 
 	if err == nil {
@@ -74,7 +80,7 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 	}
 
 	// Create the proxy container spec
-	proxyContainer, err := r.buildProxyContainerSpec(cluster, nodeName, proxyName, operatorDeployment.Namespace)
+	proxyContainer, err := r.buildProxyContainerSpec(cluster, nodeName, proxyName, operatorNamespace)
 	if err != nil {
 		return errors.Wrap(err, "failed to build proxy container spec")
 	}

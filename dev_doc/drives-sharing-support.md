@@ -154,12 +154,12 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 **What happens:**
 - Operator executes `EnsureDrives()` step
 - Calls Weka API to add each virtual drive to the cluster
-- Uses device path (virtual UUID is read from device metadata)
+- Uses virtual UUID that was previously signed on the physical device
 - Updates `Status.AddedVirtualDrives` after successful addition
 
 **Weka API:**
-- `weka cluster drive add {containerID} {devicePath}`
-- Weka reads the virtual UUID from device header automatically
+- `weka cluster drive add {containerID} {virtualUUID}`
+- Uses the virtual UUID that was previously signed on the device
 - Drive becomes available for cluster use
 
 **Result stored in container status:**
@@ -275,7 +275,7 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 ### Weka Cluster API
 
 **Drive Management:**
-- `weka cluster drive add {containerID} {devicePath}` - Adds drive to cluster (reads virtual UUID from device)
+- `weka cluster drive add {containerID} {virtualUUID}` - Adds virtual drive to cluster using virtual UUID
 - `weka cluster drive list {containerID}` - Lists drives attached to container
 - `weka cluster drive remove {driveUUID}` - Removes drive from cluster
 
