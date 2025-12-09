@@ -371,9 +371,8 @@ func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
 }
 
 type CsiTopologyLabelsService struct {
-	nodeName        string
-	container       *weka.WekaContainer
-	hasActiveMounts bool
+	nodeName  string
+	container *weka.WekaContainer
 
 	nodeLabelKey       string
 	transportLabelKey  string
@@ -382,11 +381,10 @@ type CsiTopologyLabelsService struct {
 	expectedLabels map[string]string
 }
 
-func NewCsiTopologyLabelsService(csiDriverName, nodeName string, container *weka.WekaContainer, hasActiveMounts bool) *CsiTopologyLabelsService {
+func NewCsiTopologyLabelsService(csiDriverName, nodeName string, container *weka.WekaContainer) *CsiTopologyLabelsService {
 	return &CsiTopologyLabelsService{
-		nodeName:        nodeName,
-		container:       container,
-		hasActiveMounts: hasActiveMounts,
+		nodeName:  nodeName,
+		container: container,
 		// get the label keys for the given CSI driver name
 		nodeLabelKey:       fmt.Sprintf("topology.%s/node", csiDriverName),
 		transportLabelKey:  fmt.Sprintf("topology.%s/transport", csiDriverName),
@@ -403,9 +401,6 @@ func (s *CsiTopologyLabelsService) GetExpectedCsiTopologyLabels() map[string]str
 
 	if s.nodeIsCsiAccessible() {
 		labels[s.accessibleLabelKey] = "true"
-	}
-
-	if s.hasActiveMounts || s.nodeIsCsiAccessible() {
 		labels[s.nodeLabelKey] = s.nodeName
 		labels[s.transportLabelKey] = "wekafs"
 	}
