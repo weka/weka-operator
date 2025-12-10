@@ -48,7 +48,7 @@ type NodeAgent struct {
 type ContainerInfo struct {
 	labels                       map[string]string
 	wekaContainerName            string
-	cpuInfo                      LocalCpuUtilizationResponse
+	cpuInfo                      map[string]LocalCpuUtilization // {"NodeId<41>":{"value":43.8610153151695101,"err":null}}
 	cpuInfoLastPoll              time.Time
 	containerState               LocalConfigStateResponse
 	containerStateLastPull       time.Time
@@ -58,7 +58,7 @@ type ContainerInfo struct {
 	mode                         string
 	scrapeTargets                []ScrapeTarget
 	scrappedData                 map[ScrapeTarget][]byte
-	statsResponse                StatsResponse
+	statsResponse                []WekaStat
 	statsResponseLastPoll        time.Time
 	pendingIOsFromProcfs         int
 	pendingIOsFromProcfsLastPoll time.Time
@@ -69,7 +69,7 @@ type ContainerInfo struct {
 
 func (i *ContainerInfo) getMaxCpu() float64 {
 	var maxCpu float64
-	for _, cpuLoad := range i.cpuInfo.Result {
+	for _, cpuLoad := range i.cpuInfo {
 		if cpuLoad.Value != nil && *cpuLoad.Value > maxCpu {
 			maxCpu = *cpuLoad.Value
 		}
@@ -118,24 +118,22 @@ type WekaDrive struct {
 }
 
 type LocalConfigStateResponse struct {
-	Result struct {
-		HasLease           *bool `json:"has_lease"`
-		FilesystemsSummary []struct {
-			FilesystemId string `json:"filesystem_id"` // FSId<0>
-			Name         string `json:"name"`          // .config_fs
-		} `json:"filesystems_summary"`
-		DisksSummary     []WekaDrive `json:"disks_summary"`
-		HostName         string      `json:"host_name"`
-		HostId           string      `json:"host_id"`
-		ProcessesSummary struct {
-			Drive      ProcessSummary `json:"drive"`
-			Dataserv   ProcessSummary `json:"dataserv"`
-			Management ProcessSummary `json:"management"`
-			Compute    ProcessSummary `json:"compute"`
-			Total      ProcessSummary `json:"total"`
-			Frontend   ProcessSummary `json:"frontend"`
-		} `json:"processes_summary"`
-	} `json:"result"`
+	HasLease           *bool `json:"has_lease"`
+	FilesystemsSummary []struct {
+		FilesystemId string `json:"filesystem_id"` // FSId<0>
+		Name         string `json:"name"`          // .config_fs
+	} `json:"filesystems_summary"`
+	DisksSummary     []WekaDrive `json:"disks_summary"`
+	HostName         string      `json:"host_name"`
+	HostId           string      `json:"host_id"`
+	ProcessesSummary struct {
+		Drive      ProcessSummary `json:"drive"`
+		Dataserv   ProcessSummary `json:"dataserv"`
+		Management ProcessSummary `json:"management"`
+		Compute    ProcessSummary `json:"compute"`
+		Total      ProcessSummary `json:"total"`
+		Frontend   ProcessSummary `json:"frontend"`
+	} `json:"processes_summary"`
 }
 
 func NewNodeAgent(logger logr.Logger) *NodeAgent {
@@ -407,18 +405,18 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				[]metrics2.TaggedValue{
 					{
 						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "up"}),
-						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Up),
+						Value:     float64(container.containerState.ProcessesSummary.Total.Up),
 						Timestamp: container.containerStateLastPull,
 					},
 					{
 						Tags:      util.MergeMaps(containerLabels, metrics2.TagMap{"status": "down"}),
-						Value:     float64(container.containerState.Result.ProcessesSummary.Total.Total - container.containerState.Result.ProcessesSummary.Total.Up),
+						Value:     float64(container.containerState.ProcessesSummary.Total.Total - container.containerState.ProcessesSummary.Total.Up),
 						Timestamp: container.containerStateLastPull,
 					},
 				},
 			)
 
-			for nodeIdStr, cpuLoad := range container.cpuInfo.Result {
+			for nodeIdStr, cpuLoad := range container.cpuInfo {
 				// do we care about the node id? should we report per node or containers totals? will stay with totals for now
 
 				processId, err := resources.NodeIdToProcessId(nodeIdStr)
@@ -450,7 +448,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				})
 			}
 
-			for _, disk := range container.containerState.Result.DisksSummary {
+			for _, disk := range container.containerState.DisksSummary {
 				if !slices.Contains([]string{"ACTIVE", "PHASING_IN"}, disk.Status) || disk.IsFailed {
 					promResponse.AddMetric(metrics2.PromMetric{
 						Metric: "weka_inactive_drives",
@@ -876,11 +874,9 @@ func createInstrumentedHTTPClient() *http.Client {
 	}
 }
 
-type LocalCpuUtilizationResponse struct {
-	Result map[string]struct {
-		Value *float64 `json:"value"`
-		Err   *string  `json:"err"`
-	} `json:"result"`
+type LocalCpuUtilization struct {
+	Value *float64 `json:"value"`
+	Err   *string  `json:"err"`
 }
 
 type WekaStat struct {
@@ -896,10 +892,6 @@ type WekaStat struct {
 	Unit     string `json:"unit"`
 }
 
-type StatsResponse struct {
-	Result []WekaStat `json:"result"`
-}
-
 func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *ContainerInfo) error {
 	// WARNING: no lock here, while calling in parallel from multiple places
 
@@ -912,13 +904,13 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		if err != nil {
 			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
-		} else if response.Result.HasLease == nil || *response.Result.HasLease {
+		} else if response.HasLease == nil || *response.HasLease {
 			//if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
 			container.containerState = response
 			container.containerStateLastPull = time.Now()
 		}
 
-		var cpuResponse LocalCpuUtilizationResponse
+		var cpuResponse map[string]LocalCpuUtilization
 		err = a.jrpcCall(ctx, container, "fetch_local_realtime_cpu_usage", nil, &cpuResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch local realtime cpu usage, proceeding with other metrics")
@@ -928,7 +920,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 			container.cpuInfoLastPoll = time.Now()
 		}
 
-		var statsResponse StatsResponse
+		var statsResponse []WekaStat
 		err = a.jrpcCall(ctx, container, "fetch_local_stats", nil, &statsResponse)
 		if err != nil {
 			logger.Error(err, "Failed to fetch stats")
@@ -1052,8 +1044,8 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	// populate metrics
 	response.ContainerMetrics.Processes = weka.EntityStatefulNum{
-		Active:  weka.IntMetric(int64(container.containerState.Result.ProcessesSummary.Total.Up)),
-		Created: weka.IntMetric(int64(container.containerState.Result.ProcessesSummary.Total.Total)),
+		Active:  weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Up)),
+		Created: weka.IntMetric(int64(container.containerState.ProcessesSummary.Total.Total)),
 	}
 
 	cpuUsage := weka.FloatMetric("")
@@ -1065,7 +1057,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	failedDrives := []weka.DriveFailures{}
 
 	//TODO: Expand prom metrics with failed disks metrics
-	for _, disk := range container.containerState.Result.DisksSummary {
+	for _, disk := range container.containerState.DisksSummary {
 		totalDrives++
 		if disk.Status == "ACTIVE" {
 			activeDrives++
@@ -1411,7 +1403,7 @@ func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) p
 
 	var wekaDrive WekaDrive
 	if stat.Params.Disk != "" {
-		for _, disk := range container.containerState.Result.DisksSummary {
+		for _, disk := range container.containerState.DisksSummary {
 			configDriveIdInt, err := resources.DriveIdToInteger(disk.DiskId)
 			if err != nil {
 				logger.Error(err, "Failed to parse disk id", "serialNumber", disk.SerialNumber)
@@ -1497,7 +1489,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 
 	//group metrics
 	groupedMetrics := make(GrouppedMetrics)
-	for _, stat := range container.statsResponse.Result {
+	for _, stat := range container.statsResponse {
 		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
 	}
 
@@ -1836,7 +1828,7 @@ func deduceFsName(ctx context.Context, container *ContainerInfo, id string) stri
 		logger.Error(err, "Failed to convert fs id to int", "fs_id", id)
 		return ""
 	}
-	for _, fs := range container.containerState.Result.FilesystemsSummary {
+	for _, fs := range container.containerState.FilesystemsSummary {
 		intId, err := resources.FsIdToInteger(fs.FilesystemId)
 		if err != nil {
 			logger.Error(err, "Failed to convert fs id to int", "fs_id", fs.FilesystemId, "fs", fs)
