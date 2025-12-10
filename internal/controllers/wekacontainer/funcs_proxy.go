@@ -15,6 +15,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -154,13 +155,16 @@ func (r *containerReconcilerLoop) countDriveContainersOnNode(ctx context.Context
 	}
 
 	// List all WekaContainers in the same namespace
-	containerList := &weka.WekaContainerList{}
-	if err := r.Client.List(ctx, containerList, client.InNamespace(r.container.Namespace)); err != nil {
-		return 0, errors.Wrap(err, "failed to list containers")
+	kubeService := kubernetes.NewKubeService(r.Client)
+	containers, err := kubeService.GetWekaContainersSimple(ctx, "", string(nodeName), map[string]string{
+		"weka.io/mode": weka.WekaContainerModeDrive,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list containers on node: %w", err)
 	}
 
 	count := 0
-	for _, c := range containerList.Items {
+	for _, c := range containers {
 		// Count drive containers with drive sharing on the same node
 		if c.IsDriveContainer() && c.UsesDriveSharing() && c.GetNodeAffinity() == nodeName {
 			// Don't count containers that are being deleted
@@ -170,7 +174,7 @@ func (r *containerReconcilerLoop) countDriveContainersOnNode(ctx context.Context
 		}
 	}
 
-	logger.Info("Counted drive containers on node", "count", count, "node", nodeName)
+	logger.Debug("Counted drive containers on node", "count", count, "node", nodeName)
 	return count, nil
 }
 

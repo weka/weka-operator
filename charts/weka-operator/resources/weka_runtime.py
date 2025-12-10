@@ -2676,7 +2676,9 @@ async def configure_persistency():
                 echo "Successfully mounted ssdproxy agent socket"
                 ls -la /opt/weka/external-mounts/ssdproxy/
             fi
-        elif [ -d /host-binds/shared ]; then
+        fi
+
+        if [ -d /host-binds/shared ]; then
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets

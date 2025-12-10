@@ -13,6 +13,10 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"go.opentelemetry.io/otel/codes"
+	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/utils"
@@ -20,9 +24,6 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
-	"go.opentelemetry.io/otel/codes"
-	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SetSSDProxyUID finds and records the ssdproxy container UID for drive-sharing containers
@@ -419,11 +420,6 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		return nil
 	}
 
-	drivesAddedBySerial := make(map[string]bool)
-	for _, s := range container.Status.GetAddedDrivesSerials() {
-		drivesAddedBySerial[s] = true
-	}
-
 	timeout := time.Minute * 2
 	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 
@@ -431,11 +427,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	// Handle drive sharing mode (virtual drives) vs regular mode (exclusive drives)
 	if container.Spec.UseDriveSharing {
-		// Drive sharing mode: add virtual drives using device paths
+		// Drive sharing mode: add virtual drives using virtual uuids
 		// Build map of added drives by device path
-		drivesAddedByPath := make(map[string]bool)
+		drivesAddedByVids := make(map[string]bool)
 		for _, d := range container.Status.AddedDrives {
-			drivesAddedByPath[d.DevicePath] = true
+			drivesAddedByVids[d.Uuid] = true
 		}
 
 		// Add each virtual drive to the cluster
@@ -443,7 +439,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			l := logger.WithValues("virtualUUID", vd.VirtualUUID, "devicePath", vd.DevicePath)
 
 			// Check if drive is already added to weka
-			if drivesAddedByPath[vd.DevicePath] {
+			if drivesAddedByVids[vd.VirtualUUID] {
 				l.Info("Virtual drive already added to weka")
 				continue
 			}
@@ -462,6 +458,11 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			r.RecordEvent("", "VirtualDriveAdded", fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID))
 		}
 	} else {
+		drivesAddedBySerial := make(map[string]bool)
+		for _, s := range container.Status.GetAddedDrivesSerials() {
+			drivesAddedBySerial[s] = true
+		}
+
 		// Regular mode: add exclusive drives
 		// Adding drives to weka one by one
 		for _, drive := range container.Status.Allocations.Drives {

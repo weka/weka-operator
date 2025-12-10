@@ -408,18 +408,18 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 
 	// Build per-physical-drive capacity tracking
 	type physicalDriveCapacity struct {
-		drive         SharedDriveInfo
-		totalCapacity int
-		claimedCapacity int
+		drive             SharedDriveInfo
+		totalCapacity     int
+		claimedCapacity   int
 		availableCapacity int
 	}
 
 	driveCapacities := make(map[string]*physicalDriveCapacity)
 	for _, drive := range sharedDrives {
 		driveCapacities[drive.UUID] = &physicalDriveCapacity{
-			drive:         drive,
-			totalCapacity: drive.CapacityGiB,
-			claimedCapacity: 0,
+			drive:             drive,
+			totalCapacity:     drive.CapacityGiB,
+			claimedCapacity:   0,
 			availableCapacity: drive.CapacityGiB,
 		}
 	}
