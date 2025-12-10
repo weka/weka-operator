@@ -348,6 +348,7 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --node-selector "weka.io/dedicated:upgrade-extended" \
     --namespace {namespace} \
     --cluster-name {cluster_name} \
+    --runs-in-lab \
     --cleanup {"no-cleanup" if no_cleanup else "on-start"} \
     {"--embedded-csi" if embedded_csi else ""} 
 """
