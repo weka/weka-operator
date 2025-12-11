@@ -63,7 +63,6 @@ type DriveNodeResults struct {
 	Drives      []domain.DriveInfo `json:"drives"`
 	RawDrives   []DriveRawInfo     `json:"raw_drives"`
 	ProxyDrives []ProxyDriveInfo   `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
-	DriveCount  int                `json:"drive_count,omitempty"`  // Number of proxy drives signed
 }
 
 type DiscoverDrivesResult struct {

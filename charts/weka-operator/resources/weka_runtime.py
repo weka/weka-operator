@@ -3803,8 +3803,7 @@ async def main():
             if for_proxy:
                 write_results(dict(
                     err=None,
-                    proxy_drives=signed_drives,
-                    drive_count=len(signed_drives)
+                    proxy_drives=signed_drives
                 ))
             else:
                 # Regular mode: discover drives and write annotation
