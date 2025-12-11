@@ -976,19 +976,18 @@ async def get_feature_flags() -> FeaturesFlags:
     return FeaturesFlags(spec.feature_flags)
 
 
-async def write_feature_flags_json():
+async def write_feature_flags_json(result_file_name: str = "/opt/weka/k8s-runtime/feature_flags.json"):
     ff = await get_feature_flags()
     feature_flags_dict = ff.get_feature_map()
 
     # Write to temporary file first, then rename for atomicity
-    temp_path = "/opt/weka/k8s-runtime/feature_flags.json.tmp"
-    final_path = "/opt/weka/k8s-runtime/feature_flags.json"
+    temp_path = result_file_name + ".tmp"
 
     with open(temp_path, "w") as f:
         json.dump(feature_flags_dict, f)
 
-    os.rename(temp_path, final_path)
-    logging.info(f"Feature flags written to {final_path}: {feature_flags_dict}")
+    os.rename(temp_path, result_file_name)
+    logging.info(f"Feature flags written to {result_file_name}: {feature_flags_dict}")
 
 
 async def load_drivers():
@@ -3329,13 +3328,19 @@ async def main():
         await ensure_container_exec()
         instruction = json.loads(INSTRUCTIONS)
         logging.info(f"adhoc-op-with-container instruction: {instruction}")
-        payload = json.loads(instruction['payload'])
         if instruction.get('type') == 'ensure-nics':
+            payload = json.loads(instruction['payload'])
             if payload.get('type') in ["aws", "oci"]:
                 await ensure_nics(payload['dataNICsNumber'])
                 return
             else:
                 raise ValueError(f"Ensure NICs instruction type not supported: {payload.get('type')}")
+        elif instruction.get('type') == 'feature-flags-update':
+            ff = await get_feature_flags()
+            write_results({
+                "feature_flags": ff.get_feature_map(),
+            })
+            return
         else:
             raise ValueError(f"unsupported instruction: {instruction.get('type')}")
 

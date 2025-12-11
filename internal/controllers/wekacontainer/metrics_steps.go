@@ -32,6 +32,13 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{
+			Run: loop.EnsureFeatureFlags,
+			Predicates: lifecycle.Predicates{
+				// Currently, we only need feature flags for client containers
+				container.IsClientContainer,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Name: "SetStatusMetrics",
 			Run:  loop.SetStatusMetrics,
 			Predicates: lifecycle.Predicates{
@@ -178,38 +185,6 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	return TracedPatch()
 }
 
-// getFeatureFlagsFromContainer reads the feature flags from /opt/weka/k8s-runtime/feature_flags.json
-// Returns empty map if file is not found (for backward compatibility with older weka versions)
-// The JSON format is: {"feature_name": true, "feature_name2": false}
-func (r *containerReconcilerLoop) getFeatureFlagsFromContainer(ctx context.Context) (map[string]bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getFeatureFlags")
-	defer end()
-
-	executor, err := r.ExecService.GetExecutor(ctx, r.container)
-	if err != nil {
-		return nil, fmt.Errorf("error getting executor: %w", err)
-	}
-
-	// Read the feature flags JSON file
-	featureFlagsPath := "/opt/weka/k8s-runtime/feature_flags.json"
-	cmd := []string{"cat", featureFlagsPath}
-	stdout, _, err := executor.ExecNamed(ctx, "ReadFeatureFlagsFile", cmd)
-	if err != nil {
-		// File not found - return empty map (backward compatibility with older weka versions)
-		logger.Debug("Feature flags file not found, using empty flags", "path", featureFlagsPath)
-
-		return make(map[string]bool), nil
-	}
-
-	// Parse JSON map
-	var flags map[string]bool
-	if err := json.Unmarshal(stdout.Bytes(), &flags); err != nil {
-		return nil, fmt.Errorf("error parsing feature_flags.json: %w", err)
-	}
-
-	return flags, nil
-}
-
 func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context) error {
 	podStatus, podStatusStartTime := r.getPodStatusInfo()
 	throttlingKey := fmt.Sprintf("RegisterContainerOnMetrics-%s", podStatus)
@@ -238,19 +213,9 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		}
 	}
 
-	// Get feature flags from the container's spec file (best effort)
-	// NOTE: currently needed only for client containers to check active mounts
-	var featureFlags map[string]bool
-	var err error
-
-	if r.container.IsClientContainer() {
-		featureFlags, err = r.getFeatureFlagsFromContainer(ctx)
-		if err != nil {
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "FeatureFlagsReadError", fmt.Sprintf("Failed to get feature flags: %v", err), time.Minute)
-			featureFlags = make(map[string]bool)
-		}
-	} else {
-		featureFlags = make(map[string]bool)
+	flags, err := r.GetCachedFeatureFlags(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get feature flags for container")
 	}
 
 	// find a pod service node metrics
@@ -263,7 +228,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		ScrapeTargets:      scrapeTargets,
 		PodStatus:          podStatus,
 		PodStatusStartTime: podStatusStartTime,
-		FeatureFlags:       featureFlags,
+		FeatureFlags:       flags,
 	}
 	// submit http request to metrics pod
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())

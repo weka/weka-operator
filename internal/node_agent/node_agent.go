@@ -64,7 +64,7 @@ type ContainerInfo struct {
 	pendingIOsFromProcfsLastPoll time.Time
 	podStatus                    string
 	podStatusStartTime           time.Time
-	featureFlags                 map[string]bool // feature flags map
+	featureFlags                 *domain.FeatureFlags // feature flags
 }
 
 func (i *ContainerInfo) getMaxCpu() float64 {
@@ -91,15 +91,15 @@ type ScrapeTarget struct {
 }
 
 type RegisterContainerPayload struct {
-	ContainerName      string            `json:"container_name"`
-	ContainerId        string            `json:"container_id"`
-	WekaContainerName  string            `json:"weka_container_name"`
-	Labels             map[string]string `json:"labels"`
-	Mode               string            `json:"mode"`
-	ScrapeTargets      []ScrapeTarget    `json:"scrape_targets"`
-	PodStatus          string            `json:"pod_status"`
-	PodStatusStartTime time.Time         `json:"pod_status_start_time"`
-	FeatureFlags       map[string]bool   `json:"feature_flags,omitempty"` // feature flags map
+	ContainerName      string               `json:"container_name"`
+	ContainerId        string               `json:"container_id"`
+	WekaContainerName  string               `json:"weka_container_name"`
+	Labels             map[string]string    `json:"labels"`
+	Mode               string               `json:"mode"`
+	ScrapeTargets      []ScrapeTarget       `json:"scrape_targets"`
+	PodStatus          string               `json:"pod_status"`
+	PodStatusStartTime time.Time            `json:"pod_status_start_time"`
+	FeatureFlags       *domain.FeatureFlags `json:"feature_flags,omitempty"` // feature flags
 }
 
 type ProcessSummary struct {
@@ -1019,7 +1019,7 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 
 		if exists && container.featureFlags != nil {
 			// Check if allow_per_container_driver_interface feature flag is enabled
-			shouldCheckContainerSpecific = container.featureFlags["allow_per_container_driver_interface"]
+			shouldCheckContainerSpecific = container.featureFlags.AllowPerContainerDriverInterfaces
 		}
 
 		if shouldCheckContainerSpecific {
