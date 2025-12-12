@@ -523,24 +523,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
-	if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
-		// Set USE_DRIVE_SHARING to indicate drive sharing mode
-		// weka_runtime.py will use this to mount the ssdproxy socket
-		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-			Name:  "USE_DRIVE_SHARING",
-			Value: "true",
-		})
-
-		// Set SSDPROXY_CONTAINER_UID so we know which proxy socket to use
-		// This will be set by the reconciler after finding the proxy on the same node
-		if f.container.Status.SSDProxyUID != "" {
-			pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-				Name:  "SSDPROXY_CONTAINER_UID",
-				Value: f.container.Status.SSDProxyUID,
-			})
-		}
-	}
-
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
@@ -627,14 +609,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		}
 	}
 
-	// Proxy containers need access to their per-container socket directory
-	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
-		// Use per-container path like other weka containers
-		// On host: /opt/k8s-weka/shared/containers/{UID}/local-sockets/ssdproxy/
-		// This follows the same pattern as other containers for consistency
-		containerUID := string(f.container.GetUID())
-		hostsideProxySocketDir := f.nodeInfo.GetHostsidePersistenceBaseLocation() +
-			"/shared/containers/" + containerUID + "/local-sockets/ssdproxy"
+	// Proxy and drive-with-sharing containers need access to proxy socket directory
+	needsProxyMount := f.container.Spec.Mode == weka.WekaContainerModeSSDProxy ||
+		(f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing)
+
+	if needsProxyMount {
+		// Node-level path for proxy state (shared across all drive containers on the node)
+		hostsideProxyPersistence := f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/ssdproxy/"
 		volumeName := "weka-proxy-socket-dir"
 		pathType := corev1.HostPathDirectoryOrCreate
 
@@ -647,32 +628,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideProxySocketDir,
-					Type: &pathType,
-				},
-			},
-		})
-	}
-
-	// Drive-with-sharing containers need access to the ssdproxy's socket
-	// Add a mount to the node-level containers directory so they can access other containers' sockets
-	if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
-		// Mount the node-level containers directory to access ssdproxy sockets
-		// Note: This is /containers not /shared/containers - we need per-container persistence directories
-		hostsideAllContainersDir := f.nodeInfo.GetHostsidePersistenceBaseLocation() + "/containers"
-		volumeName := "weka-all-containers-dir"
-		pathType := corev1.HostPathDirectoryOrCreate
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: inPodHostBinds + "/all-containers",
-		})
-
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideAllContainersDir,
+					Path: hostsideProxyPersistence,
 					Type: &pathType,
 				},
 			},

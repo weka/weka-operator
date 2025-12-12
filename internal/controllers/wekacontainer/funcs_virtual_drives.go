@@ -11,7 +11,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
@@ -64,7 +63,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	// Get list of virtual drives already signed on proxy devices via JSONRPC
-	signedVirtualDrives, err := r.getSignedVirtualDrives(ctx, ssdproxyContainer, agentPod, token)
+	signedVirtualDrives, err := r.getSignedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
 	if err != nil {
 		return fmt.Errorf("failed to get signed virtual drives: %w", err)
 	}
@@ -226,7 +225,7 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 
 		l.Info("Removing virtual drive via JSONRPC")
 
-		err := r.removeVirtualDriveViaJSONRPC(ctx, ssdproxyContainer, agentPod, token, vd.VirtualUUID)
+		err := r.removeVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, vd.VirtualUUID)
 		if err != nil {
 			l.Error(err, "Failed to remove virtual drive via JSONRPC")
 			errs = append(errs, fmt.Errorf("failed to remove virtual drive %s: %w", vd.VirtualUUID, err))
@@ -247,7 +246,7 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 }
 
 // removeVirtualDriveViaJSONRPC removes a virtual drive by calling ssd_proxy_remove_virtual_drive via node agent
-func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainer *weka.WekaContainer, agentPod *v1.Pod, token string, virtualUUID string) error {
+func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string, virtualUUID string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeVirtualDriveViaJSONRPC")
 	defer end()
 
@@ -259,7 +258,7 @@ func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Conte
 	}
 
 	payload := node_agent.JSONRPCProxyPayload{
-		ContainerId: string(ssdproxyContainer.GetUID()),
+		ContainerId: ssdproxyContainerUuid,
 		Method:      method,
 		Params:      params,
 	}
@@ -357,7 +356,7 @@ type NodeAgentJSONRPCResponse struct {
 
 // getSignedVirtualDrives returns a map of virtual UUIDs that are signed on proxy devices
 // by calling ssd_proxy JSONRPC API via node agent
-func (r *containerReconcilerLoop) getSignedVirtualDrives(ctx context.Context, ssdproxyContainer *weka.WekaContainer, agentPod *v1.Pod, token string) (map[string]bool, error) {
+func (r *containerReconcilerLoop) getSignedVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) (map[string]bool, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getSignedVirtualDrives")
 	defer end()
 
@@ -388,7 +387,7 @@ func (r *containerReconcilerLoop) getSignedVirtualDrives(ctx context.Context, ss
 		}
 
 		payload := node_agent.JSONRPCProxyPayload{
-			ContainerId: string(ssdproxyContainer.GetUID()),
+			ContainerId: ssdproxyContainerUuid,
 			Method:      method,
 			Params:      params,
 		}

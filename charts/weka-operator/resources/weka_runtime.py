@@ -107,8 +107,6 @@ AWS_DEVICE_ID = "cd01"
 GCP_VENDOR_ID = "0x1ae0"
 GCP_DEVICE_ID = "0x001f"
 AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
-USE_DRIVE_SHARING = os.environ.get("USE_DRIVE_SHARING", "false").lower() == "true"
-SSDPROXY_CONTAINER_UID = os.environ.get("SSDPROXY_CONTAINER_UID", "")
 
 # for client dynamic port allocation
 BASE_PORT = os.environ.get("BASE_PORT", "")
@@ -2613,69 +2611,10 @@ async def configure_persistency():
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
 
-        # Mount local-sockets directory for inter-container communication
-        # For ssdproxy containers, use the per-container socket directory
-        if [ "{MODE}" = "ssdproxy" ] && [ -d /host-binds/ssdproxy ]; then
-            mkdir -p /opt/weka/external-mounts/local-sockets/ssdproxy
-            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/local-sockets/ssdproxy
-        elif [ "{MODE}" = "drive" ] && [ "$USE_DRIVE_SHARING" = "true" ] && [ -d /host-binds/all-containers ]; then
-            # Drive-sharing containers need access to ssdproxy's external-mounts/ssdproxy directory
-            # This contains the ssd_proxy.sock that the agent uses for device management
-            mkdir -p /opt/weka/external-mounts
-
-            if [ -n "$SSDPROXY_CONTAINER_UID" ]; then
-                # The proxy's external-mounts/ssdproxy directory is accessed through:
-                # /host-binds/all-containers/{{proxy-UID}}/ which maps to the proxy container's root persistence
-                # We need to find where the proxy's external-mounts/ssdproxy is stored on the host
-                # Based on container structure, it's at: /host-binds/all-containers/{{proxy-UID}}/external-mounts/ssdproxy
-
-                # But since the proxy mounts its /host-binds/ssdproxy to /opt/weka/external-mounts/local-sockets/ssdproxy,
-                # and we need the agent's ssdproxy directory (which contains ssd_proxy.sock),
-                # we need to check where that actually is on the host
-
-                # The socket is in the proxy's external-mounts/ssdproxy directory which is persisted
-                # This is accessible via the proxy container's persistence directory
-                proxy_ssdproxy_dir="/host-binds/all-containers/$SSDPROXY_CONTAINER_UID/external-mounts/ssdproxy"
-                echo "Waiting for ssdproxy agent socket at: $proxy_ssdproxy_dir (UID: $SSDPROXY_CONTAINER_UID)"
-
-                # Wait up to 60 seconds for the socket directory to appear and contain ssd_proxy.sock
-                max_wait=60
-                waited=0
-                while [ $waited -lt $max_wait ]; do
-                    if [ -d "$proxy_ssdproxy_dir" ] && [ -S "$proxy_ssdproxy_dir/ssd_proxy.sock" ]; then
-                        echo "Found ssdproxy agent socket after $waited seconds"
-                        mkdir -p /opt/weka/external-mounts/ssdproxy
-                        mount -o bind "$proxy_ssdproxy_dir" /opt/weka/external-mounts/ssdproxy
-                        break
-                    fi
-                    sleep 1
-                    waited=$((waited + 1))
-                done
-
-                if [ $waited -ge $max_wait ]; then
-                    echo "Error: Timed out waiting for ssdproxy agent socket at: $proxy_ssdproxy_dir"
-                    echo "Attempting fallback search for ssd_proxy.sock..."
-                    # Fallback: try to find ssd_proxy.sock anywhere under the proxy's container dir
-                    for sock_file in /host-binds/all-containers/$SSDPROXY_CONTAINER_UID/*/ssd_proxy.sock; do
-                        if [ -S "$sock_file" ]; then
-                            sock_dir=$(dirname "$sock_file")
-                            echo "Found ssd_proxy.sock at: $sock_dir"
-                            mkdir -p /opt/weka/external-mounts/ssdproxy
-                            mount -o bind "$sock_dir" /opt/weka/external-mounts/ssdproxy
-                            break
-                        fi
-                    done
-                fi
-            else
-                echo "Warning: SSDPROXY_CONTAINER_UID not set, cannot mount ssdproxy socket"
-            fi
-
-            if ! mountpoint -q /opt/weka/external-mounts/ssdproxy; then
-                echo "Error: Could not find or mount ssdproxy agent socket for drive-sharing container"
-            else
-                echo "Successfully mounted ssdproxy agent socket"
-                ls -la /opt/weka/external-mounts/ssdproxy/
-            fi
+        # SSD proxy mount (for proxy containers and drive containers with sharing)
+        if [ -d /host-binds/ssdproxy ]; then
+            mkdir -p /opt/weka/external-mounts/ssdproxy
+            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/ssdproxy
         fi
 
         if [ -d /host-binds/shared ]; then
