@@ -190,12 +190,7 @@ func (r *containerReconcilerLoop) UpdateWekaAddedDrives(ctx context.Context) err
 		return err
 	}
 
-	addedSerials := make([]string, 0, len(drivesAdded))
-	for _, drive := range drivesAdded {
-		addedSerials = append(addedSerials, drive.SerialNumber)
-	}
-
-	logger.Info("Fetched added drives from weka", "count", len(drivesAdded), "serials", addedSerials)
+	logger.Info("Fetched added drives from weka", "count", len(drivesAdded), "drives", drivesAdded)
 
 	container.Status.AddedDrives = drivesAdded
 	err = r.Status().Update(ctx, container)

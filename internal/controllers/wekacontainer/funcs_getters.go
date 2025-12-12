@@ -148,13 +148,29 @@ func (r *containerReconcilerLoop) AddedDrivesNotAligedWithAllocations() bool {
 	if r.container.Status.Allocations == nil {
 		return false
 	}
-	addedDrivesSerials := r.container.Status.GetAddedDrivesSerials()
-	if len(addedDrivesSerials) == 0 {
-		return false
+
+	if r.container.Spec.UseDriveSharing {
+		addedDrivesVirualUuids := r.container.Status.GetAddedDrivesUuids()
+		if len(addedDrivesVirualUuids) == 0 {
+			return false
+		}
+
+		allocatedVirtualUuids := r.container.Status.Allocations.GetVirtualDrivesUuids()
+		slices.Sort(addedDrivesVirualUuids)
+		slices.Sort(allocatedVirtualUuids)
+
+		return !slices.Equal(addedDrivesVirualUuids, allocatedVirtualUuids)
+	} else {
+		// non-proxy mode
+		addedDrivesSerials := r.container.Status.GetAddedDrivesSerials()
+		if len(addedDrivesSerials) == 0 {
+			return false
+		}
+		slices.Sort(addedDrivesSerials)
+		slices.Sort(r.container.Status.Allocations.Drives)
+
+		return !slices.Equal(addedDrivesSerials, r.container.Status.Allocations.Drives)
 	}
-	slices.Sort(addedDrivesSerials)
-	slices.Sort(r.container.Status.Allocations.Drives)
-	return !slices.Equal(addedDrivesSerials, r.container.Status.Allocations.Drives)
 }
 
 func (r *containerReconcilerLoop) HasDrivesToAdd() bool {
@@ -166,6 +182,11 @@ func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
 		// if no allocations at all, covered by cluster's AllocateResources
 		return false
 	}
+
+	if r.container.Spec.UseDriveSharing {
+		return len(r.container.Status.Allocations.VirtualDrives) < r.container.Spec.NumDrives
+	}
+
 	return len(r.container.Status.Allocations.Drives) < r.container.Spec.NumDrives
 }
 

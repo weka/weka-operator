@@ -7,7 +7,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -141,131 +140,6 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(cluster *weka.WekaClus
 	}
 
 	return proxyContainer, nil
-}
-
-// countDriveContainersOnNode counts how many drive containers with drive sharing
-// exist on the same node as the current container
-func (r *containerReconcilerLoop) countDriveContainersOnNode(ctx context.Context) (int, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "countDriveContainersOnNode")
-	defer end()
-
-	nodeName := r.container.GetNodeAffinity()
-	if nodeName == "" {
-		return 0, errors.New("container has no node affinity")
-	}
-
-	// List all WekaContainers in the same namespace
-	kubeService := kubernetes.NewKubeService(r.Client)
-	containers, err := kubeService.GetWekaContainersSimple(ctx, "", string(nodeName), map[string]string{
-		"weka.io/mode": weka.WekaContainerModeDrive,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to list containers on node: %w", err)
-	}
-
-	count := 0
-	for _, c := range containers {
-		// Count drive containers with drive sharing on the same node
-		if c.IsDriveContainer() && c.UsesDriveSharing() && c.GetNodeAffinity() == nodeName {
-			// Don't count containers that are being deleted
-			if c.DeletionTimestamp == nil {
-				count++
-			}
-		}
-	}
-
-	logger.Debug("Counted drive containers on node", "count", count, "node", nodeName)
-	return count, nil
-}
-
-// shouldDeleteProxyContainer checks if the proxy container should be deleted
-// This is called during container deletion to determine if the proxy is still needed
-func (r *containerReconcilerLoop) shouldDeleteProxyContainer(ctx context.Context) (bool, error) {
-	// Only relevant for drive containers with drive sharing
-	if !r.container.IsDriveContainer() || !r.container.UsesDriveSharing() {
-		return false, nil
-	}
-
-	count, err := r.countDriveContainersOnNode(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	// Delete proxy if this is the last drive container on the node
-	// count includes the current container, so delete if count <= 1
-	return count <= 1, nil
-}
-
-// cleanupProxyIfNeeded checks if proxy should be deleted and deletes it if this is the last drive container
-func (r *containerReconcilerLoop) cleanupProxyIfNeeded(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupProxyIfNeeded")
-	defer end()
-
-	shouldDelete, err := r.shouldDeleteProxyContainer(ctx)
-	if err != nil {
-		logger.Error(err, "Failed to determine if proxy should be deleted")
-		return err
-	}
-
-	if !shouldDelete {
-		logger.Info("Other drive containers still exist on node, keeping proxy")
-		return nil
-	}
-
-	logger.Info("This is the last drive container on node, deleting proxy")
-	return r.deleteProxyContainer(ctx)
-}
-
-// deleteProxyContainer deletes the proxy container for the current node
-func (r *containerReconcilerLoop) deleteProxyContainer(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteProxyContainer")
-	defer end()
-
-	nodeName := r.container.GetNodeAffinity()
-	if nodeName == "" {
-		// No node affinity, nothing to clean up
-		return nil
-	}
-
-	proxyName := getProxyContainerName(nodeName)
-	logger.SetValues("proxyName", proxyName, "node", nodeName)
-
-	operatorNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		return errors.Wrap(err, "failed to get operator namespace")
-	}
-
-	// Get the proxy container
-	proxyContainer := &weka.WekaContainer{}
-	err = r.Client.Get(ctx, client.ObjectKey{
-		Name:      proxyName,
-		Namespace: operatorNamespace,
-	}, proxyContainer)
-
-	if apierrors.IsNotFound(err) {
-		// Proxy doesn't exist, nothing to do
-		logger.Info("Proxy container already deleted")
-		return nil
-	}
-
-	if err != nil {
-		return errors.Wrap(err, "failed to get proxy container")
-	}
-
-	// Delete the proxy container
-	logger.Info("Deleting proxy container")
-	if err := r.Client.Delete(ctx, proxyContainer); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Already deleted
-			return nil
-		}
-		return errors.Wrap(err, "failed to delete proxy container")
-	}
-
-	logger.Info("Proxy container deleted successfully")
-	_ = r.RecordEvent(v1.EventTypeNormal, "ProxyDeleted", fmt.Sprintf("Deleted SSD proxy container %s from node %s", proxyName, nodeName))
-
-	return nil
 }
 
 // SetSSDProxyUID finds and records the ssdproxy container UID for drive-sharing containers

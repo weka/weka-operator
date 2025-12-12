@@ -333,8 +333,3 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 - Owned by operator (shared resource across multiple clusters)
 - Deletion managed by reference counting drive containers
 - Survives individual container deletions
-
-**Deletion:**
-- Only when last drive container on node is deleted
-- `cleanupProxyIfNeeded()` counts remaining drive containers
-- Cleanup step runs at end of deletion flow
