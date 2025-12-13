@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
-	"github.com/pkg/errors"
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
@@ -19,7 +16,7 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-// AddVirtualDrives signs virtual drives on physical proxy devices using weka-sign-drive virtual add
+// AddVirtualDrives adds virtual drives on physical proxy devices using jrpc
 // This is only called for drive containers in drive sharing mode
 func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
@@ -29,7 +26,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 
 	// Only for drive sharing mode
 	if !container.Spec.UseDriveSharing {
-		logger.Debug("Container not using drive sharing, skipping virtual drive signing")
+		logger.Debug("Container not using drive sharing, skipping virtual drive adding")
 		return nil
 	}
 
@@ -37,12 +34,6 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	if container.Status.Allocations == nil || len(container.Status.Allocations.VirtualDrives) == 0 {
 		logger.Debug("No virtual drives allocated")
 		return nil
-	}
-
-	// Check if cluster ID is available (needed for --owner-cluster-guid)
-	if container.Status.ClusterID == "" {
-		err := errors.New("cluster ID is not set, cannot sign virtual drives")
-		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
 
 	// Find the ssdproxy container on the same node
@@ -79,19 +70,19 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	if allAdded {
-		logger.Info("All virtual drives already signed and present on proxy devices")
+		logger.Info("All virtual drives already added and present on proxy devices")
 		return nil
 	}
 
 	var errs []error
 
-	// Sign each virtual drive that hasn't been signed yet
+	// Add each virtual drive that hasn't been added yet
 	for _, vd := range container.Status.Allocations.VirtualDrives {
 		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
 
-		// Check if already signed
+		// Check if already added
 		if addedVirtualDrives[vd.VirtualUUID] {
-			l.Info("Virtual drive already signed on device, skipping")
+			l.Info("Virtual drive already added to ssdproxy, skipping")
 			continue
 		}
 
@@ -101,7 +92,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 			"node", container.GetNodeAffinity())
 
 		// Add the virtual drive via JSONRPC
-		err := r.addVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, vd, container.Status.ClusterID)
+		err := r.addVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, vd)
 		if err != nil {
 			l.Error(err, "Failed to add virtual drive via JSONRPC")
 			errs = append(errs, fmt.Errorf("failed to add virtual drive %s: %w", vd.VirtualUUID, err))
@@ -112,7 +103,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors while signing virtual drives: %v", errs)
+		return fmt.Errorf("errors while adding virtual drives: %v", errs)
 	}
 
 	logger.InfoWithStatus(codes.Ok, "All virtual drives added successfully")
@@ -121,7 +112,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 }
 
 // addVirtualDriveViaJSONRPC adds a virtual drive by calling ssd_proxy_add_virtual_drive via node agent
-func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string, vd weka.VirtualDrive, clusterID string) error {
+func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string, vd weka.VirtualDrive) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "addVirtualDriveViaJSONRPC")
 	defer end()
 
@@ -130,7 +121,6 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 	params := map[string]any{
 		"virtualUuid":  vd.VirtualUUID,
 		"physicalUuid": vd.PhysicalUUID,
-		"clusterGuid":  clusterID,
 		"sizeGB":       vd.CapacityGiB,
 	}
 
@@ -177,7 +167,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 	return nil
 }
 
-// RemoveVirtualDrives removes virtual drives from physical proxy devices using weka-sign-drive virtual remove
+// RemoveVirtualDrives removes virtual drives from physical proxy devices using jrpc
 // This is called during container deletion for drive containers in drive sharing mode
 func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error {
 	container := r.container
@@ -412,7 +402,7 @@ type NodeAgentJSONRPCResponse struct {
 	Result  []SSDProxyVirtualDrive `json:"result"`
 }
 
-// listVirtualDrives returns a map of virtual UUIDs that are signed on proxy devices
+// listVirtualDrives returns a map of virtual UUIDs that are added to proxy devices
 // by calling ssd_proxy JSONRPC API via node agent
 func (r *containerReconcilerLoop) listVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) (map[string]bool, error) {
 	container := r.container
@@ -465,9 +455,6 @@ func (r *containerReconcilerLoop) listVirtualDrives(ctx context.Context, ssdprox
 			return nil, fmt.Errorf("failed to read response body on node %s: %w", container.GetNodeAffinity(), readErr)
 		}
 
-		// Log the JSONRPC response for debugging
-		l.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
-
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("node agent on node %s returned status: %s, body: %s", container.GetNodeAffinity(), resp.Status, string(respBody))
 		}
@@ -479,19 +466,20 @@ func (r *containerReconcilerLoop) listVirtualDrives(ctx context.Context, ssdprox
 			return nil, fmt.Errorf("failed to parse virtual drives response on node %s: %w, body: %s", container.GetNodeAffinity(), err, string(respBody))
 		}
 
-		// Add to signed drives map
+		// Add to the map of added virtual drives
 		for _, vd := range response.Result {
 			addedVirtualDrives[vd.VirtualUUID] = true
-			l.Info("Found signed virtual drive",
+			l.Info("Found added virtual drive",
 				"virtual_uuid", vd.VirtualUUID,
 				"cluster_uuid", vd.ClusterGUID,
 				"size_gb", vd.SizeGB)
 		}
 	}
 
-	logger.Info("Retrieved signed virtual drives via JSONRPC",
+	logger.Info("Retrieved added virtual drives via JSONRPC",
 		"count", len(addedVirtualDrives),
-		"physical_drives_queried", len(physicalUUIDs))
+		"physical_drives_queried", len(physicalUUIDs),
+	)
 
 	return addedVirtualDrives, nil
 }

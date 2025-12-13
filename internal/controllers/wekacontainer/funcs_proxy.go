@@ -56,7 +56,7 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 
 	if err == nil {
 		// Proxy already exists
-		logger.Info("Proxy container already exists")
+		logger.Debug("Proxy container already exists")
 		return nil
 	}
 
