@@ -383,114 +383,134 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	return nil
 }
 
-// deallocateVirtualDrives removes virtual drive allocations for blocked physical drives
-func (r *containerReconcilerLoop) deallocateVirtualDrives(ctx context.Context, node *v1.Node, blockedDrives []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateVirtualDrives")
+func (r *containerReconcilerLoop) deallocateDrivesByPhysicalUuids(ctx context.Context, blockedDrivePhysicalUuids []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateDrivesByPhysicalUuids")
 	defer end()
 
 	container := r.container
 
-	logger.Info("Deallocating virtual drives mapped to blocked physical drives",
-		"container", container.Name,
-		"blockedDrives", blockedDrives)
-
-	// Get shared drives from node to map serial IDs to physical UUIDs
-	nodeInfoGetter := allocator.NewK8sNodeInfoGetter(r.Client)
-	nodeInfo, err := nodeInfoGetter(ctx, weka.NodeName(node.Name))
-	if err != nil {
-		return fmt.Errorf("failed to get node info: %w", err)
-	}
-
-	// Build map of serial ID to physical UUID
-	serialToPhysicalUUID := make(map[string]string)
-	for _, sharedDrive := range nodeInfo.SharedDrives {
-		serialToPhysicalUUID[sharedDrive.Serial] = sharedDrive.UUID
-	}
-
-	// Find virtual drives that are mapped to blocked physical drives
-	virtualDrivesToRemove := []string{}
-	for _, vd := range container.Status.Allocations.VirtualDrives {
-		// Check if this virtual drive's physical drive is blocked
-		// Blocked drives list contains serial IDs, so we need to match PhysicalUUID
-		isBlocked := false
-		for _, blockedSerial := range blockedDrives {
-			// Map blocked serial to physical UUID
-			if physicalUUID, ok := serialToPhysicalUUID[blockedSerial]; ok {
-				if vd.PhysicalUUID == physicalUUID {
-					isBlocked = true
-					break
-				}
-			}
-		}
-		if isBlocked {
-			virtualDrivesToRemove = append(virtualDrivesToRemove, vd.VirtualUUID)
+	// 1. Check if any virtual drive allocations map to blocked physical drives
+	virtualDriveAllocationsHaveBlockedUuids := false
+	for _, vdrive := range container.Status.Allocations.VirtualDrives {
+		if slices.Contains(blockedDrivePhysicalUuids, vdrive.PhysicalUUID) {
+			virtualDriveAllocationsHaveBlockedUuids = true
+			break
 		}
 	}
 
-	if len(virtualDrivesToRemove) == 0 {
-		logger.Info("No virtual drives to deallocate")
+	if !virtualDriveAllocationsHaveBlockedUuids {
+		logger.Info("No drives to deallocate for container", "container", r.container.Name)
 		return nil
 	}
 
-	logger.Info("Removing virtual drive allocations", "virtualDrives", virtualDrivesToRemove)
+	logger.Info("Deallocating virtual drives mapped to blocked physical drives",
+		"container", container.Name,
+		"blockedDrivePhysicalUuids", blockedDrivePhysicalUuids,
+	)
 
 	// Update container status allocations
 	updatedVirtualDrives := []weka.VirtualDrive{}
 	for _, vd := range container.Status.Allocations.VirtualDrives {
-		if !slices.Contains(virtualDrivesToRemove, vd.VirtualUUID) {
+		if !slices.Contains(blockedDrivePhysicalUuids, vd.PhysicalUUID) {
 			updatedVirtualDrives = append(updatedVirtualDrives, vd)
 		}
 	}
 	container.Status.Allocations.VirtualDrives = updatedVirtualDrives
 
-	err = r.Status().Update(ctx, container)
-	if err != nil {
-		return fmt.Errorf("failed to update container status: %w", err)
-	}
+	logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
 
-	logger.Info("Successfully deallocated virtual drives", "count", len(virtualDrivesToRemove))
-	return nil
-}
-
-func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, blockedDrives []string) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateRemovedDrives")
+	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doDriveAllocationsUpdate")
 	defer end()
 
-	container := r.container
-
-	// Get the node
-	nodeName := container.GetNodeAffinity()
-	if nodeName == "" {
-		return errors.New("container has no node affinity")
-	}
-
-	node := &v1.Node{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
-		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
-	}
-
-	// Drive sharing mode needs different handling for blocked drives
-	if container.Spec.UseDriveSharing {
-		return r.deallocateVirtualDrives(ctx, node, blockedDrives)
-	}
-
-	// Regular drive mode - status-only allocation
-	// Update drive allocations in container status
-	updatedDriveAllocations := make([]string, 0)
-	for _, drive := range container.Status.Allocations.Drives {
-		if !slices.Contains(blockedDrives, drive) {
-			updatedDriveAllocations = append(updatedDriveAllocations, drive)
-		}
-	}
-
-	container.Status.Allocations.Drives = updatedDriveAllocations
 	err := r.Status().Update(ctx, container)
 	if err != nil {
 		err = fmt.Errorf("cannot update container status with deallocated drives: %w", err)
 		return err
 	}
 
-	logger.Info("Drive deallocation completed", "removed_drives", blockedDrives, "remaining_drives", len(updatedDriveAllocations))
+	logger.Info("Drive deallocation completed")
+
+	return nil
+}
+
+// deallocateDrivesBySerials removes drive allocations for blocked drives by their serial IDs (for both regular and virtual drives)
+func (r *containerReconcilerLoop) deallocateDrivesBySerials(ctx context.Context, blockedDriveSerials []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateRemovedDrives")
+	defer end()
+
+	container := r.container
+
+	// 1. Check if any allocated drives are in the blocked list
+	driveAllocationsHaveBlockedSerials := false
+	for _, drive := range container.Status.Allocations.Drives {
+		if slices.Contains(blockedDriveSerials, drive) {
+			driveAllocationsHaveBlockedSerials = true
+			break
+		}
+	}
+
+	// 2. Check if any virtual drive allocations map to blocked physical drives
+	virtualDriveAllocationsHaveBlockedSerials := false
+	for _, vdrive := range container.Status.Allocations.VirtualDrives {
+		if slices.Contains(blockedDriveSerials, vdrive.Serial) {
+			virtualDriveAllocationsHaveBlockedSerials = true
+			break
+		}
+	}
+
+	if !driveAllocationsHaveBlockedSerials && !virtualDriveAllocationsHaveBlockedSerials {
+		logger.Info("No drives to deallocate for container", "container", r.container.Name)
+		return nil
+	}
+
+	if driveAllocationsHaveBlockedSerials {
+		logger.Info("Deallocating drives marked for removal",
+			"container", container.Name,
+			"blockedDriveSerials", blockedDriveSerials,
+		)
+
+		// Regular drive mode - status-only allocation
+		// Update drive allocations in container status
+		updatedDriveAllocations := make([]string, 0)
+		for _, drive := range container.Status.Allocations.Drives {
+			if !slices.Contains(blockedDriveSerials, drive) {
+				updatedDriveAllocations = append(updatedDriveAllocations, drive)
+			}
+		}
+
+		container.Status.Allocations.Drives = updatedDriveAllocations
+
+		logger.Debug("Updated drive allocations", "drives", updatedDriveAllocations, "count", len(updatedDriveAllocations))
+	}
+
+	if virtualDriveAllocationsHaveBlockedSerials {
+		logger.Info("Deallocating virtual drives mapped to blocked physical drives",
+			"container", container.Name,
+			"blockedDriveSerials", blockedDriveSerials,
+		)
+
+		// Update container status allocations
+		updatedVirtualDrives := []weka.VirtualDrive{}
+		for _, vd := range container.Status.Allocations.VirtualDrives {
+			if !slices.Contains(blockedDriveSerials, vd.Serial) {
+				updatedVirtualDrives = append(updatedVirtualDrives, vd)
+			}
+		}
+		container.Status.Allocations.VirtualDrives = updatedVirtualDrives
+
+		logger.Debug("Updated virtual drive allocations", "virtualDrives", updatedVirtualDrives, "count", len(updatedVirtualDrives))
+	}
+
+	ctx, logger, end = instrumentation.GetLogSpan(ctx, "doDriveAllocationsUpdate")
+	defer end()
+
+	err := r.Status().Update(ctx, container)
+	if err != nil {
+		err = fmt.Errorf("cannot update container status with deallocated drives: %w", err)
+		return err
+	}
+
+	logger.Info("Drive deallocation completed")
 
 	return nil
 }

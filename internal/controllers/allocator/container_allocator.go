@@ -416,7 +416,7 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 
 	driveCapacities := make(map[string]*physicalDriveCapacity)
 	for _, drive := range sharedDrives {
-		driveCapacities[drive.UUID] = &physicalDriveCapacity{
+		driveCapacities[drive.PhysicalUUID] = &physicalDriveCapacity{
 			drive:             drive,
 			totalCapacity:     drive.CapacityGiB,
 			claimedCapacity:   0,
@@ -491,9 +491,9 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 
 		virtualDrive := weka.VirtualDrive{
 			VirtualUUID:  generateVirtualUUID(),
-			PhysicalUUID: selectedDrive.drive.UUID,
+			PhysicalUUID: selectedDrive.drive.PhysicalUUID,
 			CapacityGiB:  driveCapacityGiB,
-			DevicePath:   selectedDrive.drive.DevicePath,
+			Serial:       selectedDrive.drive.Serial,
 		}
 		virtualDrives = append(virtualDrives, virtualDrive)
 

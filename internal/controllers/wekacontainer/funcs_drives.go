@@ -84,7 +84,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
-			l := logger.WithValues("virtualUUID", vd.VirtualUUID, "devicePath", vd.DevicePath)
+			l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
 
 			// Check if drive is already added to weka
 			if drivesAddedByVids[vd.VirtualUUID] {
@@ -210,9 +210,13 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 
 	container := r.container
 
-	blockedDrives, err := r.getNodeBlockedDrives(ctx)
+	blockedSerials, err := r.getNodeBlockedDriveSerials(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get blocked drives from node: %w", err)
+	}
+
+	if len(blockedSerials) == 0 {
+		return nil
 	}
 
 	addedDrivesMap := make(map[string]weka.Drive)
@@ -227,7 +231,7 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 	toRemoveDrives := make(map[string]weka.Drive)
 
 	// check which drives from "blocked drives" list are still present in weka
-	for _, blockedDriveSerial := range blockedDrives {
+	for _, blockedDriveSerial := range blockedSerials {
 		if d, ok := addedDrivesMap[blockedDriveSerial]; ok {
 			toRemoveDrives[blockedDriveSerial] = d
 		}
@@ -238,21 +242,9 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 		return nil
 	}
 
-	// trigger re-allocation if any of the drives in Allocations.RemoveDrives is still in driveAllocations
-	triggerDeallocation := false
-	for _, drive := range container.Status.Allocations.Drives {
-		if slices.Contains(blockedDrives, drive) {
-			triggerDeallocation = true
-			break
-		}
-	}
-
-	// Deallocate drives marked for removal
-	if triggerDeallocation {
-		err = r.deallocateRemovedDrives(ctx, blockedDrives)
-		if err != nil {
-			return err
-		}
+	err = r.deallocateDrivesBySerials(ctx, blockedSerials)
+	if err != nil {
+		return err
 	}
 
 	var errs []error
@@ -261,7 +253,7 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 
 	for _, drive := range toRemoveDrives {
-		err := r.removeDriveFromWeka(ctx, &drive, wekaService)
+		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.Spec.UseDriveSharing)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -276,6 +268,78 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 	return nil
 }
 
+func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+
+	blockedPhysicalUuids, err := r.getNodeBlockedDriveUuids(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get blocked drive UUIDs from node: %w", err)
+	}
+
+	if len(blockedPhysicalUuids) == 0 {
+		return nil
+	}
+
+	// we don't have physical uuids in added drives, need to map them via allocations
+	allocationsByVirtualUuids := make(map[string]weka.VirtualDrive)
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		allocationsByVirtualUuids[vd.VirtualUUID] = vd
+	}
+
+	addedDrivesByPhysicalUuidsMap := make(map[string]weka.Drive)
+	for _, d := range container.Status.AddedDrives {
+		allocation, ok := allocationsByVirtualUuids[d.Uuid]
+		if !ok {
+			logger.Warn("Added drive has no matching allocation, cannot determine physical UUID", "drive", d)
+
+			_ = r.RecordEvent(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive %s has no matching allocation, cannot determine physical UUID", d.Uuid))
+			continue
+		}
+
+		addedDrivesByPhysicalUuidsMap[allocation.PhysicalUUID] = d
+	}
+
+	toRemoveDrives := make(map[string]weka.Drive)
+
+	for _, blockedDriveUuid := range blockedPhysicalUuids {
+		if d, ok := addedDrivesByPhysicalUuidsMap[blockedDriveUuid]; ok {
+			toRemoveDrives[blockedDriveUuid] = d
+		}
+	}
+
+	if len(toRemoveDrives) == 0 {
+		logger.Info("No drives to remove from weka")
+		return nil
+	}
+
+	err = r.deallocateDrivesByPhysicalUuids(ctx, blockedPhysicalUuids)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+
+	timeout := time.Minute * 2
+	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
+	for _, drive := range toRemoveDrives {
+		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.Spec.UseDriveSharing)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during drive removal: %v", errs)
+	}
+
+	return nil
+}
+
+// TODO: make it work with physical UUIDs as well
 func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "MarkDrivesForRemoval")
 	defer end()
@@ -286,36 +350,31 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 		return errors.New("container is uneligible for drive allocation (unhealthy)")
 	}
 
-	var containerDriveFailures []string
+	var toRemoveSerialIDs []string
 
 	// check if any container has failed drives
 	driveFailures := container.Status.GetStats().Drives.DriveFailures
 	if len(driveFailures) > 0 {
-		containerDriveFailures = make([]string, 0, len(driveFailures))
+		toRemoveSerialIDs = make([]string, 0, len(driveFailures))
 		for _, driveFailure := range driveFailures {
 			logger.Info("Drive marked as failed, marking for removal", "drive", driveFailure.SerialId)
-			containerDriveFailures = append(containerDriveFailures, driveFailure.SerialId)
+			toRemoveSerialIDs = append(toRemoveSerialIDs, driveFailure.SerialId)
 		}
 	}
 
-	if len(containerDriveFailures) == 0 {
+	if len(toRemoveSerialIDs) == 0 {
 		logger.Info("No drives to mark for removal")
 		return nil
 	}
 
-	toRemoveSerialIDs := make([]string, 0, len(containerDriveFailures))
-	for _, drive := range containerDriveFailures {
-		toRemoveSerialIDs = append(toRemoveSerialIDs, drive)
-	}
-
 	// check if drives are already "blocked" on the node
-	blockedDrives, err := r.getNodeBlockedDrives(ctx)
+	blockedDriveSerials, err := r.getNodeBlockedDriveSerials(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get blocked drives from node: %w", err)
 	}
 	allBlocked := true
 	for _, drive := range toRemoveSerialIDs {
-		if !slices.Contains(blockedDrives, drive) {
+		if !slices.Contains(blockedDriveSerials, drive) {
 			allBlocked = false
 			break
 		}
@@ -444,8 +503,8 @@ func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, ex
 	return serialIdMap, nil
 }
 
-func (r *containerReconcilerLoop) getNodeBlockedDrives(ctx context.Context) ([]string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDrives")
+func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) (blockedPhysicalUuids []string, err error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveUuids")
 	defer end()
 
 	node := r.node
@@ -453,21 +512,45 @@ func (r *containerReconcilerLoop) getNodeBlockedDrives(ctx context.Context) ([]s
 		return nil, errors.New("node is nil")
 	}
 
-	annotationBlockedDrives := make([]string, 0)
-	blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
-	if ok && blockedDrivesStr != "" {
-		err := json.Unmarshal([]byte(blockedDrivesStr), &annotationBlockedDrives)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal weka-allocations: %v", err)
+	// drives blocked by physical UUIDs (for drive sharing / proxy mode)
+	blockedPhysicalUuids = make([]string, 0)
+	blockedUuidsStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]
+	if ok && blockedUuidsStr != "" {
+		if err := json.Unmarshal([]byte(blockedUuidsStr), &blockedPhysicalUuids); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal blocked shared drives: %w", err)
 		}
 	}
 
-	logger.Info("Fetched blocked drives from node annotation", "blocked_drives", annotationBlockedDrives)
+	logger.Info("Fetched blocked drives from node annotation", "blocked_drives_uuids", blockedPhysicalUuids)
 
-	return annotationBlockedDrives, nil
+	return blockedPhysicalUuids, nil
 }
 
-func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive *weka.Drive, wekaService services.WekaService) error {
+func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context) (blockedSerials []string, err error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveSerials")
+	defer end()
+
+	node := r.node
+	if node == nil {
+		return nil, errors.New("node is nil")
+	}
+
+	// drives blocked by serial IDs
+	blockedSerials = make([]string, 0)
+	blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
+	if ok && blockedDrivesStr != "" {
+		err := json.Unmarshal([]byte(blockedDrivesStr), &blockedSerials)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal blocked drives: %v", err)
+		}
+	}
+
+	logger.Info("Fetched blocked drives from node annotation", "blocked_drives_serials", blockedSerials)
+
+	return blockedSerials, nil
+}
+
+func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive *weka.Drive, wekaService services.WekaService, useDriveSharing bool) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "removeReplacedDriveFromWeka", "drive_uuid", drive.Uuid, "drive_serial", drive.SerialNumber)
 	defer end()
 
@@ -514,5 +597,14 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 	_ = r.RecordEvent("", "DriveRemoved", fmt.Sprintf("Drive %s removed", drive.SerialNumber))
 
 	logger.Info("Drive removed from weka")
+
+	if useDriveSharing {
+		// remove virtual drive on ssdproxy
+		err = r.removeVirtualDrive(ctx, drive.Uuid)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

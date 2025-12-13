@@ -484,6 +484,21 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.RemoveDrivesByPhysicalUuids,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				func() bool {
+					return r.container.Spec.UseDriveSharing
+				},
+			},
+			ContinueOnError: true,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:                    config.Consts.PeriodicDrivesCheckInterval,
+				DisableRandomPreSetInterval: true,
+				EnsureStepSuccess:           true,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.EnsureDrives,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,

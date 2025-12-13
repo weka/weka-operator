@@ -16,7 +16,7 @@ import (
 // SharedDriveInfo represents a shared drive with its metadata from proxy signing
 type SharedDriveInfo struct {
 	// UUID is the physical drive UUID returned by weka-sign-drive sign proxy
-	UUID string
+	PhysicalUUID string
 	// Serial is the drive serial number
 	Serial string
 	// CapacityGiB is the total capacity of the drive in GiB
@@ -36,6 +36,8 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 
 		nodeInfo = &AllocatorNodeInfo{}
+		// initialize shared drives slice
+		nodeInfo.SharedDrives = []SharedDriveInfo{}
 
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
@@ -48,8 +50,8 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 			blockedDrivesStr = "[]"
 		}
 		// blockedDrivesStr is json list, unwrap it
-		blockedDrives := []string{}
-		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		blockedDriveSerials := []string{}
+		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveSerials)
 		if err != nil {
 			err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
 			return
@@ -64,7 +66,7 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		}
 
 		for _, drive := range allDrives {
-			if !slices.Contains(blockedDrives, drive) {
+			if !slices.Contains(blockedDriveSerials, drive) {
 				availableDrives = append(availableDrives, drive)
 			}
 		}
@@ -81,19 +83,17 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 			}
 
 			// Filter out blocked shared drives
-			blockedSharedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedSharedDrives]
+			blockedSharedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]
 			if ok {
 				blockedSharedDrives := []string{}
 				if err := json.Unmarshal([]byte(blockedSharedDrivesStr), &blockedSharedDrives); err != nil {
 					err = fmt.Errorf("failed to unmarshal blocked-shared-drives: %w", err)
 					return nodeInfo, err
 				}
-				sharedDrives = filterBlockedSharedDrives(sharedDrives, blockedSharedDrives)
+				sharedDrives = filterBlockedSharedDrives(sharedDrives, blockedSharedDrives, blockedDriveSerials)
 			}
 
 			nodeInfo.SharedDrives = sharedDrives
-		} else {
-			nodeInfo.SharedDrives = []SharedDriveInfo{}
 		}
 
 		return
@@ -143,10 +143,10 @@ func parseSharedDrives(annotationValue string) ([]SharedDriveInfo, error) {
 		}
 
 		drives = append(drives, SharedDriveInfo{
-			UUID:        uuid,
-			Serial:      serial,
-			CapacityGiB: capacityGiB,
-			DevicePath:  devicePath,
+			PhysicalUUID: uuid,
+			Serial:       serial,
+			CapacityGiB:  capacityGiB,
+			DevicePath:   devicePath,
 		})
 	}
 
@@ -154,15 +154,15 @@ func parseSharedDrives(annotationValue string) ([]SharedDriveInfo, error) {
 }
 
 // filterBlockedSharedDrives removes blocked drives from the list
-// blockedUUIDs is a list of virtual UUIDs that are blocked
-func filterBlockedSharedDrives(drives []SharedDriveInfo, blockedUUIDs []string) []SharedDriveInfo {
-	if len(blockedUUIDs) == 0 {
+// blockedUUIDs is a list of virtual UUIDs that are blocked (via shared drive annotation or drive serials)
+func filterBlockedSharedDrives(drives []SharedDriveInfo, blockedDrivePhysicalUUIDs, blockedDriveSerials []string) []SharedDriveInfo {
+	if len(blockedDrivePhysicalUUIDs) == 0 && len(blockedDriveSerials) == 0 {
 		return drives
 	}
 
 	filtered := make([]SharedDriveInfo, 0, len(drives))
 	for _, drive := range drives {
-		if !slices.Contains(blockedUUIDs, drive.UUID) {
+		if !slices.Contains(blockedDrivePhysicalUUIDs, drive.PhysicalUUID) && !slices.Contains(blockedDriveSerials, drive.Serial) {
 			filtered = append(filtered, drive)
 		}
 	}
