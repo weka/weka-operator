@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -291,18 +292,21 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 type DriveReallocationRequest struct {
 	Container    *weka.WekaContainer
 	Node         *v1.Node
-	FailedDrives []string // Drives to remove
+	FailedDrives []string // Drives to remove (serial IDs for regular drives, virtual UUIDs for virtual drives)
 	NumNewDrives int      // Number of replacement drives needed
 }
 
 // DriveReallocationResult represents the result of drive reallocation
 type DriveReallocationResult struct {
-	NewDrives []string // New drives allocated
-	AllDrives []string // All drives after reallocation (old + new - failed)
+	NewDrives        []string            // New drives allocated (regular drives mode)
+	AllDrives        []string            // All drives after reallocation (regular drives mode)
+	NewVirtualDrives []weka.VirtualDrive // New virtual drives allocated (drive sharing mode)
+	AllVirtualDrives []weka.VirtualDrive // All virtual drives after reallocation (drive sharing mode)
 }
 
 // ReallocateDrives replaces failed drives with new ones (hot-swap scenario)
-// This is used when drives fail and need to be replaced
+// This is used when drives fail and need to be replaced, or when scaling up drives
+// Supports both regular drives and virtual drives (drive sharing mode)
 func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *DriveReallocationRequest) (*DriveReallocationResult, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainerResourceAllocator.ReallocateDrives")
 	defer end()
@@ -310,7 +314,22 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 	logger.Info("Reallocating drives for container",
 		"container", req.Container.Name,
 		"failedDrives", req.FailedDrives,
-		"numNewDrives", req.NumNewDrives)
+		"numNewDrives", req.NumNewDrives,
+		"useDriveSharing", req.Container.Spec.UseDriveSharing)
+
+	// Check if we're in drive sharing mode (virtual drives)
+	if req.Container.Spec.UseDriveSharing {
+		return a.reallocateVirtualDrives(ctx, req)
+	}
+
+	// Regular drive mode
+	return a.reallocateRegularDrives(ctx, req)
+}
+
+// reallocateRegularDrives handles reallocation for regular (non-shared) drives
+func (a *ContainerResourceAllocator) reallocateRegularDrives(ctx context.Context, req *DriveReallocationRequest) (*DriveReallocationResult, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reallocateRegularDrives")
+	defer end()
 
 	// Aggregate existing allocations from all containers on this node
 	allocatedDrives, _, err := a.aggregateNodeAllocations(ctx, req.Node.Name)
@@ -361,13 +380,65 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 	// Add new drives
 	allDrives = append(allDrives, newDrives...)
 
-	logger.Info("Successfully reallocated drives",
+	logger.Info("Successfully reallocated regular drives",
 		"newDrives", newDrives,
 		"totalDrives", len(allDrives))
 
 	return &DriveReallocationResult{
 		NewDrives: newDrives,
 		AllDrives: allDrives,
+	}, nil
+}
+
+// reallocateVirtualDrives handles reallocation for virtual drives (drive sharing mode)
+func (a *ContainerResourceAllocator) reallocateVirtualDrives(ctx context.Context, req *DriveReallocationRequest) (*DriveReallocationResult, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reallocateVirtualDrives")
+	defer end()
+
+	// Create allocation request for new virtual drives
+	allocReq := &AllocationRequest{
+		Container:     req.Container,
+		Node:          req.Node,
+		Cluster:       nil, // Not needed for shared drive allocation
+		NumDrives:     req.NumNewDrives,
+		FailureDomain: nil,
+		AllocateWeka:  false,
+		AllocateAgent: false,
+	}
+
+	// Allocate new virtual drives using shared drive allocation logic
+	newVirtualDrives, err := a.AllocateSharedDrives(ctx, allocReq)
+	if err != nil {
+		logger.Error(err, "Failed to allocate new virtual drives")
+		return nil, fmt.Errorf("failed to allocate new virtual drives: %w", err)
+	}
+
+	logger.Debug("Allocated new virtual drives", "count", len(newVirtualDrives))
+
+	// Calculate all virtual drives (existing - failed + new)
+	currentVirtualDrives := req.Container.Status.Allocations.VirtualDrives
+	allVirtualDrives := make([]weka.VirtualDrive, 0)
+
+	// Add virtual drives that weren't failed
+	for _, vd := range currentVirtualDrives {
+		// Check against both virtual UUID and serial (for flexibility)
+		if !slices.Contains(req.FailedDrives, vd.VirtualUUID) &&
+			!slices.Contains(req.FailedDrives, vd.Serial) {
+			allVirtualDrives = append(allVirtualDrives, vd)
+		}
+	}
+
+	// Add new virtual drives
+	allVirtualDrives = append(allVirtualDrives, newVirtualDrives...)
+
+	logger.Info("Successfully reallocated virtual drives",
+		"newVirtualDrives", len(newVirtualDrives),
+		"totalVirtualDrives", len(allVirtualDrives),
+		"failedCount", len(req.FailedDrives))
+
+	return &DriveReallocationResult{
+		NewVirtualDrives: newVirtualDrives,
+		AllVirtualDrives: allVirtualDrives,
 	}, nil
 }
 
@@ -408,7 +479,7 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 
 	// Build per-physical-drive capacity tracking
 	type physicalDriveCapacity struct {
-		drive             SharedDriveInfo
+		drive             resources.SharedDriveInfo
 		totalCapacity     int
 		claimedCapacity   int
 		availableCapacity int

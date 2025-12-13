@@ -283,23 +283,47 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 		return nil
 	}
 
-	// we don't have physical uuids in added drives, need to map them via allocations
-	allocationsByVirtualUuids := make(map[string]weka.VirtualDrive)
-	for _, vd := range container.Status.Allocations.VirtualDrives {
-		allocationsByVirtualUuids[vd.VirtualUUID] = vd
+	// get all virtual drives and create map of virtualUUID -> physicalUUID
+	virtualToPhysicalUuidsMap := make(map[string]string)
+
+	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to find ssdproxy container: %w", err)
 	}
+
+	agentPod, err := r.GetNodeAgentPod(ctx, container.GetNodeAffinity())
+	if err != nil {
+		return fmt.Errorf("failed to get node agent pod: %w", err)
+	}
+
+	token, err := r.getNodeAgentToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get node agent token: %w", err)
+	}
+
+	virtualDrives, err := r.ssdProxyListVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	if err != nil {
+		return fmt.Errorf("failed to list virtual drives: %w", err)
+	}
+
+	for _, vd := range virtualDrives {
+		virtualToPhysicalUuidsMap[vd.VirtualUUID] = vd.PhysicalUUID
+	}
+
+	logger.Info("Built virtual to physical UUID map",
+		"virtual_drives_count", len(virtualToPhysicalUuidsMap))
 
 	addedDrivesByPhysicalUuidsMap := make(map[string]weka.Drive)
 	for _, d := range container.Status.AddedDrives {
-		allocation, ok := allocationsByVirtualUuids[d.Uuid]
+		physicalUuid, ok := virtualToPhysicalUuidsMap[d.Uuid]
 		if !ok {
-			logger.Warn("Added drive has no matching allocation, cannot determine physical UUID", "drive", d)
+			logger.Warn("Added drive virtual UUID has no matching physical UUID", "virtual_uuid", d.Uuid)
 
-			_ = r.RecordEvent(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive %s has no matching allocation, cannot determine physical UUID", d.Uuid))
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive virtual UUID %s has no matching physical UUID", d.Uuid), time.Minute*1)
 			continue
 		}
 
-		addedDrivesByPhysicalUuidsMap[allocation.PhysicalUUID] = d
+		addedDrivesByPhysicalUuidsMap[physicalUuid] = d
 	}
 
 	toRemoveDrives := make(map[string]weka.Drive)
@@ -521,7 +545,7 @@ func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) 
 		}
 	}
 
-	logger.Info("Fetched blocked drives from node annotation", "blocked_drives_uuids", blockedPhysicalUuids)
+	logger.Debug("Fetched blocked drives from node annotation", "blocked_drives_uuids", blockedPhysicalUuids)
 
 	return blockedPhysicalUuids, nil
 }
@@ -545,7 +569,7 @@ func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context
 		}
 	}
 
-	logger.Info("Fetched blocked drives from node annotation", "blocked_drives_serials", blockedSerials)
+	logger.Debug("Fetched blocked drives from node annotation", "blocked_drives_serials", blockedSerials)
 
 	return blockedSerials, nil
 }

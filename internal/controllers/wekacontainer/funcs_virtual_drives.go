@@ -55,7 +55,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	// Get list of virtual drives already added on proxy devices via JSONRPC
-	addedVirtualDrives, err := r.listVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	addedVirtualDrives, err := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
 	if err != nil {
 		return fmt.Errorf("failed to get list of added virtual drives: %w", err)
 	}
@@ -391,9 +391,10 @@ type VirtualDriveInfo struct {
 
 // SSDProxyVirtualDrive represents a virtual drive returned by ssd_proxy JSONRPC
 type SSDProxyVirtualDrive struct {
-	VirtualUUID string `json:"uuid"`
-	ClusterGUID string `json:"clusterGuid"`
-	SizeGB      int    `json:"sizeGB"`
+	VirtualUUID  string `json:"uuid"`
+	PhysicalUUID string `json:"-"` // Not in JSON response, populated from request context
+	ClusterGUID  string `json:"clusterGuid"`
+	SizeGB       int    `json:"sizeGB"`
 }
 
 // NodeAgentJSONRPCResponse represents the wrapper response from node agent
@@ -402,12 +403,199 @@ type NodeAgentJSONRPCResponse struct {
 	Result  []SSDProxyVirtualDrive `json:"result"`
 }
 
-// listVirtualDrives returns a map of virtual UUIDs that are added to proxy devices
+// SSDProxyPhysicalDrive represents a physical drive returned by ssd_proxy_list_physical_drives JSONRPC
+type SSDProxyPhysicalDrive struct {
+	NumVirtualDrives int    `json:"numVirtualDrives"`
+	PhysicalUUID     string `json:"physicalUuid"`
+	SizeGB           int    `json:"sizeGB"`
+	Model            string `json:"model"`
+	PCIAddress       string `json:"pciAddress"`
+}
+
+// SSDProxyPhysicalDrivesResponse represents the response from ssd_proxy_list_physical_drives
+type SSDProxyPhysicalDrivesResponse struct {
+	Result  []SSDProxyPhysicalDrive `json:"result"`
+	ID      int                     `json:"id"`
+	JSONRPC string                  `json:"jsonrpc"`
+}
+
+func (r *containerReconcilerLoop) ssdProxyListPhysicalDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) ([]SSDProxyPhysicalDrive, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ssdProxyListPhysicalDrives", "node", r.container.GetNodeAffinity())
+	defer end()
+
+	method := "ssd_proxy_list_physical_drives"
+	params := map[string]any{}
+
+	payload := node_agent.JSONRPCProxyPayload{
+		ContainerId: ssdproxyContainerUuid,
+		Method:      method,
+		Params:      params,
+	}
+
+	logger.Info("Calling ssdproxy JSONRPC via node agent",
+		"method", method,
+		"ssdproxy_container_id", ssdproxyContainerUuid,
+	)
+
+	// Marshal payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
+	}
+
+	// Call node agent's /jsonrpc endpoint
+	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
+	}
+
+	// Log the JSONRPC response for debugging
+	logger.Info("JSONRPC response received", "status_code", resp.StatusCode, "response", string(respBody))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse response
+	var jsonrpcResp SSDProxyPhysicalDrivesResponse
+	err = json.Unmarshal(respBody, &jsonrpcResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+	}
+
+	logger.Info("Physical drives retrieved successfully via JSONRPC",
+		"count", len(jsonrpcResp.Result))
+
+	return jsonrpcResp.Result, nil
+}
+
+// ssdProxyListVirtualDrives lists all virtual drives across all physical drives
+// by first querying physical drives and then querying virtual drives for each physical drive that has them
+func (r *containerReconcilerLoop) ssdProxyListVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) ([]SSDProxyVirtualDrive, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ssdProxyListVirtualDrives", "node", r.container.GetNodeAffinity())
+	defer end()
+
+	// First, get all physical drives
+	physicalDrives, err := r.ssdProxyListPhysicalDrives(ctx, ssdproxyContainerUuid, agentPod, token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list physical drives: %w", err)
+	}
+
+	logger.Info("Retrieved physical drives, querying for virtual drives",
+		"physical_drives_count", len(physicalDrives))
+
+	// Collect all virtual drives from physical drives that have them
+	var allVirtualDrives []SSDProxyVirtualDrive
+
+	for _, physicalDrive := range physicalDrives {
+		// Skip physical drives with no virtual drives
+		if physicalDrive.NumVirtualDrives == 0 {
+			logger.Debug("Physical drive has no virtual drives, skipping",
+				"physical_uuid", physicalDrive.PhysicalUUID,
+				"model", physicalDrive.Model)
+			continue
+		}
+
+		l := logger.WithValues(
+			"physical_uuid", physicalDrive.PhysicalUUID,
+			"num_virtual_drives", physicalDrive.NumVirtualDrives)
+		l.Info("Querying virtual drives for physical drive")
+
+		// Query virtual drives for this physical drive
+		virtualDrives, err := r.ssdProxyListVirtualDrivesByPhysicalUuid(ctx, ssdproxyContainerUuid, physicalDrive.PhysicalUUID, agentPod, token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list virtual drives for physical drive %s: %w", physicalDrive.PhysicalUUID, err)
+		}
+
+		l.Info("Retrieved virtual drives for physical drive", "count", len(virtualDrives))
+		allVirtualDrives = append(allVirtualDrives, virtualDrives...)
+	}
+
+	logger.Info("Retrieved all virtual drives across all physical drives",
+		"total_virtual_drives", len(allVirtualDrives),
+		"physical_drives_queried", len(physicalDrives))
+
+	return allVirtualDrives, nil
+}
+
+func (r *containerReconcilerLoop) ssdProxyListVirtualDrivesByPhysicalUuid(ctx context.Context, ssdproxyContainerUuid, physicalDriveUuid string, agentPod *v1.Pod, token string) ([]SSDProxyVirtualDrive, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ssdProxyListVirtualDrivesByPhysicalUuid", "node", r.container.GetNodeAffinity())
+	defer end()
+
+	method := "ssd_proxy_list_virtual_drives"
+	params := map[string]any{
+		"physicalUuid": physicalDriveUuid,
+	}
+
+	payload := node_agent.JSONRPCProxyPayload{
+		ContainerId: ssdproxyContainerUuid,
+		Method:      method,
+		Params:      params,
+	}
+
+	logger.Info("Calling ssdproxy JSONRPC via node agent",
+		"method", method,
+		"physical_uuid", physicalDriveUuid,
+		"ssdproxy_container_id", ssdproxyContainerUuid,
+	)
+
+	// Marshal payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSONRPC payload: %w", err)
+	}
+
+	// Call node agent's /jsonrpc endpoint
+	url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
+	resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
+	if err != nil {
+		return nil, fmt.Errorf("failed to call node agent /jsonrpc endpoint for physical drive %s: %w", physicalDriveUuid, err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read JSONRPC response body: %w", readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("node agent returned non-OK status: %s, body: %s", resp.Status, string(respBody))
+	}
+
+	// Parse the wrapped response from node agent
+	var response NodeAgentJSONRPCResponse
+	err = json.Unmarshal(respBody, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSONRPC response: %w, body: %s", err, string(respBody))
+	}
+
+	// Populate PhysicalUUID for each virtual drive (not in the JSONRPC response)
+	for i := range response.Result {
+		response.Result[i].PhysicalUUID = physicalDriveUuid
+	}
+
+	logger.Info("Virtual drives retrieved successfully via JSONRPC",
+		"count", len(response.Result),
+		"physical_uuid", physicalDriveUuid)
+
+	return response.Result, nil
+}
+
+// getAddedVirtualDrives returns a map of virtual UUIDs that are added to proxy devices
 // by calling ssd_proxy JSONRPC API via node agent
-func (r *containerReconcilerLoop) listVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) (map[string]bool, error) {
+func (r *containerReconcilerLoop) getAddedVirtualDrives(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string) (map[string]bool, error) {
 	container := r.container
 
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "listVirtualDrives", "node", container.GetNodeAffinity())
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getAddedVirtualDrives", "node", container.GetNodeAffinity())
 	defer end()
 
 	// Collect unique physical drive UUIDs from allocations
@@ -424,53 +612,17 @@ func (r *containerReconcilerLoop) listVirtualDrives(ctx context.Context, ssdprox
 		l := logger.WithValues("physical_uuid", physicalUUID)
 		l.Info("Querying virtual drives for physical drive via JSONRPC")
 
-		method := "ssd_proxy_list_virtual_drives"
-		params := map[string]any{
-			"physicalUuid": physicalUUID,
-		}
-
-		payload := node_agent.JSONRPCProxyPayload{
-			ContainerId: ssdproxyContainerUuid,
-			Method:      method,
-			Params:      params,
-		}
-
-		// Marshal payload to JSON
-		jsonData, err := json.Marshal(payload)
+		virtualDrives, err := r.ssdProxyListVirtualDrivesByPhysicalUuid(ctx, ssdproxyContainerUuid, physicalUUID, agentPod, token)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal payload: %w", err)
-		}
-
-		// Call node agent's /jsonrpc endpoint
-		url := "http://" + agentPod.Status.PodIP + ":8090/jsonrpc"
-		resp, err := util.SendJsonRequest(ctx, url, jsonData, util.RequestOptions{AuthHeader: "Token " + token})
-		if err != nil {
-			return nil, fmt.Errorf("failed to call node agent for physical drive %v on node %s: %w", physicalUUID, container.GetNodeAffinity(), err)
-		}
-		defer resp.Body.Close()
-
-		// Read response body
-		respBody, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read response body on node %s: %w", container.GetNodeAffinity(), readErr)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("node agent on node %s returned status: %s, body: %s", container.GetNodeAffinity(), resp.Status, string(respBody))
-		}
-
-		// Parse the wrapped response from node agent
-		var response NodeAgentJSONRPCResponse
-		err = json.Unmarshal(respBody, &response)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse virtual drives response on node %s: %w, body: %s", container.GetNodeAffinity(), err, string(respBody))
+			return nil, fmt.Errorf("failed to list virtual drives for physical drive %s on node %s: %w", physicalUUID, container.GetNodeAffinity(), err)
 		}
 
 		// Add to the map of added virtual drives
-		for _, vd := range response.Result {
+		for _, vd := range virtualDrives {
 			addedVirtualDrives[vd.VirtualUUID] = true
 			l.Info("Found added virtual drive",
 				"virtual_uuid", vd.VirtualUUID,
+				"physical_uuid", vd.PhysicalUUID,
 				"cluster_uuid", vd.ClusterGUID,
 				"size_gb", vd.SizeGB)
 		}

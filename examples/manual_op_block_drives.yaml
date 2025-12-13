@@ -9,6 +9,8 @@ spec:
     blockDrivesPayload:
       serialIDs:
         - "23164A330BEE"
+      # physicalUUIDs:
+      #   - "a9575963-b635-4159-be32-cbcd8b093922"
       node: "h6-8-d"
 
 

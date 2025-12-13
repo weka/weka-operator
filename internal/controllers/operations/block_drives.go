@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -71,25 +72,47 @@ func (o *BlockDrivesOperation) GetSteps() []lifecycle.Step {
 			Name:            "Noop",
 			Run:             o.Noop,
 			Predicates:      lifecycle.Predicates{o.IsDone},
-			FinishOnSuccess: true},
+			FinishOnSuccess: true,
+		},
 		&lifecycle.SimpleStep{
 			Name: "BlockDrives",
 			Run:  o.BlockDrives,
 			Predicates: lifecycle.Predicates{
 				func() bool { return !o.unblock },
-			}},
+				func() bool { return len(o.payload.SerialIDs) > 0 },
+			},
+		},
+		&lifecycle.SimpleStep{
+			Name: "BlockSharedDrives",
+			Run:  o.BlockSharedDrives,
+			Predicates: lifecycle.Predicates{
+				func() bool { return !o.unblock },
+				func() bool { return len(o.payload.PhysicalUUIDs) > 0 },
+			},
+		},
 		&lifecycle.SimpleStep{
 			Name: "UnblockDrives",
 			Run:  o.UnblockDrives,
 			Predicates: lifecycle.Predicates{
 				func() bool { return o.unblock },
-			}},
+				func() bool { return len(o.payload.SerialIDs) > 0 },
+			},
+		},
+		&lifecycle.SimpleStep{
+			Name: "UnblockSharedDrives",
+			Run:  o.UnblockSharedDrives,
+			Predicates: lifecycle.Predicates{
+				func() bool { return o.unblock },
+				func() bool { return len(o.payload.PhysicalUUIDs) > 0 },
+			},
+		},
 		&lifecycle.SimpleStep{
 			Name: "SuccessCallback",
 			Run:  o.SuccessCallback,
 			Predicates: lifecycle.Predicates{
 				o.OperationSucceeded,
-			}, FinishOnSuccess: true,
+			},
+			FinishOnSuccess: true,
 		},
 		&lifecycle.SimpleStep{Name: "FailureCallback", Run: o.FailureCallback},
 	}
@@ -252,6 +275,199 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 
 	o.results = BlockDrivesResult{
 		Result: fmt.Sprintf("Successfully blocked %d drives on node %s", len(o.payload.SerialIDs), o.payload.Node),
+	}
+	return nil
+}
+
+func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BlockSharedDrives", "node", o.payload.Node)
+	defer end()
+
+	node := &corev1.Node{}
+	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {
+		return err
+	}
+
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+
+	blockedDriveUuids := []string{}
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
+		json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+	}
+
+	sharedDrives := []resources.SharedDriveInfo{}
+	var err error
+
+	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
+	if ok {
+		sharedDrives, err = resources.ParseSharedDrives(sharedDrivesStr)
+		if err != nil {
+			err = fmt.Errorf("failed to parse shared-drives annotation: %w", err)
+			return err
+		}
+	}
+
+	allSharedDriveUuids := []string{}
+	for _, drive := range sharedDrives {
+		allSharedDriveUuids = append(allSharedDriveUuids, drive.PhysicalUUID)
+	}
+
+	logger.Debug("Available shared drives", "shared_drive_uuids", allSharedDriveUuids)
+	logger.Debug("Blocked drive uuids", "blocked_drive_uuids", blockedDriveUuids)
+
+	notFoundDrives := []string{}
+
+	// Add the new blocked drives to the list (if not already there)
+	for _, physicalUuid := range o.payload.PhysicalUUIDs {
+		isBlocked := slices.Contains(blockedDriveUuids, physicalUuid)
+
+		// check if blocked drive exists in the available drives list
+		existsInAllDrives := slices.Contains(allSharedDriveUuids, physicalUuid)
+
+		if !existsInAllDrives {
+			notFoundDrives = append(notFoundDrives, physicalUuid)
+		}
+
+		if !isBlocked {
+			blockedDriveUuids = append(blockedDriveUuids, physicalUuid)
+		}
+	}
+
+	if len(notFoundDrives) > 0 {
+		err := fmt.Errorf("the following drives were not found in the available drives list: %v", notFoundDrives)
+		logger.Error(err, "Failed to block drives")
+		o.results = BlockDrivesResult{
+			Err: err.Error(),
+		}
+		return nil
+	}
+
+	newBlockedDrivesStr, _ := json.Marshal(blockedDriveUuids)
+	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
+
+	// update weka.io/shared-drives-capacity extended resource
+	totalCapacityGiB := int64(0)
+	for _, drive := range sharedDrives {
+		// Only count non-blocked drives
+		if !slices.Contains(blockedDriveUuids, drive.PhysicalUUID) {
+			totalCapacityGiB += int64(drive.CapacityGiB)
+		}
+	}
+	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+
+	if err := o.client.Status().Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node status: %w", err)
+		return err
+	}
+
+	// remove weka.io/sign-drives-hash annotation from nodes to force drives re-scan on the next sign drives operation
+	delete(node.Annotations, consts.AnnotationSignDrivesHash)
+
+	if err := o.client.Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node: %w", err)
+		return err
+	}
+
+	o.results = BlockDrivesResult{
+		Result: fmt.Sprintf("Successfully blocked %d drives on node %s", len(o.payload.PhysicalUUIDs), o.payload.Node),
+	}
+	return nil
+}
+
+func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UnblockSharedDrives", "node", o.payload.Node)
+	defer end()
+
+	node := &corev1.Node{}
+	if err := o.client.Get(ctx, types.NamespacedName{Name: o.payload.Node}, node); err != nil {
+		return err
+	}
+
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+
+	blockedDriveUuids := []string{}
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
+		json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+	}
+
+	sharedDrives := []resources.SharedDriveInfo{}
+	var err error
+
+	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
+	if ok {
+		sharedDrives, err = resources.ParseSharedDrives(sharedDrivesStr)
+		if err != nil {
+			err = fmt.Errorf("failed to parse shared-drives annotation: %w", err)
+			return err
+		}
+	}
+
+	allSharedDriveUuids := []string{}
+	for _, drive := range sharedDrives {
+		allSharedDriveUuids = append(allSharedDriveUuids, drive.PhysicalUUID)
+	}
+
+	logger.Debug("Available shared drives", "shared_drive_uuids", allSharedDriveUuids)
+	logger.Debug("Blocked drive uuids", "blocked_drive_uuids", blockedDriveUuids)
+
+	notFoundDrives := []string{}
+	updatedBlockedDriveUuids := []string{}
+
+	// Remove the unblocked drives from the list
+	for _, physicalUuid := range o.payload.PhysicalUUIDs {
+		found := false
+		for i, blockedUuid := range blockedDriveUuids {
+			if blockedUuid == physicalUuid {
+				found = true
+				updatedBlockedDriveUuids = append(blockedDriveUuids[:i], blockedDriveUuids[i+1:]...)
+				break
+			}
+		}
+		if !found {
+			notFoundDrives = append(notFoundDrives, physicalUuid)
+		}
+	}
+
+	if len(notFoundDrives) > 0 {
+		err := fmt.Errorf("the following drives were not found in the blocked drives list: %v", notFoundDrives)
+		logger.Error(err, "Failed to unblock drives")
+		o.results = BlockDrivesResult{
+			Err: err.Error(),
+		}
+		return nil
+	}
+
+	newBlockedDrivesStr, _ := json.Marshal(updatedBlockedDriveUuids)
+	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
+
+	// update weka.io/shared-drives-capacity extended resource
+	totalCapacityGiB := int64(0)
+	for _, drive := range sharedDrives {
+		// Only count non-blocked drives
+		if !slices.Contains(updatedBlockedDriveUuids, drive.PhysicalUUID) {
+			totalCapacityGiB += int64(drive.CapacityGiB)
+		}
+	}
+	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+
+	if err := o.client.Status().Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node status: %w", err)
+		return err
+	}
+
+	if err := o.client.Update(ctx, node); err != nil {
+		err = fmt.Errorf("error updating node annotations: %w", err)
+		return err
+	}
+
+	o.results = BlockDrivesResult{
+		Result: fmt.Sprintf("Successfully unblocked %d drives on node %s", len(o.payload.PhysicalUUIDs), o.payload.Node),
 	}
 	return nil
 }

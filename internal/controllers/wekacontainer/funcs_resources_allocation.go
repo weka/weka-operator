@@ -340,13 +340,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 		"toAllocate", numDrivesToAllocate,
 		"useDriveSharing", container.Spec.UseDriveSharing)
 
-	if container.Spec.UseDriveSharing {
-		// For drive sharing mode, we need to allocate additional virtual drives
-		// This is similar to initial allocation but adds to existing VirtualDrives
-		return fmt.Errorf("scaling virtual drives not yet implemented (need %d more drives)", numDrivesToAllocate)
-	}
-
-	// Regular drive mode: use ReallocateDrives
+	// Use ReallocateDrives for both regular and virtual drives
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 	reallocRequest := &allocator.DriveReallocationRequest{
 		Container:    container,
@@ -357,26 +351,47 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 
 	result, err := containerAllocator.ReallocateDrives(ctx, reallocRequest)
 	if err != nil {
-		logger.Error(err, "Failed to allocate replacement drives for container", "container", container.Name)
+		logger.Error(err, "Failed to allocate additional drives for container", "container", container.Name)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, "AllocateContainerDrivesError", err.Error(), time.Minute)
 		return err
 	}
 
 	// Update container status with new drive allocations
-	container.Status.Allocations.Drives = result.AllDrives
+	if container.Spec.UseDriveSharing {
+		// Virtual drives mode
+		container.Status.Allocations.VirtualDrives = result.AllVirtualDrives
+		logger.Info("Virtual drive allocation completed",
+			"new_drives", len(result.NewVirtualDrives),
+			"total_drives", len(result.AllVirtualDrives))
+	} else {
+		// Regular drives mode
+		container.Status.Allocations.Drives = result.AllDrives
+		logger.Info("Drive allocation completed",
+			"new_drives", len(result.NewDrives),
+			"total_drives", len(result.AllDrives))
+	}
+
 	err = r.Status().Update(ctx, container)
 	if err != nil {
 		err = fmt.Errorf("cannot update container status with new drive allocations: %w", err)
 		return err
 	}
 
-	logger.Info("Drive re-allocation completed", "new_drives", result.NewDrives, "total_drives", len(result.AllDrives))
+	// For virtual drives, add them to ssdproxy via JSONRPC
+	if container.Spec.UseDriveSharing {
+		logger.Info("Adding new virtual drives to ssdproxy via JSONRPC")
+		err = r.AddVirtualDrives(ctx)
+		if err != nil {
+			err = fmt.Errorf("error adding virtual drives to ssdproxy after allocation: %w", err)
+			return err
+		}
+	}
 
-	// trigger resources.json re-write
-	logger.Info("Re-writing resources.json after drive re-allocation")
+	// Trigger resources.json re-write
+	logger.Info("Re-writing resources.json after drive allocation")
 	err = r.WriteResources(ctx)
 	if err != nil {
-		err = fmt.Errorf("error writing resources.json after drive re-allocation: %w", err)
+		err = fmt.Errorf("error writing resources.json after drive allocation: %w", err)
 		return err
 	}
 
