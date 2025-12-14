@@ -3487,8 +3487,41 @@ def get_active_mounts(file_path="/proc/wekafs/interface") -> int:
         logging.error(f"Failed to get the number of active mounts: {e}")
     return -1
 
+async def read_file(path: str) -> str:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: open(path, "rt").read()
+    )
 
-def is_frontend_connected(container_name: str) -> bool:
+
+async def read_file_shell(path: str) -> str:
+    """Read a file using cat via shell.
+
+    This is useful for special files (like /proc files) where direct file open has issues.
+
+    Args:
+        path: The path to the file to read
+
+    Returns:
+        The contents of the file as a string
+
+    Raises:
+        FileNotFoundError: If the file does not exist
+        Exception: If the file cannot be read for other reasons
+    """
+    stdout, stderr, returncode = await run_command(
+        f"cat {path}", log_execution=False, log_output=False
+    )
+    if returncode != 0:
+        stderr_text = stderr.decode('utf-8') if stderr else ''
+        if "No such file" in stderr_text:
+            raise FileNotFoundError(f"File not found: {path}")
+        raise Exception(f"Failed to read {path}: {stderr_text or 'unknown error'}")
+    return stdout.decode('utf-8') if stdout else ""
+
+
+async def is_frontend_connected(container_name: str) -> bool:
     """Check if a frontend container with the given name is connected to the driver.
 
     Args:
@@ -3501,11 +3534,11 @@ def is_frontend_connected(container_name: str) -> bool:
         Exception: If the driver interface file cannot be read (except FileNotFoundError)
     """
     try:
-        with open(DRIVER_INTERFACE_PATH, "r") as file:
-            for line in file:
-                # Look for lines like: Container=150136828323client FE 0: Connected frontend pid 1226063
-                if line.startswith(f"Container={container_name}") and "Connected frontend" in line:
-                    return True
+        data = await read_file_shell(DRIVER_INTERFACE_PATH)
+        for line in data.splitlines():
+            # Look for lines like: Container=150136828323client FE 0: Connected frontend pid 1226063
+            if line.startswith(f"Container={container_name}") and "Connected frontend" in line:
+                return True
         return False
     except FileNotFoundError:
         # File doesn't exist on new hosts - no frontends connected, safe to proceed
@@ -3532,7 +3565,7 @@ async def wait_for_existing_frontend_disconnect(container_name: str, timeout_sec
     start_time = time.time()
     check_interval = 5  # Check every 5 seconds
 
-    while is_frontend_connected(container_name):
+    while await is_frontend_connected(container_name):
         elapsed = time.time() - start_time
         remaining = timeout_seconds - elapsed
 
