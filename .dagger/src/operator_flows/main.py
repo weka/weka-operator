@@ -245,7 +245,6 @@ class OperatorFlows:
         namespace: str = "test-upgrade-extended",
         operator_image: Optional[str] = None,
         operator_helm_image: Optional[str] = None,
-        embedded_csi: bool = False,
         gh_sha: Optional[str] = None,
         execution_id: Optional[str] = None,
         execution_temp_dir: Optional[str] = None,
@@ -349,8 +348,7 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
     --namespace {namespace} \
     --cluster-name {cluster_name} \
     --runs-in-lab \
-    --cleanup {"no-cleanup" if no_cleanup else "on-start"} \
-    {"--embedded-csi" if embedded_csi else ""} 
+    --cleanup {"no-cleanup" if no_cleanup else "on-start"}
 """
                 ])
             )

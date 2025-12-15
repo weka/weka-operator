@@ -183,7 +183,6 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
-            --embedded-csi
 
       - name: Upload Wekai execution files
         uses: actions/upload-artifact@v4
