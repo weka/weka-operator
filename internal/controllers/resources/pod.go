@@ -611,7 +611,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 
 	// Proxy and drive-with-sharing containers need access to proxy socket directory
 	needsProxyMount := f.container.Spec.Mode == weka.WekaContainerModeSSDProxy ||
-		(f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing)
+		(f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.UsesDriveSharing())
 
 	if needsProxyMount {
 		// Node-level path for proxy state (shared across all drive containers on the node)
@@ -1371,11 +1371,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		},
 	}
 
-	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.Spec.UseDriveSharing {
+	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.UsesDriveSharing() {
 		// Regular drive mode: request exclusive drives (count)
 		pod.Spec.Containers[0].Resources.Requests[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 		pod.Spec.Containers[0].Resources.Limits[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
-	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.Spec.UseDriveSharing {
+	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.UsesDriveSharing() {
 		// Drive sharing mode: request capacity from shared drives pool
 		// Total capacity = NumDrives * DriveCapacity (in GiB)
 		totalCapacityGiB := f.container.Spec.NumDrives * f.container.Spec.DriveCapacity

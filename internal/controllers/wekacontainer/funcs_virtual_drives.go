@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
+	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
@@ -25,7 +28,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	container := r.container
 
 	// Only for drive sharing mode
-	if !container.Spec.UseDriveSharing {
+	if !container.UsesDriveSharing() {
 		logger.Debug("Container not using drive sharing, skipping virtual drive adding")
 		return nil
 	}
@@ -35,6 +38,19 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		logger.Debug("No virtual drives allocated")
 		return nil
 	}
+
+	// Check if cluster ID is available (if cluster id for container is not set, it mean there is not cluster guid yet)
+	if container.Status.ClusterID == "" {
+		err := errors.New("cluster ID is not set, cannot sign virtual drives")
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+	}
+
+	cluster, err := r.getOwnerCluster(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get owner cluster")
+	}
+
+	clusterUUID := cluster.Status.ClusterID
 
 	// Find the ssdproxy container on the same node
 	// The JSONRPC call must be made to the ssdproxy, not the drive container
@@ -89,10 +105,12 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 		l.Info("Adding virtual drive via ssdproxy JSONRPC through node agent",
 			"ssdproxy_name", ssdproxyContainer.Name,
 			"ssdproxy_uid", ssdproxyContainer.UID,
-			"node", container.GetNodeAffinity())
+			"cluster_uuid", clusterUUID,
+			"node", container.GetNodeAffinity(),
+		)
 
 		// Add the virtual drive via JSONRPC
-		err := r.addVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, vd)
+		err := r.addVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, clusterUUID, vd)
 		if err != nil {
 			l.Error(err, "Failed to add virtual drive via JSONRPC")
 			errs = append(errs, fmt.Errorf("failed to add virtual drive %s: %w", vd.VirtualUUID, err))
@@ -112,7 +130,7 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 }
 
 // addVirtualDriveViaJSONRPC adds a virtual drive by calling ssd_proxy_add_virtual_drive via node agent
-func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token string, vd weka.VirtualDrive) error {
+func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context, ssdproxyContainerUuid string, agentPod *v1.Pod, token, clusterUUID string, vd weka.VirtualDrive) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "addVirtualDriveViaJSONRPC")
 	defer end()
 
@@ -121,6 +139,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 	params := map[string]any{
 		"virtualUuid":  vd.VirtualUUID,
 		"physicalUuid": vd.PhysicalUUID,
+		"clusterGuid":  clusterUUID,
 		"sizeGB":       vd.CapacityGiB,
 	}
 
@@ -175,7 +194,7 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 	defer end()
 
 	// Only for drive sharing mode
-	if !container.Spec.UseDriveSharing {
+	if !container.UsesDriveSharing() {
 		logger.Debug("Container not using drive sharing, skipping virtual drive removal")
 		return nil
 	}

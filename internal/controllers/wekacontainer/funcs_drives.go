@@ -37,7 +37,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	// Determine expected drive count based on mode
 	var expectedDriveCount int
-	if container.Spec.UseDriveSharing {
+	if container.UsesDriveSharing() {
 		expectedDriveCount = len(container.Status.Allocations.VirtualDrives)
 	} else {
 		expectedDriveCount = len(container.Status.Allocations.Drives)
@@ -74,7 +74,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	var errs []error
 
 	// Handle drive sharing mode (virtual drives) vs regular mode (exclusive drives)
-	if container.Spec.UseDriveSharing {
+	if container.UsesDriveSharing() {
 		// Drive sharing mode: add virtual drives using virtual uuids
 		// Build map of added drives by device path
 		drivesAddedByVids := make(map[string]bool)
@@ -253,7 +253,7 @@ func (r *containerReconcilerLoop) RemoveDrives(ctx context.Context) error {
 	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 
 	for _, drive := range toRemoveDrives {
-		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.Spec.UseDriveSharing)
+		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.UsesDriveSharing())
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -349,7 +349,7 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 	timeout := time.Minute * 2
 	wekaService := services.NewWekaServiceWithTimeout(r.ExecService, container, &timeout)
 	for _, drive := range toRemoveDrives {
-		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.Spec.UseDriveSharing)
+		err := r.removeDriveFromWeka(ctx, &drive, wekaService, container.UsesDriveSharing())
 		if err != nil {
 			errs = append(errs, err)
 			continue

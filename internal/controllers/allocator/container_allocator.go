@@ -66,7 +66,7 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	// Allocate drives if needed
 	if req.NumDrives > 0 {
 		// Check if drive sharing is enabled
-		if req.Container.Spec.UseDriveSharing {
+		if req.Container.UsesDriveSharing() {
 			// Allocate shared drives (virtual drives with capacity)
 			virtualDrives, err := a.AllocateSharedDrives(ctx, req)
 			if err != nil {
@@ -315,10 +315,10 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 		"container", req.Container.Name,
 		"failedDrives", req.FailedDrives,
 		"numNewDrives", req.NumNewDrives,
-		"useDriveSharing", req.Container.Spec.UseDriveSharing)
+		"useDriveSharing", req.Container.UsesDriveSharing())
 
 	// Check if we're in drive sharing mode (virtual drives)
-	if req.Container.Spec.UseDriveSharing {
+	if req.Container.UsesDriveSharing() {
 		return a.reallocateVirtualDrives(ctx, req)
 	}
 

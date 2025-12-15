@@ -321,7 +321,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 
 	// Calculate how many drives we need (handle both regular and virtual drives)
 	var currentDriveCount int
-	if container.Spec.UseDriveSharing {
+	if container.UsesDriveSharing() {
 		currentDriveCount = len(container.Status.Allocations.VirtualDrives)
 	} else {
 		currentDriveCount = len(container.Status.Allocations.Drives)
@@ -338,7 +338,8 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 		"currentDrives", currentDriveCount,
 		"targetDrives", container.Spec.NumDrives,
 		"toAllocate", numDrivesToAllocate,
-		"useDriveSharing", container.Spec.UseDriveSharing)
+		"useDriveSharing", container.UsesDriveSharing(),
+	)
 
 	// Use ReallocateDrives for both regular and virtual drives
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
@@ -357,7 +358,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	}
 
 	// Update container status with new drive allocations
-	if container.Spec.UseDriveSharing {
+	if container.UsesDriveSharing() {
 		// Virtual drives mode
 		container.Status.Allocations.VirtualDrives = result.AllVirtualDrives
 		logger.Info("Virtual drive allocation completed",
@@ -375,16 +376,6 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	if err != nil {
 		err = fmt.Errorf("cannot update container status with new drive allocations: %w", err)
 		return err
-	}
-
-	// For virtual drives, add them to ssdproxy via JSONRPC
-	if container.Spec.UseDriveSharing {
-		logger.Info("Adding new virtual drives to ssdproxy via JSONRPC")
-		err = r.AddVirtualDrives(ctx)
-		if err != nil {
-			err = fmt.Errorf("error adding virtual drives to ssdproxy after allocation: %w", err)
-			return err
-		}
 	}
 
 	// Trigger resources.json re-write

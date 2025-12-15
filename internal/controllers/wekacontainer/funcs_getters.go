@@ -149,7 +149,7 @@ func (r *containerReconcilerLoop) AddedDrivesNotAligedWithAllocations() bool {
 		return false
 	}
 
-	if r.container.Spec.UseDriveSharing {
+	if r.container.UsesDriveSharing() {
 		addedDrivesVirualUuids := r.container.Status.GetAddedDrivesUuids()
 		if len(addedDrivesVirualUuids) == 0 {
 			return false
@@ -183,7 +183,7 @@ func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
 		return false
 	}
 
-	if r.container.Spec.UseDriveSharing {
+	if r.container.UsesDriveSharing() {
 		return len(r.container.Status.Allocations.VirtualDrives) < r.container.Spec.NumDrives
 	}
 

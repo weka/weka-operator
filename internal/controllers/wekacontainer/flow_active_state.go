@@ -435,7 +435,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				func() bool {
-					return r.container.Spec.UseDriveSharing
+					return r.container.UsesDriveSharing()
 				},
 			},
 		},
@@ -445,7 +445,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				func() bool {
-					return r.container.Spec.UseDriveSharing
+					return r.container.UsesDriveSharing()
 				},
 			},
 			Throttling: &throttling.ThrottlingSettings{
@@ -488,7 +488,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
 				func() bool {
-					return r.container.Spec.UseDriveSharing
+					return r.container.UsesDriveSharing()
 				},
 			},
 			ContinueOnError: true,
