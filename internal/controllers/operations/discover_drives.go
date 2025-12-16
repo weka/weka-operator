@@ -49,20 +49,11 @@ type DriveRawInfo struct {
 	IsMounted bool   `json:"is_mounted"`
 }
 
-// ProxyDriveInfo represents a signed drive for proxy mode
-// This matches the format returned by weka_runtime.py sign_device_path_for_proxy()
-type ProxyDriveInfo struct {
-	PhysicalUUID string `json:"physical_uuid"` // Physical UUID from proxy signing
-	Serial       string `json:"serial"`        // Drive serial number
-	CapacityGiB  int    `json:"capacity_gib"`  // Capacity in GiB
-	DevicePath   string `json:"device_path"`   // Device path (e.g., /dev/nvme0n1)
-}
-
 type DriveNodeResults struct {
-	Err         error              `json:"err"`
-	Drives      []domain.DriveInfo `json:"drives"`
-	RawDrives   []DriveRawInfo     `json:"raw_drives"`
-	ProxyDrives []ProxyDriveInfo   `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
+	Err         error                    `json:"err"`
+	Drives      []domain.DriveInfo       `json:"drives"`
+	RawDrives   []DriveRawInfo           `json:"raw_drives"`
+	ProxyDrives []domain.SharedDriveInfo `json:"proxy_drives,omitempty"` // Signed drives for proxy mode
 }
 
 type DiscoverDrivesResult struct {

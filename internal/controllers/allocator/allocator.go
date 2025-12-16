@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -38,7 +38,7 @@ type AllocatorNodeInfo struct {
 	AvailableDrives []string
 	// SharedDrives contains shared drive information for drive sharing mode (proxy mode)
 	// Empty if node doesn't have shared drives or is using non-proxy mode
-	SharedDrives []resources.SharedDriveInfo
+	SharedDrives []domain.SharedDriveInfo
 }
 
 type ResourcesAllocator struct {

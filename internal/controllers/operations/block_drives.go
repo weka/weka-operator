@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -294,17 +294,18 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 
 	blockedDriveUuids := []string{}
 	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
-		json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+		err := json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
+			return err
+		}
 	}
 
-	sharedDrives := []resources.SharedDriveInfo{}
-	var err error
-
-	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
-	if ok {
-		sharedDrives, err = resources.ParseSharedDrives(sharedDrivesStr)
+	sharedDrives := []domain.SharedDriveInfo{}
+	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
+		err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
 		if err != nil {
-			err = fmt.Errorf("failed to parse shared-drives annotation: %w", err)
+			err = fmt.Errorf("failed to unmarshal shared-drives annotation: %w", err)
 			return err
 		}
 	}
@@ -392,17 +393,18 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 
 	blockedDriveUuids := []string{}
 	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids]; ok {
-		json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+		err := json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveUuids)
+		if err != nil {
+			err = fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
+			return err
+		}
 	}
 
-	sharedDrives := []resources.SharedDriveInfo{}
-	var err error
-
-	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
-	if ok {
-		sharedDrives, err = resources.ParseSharedDrives(sharedDrivesStr)
+	sharedDrives := []domain.SharedDriveInfo{}
+	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
+		err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives)
 		if err != nil {
-			err = fmt.Errorf("failed to parse shared-drives annotation: %w", err)
+			err = fmt.Errorf("failed to unmarshal shared-drives annotation: %w", err)
 			return err
 		}
 	}

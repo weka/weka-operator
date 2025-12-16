@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -479,7 +479,7 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 
 	// Build per-physical-drive capacity tracking
 	type physicalDriveCapacity struct {
-		drive             resources.SharedDriveInfo
+		drive             domain.SharedDriveInfo
 		totalCapacity     int
 		claimedCapacity   int
 		availableCapacity int

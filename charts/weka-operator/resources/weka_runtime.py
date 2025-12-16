@@ -27,8 +27,6 @@ class SignOptions:
     skipTrimFormat: bool = False
 
 
-
-
 @dataclass
 class Disk:
     path: str
@@ -982,6 +980,97 @@ async def discover_drives():
         drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
     ))
+
+
+async def discover_ssdproxy_drives():
+    drives = await list_weka_proxy_drives_with_sign_tool()
+    write_results(dict(
+        err=None,
+        proxy_drives=drives,
+    ))
+
+
+async def list_weka_proxy_drives_with_sign_tool():
+    """
+    List drives using weka-sign-drive list command and return simplified drive information.
+    Returns list of dicts with physical_uuid, serial, capacity_gib, device_path for weka_formatted drives only.
+    """
+    try:
+        # Execute weka-sign-drive list -j for JSON output
+        stdout, stderr, ec = await run_command("/weka-sign-drive list -j")
+        if ec != 0:
+            logging.error(f"Failed to list drives with weka-sign-drive: {stderr}")
+            raise Exception("weka-sign-drive list command failed")
+
+        # Parse JSON output - skip non-JSON lines at the beginning
+        try:
+            output_text = stdout.decode('utf-8')
+            
+            # Find the start of JSON (first '{' character)
+            json_start = output_text.find('{')
+            if json_start == -1:
+                raise ValueError("No JSON found in weka-sign-drive output")
+            
+            # Extract JSON portion
+            json_text = output_text[json_start:]
+            drive_data = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse weka-sign-drive output as JSON: {e}")
+            raise
+
+        # Extract simplified drive information for weka_formatted drives only
+        drives = []
+        for device_data in drive_data.get('devices', []):
+            try:
+                # Only process weka_formatted drives that are usable
+                if device_data.get('status') != 'weka_formatted' or not device_data.get('usable', False):
+                    logging.debug(f"Skipping non-weka_formatted or unusable drive: {device_data.get('path', 'unknown')}")
+                    continue
+
+                weka_info = device_data.get('weka_info', {})
+                cluster_guid = weka_info.get('cluster_guid', '')
+                is_proxy = weka_info.get('is_proxy', False)
+
+                # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
+                # TODO: hardcoded "Proxy GUID" is weka bug, remove when fixed
+                if cluster_guid not in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "Proxy GUID") and not is_proxy:
+                    logging.debug(f"Skipping drive not signed for proxy: {device_data.get('path', 'unknown')}")
+                    continue
+
+                # Extract required fields
+                physical_uuid = device_data.get('physical_uuid', '')
+                if not physical_uuid:
+                    logging.debug(f"Skipping drive with missing physical_uuid: {device_data.get('path', 'unknown')}")
+                    continue
+
+                # Get serial number from hardware info
+                hardware = device_data.get('hardware', {})
+                serial = hardware.get('serial_number', '')
+
+                # Calculate capacity in GiB from size_bytes
+                size_bytes = hardware.get('size_bytes', 0)
+                if size_bytes > 0:
+                    capacity_gib = int(size_bytes / (1024 ** 3))
+                else:
+                    logging.error(f"Drive {device_data.get('path', 'unknown')} has invalid size_bytes: {size_bytes}")
+                    continue
+
+                drives.append({
+                    'physical_uuid': physical_uuid,
+                    'serial': serial,
+                    'capacity_gib': capacity_gib,
+                })
+
+            except (KeyError, TypeError) as e:
+                logging.warning(f"Failed to parse device data: {e}")
+                continue
+
+        logging.info(f"Found {len(drives)} usable weka-formatted drives")
+        return drives
+
+    except Exception as e:
+        logging.error(f"Error listing drives with weka-sign-drive: {e}")
+        return []
 
 
 async def find_weka_drives():
@@ -3740,10 +3829,7 @@ async def main():
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
 
             if for_proxy:
-                write_results(dict(
-                    err=None,
-                    proxy_drives=signed_drives
-                ))
+                await discover_ssdproxy_drives()
             else:
                 # Regular mode: discover drives and write annotation
                 await discover_drives()
