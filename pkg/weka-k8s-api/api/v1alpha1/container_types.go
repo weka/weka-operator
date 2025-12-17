@@ -244,8 +244,10 @@ type WekaContainerSpec struct {
 	// - Require an SSD proxy container to be running on the same node
 	// This value is copied from the cluster's DriveSharing.DriveCapacity configuration.
 	// Used to calculate total capacity request: NumDrives * DriveCapacity
-	// +kubebuilder:validation:Minimum=1024
 	DriveCapacity int `json:"driveCapacity,omitempty"`
+	// ContainerCapacity specifies the total capacity (in GiB) requested by this container when using shared drives via SSD proxy.
+	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+	ContainerCapacity int `json:"containerCapacity,omitempty"`
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
@@ -341,6 +343,15 @@ func (c *ContainerAllocations) GetVirtualDrivesPhysicalUuids() []string {
 		uuids = append(uuids, d.PhysicalUUID)
 	}
 	return uuids
+}
+
+// GetTotalAllocatedCapacity returns the total capacity allocated across all virtual drives (in GiB).
+func (c *ContainerAllocations) GetAllocatedVirtualDrivesCapacity() int {
+	total := 0
+	for _, d := range c.VirtualDrives {
+		total += d.CapacityGiB
+	}
+	return total
 }
 
 type Drive struct {
@@ -693,7 +704,11 @@ func (w *WekaContainer) IsSSDProxyContainer() bool {
 }
 
 func (w *WekaContainer) UsesDriveSharing() bool {
-	return w.Spec.DriveCapacity > 0
+	return w.Spec.DriveCapacity > 0 || w.Spec.ContainerCapacity > 0
+}
+
+func (w *WekaContainer) HasContainerCapacity() bool {
+	return w.Spec.ContainerCapacity > 0
 }
 
 func (w *WekaContainer) GetParentClusterId() string {

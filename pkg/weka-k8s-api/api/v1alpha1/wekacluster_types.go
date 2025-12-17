@@ -189,11 +189,13 @@ type WekaConfig struct {
 	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
-	// DriveCapacity is the capacity in GiB to allocate per virtual drive.
-	// Minimum: 1024 GiB (1 TiB).
+	// DriveCapacity is the capacity in GiB to allocate per single virtual drive.
+	// NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.
 	// This value determines how much capacity each container receives from shared drives.
-	// +kubebuilder:validation:Minimum=1024
 	DriveCapacity int `json:"driveCapacity,omitempty"`
+	// ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
+	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+	ContainerCapacity int `json:"containerCapacity,omitempty"`
 }
 
 type WekaHomeConfig struct {
