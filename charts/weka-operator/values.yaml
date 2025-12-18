@@ -163,7 +163,7 @@ tolerationsMismatchSettings:
 signDrivesImage: quay.io/weka.io/weka-sign-tool:b1fa0a139479f2489d176a6f1235c36beb179410_x86_64
 
 taskmon:
-  defaultImage: quay.io/weka.io/taskmon:b1fa0a139479f2489d176a6f1235c36beb179410_x86_64
+  defaultImage: quay.io/weka.io/taskmon:5dfdbcb1c220ae204ccfb9386805a61e5b125867_x86_64
 
 nodeAgent:
   resources:
