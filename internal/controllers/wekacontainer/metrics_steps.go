@@ -213,11 +213,6 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		}
 	}
 
-	flags, err := r.GetCachedFeatureFlags(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get feature flags for container")
-	}
-
 	// find a pod service node metrics
 	payload := node_agent.RegisterContainerPayload{
 		ContainerName:      r.container.Name,
@@ -228,8 +223,18 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 		ScrapeTargets:      scrapeTargets,
 		PodStatus:          podStatus,
 		PodStatusStartTime: podStatusStartTime,
-		FeatureFlags:       flags,
 	}
+
+	// include feature flags for client containers
+	if r.container.IsClientContainer() {
+		flags, err := r.GetCachedFeatureFlags(ctx)
+		if err != nil {
+			return errors.Wrap(err, "failed to get feature flags for container")
+		}
+
+		payload.FeatureFlags = flags
+	}
+
 	// submit http request to metrics pod
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
