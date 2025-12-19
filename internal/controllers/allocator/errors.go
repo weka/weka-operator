@@ -17,10 +17,15 @@ func (e *InsufficientDrivesError) Error() string {
 type InsufficientDriveCapacityError struct {
 	NeededGiB    int
 	AvailableGiB int
+	Type         string
 }
 
 func (e *InsufficientDriveCapacityError) Error() string {
-	return fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB", e.NeededGiB, e.AvailableGiB)
+	s := fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB", e.NeededGiB, e.AvailableGiB)
+	if e.Type != "" {
+		s += fmt.Sprintf(" for drive type %s", e.Type)
+	}
+	return s
 }
 
 // PortAllocationError is returned when port allocation fails

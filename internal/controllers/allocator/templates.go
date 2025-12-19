@@ -23,6 +23,7 @@ type ClusterTemplate struct {
 	NumDrives                  int
 	DriveCapacity              int
 	ContainerCapacity          int
+	DriveTypesRatio            *v1alpha1.DriveTypesRatio
 	DriveHugepages             int
 	DriveHugepagesOffset       int
 	ComputeHugepages           int
@@ -129,6 +130,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		NumDrives:                  config.NumDrives,
 		DriveCapacity:              config.DriveCapacity,
 		ContainerCapacity:          config.ContainerCapacity,
+		DriveTypesRatio:            config.DriveTypesRatio,
 		DriveHugepages:             config.DriveHugepages,
 		DriveHugepagesOffset:       config.DriveHugepagesOffset,
 		ComputeHugepages:           config.ComputeHugepages,

@@ -349,15 +349,25 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
 
 	// update weka.io/shared-drives-capacity extended resource
-	totalCapacityGiB := int64(0)
+	tlcDriveCapacityGiB := int64(0)
+	qlcDriveCapacityGiB := int64(0)
+
 	for _, drive := range sharedDrives {
 		// Only count non-blocked drives
 		if !slices.Contains(blockedDriveUuids, drive.PhysicalUUID) {
-			totalCapacityGiB += int64(drive.CapacityGiB)
+			if drive.Type == "QLC" {
+				qlcDriveCapacityGiB += int64(drive.CapacityGiB)
+			} else {
+				tlcDriveCapacityGiB += int64(drive.CapacityGiB)
+			}
 		}
 	}
-	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+
+	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
+
+	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
