@@ -211,7 +211,11 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 		cluster.Status.Stats.Containers.Nfs.Containers.Desired = weka.IntMetric(template.NfsContainers)
 	}
 
-	cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.NumDrives)
+	if template.ContainerCapacity > 0 {
+		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.DriveCores)
+	} else {
+		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.NumDrives)
+	}
 
 	// convert to new metrics accessor
 	cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.ComputeCores), 1) * int64(template.ComputeContainers))

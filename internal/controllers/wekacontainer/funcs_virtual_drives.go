@@ -51,6 +51,10 @@ func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
 	}
 
 	clusterUUID := cluster.Status.ClusterID
+	if clusterUUID == "" {
+		err := errors.New("owner cluster UUID is not set, cannot add virtual drives")
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+	}
 
 	// Find the ssdproxy container on the same node
 	// The JSONRPC call must be made to the ssdproxy, not the drive container

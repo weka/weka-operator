@@ -245,7 +245,11 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 		if !ok {
 			return errors.New("Failed to get template")
 		}
-		minDrivesNum = template.NumDrives * template.DriveContainers
+		if template.ContainerCapacity > 0 {
+			minDrivesNum = template.DriveCores * template.DriveContainers
+		} else {
+			minDrivesNum = template.NumDrives * template.DriveContainers
+		}
 	}
 
 	// get the number of drives added to the cluster from weka status

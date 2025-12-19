@@ -94,6 +94,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		Node:          node,
 		Cluster:       cluster,
 		NumDrives:     r.container.Spec.NumDrives,
+		CapacityGiB:   r.container.Spec.ContainerCapacity,
 		FailureDomain: failureDomain,
 		AllocateWeka:  allocateWekaPort,
 		AllocateAgent: allocateAgentPort,
@@ -107,6 +108,14 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", err.Error())
 			// Use longer wait to avoid starving other containers waiting for the lease
 			// Standard wait is ~5s, use 30s for resource exhaustion
+			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
+		}
+
+		var insufficientCapacityErr *allocator.InsufficientDriveCapacityError
+		if errors.As(err, &insufficientCapacityErr) {
+			logger.Error(err, "Insufficient drive capacity on node, will retry")
+			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDriveCapacity", err.Error())
+			// Longer wait for resource exhaustion
 			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
 
