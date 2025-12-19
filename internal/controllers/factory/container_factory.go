@@ -28,25 +28,26 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	var hugePagesNum int
 	var hugePagesOffset int
 	var numCores int
-	if role == "drive" {
+	switch role {
+	case "drive":
 		hugePagesNum = template.DriveHugepages
 		hugePagesOffset = template.DriveHugepagesOffset
 		numCores = template.DriveCores
-	} else if role == "compute" {
+	case "compute":
 		hugePagesNum = template.ComputeHugepages
 		hugePagesOffset = template.ComputeHugepagesOffset
 		numCores = template.ComputeCores
-	} else if role == "s3" {
+	case "s3":
 		hugePagesNum = template.S3FrontendHugepages
 		hugePagesOffset = template.S3FrontendHugepagesOffset
 		numCores = template.S3Cores
-	} else if role == "envoy" {
+	case "envoy":
 		numCores = template.EnvoyCores
-	} else if role == "nfs" {
+	case "nfs":
 		numCores = template.NfsCores
 		hugePagesNum = template.NfsFrontendHugepages
 		hugePagesOffset = template.NfsFrontendHugepagesOffset
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
 
@@ -58,6 +59,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	extraCores := 0
 	numDrives := 0
 	driveCapacity := 0
+	containerCapacity := 0
 
 	switch role {
 	case "compute":
@@ -68,6 +70,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numDrives = template.NumDrives
 		extraCores = template.DriveExtraCores
 		driveCapacity = template.DriveCapacity
+		containerCapacity = template.ContainerCapacity
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
 		extraCores = template.S3ExtraCores
@@ -126,6 +129,7 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			HugepagesOverride:     template.HugePagesOverride,
 			NumDrives:             numDrives,
 			DriveCapacity:         driveCapacity,
+			ContainerCapacity:     containerCapacity,
 			WekaSecretRef:         v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretKey}},
 			DriversDistService:    cluster.Spec.DriversDistService,
 			CpuPolicy:             cluster.Spec.CpuPolicy,

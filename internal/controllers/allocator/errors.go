@@ -13,6 +13,16 @@ func (e *InsufficientDrivesError) Error() string {
 	return fmt.Sprintf("not enough drives available: need %d, have %d", e.Needed, e.Available)
 }
 
+// InsufficientDriveCapacityError is returned when there is not enough drive capacity available
+type InsufficientDriveCapacityError struct {
+	NeededGiB    int
+	AvailableGiB int
+}
+
+func (e *InsufficientDriveCapacityError) Error() string {
+	return fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB", e.NeededGiB, e.AvailableGiB)
+}
+
 // PortAllocationError is returned when port allocation fails
 type PortAllocationError struct {
 	Cause error

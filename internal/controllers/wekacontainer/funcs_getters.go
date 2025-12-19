@@ -125,8 +125,15 @@ func (r *containerReconcilerLoop) NeedWekaDrivesListUpdate() bool {
 func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
 	if r.container.Status.Stats != nil {
 		activeDrives := int(r.container.Status.Stats.Drives.DriveCounters.Active)
+		expectedNumDrives := 0
+		if r.container.UsesDriveSharing() {
+			expectedNumDrives = len(r.container.Status.Allocations.VirtualDrives)
+		} else {
+			expectedNumDrives = len(r.container.Status.Allocations.Drives)
+		}
+
 		if activeDrives == len(r.container.Status.AddedDrives) &&
-			activeDrives == r.container.Spec.NumDrives {
+			activeDrives == expectedNumDrives {
 			// all drives are added and active
 			return true
 		}
@@ -164,13 +171,23 @@ func (r *containerReconcilerLoop) AddedDrivesNotAligedWithAllocations() bool {
 }
 
 func (r *containerReconcilerLoop) HasDrivesToAdd() bool {
-	return len(r.container.Status.AddedDrives) < r.container.Spec.NumDrives
+	if r.container.UsesDriveSharing() {
+		return len(r.container.Status.AddedDrives) < len(r.container.Status.Allocations.VirtualDrives)
+	}
+
+	return len(r.container.Status.AddedDrives) < len(r.container.Status.Allocations.Drives)
 }
 
 func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
 	if r.container.Status.Allocations == nil {
 		// if no allocations at all, covered by cluster's AllocateResources
 		return false
+	}
+
+	if r.container.HasContainerCapacity() {
+		expectedCapacity := r.container.Spec.ContainerCapacity
+		currentCapacity := r.container.Status.Allocations.GetAllocatedVirtualDrivesCapacity()
+		return currentCapacity < expectedCapacity
 	}
 
 	if r.container.UsesDriveSharing() {

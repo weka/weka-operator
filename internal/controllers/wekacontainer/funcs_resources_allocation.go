@@ -302,25 +302,50 @@ func (r *containerReconcilerLoop) checkUnhealyPodResources(ctx context.Context) 
 	return nil
 }
 
-func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+func (r *containerReconcilerLoop) FormReallocaionRequest(ctx context.Context) (*allocator.DriveReallocationRequest, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "FormReallocationRequest")
 	defer end()
 
 	container := r.container
 
-	// Get the node
+	// Get the node (re-fetch it)
 	nodeName := container.GetNodeAffinity()
 	if nodeName == "" {
-		return errors.New("container has no node affinity")
+		return nil, errors.New("container has no node affinity")
 	}
 
 	node := &v1.Node{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
-		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+		return nil, fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	// Calculate how many drives we need (handle both regular and virtual drives)
-	var currentDriveCount int
+	// depending on the container spec we will use numDrives or conteinerCapacity as the target
+	if container.HasContainerCapacity() {
+		allocatedCapacity := container.Status.Allocations.GetAllocatedVirtualDrivesCapacity()
+		targetCapacity := container.Spec.ContainerCapacity
+
+		if allocatedCapacity >= targetCapacity {
+			logger.Debug("No need to reallocate drives, allocated capacity meets or exceeds target",
+				"allocatedCapacity", allocatedCapacity,
+				"targetCapacity", targetCapacity,
+			)
+			return nil, nil
+		}
+
+		missing := targetCapacity - allocatedCapacity
+		logger.Info("Need to reallocate drives to meet container capacity",
+			"allocatedCapacity", allocatedCapacity,
+			"targetCapacity", targetCapacity,
+		)
+		return &allocator.DriveReallocationRequest{
+			Container:   container,
+			Node:        node,
+			CapacityGiB: missing,
+		}, nil
+	}
+
+	// numDrives mode
+	currentDriveCount := 0
 	if container.UsesDriveSharing() {
 		currentDriveCount = len(container.Status.Allocations.VirtualDrives)
 	} else {
@@ -329,26 +354,46 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 
 	numDrivesToAllocate := container.Spec.NumDrives - currentDriveCount
 	if numDrivesToAllocate <= 0 {
-		logger.Debug("No additional drives to allocate for container", "container", container.Name)
-		return nil
+		logger.Debug("No need to reallocate drives, current drive count meets or exceeds target",
+			"currentDriveCount", currentDriveCount,
+			"targetNumDrives", container.Spec.NumDrives,
+		)
+		return nil, nil
 	}
 
-	logger.Info("Need to allocate additional drives",
-		"container", container.Name,
-		"currentDrives", currentDriveCount,
-		"targetDrives", container.Spec.NumDrives,
+	logger.Info("Need to reallocate drives to meet numDrives",
+		"currentDriveCount", currentDriveCount,
+		"targetNumDrives", container.Spec.NumDrives,
 		"toAllocate", numDrivesToAllocate,
 		"useDriveSharing", container.UsesDriveSharing(),
 	)
 
-	// Use ReallocateDrives for both regular and virtual drives
-	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
-	reallocRequest := &allocator.DriveReallocationRequest{
+	return &allocator.DriveReallocationRequest{
 		Container:    container,
 		Node:         node,
 		FailedDrives: []string{}, // No failed drives, just adding more
 		NumNewDrives: numDrivesToAllocate,
+	}, nil
+}
+
+func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+
+	reallocRequest, err := r.FormReallocaionRequest(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to form drive reallocation request: %w", err)
 	}
+
+	if reallocRequest == nil {
+		logger.Debug("No drive reallocation needed for container")
+		return nil
+	}
+
+	// Use ReallocateDrives for both regular and virtual drives
+	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 
 	result, err := containerAllocator.ReallocateDrives(ctx, reallocRequest)
 	if err != nil {

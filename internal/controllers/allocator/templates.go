@@ -22,6 +22,7 @@ type ClusterTemplate struct {
 	NfsContainers              int
 	NumDrives                  int
 	DriveCapacity              int
+	ContainerCapacity          int
 	DriveHugepages             int
 	DriveHugepagesOffset       int
 	ComputeHugepages           int
@@ -69,12 +70,17 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.NfsExtraCores = 1
 	}
 
-	if config.NumDrives == 0 {
+	if config.NumDrives == 0 && config.ContainerCapacity == 0 {
 		config.NumDrives = 1
 	}
 
 	if config.DriveHugepages == 0 {
-		config.DriveHugepages = 1400*config.DriveCores + 200*config.NumDrives
+		if config.NumDrives > 0 {
+			config.DriveHugepages = 1400*config.DriveCores + 200*config.NumDrives
+		} else {
+			// for container capacity based allocation
+			config.DriveHugepages = 2000 * config.DriveCores
+		}
 	}
 
 	if config.DriveHugepagesOffset == 0 {
@@ -122,6 +128,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		NfsContainers:              config.NfsContainers,
 		NumDrives:                  config.NumDrives,
 		DriveCapacity:              config.DriveCapacity,
+		ContainerCapacity:          config.ContainerCapacity,
 		DriveHugepages:             config.DriveHugepages,
 		DriveHugepagesOffset:       config.DriveHugepagesOffset,
 		ComputeHugepages:           config.ComputeHugepages,
