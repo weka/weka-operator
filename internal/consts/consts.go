@@ -49,4 +49,7 @@ const (
 
 	// ResourceSharedDrivesCapacity is the extended resource name for tracking shared drive capacity (proxy mode)
 	ResourceSharedDrivesCapacity = "weka.io/shared-drives-capacity"
+
+	// ResourceSharedDrivesCapacityTLC is the extended resource name for tracking shared drive capacity of QLC drives (proxy mode)
+	ResourcesSharedDrivesCapacityQLC = "weka.io/shared-drives-capacity-qlc"
 )

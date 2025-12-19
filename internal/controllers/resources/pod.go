@@ -1279,12 +1279,30 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		pod.Spec.Containers[0].Resources.Requests[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 		pod.Spec.Containers[0].Resources.Limits[consts.ResourceDrives] = resource.MustParse(strconv.Itoa(f.container.Spec.NumDrives))
 	} else if f.container.Spec.Mode == weka.WekaContainerModeDrive && f.container.UsesDriveSharing() {
+		var capacityStr string
 		// Drive sharing mode: request capacity from shared drives pool
-		// Total capacity = NumDrives * DriveCapacity (in GiB)
-		totalCapacityGiB := f.container.Spec.NumDrives * f.container.Spec.DriveCapacity
-		capacityStr := strconv.Itoa(totalCapacityGiB)
-		pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
-		pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
+		if f.container.HasContainerCapacity() {
+			tlcCapacity := f.container.Spec.GetTlcContainerCapacity()
+			tlcCapacityStr := strconv.Itoa(tlcCapacity)
+
+			pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
+			pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
+
+			if f.container.TlcToQlcRatioEnabled() {
+				qlcCapacity := f.container.Spec.GetQlcContainerCapacity()
+				qlcCapacityStr := strconv.Itoa(qlcCapacity)
+
+				pod.Spec.Containers[0].Resources.Requests[consts.ResourcesSharedDrivesCapacityQLC] = resource.MustParse(qlcCapacityStr)
+				pod.Spec.Containers[0].Resources.Limits[consts.ResourcesSharedDrivesCapacityQLC] = resource.MustParse(qlcCapacityStr)
+			}
+		} else {
+			// Total capacity = NumDrives * DriveCapacity (in GiB)
+			totalCapacityGiB := f.container.Spec.NumDrives * f.container.Spec.DriveCapacity
+			capacityStr = strconv.Itoa(totalCapacityGiB)
+
+			pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
+			pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(capacityStr)
+		}
 	}
 
 	if f.nodeInfo.ShouldRequestNICs() && !f.container.Spec.Network.UdpMode && !f.container.IsDriversContainer() {

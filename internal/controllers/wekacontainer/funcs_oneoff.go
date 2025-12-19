@@ -229,9 +229,14 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 
 	logger.Info("Updating node annotations for proxy mode")
 
-	totalCapacityGiB := int64(0)
+	tlcDriveCapacityGiB := int64(0)
+	qlcDriveCapacityGiB := int64(0)
 	for _, drive := range opResult.ProxyDrives {
-		totalCapacityGiB += int64(drive.CapacityGiB)
+		if drive.Type == "QLC" {
+			qlcDriveCapacityGiB += int64(drive.CapacityGiB)
+		} else {
+			tlcDriveCapacityGiB += int64(drive.CapacityGiB)
+		}
 	}
 
 	// Write proxy drives to weka.io/shared-drives annotation
@@ -257,10 +262,14 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
 	// Update weka.io/shared-drives-capacity extended resource
-	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(totalCapacityGiB, resource.DecimalSI)
+	// TLC drive type
+	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	// QLC drive type
+	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 
-	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "totalCapacityGiB", totalCapacityGiB)
+	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
 
 	// Update node status and annotations
 	if err := r.Status().Update(ctx, node); err != nil {

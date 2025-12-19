@@ -326,6 +326,17 @@ def parse_feature_bitmap(b64_str: str) -> list[int]:
 
     return indexes
 
+
+def iu_size_to_drive_type(iu_size: int) -> str:
+    """
+    Convert IU size in bytes to drive type string.
+    """
+    if iu_size >= 16384:
+        return "QLC"
+    else:
+        return "TLC"
+
+
 async def get_serial_id_cos_specific(device_path: str) -> Optional[str]:
     """
     Get serial ID for Google COS
@@ -625,10 +636,13 @@ async def get_proxy_drive_info(device_path: str):
 
         # Get serial number - try multiple sources
         serial = None
+        iu_size = 0
 
         # 1. Try from JSON hardware_info first (most reliable if present)
         hardware_info = drive_info.get('hardware_info', {})
         if hardware_info:
+            iu_size = hardware_info.get('iu_size', 0)
+
             serial = hardware_info.get('serial_number') or hardware_info.get('serial')
             if serial:
                 logging.debug(f"Serial from hardware_info: {serial}")
@@ -658,13 +672,14 @@ async def get_proxy_drive_info(device_path: str):
 
         capacity_gib = int(capacity_bytes / (1024 ** 3)) if capacity_bytes > 0 else 0
 
-        logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB")
+        logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB, IU Size={iu_size}")
 
         return {
             'physical_uuid': physical_uuid,
             'serial': serial or 'UNKNOWN',
             'capacity_gib': capacity_gib,
-            'device_path': device_path
+            'device_path': device_path,
+            'type': iu_size_to_drive_type(iu_size),
         }
     except (json.JSONDecodeError, KeyError) as e:
         raise SignException(f"Failed to parse drive info for {device_path}: {e}")
@@ -1046,6 +1061,7 @@ async def list_weka_proxy_drives_with_sign_tool():
                 # Get serial number from hardware info
                 hardware = device_data.get('hardware', {})
                 serial = hardware.get('serial_number', '')
+                iu_size = hardware.get('iu_size', 0)
 
                 # Calculate capacity in GiB from size_bytes
                 size_bytes = hardware.get('size_bytes', 0)
@@ -1059,6 +1075,7 @@ async def list_weka_proxy_drives_with_sign_tool():
                     'physical_uuid': physical_uuid,
                     'serial': serial,
                     'capacity_gib': capacity_gib,
+                    'type': iu_size_to_drive_type(iu_size),
                 })
 
             except (KeyError, TypeError) as e:
