@@ -248,6 +248,8 @@ type WekaContainerSpec struct {
 	// ContainerCapacity specifies the total capacity (in GiB) requested by this container when using shared drives via SSD proxy.
 	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
+	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the container.
+	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
 	// sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
@@ -275,6 +277,8 @@ type VirtualDrive struct {
 	CapacityGiB int `json:"capacityGiB"`
 	// Serial is the serial number of the physical drive
 	Serial string `json:"serial"`
+	// Type is the type of the drive (e.g., TLC, QLC)
+	Type string `json:"type,omitempty"`
 }
 
 type ContainerAllocations struct {
@@ -711,6 +715,10 @@ func (w *WekaContainer) HasContainerCapacity() bool {
 	return w.Spec.ContainerCapacity > 0
 }
 
+func (w *WekaContainer) TlcToQlcRatioEnabled() bool {
+	return w.Spec.DriveTypesRatio != nil && (w.Spec.DriveTypesRatio.Tlc > 0 || w.Spec.DriveTypesRatio.Qlc > 0)
+}
+
 func (w *WekaContainer) GetParentClusterId() string {
 	// get parent via controller reference
 	for _, ref := range w.GetOwnerReferences() {
@@ -796,4 +804,34 @@ func (c *WekaContainerSpec) GetOverrides() *WekaContainerSpecOverrides {
 	} else {
 		return c.Overrides
 	}
+}
+
+func (c *WekaContainerSpec) GetTlcContainerCapacity() int {
+	if c.ContainerCapacity == 0 {
+		return 0
+	}
+
+	if c.DriveTypesRatio == nil {
+		return c.ContainerCapacity
+	}
+
+	totalParts := c.DriveTypesRatio.Tlc + c.DriveTypesRatio.Qlc
+	tlcCapacity := (c.ContainerCapacity * c.DriveTypesRatio.Tlc) / totalParts
+
+	return tlcCapacity
+}
+
+func (c *WekaContainerSpec) GetQlcContainerCapacity() int {
+	if c.ContainerCapacity == 0 {
+		return 0
+	}
+
+	if c.DriveTypesRatio == nil {
+		return 0
+	}
+
+	totalParts := c.DriveTypesRatio.Tlc + c.DriveTypesRatio.Qlc
+	qlcCapacity := (c.ContainerCapacity * c.DriveTypesRatio.Qlc) / totalParts
+
+	return qlcCapacity
 }

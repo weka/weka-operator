@@ -196,6 +196,17 @@ type WekaConfig struct {
 	// ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
 	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
+	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.
+	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
+}
+
+type DriveTypesRatio struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=0
+	Tlc int `json:"tlc"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=0
+	Qlc int `json:"qlc"`
 }
 
 type WekaHomeConfig struct {
