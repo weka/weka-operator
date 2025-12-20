@@ -403,25 +403,13 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		return nil, err
 	}
 
-	portRange := wekaClient.Spec.PortRange
-
-	// make sure that PortRange is set if one of the ports is 0
-	if wekaClient.Spec.AgentPort == 0 || wekaClient.Spec.Port == 0 {
-		if portRange == nil {
-			portRange = &weka.PortRange{
-				BasePort: defaultPortRangeBase,
-			}
-		}
-	}
+	// Apply default portRange if dynamic port allocation is needed
+	portRange := getDefaultedPortRange(wekaClient.Spec.Port, wekaClient.Spec.AgentPort, wekaClient.Spec.PortRange)
 
 	labels := factory.BuildClientContainerLabels(wekaClient)
 
-	secretName := wekaClient.Spec.WekaSecretRef
-	if wekaClient.Spec.WekaSecretRef == "" && wekaClient.Spec.TargetCluster.Name != "" {
-		// if the user didn't set a secret ref, we need to set it to the target cluster's secret ref
-		// this is needed for the client to be able to connect to the target cluster
-		secretName = weka.GetClientSecretName(wekaClient.Spec.TargetCluster.Name)
-	}
+	// Apply default secret ref if not specified
+	secretName := getDefaultedWekaSecretRef(wekaClient.Spec.WekaSecretRef, wekaClient.Spec.TargetCluster.Name)
 
 	wekaContainerName := resources.GetWekaClientContainerName(wekaClient)
 
@@ -990,6 +978,30 @@ func isPortRangeEqual(a, b weka.PortRange) bool {
 	return a.BasePort == b.BasePort && a.PortRange == b.PortRange
 }
 
+// getDefaultedPortRange applies default portRange logic if any of port or agentPort is 0 (dynamic port allocation).
+// Returns a default portRange with BasePort set to defaultPortRangeBase.
+func getDefaultedPortRange(port, agentPort int, portRange *weka.PortRange) *weka.PortRange {
+	if port == 0 || agentPort == 0 {
+		if portRange == nil {
+			return &weka.PortRange{
+				BasePort: defaultPortRangeBase,
+			}
+		}
+	}
+	return portRange
+}
+
+// getDefaultedWekaSecretRef applies default WekaSecretRef logic if empty.
+// Returns the target cluster's secret name if WekaSecretRef is empty and TargetCluster.Name is set.
+func getDefaultedWekaSecretRef(wekaSecretRef string, targetClusterName string) string {
+	// if the user didn't set a secret ref, we need to set it to the target cluster's secret ref
+	// this is needed for the client to be able to connect to the target cluster
+	if wekaSecretRef == "" && targetClusterName != "" {
+		return weka.GetClientSecretName(targetClusterName)
+	}
+	return wekaSecretRef
+}
+
 type UpdatableClientSpec struct {
 	DriversDistService      string
 	DriversBuildId          *string
@@ -1027,14 +1039,14 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		DriversDistService:      spec.DriversDistService,
 		DriversBuildId:          spec.GetOverrides().DriversBuildId,
 		ImagePullSecret:         spec.ImagePullSecret,
-		WekaSecretRef:           spec.WekaSecretRef,
+		WekaSecretRef:           getDefaultedWekaSecretRef(spec.WekaSecretRef, spec.TargetCluster.Name),
 		AdditionalMemory:        spec.AdditionalMemory,
 		UpgradePolicy:           spec.UpgradePolicy,
 		AllowHotUpgrade:         spec.AllowHotUpgrade,
 		DriversLoaderImage:      spec.GetOverrides().DriversLoaderImage,
 		Port:                    spec.Port,
 		AgentPort:               spec.AgentPort,
-		PortRange:               spec.PortRange,
+		PortRange:               getDefaultedPortRange(spec.Port, spec.AgentPort, spec.PortRange),
 		CoresNumber:             spec.CoresNumber,
 		Tolerations:             spec.Tolerations,
 		RawTolerations:          spec.RawTolerations,
