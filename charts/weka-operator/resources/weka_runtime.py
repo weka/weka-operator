@@ -1105,6 +1105,11 @@ async def load_drivers():
         # No exception on purpose, as we might fail various clients like openshift, that might not be able to load
         # For drives, vfio-pci is asserted in assert_vfio_pci_loaded_if_required() called from ensure_drives()
 
+    cmd = 'lsmod | grep -w arp_tables || modprobe arp_tables'
+    _, stderr, ec = await run_command(cmd)
+    if ec != 0:
+        logging.warning(f"Failed to load arp_tables {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
+
     logging.info("Downloading and loading drivers")
     for cmd, desc in download_cmds + load_cmds:
         logging.info(f"Driver loading step: {desc}")
