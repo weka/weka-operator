@@ -1092,13 +1092,18 @@ async def load_drivers():
             "loading uio_pci_generic driver"))
 
     # load vfio-pci if not loaded and iommu groups are present
-    cmd = '[ "$(ls -A /sys/kernel/iommu_groups/)" ] && lsmod | grep -w vfio_pci || modprobe vfio-pci'
+    cmd = """
+    if [ "$(ls -A /sys/kernel/iommu_groups/ 2>/dev/null)" ]; then
+        lsmod | grep -w vfio_pci || modprobe vfio-pci
+    fi
+    """
     if is_google_cos():
         cmd = 'lsmod | grep -w vfio_pci || modprobe vfio-pci'
     _, stderr, ec = await run_command(cmd)
     if ec != 0:
         logging.error(f"Failed to load vfio-pci {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
-        raise Exception(f"Failed to load vfio-pci: {stderr}")
+        # No exception on purpose, as we might fail various clients like openshift, that might not be able to load, but also might need
+        # TODO: we should/might add another check on the level of weka_runtime for drives, so it will check same path and fail if vfio-pci is required but not loaded
 
     logging.info("Downloading and loading drivers")
     for cmd, desc in download_cmds + load_cmds:
