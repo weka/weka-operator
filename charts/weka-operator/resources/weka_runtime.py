@@ -1102,8 +1102,8 @@ async def load_drivers():
     _, stderr, ec = await run_command(cmd)
     if ec != 0:
         logging.error(f"Failed to load vfio-pci {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
-        # No exception on purpose, as we might fail various clients like openshift, that might not be able to load, but also might need
-        # TODO: we should/might add another check on the level of weka_runtime for drives, so it will check same path and fail if vfio-pci is required but not loaded
+        # No exception on purpose, as we might fail various clients like openshift, that might not be able to load
+        # For drives, vfio-pci is asserted in assert_vfio_pci_loaded_if_required() called from ensure_drives()
 
     logging.info("Downloading and loading drivers")
     for cmd, desc in download_cmds + load_cmds:
@@ -3118,7 +3118,29 @@ async def write_management_ips():
     MANAGEMENT_IPS = ipAddresses
 
 
+async def assert_vfio_pci_loaded_if_required():
+    """Check if vfio-pci is loaded when iommu groups are present (required for drives).
+
+    For drives, we must ensure vfio-pci is loaded when iommu is enabled.
+    Unlike clients where we just log an error, drives must fail if vfio-pci is required but not loaded.
+    """
+    # Check if iommu groups are present
+    iommu_check_cmd = 'ls -A /sys/kernel/iommu_groups/ 2>/dev/null'
+    stdout, _, _ = await run_command(iommu_check_cmd)
+    has_iommu_groups = bool(stdout.decode().strip())
+
+    # On Google COS, always check vfio-pci regardless of iommu groups
+    if is_google_cos() or has_iommu_groups:
+        vfio_check_cmd = 'lsmod | grep -w vfio_pci'
+        _, _, ec = await run_command(vfio_check_cmd)
+        if ec != 0:
+            raise Exception("vfio-pci module is required for drives but is not loaded. "
+                          "Ensure vfio-pci module is available and can be loaded on this system.")
+        logging.info("vfio-pci module is loaded (required for drives with iommu)")
+
+
 async def ensure_drives():
+    await assert_vfio_pci_loaded_if_required()
     sys_drives = await find_weka_drives()
     requested_drives = RESOURCES.get("drives", [])
     drives_to_setup = []
