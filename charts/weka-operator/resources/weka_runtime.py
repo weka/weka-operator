@@ -638,14 +638,14 @@ async def get_proxy_drive_info(device_path: str):
         serial = None
         iu_size = 0
 
-        # 1. Try from JSON hardware_info first (most reliable if present)
-        hardware_info = drive_info.get('hardware_info', {})
+        # 1. Try from JSON hardware first (most reliable if present)
+        hardware_info = drive_info.get('hardware', {})
         if hardware_info:
             iu_size = hardware_info.get('iu_size', 0)
 
             serial = hardware_info.get('serial_number') or hardware_info.get('serial')
             if serial:
-                logging.debug(f"Serial from hardware_info: {serial}")
+                logging.debug(f"Serial from hardware info: {serial}")
 
         # 2. Use generic serial resolution function (same logic as find_weka_drives)
         if not serial:

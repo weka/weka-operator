@@ -94,8 +94,24 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding virtual drive to cluster")
 
+			var pool *string
+
+			if r.container.TlcToQlcRatioEnabled() {
+				var p string
+				switch vd.Type {
+				case "TLC":
+					p = "iu4k"
+				case "QLC":
+					p = "iubig"
+				}
+
+				if p != "" {
+					pool = &p
+				}
+			}
+
 			// Add drive using virtual UUID (virtual UUID was already signed on device via AddVirtualDrives)
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID, pool)
 			if err != nil {
 				l.Error(err, "Error adding virtual drive to cluster")
 				errs = append(errs, err)
@@ -153,7 +169,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding drive into system")
 			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, nil)
 			if err != nil {
 				l.Error(err, "Error adding drive into system")
 				errs = append(errs, err)

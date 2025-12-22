@@ -658,6 +658,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 						PhysicalUUID: alloc.physicalUUID,
 						CapacityGiB:  alloc.capacityGiB,
 						Serial:       alloc.serial,
+						Type:         "TLC",
 					}
 					allVirtualDrives = append(allVirtualDrives, virtualDrive)
 				}
@@ -680,7 +681,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 			return nil, &InsufficientDriveCapacityError{
 				NeededGiB:    tlcCapacityNeeded,
 				AvailableGiB: totalAvailable,
-				Type:         "tlc",
+				Type:         "TLC",
 			}
 		}
 	}
@@ -717,6 +718,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 						PhysicalUUID: alloc.physicalUUID,
 						CapacityGiB:  alloc.capacityGiB,
 						Serial:       alloc.serial,
+						Type:         "QLC",
 					}
 					allVirtualDrives = append(allVirtualDrives, virtualDrive)
 				}
@@ -739,7 +741,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 			return nil, &InsufficientDriveCapacityError{
 				NeededGiB:    qlcCapacityNeeded,
 				AvailableGiB: totalAvailable,
-				Type:         "qlc",
+				Type:         "QLC",
 			}
 		}
 	}

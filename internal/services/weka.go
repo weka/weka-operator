@@ -339,7 +339,7 @@ type WekaService interface {
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
-	AddDrive(ctx context.Context, containerId int, devicePath string) error
+	AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
 	GetClusterDrive(ctx context.Context, driveUuid string) (*weka.Drive, error)
@@ -1133,7 +1133,7 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 	return nil
 }
 
-func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string) error {
+func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error {
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
 		return err
@@ -1141,6 +1141,10 @@ func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePa
 
 	cmd := []string{
 		"weka", "cluster", "drive", "add", strconv.Itoa(containerId), devicePath,
+	}
+
+	if pool != nil && *pool != "" {
+		cmd = append(cmd, "--pool", *pool)
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "AddDrive", cmd)
