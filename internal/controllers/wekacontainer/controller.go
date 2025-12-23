@@ -85,6 +85,7 @@ type ContainerController struct {
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=create;get;list;watch;delete
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=csidrivers,verbs=create;get;list;watch;delete
+//+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
 
 // Reconcile reconciles a WekaContainer resource
 func (r *ContainerController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
