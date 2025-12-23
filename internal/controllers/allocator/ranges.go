@@ -3,8 +3,6 @@ package allocator
 import (
 	"fmt"
 	"sort"
-
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
 func (r ClusterRanges) GetFreeRange(size int) (int, error) {
@@ -123,40 +121,7 @@ func IsRangeAvailable(boundaries Range, ranges []Range, targetRange Range) bool 
 	return true
 }
 
-func (a *Allocations) FindNodeRangeWithOffset(owner Owner, node v1alpha1.NodeName, size int, offset int) (Range, error) {
-	// combine Global.Range and node-specific ranges
-	allowedRange := a.Global.ClusterRanges[owner.OwnerCluster]
-	globalRanges := []Range{}
-	for _, v := range a.Global.AllocatedRanges[owner.OwnerCluster] {
-		globalRanges = append(globalRanges, v)
-	}
-	//globalRanges := a.Global.AllocatedRanges[owner.OwnerCluster]
-	nodeRanges := a.NodeMap[node].AllocatedRanges[owner]
-	clusterOwnedRanges := make([]Range, 0, len(globalRanges)+len(nodeRanges))
-	for o, p := range a.NodeMap[node].AllocatedRanges {
-		if o.OwnerCluster == owner.OwnerCluster {
-			for _, r := range p {
-				clusterOwnedRanges = append(clusterOwnedRanges, r)
-			}
-		}
-	}
-	allocatedRanges := make([]Range, 0, len(globalRanges)+len(clusterOwnedRanges))
-	allocatedRanges = append(allocatedRanges, globalRanges...)
-	allocatedRanges = append(allocatedRanges, clusterOwnedRanges...)
-	// sort ranges by base
-	SortRanges(allocatedRanges)
-	rangeBase, err := GetFreeRangeWithOffset(allowedRange, allocatedRanges, size, offset)
-	if err != nil {
-		return Range{}, err
-	}
-	return Range{Base: rangeBase, Size: size}, nil
-}
-
-func (a *Allocations) FindNodeRange(owner Owner, node v1alpha1.NodeName, size int) (Range, error) {
-	return a.FindNodeRangeWithOffset(owner, node, size, 0)
-}
-
-func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string, target Range) (Range, error) {
+func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string, target Range, nodePortClaims []Range) (Range, error) {
 	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
 		if existing.Base != target.Base {
 			return Range{}, fmt.Errorf("range %s is already allocated with different base %d", name, existing.Base)
@@ -173,15 +138,8 @@ func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string,
 		allocatedRanges = append(allocatedRanges, v)
 	}
 
-	for _, v := range a.NodeMap {
-		for owner, ranges := range v.AllocatedRanges {
-			if owner.OwnerCluster == Owner {
-				for _, r := range ranges {
-					allocatedRanges = append(allocatedRanges, r)
-				}
-			}
-		}
-	}
+	// Include per-container port allocations from node annotations to prevent conflicts
+	allocatedRanges = append(allocatedRanges, nodePortClaims...)
 
 	SortRanges(allocatedRanges)
 	if !IsRangeAvailable(boundaries, allocatedRanges, target) {
@@ -195,7 +153,7 @@ func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string,
 	}
 }
 
-func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name string, size int, offset int) (Range, error) {
+func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name string, size int, offset int, nodePortClaims []Range) (Range, error) {
 	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
 		return existing, nil
 	}
@@ -205,21 +163,10 @@ func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name strin
 	for _, v := range a.Global.AllocatedRanges[Owner] {
 		globalRanges = append(globalRanges, v)
 	}
-	//globalRanges := a.Global.AllocatedRanges[Owner]
-	allNodesRanges := make([]Range, 0, len(a.NodeMap))
-	for _, v := range a.NodeMap {
-		for owner, ranges := range v.AllocatedRanges {
-			if owner.OwnerCluster == Owner {
-				for _, r := range ranges {
-					allNodesRanges = append(allNodesRanges, r)
-				}
-			}
-		}
-	}
 
-	allRanges := make([]Range, 0, len(allNodesRanges)+len(globalRanges))
-	allRanges = append(allRanges, globalRanges...)
-	allRanges = append(allRanges, allNodesRanges...)
+	// Include per-container port allocations from node annotations to prevent conflicts
+	allRanges := append(globalRanges, nodePortClaims...)
+
 	SortRanges(allRanges)
 	rangeBase, err := GetFreeRangeWithOffset(allowedRange, allRanges, size, offset)
 	if err != nil {
@@ -233,6 +180,6 @@ func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name strin
 	return newRange, nil
 }
 
-func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size int) (Range, error) {
-	return a.EnsureGlobalRangeWithOffset(Owner, name, size, 0)
+func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size int, nodePortClaims []Range) (Range, error) {
+	return a.EnsureGlobalRangeWithOffset(Owner, name, size, 0, nodePortClaims)
 }

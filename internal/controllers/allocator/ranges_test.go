@@ -72,39 +72,6 @@ func TestAllocationsRanges(t *testing.T) {
 		Base: r1,
 		Size: 500,
 	}
-
-	owner := Owner{
-		OwnerCluster: ownerCluster,
-		Container:    "test",
-		Role:         "compute",
-	}
-
-	rN1, err := allocations.FindNodeRange(owner, "wekabox14.lan", 1)
-	if err != nil {
-		t.Errorf("Expected nil, got %v", err)
-		return
-	}
-
-	if rN1.Base != StartingPort {
-		t.Errorf("Expected %d, got %d", StartingPort, rN1.Base)
-		return
-	}
-	allocations.InitNodeAllocations("wekabox14.lan")
-	allocations.NodeMap["wekabox14.lan"].AllocatedRanges[owner] = map[string]Range{
-		"test": rN1,
-	}
-
-	owner.Container = "test2"
-	rN2, err := allocations.FindNodeRangeWithOffset(owner, "wekabox14.lan", 1, SinglePortsOffset)
-	if err != nil {
-		t.Errorf("Expected nil, got %v", err)
-		return
-	}
-
-	if rN2.Base != StartingPort+SinglePortsOffset {
-		t.Errorf("Expected %d, got %d", StartingPort+SinglePortsOffset, rN2.Base)
-		return
-	}
 }
 
 func TestEnsureRangeIsAvailable(t *testing.T) {

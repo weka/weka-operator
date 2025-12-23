@@ -66,7 +66,6 @@ func init() {
 type WekaReconciler interface {
 	reconcile.Reconciler
 	SetupWithManager(mgr ctrl.Manager, reconciler reconcile.Reconciler) error
-	RunGC(ctx context.Context)
 }
 
 func main() {
@@ -234,8 +233,6 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 			logger.Error(err, "unable to add controller to manager")
 			os.Exit(1)
 		}
-		// Run GC for each controller (if implemented)
-		go c.RunGC(ctx)
 	}
 
 	// run one-time operations until completion

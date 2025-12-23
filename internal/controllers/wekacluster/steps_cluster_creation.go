@@ -48,6 +48,14 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.EnsureLoginCredentials,
 		},
 		&lifecycle.SimpleStep{
+			Run: loop.AllocateClusterRanges,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return loop.cluster.Status.Ports.BasePort == 0
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondPodsCreated,
 			},
@@ -76,13 +84,6 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				Interval:          config.Consts.TolerationsMismatchCleanupInterval,
 				EnsureStepSuccess: true,
 			},
-		},
-		&lifecycle.SimpleStep{
-			State: &lifecycle.State{
-				Name: condition.CondContainerResourcesAllocated,
-			},
-			Run:                loop.AllocateResources,
-			SkipStepStateCheck: true,
 		},
 	}
 }
@@ -189,6 +190,49 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 	return nil
 }
 
+// AllocateClusterRanges allocates the cluster-level port ranges.
+// This step runs before container creation to ensure port ranges are available
+func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	cluster := r.cluster
+
+	logger.InfoWithStatus(codes.Unset, "Allocating cluster-level port ranges")
+
+	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
+	if err != nil {
+		logger.Error(err, "Failed to create resources allocator")
+		return err
+	}
+
+	err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
+	var allocateRangeErr *allocator.AllocateClusterRangeError
+	if errors.As(err, &allocateRangeErr) {
+		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error())
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
+	}
+	if err != nil {
+		logger.Error(err, "Failed to allocate cluster range")
+		return err
+	}
+
+	// Update cluster status with allocated port ranges
+	err = r.getClient().Status().Update(ctx, cluster)
+	if err != nil {
+		logger.Error(err, "Failed to update cluster status")
+		return err
+	}
+
+	logger.Info("Successfully allocated cluster port ranges",
+		"basePort", cluster.Status.Ports.BasePort,
+		"portRange", cluster.Status.Ports.PortRange,
+		"lbPort", cluster.Status.Ports.LbPort,
+		"s3Port", cluster.Status.Ports.S3Port)
+
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) refreshContainersJoinIps(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -241,34 +285,6 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 
 	if len(missingContainers) == 0 {
 		return nil
-	}
-
-	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
-	if err != nil {
-		logger.Error(err, "Failed to create resources allocator")
-		return err
-	}
-
-	k8sClient := r.Manager.GetClient()
-	if len(r.containers) == 0 {
-		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
-		//TODO: should've be just own step function
-		err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
-		var allocateRangeErr *allocator.AllocateClusterRangeError
-		if errors.As(err, &allocateRangeErr) {
-			_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error())
-			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		}
-		if err != nil {
-			logger.Error(err, "Failed to allocate cluster range")
-			return err
-		}
-		err := k8sClient.Status().Update(ctx, cluster)
-		if err != nil {
-			logger.Error(err, "Failed to update cluster status")
-			return err
-		}
-		// update weka cluster status
 	}
 
 	var joinIps []string
@@ -387,60 +403,6 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 	}
 
 	return containers, nil
-}
-
-func (r *wekaClusterReconcilerLoop) AllocateResources(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	// Fetch all own containers
-	// Filter by .Allocated == nil
-	// TODO: Figure out if this filtering can be done by indexing, if not - rely on labels filtering, updating spec
-	// Allocate resources for all containers at once, log-report for failed
-	toAllocate := []*weka.WekaContainer{}
-	for _, container := range r.containers {
-		if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy {
-			continue
-		}
-		if container.Status.NodeAffinity == "" {
-			continue
-		}
-		if container.Status.Allocations == nil {
-			// Allocate resources
-			toAllocate = append(toAllocate, container)
-		}
-	}
-
-	if len(toAllocate) == 0 {
-		// No containers to allocate resources for
-		return nil
-	}
-
-	resourceAllocator, err := allocator.GetAllocator(ctx, r.getClient())
-	if err != nil {
-		return err
-	}
-
-	err = resourceAllocator.AllocateContainers(ctx, r.cluster, toAllocate)
-	if err != nil {
-		if failedAllocs, ok := err.(*allocator.FailedAllocations); ok {
-			err = fmt.Errorf("failed to allocate resources for %d containers", len(*failedAllocs))
-			logger.Error(err, "", "failedAllocs", failedAllocs)
-			_ = r.RecordEvent(v1.EventTypeWarning, "FailedAllocations", err.Error())
-			for _, alloc := range *failedAllocs {
-				// we landed in some conflicting place, evicting for rescheduling
-				_ = r.RecordEvent(v1.EventTypeWarning, "RemoveUnschedulable", fmt.Sprintf("Evicting container %s for rescheduling", alloc.Container.Name))
-				if err := services.SetContainerStateDeleting(ctx, alloc.Container, r.getClient()); err != nil {
-					logger.Error(err, "Failed to patch container state to deleting", "container", alloc.Container.Name)
-				}
-			}
-		} else {
-			_ = r.RecordEvent(v1.EventTypeWarning, "ResourcesAllocationError", err.Error())
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (r *wekaClusterReconcilerLoop) deleteContainersOnTolerationsMismatch(ctx context.Context) error {

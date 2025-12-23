@@ -2,7 +2,6 @@ package wekacluster
 
 import (
 	"context"
-	"time"
 
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
@@ -12,7 +11,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,8 +31,7 @@ type WekaClusterReconciler struct {
 
 	SecretsService services.SecretsService
 
-	DetectedZombies map[types.NamespacedName]time.Time
-	ThrottlingMap   throttling.Throttler
+	ThrottlingMap throttling.Throttler
 }
 
 func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *WekaClusterReconciler {
@@ -52,10 +49,6 @@ func NewWekaClusterController(mgr ctrl.Manager, restClient rest.Interface) *Weka
 		ThrottlingMap:  throttling.NewSyncMapThrottler(),
 	}
 	return ret
-}
-
-func (r *WekaClusterReconciler) RunGC(ctx context.Context) {
-	go r.GCLoop(ctx)
 }
 
 func (r *WekaClusterReconciler) Reconcile(initContext context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -149,21 +142,4 @@ func (r *WekaClusterReconciler) SetupWithManager(mgr ctrl.Manager, wrappedReconc
 		For(&weka.WekaCluster{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: config.Config.MaxWorkers.WekaCluster}).
 		Complete(wrappedReconcile)
-}
-
-func (r *WekaClusterReconciler) GCLoop(ctx context.Context) {
-	for {
-		r.gcIteration(ctx)
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func (r *WekaClusterReconciler) gcIteration(ctx context.Context) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WekaClusterGCLoop")
-	defer end()
-
-	err := r.GC(ctx)
-	if err != nil {
-		logger.Error(err, "gc failed")
-	}
 }

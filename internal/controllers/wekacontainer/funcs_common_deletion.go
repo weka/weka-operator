@@ -20,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -103,8 +102,6 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "finalizeContainer")
 	defer end()
 
-	container := r.container
-
 	// first ensure no pod exists
 	err := r.stopForceAndEnsureNoPod(ctx)
 	if err != nil {
@@ -117,19 +114,13 @@ func (r *containerReconcilerLoop) finalizeContainer(ctx context.Context) error {
 		return err
 	}
 
-	resourceAllocator, err := allocator.GetAllocator(ctx, r.Client)
+	// Cleanup node claims (hybrid approach) - removes claims from node annotations
+	err = r.CleanupClaimsOnNode(ctx)
 	if err != nil {
-		return err
+		logger.Error(err, "Error cleaning up node claims, continuing with other cleanup")
+		// Don't fail finalization if we can't clean up claims
+		// They will be rebuilt on next allocation if needed
 	}
-
-	err = resourceAllocator.DeallocateContainer(ctx, container)
-	if err != nil {
-		logger.Error(err, "Error deallocating container")
-		return err
-	} else {
-		logger.Info("Container deallocated")
-	}
-	// deallocate from allocmap
 
 	// remove csi node topology labels
 	// NOTE: wekaClient is needed for getCsiDriverName
