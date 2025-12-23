@@ -23,6 +23,7 @@ import (
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -135,7 +136,17 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		return err
 	}
 
-	if len(matchingNodes) == 0 {
+	// filter out nodes that are not ready
+	readyNodes := []v1.Node{}
+	for _, node := range matchingNodes {
+		if resources.NodeIsReady(&node) {
+			readyNodes = append(readyNodes, node)
+		} else {
+			logger.Info("Skipping node that is not ready", "node", node.Name)
+		}
+	}
+
+	if len(readyNodes) == 0 {
 		return fmt.Errorf("no matching nodes found for the given node selector")
 	}
 
@@ -144,7 +155,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
-	defer logger.SetValues("matchingNodes", len(matchingNodes), "existingContainers", len(existingContainerNodes))
+	defer logger.SetValues("readyNodes", len(readyNodes), "existingContainers", len(existingContainerNodes))
 	logger.SetAttributes()
 
 	//TODO: Re-factor to all pieces of results will be a generic results structure, allowing to implement generic parallezation with callback funcs
@@ -152,7 +163,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 	skip := 0
 
 	toCreate := []*weka.WekaContainer{}
-	for _, node := range matchingNodes {
+	for _, node := range readyNodes {
 		if existingContainerNodes[node.Name] {
 			continue
 		}

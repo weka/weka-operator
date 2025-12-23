@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/operations"
+	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -25,18 +26,7 @@ import (
 )
 
 func NodeIsReady(node *v1.Node) bool {
-	if node == nil {
-		return false
-	}
-	// check if the node has a NodeReady condition set to True
-	isNodeReady := false
-	for _, condition := range node.Status.Conditions {
-		if condition.Type == v1.NodeReady && condition.Status == v1.ConditionTrue {
-			isNodeReady = true
-			break
-		}
-	}
-	return isNodeReady
+	return resources.NodeIsReady(node)
 }
 
 func NodeIsUnschedulable(node *v1.Node) bool {
