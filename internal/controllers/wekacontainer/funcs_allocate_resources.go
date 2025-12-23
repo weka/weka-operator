@@ -1,24 +1,34 @@
 // This file contains functions for allocating resources (drives, ports) for WekaContainer
-// using the hybrid approach with node annotations
+// using status-only allocation (no node annotations)
 package wekacontainer
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 )
 
-// AllocateResources allocates drives and ports for the container using the hybrid approach
-// This replaces the WekaCluster-level allocation with per-container allocation
+// AllocateResources allocates drives and ports for the container using leader election
+//
+// Allocations are stored only in WekaContainer.Status (no node annotations).
+// Uses per-node leader election to ensure only one container allocates at a time,
+// preventing race conditions and resource conflicts.
+//
+// Flow:
+//  1. Acquire per-node lease (blocks if another container is allocating)
+//  2. Read existing allocations from all container Status on this node
+//  3. Allocate available resources
+//  4. Update this container's Status
+//  5. Release lease (automatic)
 func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocateResources")
 	defer end()
@@ -29,6 +39,31 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	if nodeName == "" {
 		return errors.New("container has no node affinity")
 	}
+
+	// Create leader election lock for this node
+	// All containers on this node (any namespace) compete for the same lease
+	restConfig := r.Manager.GetConfig()
+	lock := allocator.NewNodeAllocationLock(
+		restConfig,
+		r.container.Namespace,
+		string(nodeName),
+		r.container.Name,
+	)
+
+	// Execute allocation while holding the lease
+	// This ensures only one container allocates at a time on this node
+	err := lock.RunWithLease(ctx, func(leaderCtx context.Context) error {
+		return r.doAllocateResourcesWithLease(leaderCtx, nodeName)
+	})
+
+	return err
+}
+
+// doAllocateResourcesWithLease performs the actual allocation while holding the node lease
+// This is called by RunWithLease after successfully acquiring the lease
+func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Context, nodeName weka.NodeName) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "doAllocateResourcesWithLease")
+	defer end()
 
 	// Get the node
 	node := &v1.Node{}
@@ -42,41 +77,22 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 		return fmt.Errorf("failed to get owner cluster: %w", err)
 	}
 
-	// Validate and rebuild node claims if needed (self-healing)
-	rebuilt, err := allocator.ValidateAndRebuildNodeClaims(ctx, r.Client, node, r.container.Namespace)
-	if err != nil {
-		return fmt.Errorf("failed to validate node claims: %w", err)
-	}
-	if rebuilt {
-		logger.Info("Rebuilt node claims before allocation")
-		// Refresh node to get latest ResourceVersion
-		if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
-			return fmt.Errorf("failed to refresh node after rebuild: %w", err)
-		}
-	}
-
-	// Parse current claims from node
-	claims, err := allocator.ParseNodeClaims(node)
-	if err != nil {
-		return fmt.Errorf("failed to parse node claims: %w", err)
-	}
-
 	// Get failure domain
 	failureDomain := r.getFailureDomain(ctx)
 
-	// Determine which port allocations are needed (preserving old logic)
+	// Determine which port allocations are needed
 	// Weka port (100 ports): only for host-network containers that are not Envoy
 	allocateWekaPort := r.container.IsHostNetwork() && !r.container.IsEnvoy()
 	// Agent port (1 port): only for containers that have an agent
 	allocateAgentPort := r.container.HasAgent()
 
 	// Use ContainerResourceAllocator service to allocate resources
+	// NOTE: The allocator should read existing allocations from all container Status objects
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 	allocationRequest := &allocator.AllocationRequest{
 		Container:     r.container,
 		Node:          node,
 		Cluster:       cluster,
-		NodeClaims:    claims,
 		NumDrives:     r.container.Spec.NumDrives,
 		FailureDomain: failureDomain,
 		AllocateWeka:  allocateWekaPort,
@@ -87,15 +103,19 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	if err != nil {
 		var insufficientDrivesErr *allocator.InsufficientDrivesError
 		if errors.As(err, &insufficientDrivesErr) {
-			logger.Error(err, "Insufficient drives")
+			logger.Error(err, "Insufficient drives on node, will retry")
 			_ = r.RecordEvent(v1.EventTypeWarning, "InsufficientDrives", err.Error())
-			return lifecycle.NewWaitError(err)
+			// Use longer wait to avoid starving other containers waiting for the lease
+			// Standard wait is ~5s, use 30s for resource exhaustion
+			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
 
 		var portAllocationErr *allocator.PortAllocationError
 		if errors.As(err, &portAllocationErr) {
-			logger.Error(err, "Failed to allocate port ranges")
+			logger.Error(err, "Failed to allocate port ranges, will retry with backoff")
 			_ = r.RecordEvent(v1.EventTypeWarning, "PortAllocationFailed", err.Error())
+			// Longer wait for port exhaustion as well
+			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
 		}
 
 		return fmt.Errorf("failed to allocate resources: %w", err)
@@ -106,55 +126,7 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	wekaPort := result.WekaPort
 	agentPort := result.AgentPort
 
-	// Get claim key for this container
-	claimKey := allocator.ClaimKeyFromContainer(r.container)
-
-	// Add drive claims to node annotation (atomic operation)
-	if r.container.Spec.UseDriveSharing {
-		// Add virtual drive claims for shared drives
-		for _, vd := range allocatedVirtualDrives {
-			if err := claims.AddVirtualDriveClaim(vd.VirtualUUID, vd.PhysicalUUID, vd.CapacityGiB, claimKey); err != nil {
-				return fmt.Errorf("failed to add virtual drive claim: %w", err)
-			}
-		}
-	} else {
-		// Add regular drive claims for exclusive drives
-		for _, drive := range allocatedDrives {
-			if err := claims.AddDriveClaim(drive, claimKey); err != nil {
-				return fmt.Errorf("failed to add drive claim: %w", err)
-			}
-		}
-	}
-
-	// Add port range claims (only if allocated)
-	if wekaPort > 0 {
-		wekaPortRange := fmt.Sprintf("%d,%d", wekaPort, allocator.WekaPortRangeSize)
-		if err := claims.AddPortClaim(wekaPortRange, claimKey); err != nil {
-			return fmt.Errorf("failed to add weka port claim: %w", err)
-		}
-	}
-
-	if agentPort > 0 {
-		agentPortRange := fmt.Sprintf("%d,1", agentPort)
-		if err := claims.AddPortClaim(agentPortRange, claimKey); err != nil {
-			return fmt.Errorf("failed to add agent port claim: %w", err)
-		}
-	}
-
-	// Save claims to node annotation (with optimistic locking)
-	err = claims.SaveToNode(ctx, r.Client, node)
-	if err != nil {
-		if apierrors.IsConflict(err) {
-			// Another container allocated on this node simultaneously, retry
-			logger.Info("Node update conflict during allocation, will retry")
-			_ = r.RecordEvent(v1.EventTypeWarning, "AllocationConflict", "Node updated by another container, retrying allocation")
-			return lifecycle.NewWaitError(fmt.Errorf("allocation conflict, retrying: %w", err))
-		}
-		logger.Error(err, "Failed to save claims to node")
-		return fmt.Errorf("failed to save claims to node: %w", err)
-	}
-
-	// Update container status with allocations
+	// Update container status with allocations (single source of truth)
 	allocations := &weka.ContainerAllocations{
 		Drives:        allocatedDrives,
 		VirtualDrives: allocatedVirtualDrives,
@@ -179,8 +151,6 @@ func (r *containerReconcilerLoop) AllocateResources(ctx context.Context) error {
 	r.container.Status.Allocations = allocations
 	err = r.Status().Update(ctx, r.container)
 	if err != nil {
-		// If we fail to update status, we've already claimed resources on the node
-		// The self-healing logic will clean this up if the container is deleted
 		return fmt.Errorf("failed to update container status with allocations: %w", err)
 	}
 

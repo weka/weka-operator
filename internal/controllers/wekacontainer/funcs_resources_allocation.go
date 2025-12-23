@@ -432,29 +432,7 @@ func (r *containerReconcilerLoop) deallocateVirtualDrives(ctx context.Context, n
 		return nil
 	}
 
-	logger.Info("Removing virtual drive claims", "virtualDrives", virtualDrivesToRemove)
-
-	// Get node claims
-	claims, err := allocator.ParseNodeClaims(node)
-	if err != nil {
-		return fmt.Errorf("failed to parse node claims: %w", err)
-	}
-
-	// Get claim key for this container
-	claimKey := allocator.ClaimKeyFromContainer(container)
-
-	// Remove virtual drive claims
-	for _, virtualUUID := range virtualDrivesToRemove {
-		if claim, exists := claims.VirtualDrives[virtualUUID]; exists && claim.Container == claimKey {
-			delete(claims.VirtualDrives, virtualUUID)
-			logger.Debug("Removed virtual drive claim", "virtualUUID", virtualUUID)
-		}
-	}
-
-	// Save claims to node annotation
-	if err := claims.SaveToNode(ctx, r.Client, node); err != nil {
-		return fmt.Errorf("failed to save claims to node: %w", err)
-	}
+	logger.Info("Removing virtual drive allocations", "virtualDrives", virtualDrivesToRemove)
 
 	// Update container status allocations
 	updatedVirtualDrives := []weka.VirtualDrive{}
@@ -496,21 +474,7 @@ func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, b
 		return r.deallocateVirtualDrives(ctx, node, blockedDrives)
 	}
 
-	// Regular drive mode
-	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
-	deallocRequest := &allocator.DriveDeallocRequest{
-		Container:      container,
-		Node:           node,
-		DrivesToRemove: blockedDrives,
-	}
-
-	err := containerAllocator.DeallocateDrives(ctx, deallocRequest)
-	if err != nil {
-		logger.Error(err, "Failed to deallocate drives for container", "container", container.Name, "drives", blockedDrives)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "DeallocateContainerDrivesError", err.Error(), time.Minute)
-		return err
-	}
-
+	// Regular drive mode - status-only allocation
 	// Update drive allocations in container status
 	updatedDriveAllocations := make([]string, 0)
 	for _, drive := range container.Status.Allocations.Drives {
@@ -520,7 +484,7 @@ func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, b
 	}
 
 	container.Status.Allocations.Drives = updatedDriveAllocations
-	err = r.Status().Update(ctx, container)
+	err := r.Status().Update(ctx, container)
 	if err != nil {
 		err = fmt.Errorf("cannot update container status with deallocated drives: %w", err)
 		return err

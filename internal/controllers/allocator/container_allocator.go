@@ -12,6 +12,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 // ContainerResourceAllocator handles per-container resource allocation
@@ -31,7 +33,6 @@ type AllocationRequest struct {
 	Container     *weka.WekaContainer
 	Node          *v1.Node
 	Cluster       *weka.WekaCluster
-	NodeClaims    *NodeClaims
 	NumDrives     int
 	FailureDomain *string
 	AllocateWeka  bool // Whether to allocate weka port (100 ports)
@@ -46,10 +47,17 @@ type AllocationResult struct {
 	AgentPort     int
 }
 
-// AllocateResources allocates drives and ports for a container
+// AllocateResources allocates drives and ports for a container using status-only allocation
+// Reads existing allocations from all WekaContainer Status objects on the node
 func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req *AllocationRequest) (*AllocationResult, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainerResourceAllocator.AllocateResources")
 	defer end()
+
+	// Aggregate existing allocations from all containers on this node
+	allocatedDrives, allocatedPorts, err := a.aggregateNodeAllocations(ctx, req.Node.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate node allocations: %w", err)
+	}
 
 	result := &AllocationResult{}
 
@@ -66,7 +74,7 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 			logger.Debug("Allocated virtual drives", "count", len(result.VirtualDrives))
 		} else {
 			// Regular drive allocation (exclusive drives)
-			drives, err := a.GetAvailableDrives(ctx, req.Node, req.NodeClaims)
+			drives, err := a.getAvailableDrivesFromStatus(ctx, req.Node, allocatedDrives)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get available drives: %w", err)
 			}
@@ -81,7 +89,7 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	}
 
 	// Allocate port ranges based on request flags
-	wekaPort, agentPort, err := a.AllocatePortRanges(ctx, req.Cluster, req.NodeClaims, req.AllocateWeka, req.AllocateAgent)
+	wekaPort, agentPort, err := a.allocatePortRangesFromStatus(ctx, req.Cluster, allocatedPorts, req.AllocateWeka, req.AllocateAgent)
 	if err != nil {
 		return nil, &PortAllocationError{Cause: err}
 	}
@@ -97,9 +105,66 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	return result, nil
 }
 
-// GetAvailableDrives returns drives that are available for allocation on a node
-func (a *ContainerResourceAllocator) GetAvailableDrives(ctx context.Context, node *v1.Node, claims *NodeClaims) ([]string, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAvailableDrives")
+// aggregateNodeAllocations reads all WekaContainer Status objects on a node
+// and returns maps of allocated drives and ports across all namespaces
+// (drives and ports are node-level resources, not namespace-level)
+func (a *ContainerResourceAllocator) aggregateNodeAllocations(ctx context.Context, nodeName string) (map[string]bool, map[int]bool, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodeAllocations")
+	defer end()
+
+	// List all containers on this node (across all namespaces)
+	kubeService := kubernetes.NewKubeService(a.client)
+	containers, err := kubeService.GetWekaContainersSimple(ctx, "", nodeName, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list containers on node %s: %w", nodeName, err)
+	}
+
+	allocatedDrives := make(map[string]bool)
+	allocatedPorts := make(map[int]bool)
+
+	// Aggregate allocations from all containers
+	for _, container := range containers {
+		if container.Status.Allocations == nil {
+			continue
+		}
+
+		// Aggregate drive allocations
+		for _, drive := range container.Status.Allocations.Drives {
+			allocatedDrives[drive] = true
+		}
+
+		// Aggregate virtual drive allocations (physical drives are marked as used)
+		for _, vd := range container.Status.Allocations.VirtualDrives {
+			allocatedDrives[vd.PhysicalUUID] = true
+		}
+
+		// Aggregate port allocations
+		if container.Status.Allocations.WekaPort > 0 {
+			// WekaPort uses 100 consecutive ports
+			for i := 0; i < WekaPortRangeSize; i++ {
+				port := container.Status.Allocations.WekaPort + i
+				allocatedPorts[port] = true
+			}
+		}
+
+		if container.Status.Allocations.AgentPort > 0 {
+			allocatedPorts[container.Status.Allocations.AgentPort] = true
+		}
+	}
+
+	logger.Info("Aggregated allocations from container status",
+		"node", nodeName,
+		"containers", len(containers),
+		"allocatedDrives", len(allocatedDrives),
+		"allocatedPorts", len(allocatedPorts))
+
+	return allocatedDrives, allocatedPorts, nil
+}
+
+// getAvailableDrivesFromStatus returns drives that are available for allocation on a node
+// based on aggregated allocations from container Status
+func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Context, node *v1.Node, allocatedDrives map[string]bool) ([]string, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getAvailableDrivesFromStatus")
 	defer end()
 
 	// Get all drives from node annotation
@@ -112,23 +177,24 @@ func (a *ContainerResourceAllocator) GetAvailableDrives(ctx context.Context, nod
 	allDrives := nodeInfo.AvailableDrives
 	logger.Debug("Found drives on node", "total", len(allDrives))
 
-	// Filter out claimed drives
+	// Filter out allocated drives
 	availableDrives := []string{}
 	for _, drive := range allDrives {
-		if _, claimed := claims.Drives[drive]; !claimed {
+		if !allocatedDrives[drive] {
 			availableDrives = append(availableDrives, drive)
 		}
 	}
 
-	logger.Debug("Available drives after filtering claims", "available", len(availableDrives))
+	logger.Debug("Available drives after filtering allocations", "available", len(availableDrives))
 	return availableDrives, nil
 }
 
-// AllocatePortRanges allocates weka and agent port ranges from the cluster's port range
+// allocatePortRangesFromStatus allocates weka and agent port ranges from the cluster's port range
+// using aggregated allocations from container Status
 // allocateWeka: if true, allocate weka port (100 ports)
 // allocateAgent: if true, allocate agent port (1 port)
-func (a *ContainerResourceAllocator) AllocatePortRanges(ctx context.Context, cluster *weka.WekaCluster, claims *NodeClaims, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "AllocatePortRanges")
+func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, allocatedPorts map[int]bool, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
 	defer end()
 
 	// Get the cluster's allocated port range from global allocator
@@ -154,15 +220,28 @@ func (a *ContainerResourceAllocator) AllocatePortRanges(ctx context.Context, clu
 
 	logger.Debug("Cluster port range", "base", clusterRange.Base, "size", clusterRange.Size)
 
-	// Build list of allocated ranges combining node-level claims and global singleton ports
+	// Build list of allocated ranges from allocatedPorts map and global singleton ports
 	// This prevents container ports from conflicting with global LB/S3/LbAdmin ports
 	allocatedRanges := []Range{}
 
-	// Add node-level port claims
-	for portRangeStr := range claims.Ports {
-		var base, size int
-		fmt.Sscanf(portRangeStr, "%d,%d", &base, &size)
-		allocatedRanges = append(allocatedRanges, Range{Base: base, Size: size})
+	// Convert allocated ports map to ranges (group consecutive ports)
+	portList := make([]int, 0, len(allocatedPorts))
+	for port := range allocatedPorts {
+		portList = append(portList, port)
+	}
+	slices.Sort(portList)
+
+	// Group consecutive ports into ranges
+	for i := 0; i < len(portList); {
+		start := portList[i]
+		end := start
+		// Find consecutive sequence
+		for i+1 < len(portList) && portList[i+1] == portList[i]+1 {
+			i++
+			end = portList[i]
+		}
+		allocatedRanges = append(allocatedRanges, Range{Base: start, Size: end - start + 1})
+		i++
 	}
 
 	// Add global singleton ports (LB, S3, LbAdmin) to exclusion list
@@ -232,23 +311,30 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 		"failedDrives", req.FailedDrives,
 		"numNewDrives", req.NumNewDrives)
 
-	// Get node claims
-	claims, err := ParseNodeClaims(req.Node)
+	// Aggregate existing allocations from all containers on this node
+	allocatedDrives, _, err := a.aggregateNodeAllocations(ctx, req.Node.Name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse node claims: %w", err)
+		return nil, fmt.Errorf("failed to aggregate node allocations: %w", err)
 	}
 
-	// Get claim key for this container
-	claimKey := ClaimKeyFromContainer(req.Container)
-
-	// Remove failed drives from claims
-	if len(req.FailedDrives) > 0 {
-		claims.RemoveDriveClaims(claimKey, req.FailedDrives)
-		logger.Debug("Removed failed drives from claims", "drives", req.FailedDrives)
+	// Remove this container's current drives from allocated set (they will be freed)
+	for _, drive := range req.Container.Status.Allocations.Drives {
+		delete(allocatedDrives, drive)
 	}
 
-	// Get available drives
-	availableDrives, err := a.GetAvailableDrives(ctx, req.Node, claims)
+	// Add back the drives that are NOT being replaced (keep these allocated)
+	for _, drive := range req.Container.Status.Allocations.Drives {
+		if !slices.Contains(req.FailedDrives, drive) {
+			allocatedDrives[drive] = true
+		}
+	}
+
+	logger.Debug("Prepared allocation state for reallocation",
+		"totalAllocated", len(allocatedDrives),
+		"failedToRemove", len(req.FailedDrives))
+
+	// Get available drives (excluding allocated ones)
+	availableDrives, err := a.getAvailableDrivesFromStatus(ctx, req.Node, allocatedDrives)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get available drives: %w", err)
 	}
@@ -259,16 +345,6 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 
 	// Allocate new drives
 	newDrives := availableDrives[:req.NumNewDrives]
-	for _, drive := range newDrives {
-		if err := claims.AddDriveClaim(drive, claimKey); err != nil {
-			return nil, fmt.Errorf("failed to add drive claim: %w", err)
-		}
-	}
-
-	// Save claims to node annotation
-	if err := claims.SaveToNode(ctx, a.client, req.Node); err != nil {
-		return nil, fmt.Errorf("failed to save claims to node: %w", err)
-	}
 
 	// Calculate all drives (existing - failed + new)
 	currentDrives := req.Container.Status.Allocations.Drives
@@ -292,46 +368,6 @@ func (a *ContainerResourceAllocator) ReallocateDrives(ctx context.Context, req *
 		NewDrives: newDrives,
 		AllDrives: allDrives,
 	}, nil
-}
-
-// DriveDeallocRequest represents a request to deallocate specific drives
-type DriveDeallocRequest struct {
-	Container      *weka.WekaContainer
-	Node           *v1.Node
-	DrivesToRemove []string // Drives to deallocate by serial ID
-}
-
-// DeallocateDrives removes specific drives from allocation
-// This is used when drives are removed or blocked
-func (a *ContainerResourceAllocator) DeallocateDrives(ctx context.Context, req *DriveDeallocRequest) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ContainerResourceAllocator.DeallocateDrives")
-	defer end()
-
-	logger.Info("Deallocating drives for container",
-		"container", req.Container.Name,
-		"drives", req.DrivesToRemove)
-
-	// Get node claims
-	claims, err := ParseNodeClaims(req.Node)
-	if err != nil {
-		return fmt.Errorf("failed to parse node claims: %w", err)
-	}
-
-	// Get claim key for this container
-	claimKey := ClaimKeyFromContainer(req.Container)
-
-	// Remove drives from claims
-	claims.RemoveDriveClaims(claimKey, req.DrivesToRemove)
-	logger.Debug("Removed drives from claims", "drives", req.DrivesToRemove)
-
-	// Save claims to node annotation
-	if err := claims.SaveToNode(ctx, a.client, req.Node); err != nil {
-		return fmt.Errorf("failed to save claims to node: %w", err)
-	}
-
-	logger.Info("Successfully deallocated drives", "count", len(req.DrivesToRemove))
-
-	return nil
 }
 
 // AllocateSharedDrives allocates virtual drives from shared physical drives
@@ -361,15 +397,29 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 	}
 	totalCapacityNeeded := req.NumDrives * driveCapacityGiB
 
-	// Calculate available capacity (total capacity - claimed capacity)
+	// Calculate total capacity
 	totalCapacity := 0
 	for _, drive := range sharedDrives {
 		totalCapacity += drive.CapacityGiB
 	}
 
+	// Aggregate claimed capacity from all container Status on this node (across all namespaces)
+	// Virtual drives are node-level resources, not namespace-level
+	kubeService := kubernetes.NewKubeService(a.client)
+	containers, err := kubeService.GetWekaContainersSimple(ctx, "", req.Node.Name, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers on node: %w", err)
+	}
+
 	claimedCapacity := 0
-	for _, claim := range req.NodeClaims.VirtualDrives {
-		claimedCapacity += claim.CapacityGiB
+	for _, container := range containers {
+		if container.Status.Allocations == nil {
+			continue
+		}
+		// Sum up capacity from all virtual drives
+		for _, vd := range container.Status.Allocations.VirtualDrives {
+			claimedCapacity += vd.CapacityGiB
+		}
 	}
 
 	availableCapacity := totalCapacity - claimedCapacity
