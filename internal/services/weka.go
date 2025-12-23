@@ -1210,6 +1210,13 @@ func (c *CliWekaService) ListContainerDrives(ctx context.Context, containerId in
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO: remove
+	// temp: trim spaces from drive serial numbers
+	for i := range drives {
+		drives[i].SerialNumber = strings.TrimSpace(drives[i].SerialNumber)
+	}
+
 	return drives, nil
 }
 

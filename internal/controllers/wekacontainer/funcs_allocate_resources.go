@@ -136,7 +136,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	}
 
 	// Log appropriate message based on drive type
-	if r.container.Spec.UseDriveSharing {
+	if r.container.UsesDriveSharing() {
 		logger.Info("Successfully allocated resources",
 			"virtualDrives", len(allocatedVirtualDrives),
 			"wekaPort", wekaPort,
@@ -157,7 +157,7 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	// Build resource allocation message
 	var allocMsg string
 	driveCount := len(allocatedDrives)
-	if r.container.Spec.UseDriveSharing {
+	if r.container.UsesDriveSharing() {
 		driveCount = len(allocatedVirtualDrives)
 	}
 

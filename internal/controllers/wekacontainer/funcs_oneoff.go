@@ -229,28 +229,31 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 
 	logger.Info("Updating node annotations for proxy mode")
 
-	// Convert ProxyDriveInfo structs to compact annotation format: [[uuid, serial, capacity_gib, device_path], ...]
-	// This saves space in the annotation compared to JSON objects
-	annotationData := make([][]any, 0, len(opResult.ProxyDrives))
 	totalCapacityGiB := int64(0)
-
 	for _, drive := range opResult.ProxyDrives {
-		annotationData = append(annotationData, []any{
-			drive.PhysicalUUID,
-			drive.Serial,
-			drive.CapacityGiB,
-			drive.DevicePath,
-		})
 		totalCapacityGiB += int64(drive.CapacityGiB)
 	}
 
 	// Write proxy drives to weka.io/shared-drives annotation
-	proxyDrivesJSON, err := json.Marshal(annotationData)
+	proxyDrivesJSON, err := json.Marshal(opResult.ProxyDrives)
 	if err != nil {
 		return fmt.Errorf("error marshalling proxy drives: %w", err)
 	}
 
 	node.Annotations[consts.AnnotationSharedDrives] = string(proxyDrivesJSON)
+
+	// Also set weka.io/weka-drives with the physical drive serials
+	// This is needed for the allocator's node info getter to work correctly
+	driveSerials := make([]string, 0, len(opResult.ProxyDrives))
+	for _, drive := range opResult.ProxyDrives {
+		driveSerials = append(driveSerials, drive.Serial)
+	}
+	driveSerialsJSON, err := json.Marshal(driveSerials)
+	if err != nil {
+		return fmt.Errorf("error marshalling drive serials: %w", err)
+	}
+	node.Annotations[consts.AnnotationWekaDrives] = string(driveSerialsJSON)
+
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
 	// Update weka.io/shared-drives-capacity extended resource

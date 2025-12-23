@@ -27,8 +27,6 @@ class SignOptions:
     skipTrimFormat: bool = False
 
 
-
-
 @dataclass
 class Disk:
     path: str
@@ -120,18 +118,18 @@ exiting = 0
 
 def setup_otel_logging():
     """Setup OpenTelemetry logging with OTLP exporter."""
-    
+
     # Check if init container successfully installed OTEL packages
     otel_packages_dir = "/shared-python-packages"
     success_marker = os.path.join(otel_packages_dir, ".otel-packages-installed")
     failure_marker = os.path.join(otel_packages_dir, ".otel-packages-failed")
-    
+
     if os.path.exists(success_marker):
         print("OTEL packages were successfully installed by init container")
         # Add the shared packages directory to Python path if not already there
         if otel_packages_dir not in sys.path:
             sys.path.insert(0, otel_packages_dir)
-        
+
         # Try to import OTEL packages that should now be available
         try:
             global OTEL_AVAILABLE
@@ -150,17 +148,17 @@ def setup_otel_logging():
         OTEL_AVAILABLE = False
     else:
         print("No OTEL package installation markers found. Checking for pre-installed packages...")
-    
+
     if not OTEL_AVAILABLE or not OTEL_LOGS_ENABLED:
         return setup_standard_logging()
-    
+
     try:
         # Determine the OTLP endpoint for logs
         logs_endpoint = OTEL_EXPORTER_OTLP_LOGS_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
         if not logs_endpoint:
             print("Warning: No OTEL endpoint configured. Falling back to standard logging.")
             return setup_standard_logging()
-        
+
         # Parse headers for logs
         headers = {}
         headers_str = OTEL_EXPORTER_OTLP_LOGS_HEADERS or OTEL_EXPORTER_OTLP_HEADERS
@@ -169,7 +167,7 @@ def setup_otel_logging():
                 if '=' in header:
                     key, value = header.strip().split('=', 1)
                     headers[key] = value
-        
+
         # Create resource with service information
         resource = Resource.create({
             ResourceAttributes.SERVICE_NAME: OTEL_SERVICE_NAME,
@@ -180,48 +178,48 @@ def setup_otel_logging():
             "k8s.pod.name": POD_NAME,
             "k8s.namespace.name": POD_NAMESPACE,
         })
-        
+
         # Create OTLP log exporter
         otlp_exporter = OTLPLogExporter(
             endpoint=logs_endpoint,
             headers=headers,
         )
-        
+
         # Create logger provider
         logger_provider = LoggerProvider(resource=resource)
-        
+
         # Add batch processor
         logger_provider.add_log_record_processor(
             BatchLogRecordProcessor(otlp_exporter)
         )
-        
+
         # Create OTEL logging handler
         otel_handler = LoggingHandler(
             level=logging.DEBUG,
             logger_provider=logger_provider,
         )
-        
+
         # Create standard handlers for local logging
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setLevel(logging.DEBUG)
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.WARNING)
-        
+
         # Formatter
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         stdout_handler.setFormatter(formatter)
         stderr_handler.setFormatter(formatter)
-        
+
         # Configure root logger with both OTEL and standard handlers
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
         root_logger.addHandler(otel_handler)
         root_logger.addHandler(stdout_handler)
         root_logger.addHandler(stderr_handler)
-        
+
         print(f"OTEL logging configured successfully. Endpoint: {logs_endpoint}")
         return True
-        
+
     except Exception as e:
         print(f"Failed to setup OTEL logging: {e}. Falling back to standard logging.")
         return setup_standard_logging()
@@ -231,7 +229,7 @@ def setup_standard_logging():
     """Setup standard logging as fallback."""
     # Formatter with channel name
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
+
     # Define handlers for stdout and stderr
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
@@ -240,7 +238,7 @@ def setup_standard_logging():
 
     stdout_handler.setFormatter(formatter)
     stderr_handler.setFormatter(formatter)
-    
+
     # Basic configuration
     logging.basicConfig(
         level=logging.DEBUG,  # Global minimum logging level
@@ -542,7 +540,7 @@ async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
         if "already a Weka partition" in stderr.decode():
             logging.info(f"Drive {device_path} already signed for proxy, querying info")
             return await get_proxy_drive_info(device_path)
-        
+
         err = f"Failed to sign drive {device_path} for proxy: {stderr}"
         logging.error(err)
         raise SignException(err)
@@ -982,6 +980,97 @@ async def discover_drives():
         drives=drives,
         raw_drives=[asdict(d) for d in raw_disks],
     ))
+
+
+async def discover_ssdproxy_drives():
+    drives = await list_weka_proxy_drives_with_sign_tool()
+    write_results(dict(
+        err=None,
+        proxy_drives=drives,
+    ))
+
+
+async def list_weka_proxy_drives_with_sign_tool():
+    """
+    List drives using weka-sign-drive list command and return simplified drive information.
+    Returns list of dicts with physical_uuid, serial, capacity_gib, device_path for weka_formatted drives only.
+    """
+    try:
+        # Execute weka-sign-drive list -j for JSON output
+        stdout, stderr, ec = await run_command("/weka-sign-drive list -j")
+        if ec != 0:
+            logging.error(f"Failed to list drives with weka-sign-drive: {stderr}")
+            raise Exception("weka-sign-drive list command failed")
+
+        # Parse JSON output - skip non-JSON lines at the beginning
+        try:
+            output_text = stdout.decode('utf-8')
+            
+            # Find the start of JSON (first '{' character)
+            json_start = output_text.find('{')
+            if json_start == -1:
+                raise ValueError("No JSON found in weka-sign-drive output")
+            
+            # Extract JSON portion
+            json_text = output_text[json_start:]
+            drive_data = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse weka-sign-drive output as JSON: {e}")
+            raise
+
+        # Extract simplified drive information for weka_formatted drives only
+        drives = []
+        for device_data in drive_data.get('devices', []):
+            try:
+                # Only process weka_formatted drives that are usable
+                if device_data.get('status') != 'weka_formatted' or not device_data.get('usable', False):
+                    logging.debug(f"Skipping non-weka_formatted or unusable drive: {device_data.get('path', 'unknown')}")
+                    continue
+
+                weka_info = device_data.get('weka_info', {})
+                cluster_guid = weka_info.get('cluster_guid', '')
+                is_proxy = weka_info.get('is_proxy', False)
+
+                # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
+                # TODO: hardcoded "Proxy GUID" is weka bug, remove when fixed
+                if cluster_guid not in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "Proxy GUID") and not is_proxy:
+                    logging.debug(f"Skipping drive not signed for proxy: {device_data.get('path', 'unknown')}")
+                    continue
+
+                # Extract required fields
+                physical_uuid = device_data.get('physical_uuid', '')
+                if not physical_uuid:
+                    logging.debug(f"Skipping drive with missing physical_uuid: {device_data.get('path', 'unknown')}")
+                    continue
+
+                # Get serial number from hardware info
+                hardware = device_data.get('hardware', {})
+                serial = hardware.get('serial_number', '')
+
+                # Calculate capacity in GiB from size_bytes
+                size_bytes = hardware.get('size_bytes', 0)
+                if size_bytes > 0:
+                    capacity_gib = int(size_bytes / (1024 ** 3))
+                else:
+                    logging.error(f"Drive {device_data.get('path', 'unknown')} has invalid size_bytes: {size_bytes}")
+                    continue
+
+                drives.append({
+                    'physical_uuid': physical_uuid,
+                    'serial': serial,
+                    'capacity_gib': capacity_gib,
+                })
+
+            except (KeyError, TypeError) as e:
+                logging.warning(f"Failed to parse device data: {e}")
+                continue
+
+        logging.info(f"Found {len(drives)} usable weka-formatted drives")
+        return drives
+
+    except Exception as e:
+        logging.error(f"Error listing drives with weka-sign-drive: {e}")
+        return []
 
 
 async def find_weka_drives():
@@ -2674,6 +2763,12 @@ async def configure_persistency():
             mount -o bind $BOOT_DIR /opt/weka/external-mounts/cleanup
         fi
 
+        # SSD proxy mount (for proxy containers and drive containers with sharing)
+        if [ -d /host-binds/ssdproxy ]; then
+            mkdir -p /opt/weka/external-mounts/ssdproxy
+            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/ssdproxy
+        fi
+
         if [ -d /host-binds/shared ]; then
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
@@ -2696,12 +2791,6 @@ async def configure_persistency():
         fi
 
         mkdir -p {WEKA_K8S_RUNTIME_DIR}
-
-        # SSD proxy mount (for proxy containers and drive containers with sharing)
-        if [ -d /host-binds/ssdproxy ]; then
-            mkdir -p /opt/weka/external-mounts/ssdproxy
-            mount -o bind /host-binds/ssdproxy /opt/weka/external-mounts/ssdproxy
-        fi
 
         touch {PERSISTENCY_CONFIGURED}
     """)
@@ -3123,7 +3212,7 @@ async def ensure_ssdproxy_container():
     if not proxy_memory:
         raise Exception("SSD_PROXY_MEMORY or MEMORY environment variable must be set for ssdproxy")
     cmd = dedent(f"""
-        weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory}
+        weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
     """)
     _, _, ec = await run_command(cmd)
     if ec != 0:
@@ -3815,11 +3904,7 @@ async def main():
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
 
             if for_proxy:
-                write_results(dict(
-                    err=None,
-                    proxy_drives=signed_drives,
-                    drive_count=len(signed_drives)
-                ))
+                await discover_ssdproxy_drives()
             else:
                 # Regular mode: discover drives and write annotation
                 await discover_drives()
@@ -4156,7 +4241,7 @@ async def shutdown():
         while await is_container_running(no_agent_as_not_running=force_stop):
             await run_command(f"timeout 180 weka local stop {stop_flag}", capture_stdout=False)
             await asyncio.sleep(3)
-            
+
         if force_shutdown_task is not None:
             force_shutdown_task.cancel()
         logging.info("finished stopping weka container")

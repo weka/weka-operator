@@ -289,7 +289,7 @@ func (o *SignDrivesOperation) GetJsonResult() string {
 
 	drivesByNode := map[string]int{}
 	for nodeName, nodeResults := range o.results.Results {
-		drivesCount := len(nodeResults.Drives)
+		drivesCount := len(nodeResults.Drives) + len(nodeResults.ProxyDrives)
 		total += drivesCount
 		if drivesCount > 0 {
 			drivesByNode[nodeName] = drivesCount
