@@ -274,8 +274,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: r.WaitForPodRunning,
 		},
+		// Backend containers allocate their own resources
 		&lifecycle.SimpleStep{
-			Run: r.selfUpdateAllocations,
+			Run: r.AllocateResources,
+			State: &lifecycle.State{
+				Name: condition.CondContainerResourcesAllocated,
+			},
 			Predicates: lifecycle.Predicates{
 				r.container.IsAllocatable,
 				func() bool {

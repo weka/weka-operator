@@ -31,8 +31,6 @@ func NewClientController(mgr ctrl.Manager, restClient rest.Interface) *ClientCon
 	}
 }
 
-func (c *ClientController) RunGC(ctx context.Context) {}
-
 func (c *ClientController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ClientReconcile", "namespace", req.Namespace, "name", req.Name)
 	defer end()

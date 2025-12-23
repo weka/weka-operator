@@ -46,8 +46,6 @@ type policyLoop struct {
 	Op     operations.Operation
 }
 
-func (r *WekaPolicyReconciler) RunGC(ctx context.Context) {}
-
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=weka.weka.io,resources=wekapolicies/finalizers,verbs=update
