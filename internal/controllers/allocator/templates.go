@@ -2,6 +2,7 @@ package allocator
 
 import (
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -20,6 +21,7 @@ type ClusterTemplate struct {
 	S3Containers               int
 	NfsContainers              int
 	NumDrives                  int
+	DriveCapacity              int
 	DriveHugepages             int
 	DriveHugepagesOffset       int
 	ComputeHugepages           int
@@ -119,6 +121,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		S3ExtraCores:               config.S3ExtraCores,
 		NfsContainers:              config.NfsContainers,
 		NumDrives:                  config.NumDrives,
+		DriveCapacity:              config.DriveCapacity,
 		DriveHugepages:             config.DriveHugepages,
 		DriveHugepagesOffset:       config.DriveHugepagesOffset,
 		ComputeHugepages:           config.ComputeHugepages,

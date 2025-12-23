@@ -87,6 +87,13 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.RemoveVirtualDrives,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondContainerDrivesResigned,
 				Message: "Drives resigned",

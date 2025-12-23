@@ -19,11 +19,11 @@ const (
 	// AnnotationSharedDrives stores shared drive information for proxy mode
 	// Format: [[uuid, serial, capacityGiB, devicePath], ...]
 	// Example: [["550e8400-e29b-41d4-a716-446655440000", "SERIAL123", 7000, "/dev/nvme0n1"]]
-	AnnotationSharedDrives = "weka.io/shared-drives"
+	AnnotationSharedDrives = "weka.io/weka-shared-drives"
 
-	// AnnotationBlockedSharedDrives stores blocked virtual UUIDs (proxy mode)
+	// AnnotationBlockedDrivesPhysicalUuids stores blocked drive physical UUIDs
 	// Format: ["uuid1", "uuid2", ...]
-	AnnotationBlockedSharedDrives = "weka.io/blocked-shared-drives"
+	AnnotationBlockedDrivesPhysicalUuids = "weka.io/blocked-drives-physical-uuids"
 
 	// AnnotationSignDrivesHash stores hash of signed drives to track changes
 	// Used to determine if drives need to be re-signed
