@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -171,7 +172,7 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		// if data exists and not force - skip
 		if !o.force {
 			targetHash := domain.CalculateNodeDriveSignHash(&node)
-			if node.Annotations["weka.io/sign-drives-hash"] == targetHash {
+			if node.Annotations[consts.AnnotationSignDrivesHash] == targetHash {
 				skip += 1
 				continue
 			}
@@ -373,7 +374,7 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 		return alreadySignedDrives
 	}
 
-	if drivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok && drivesStr != "" {
+	if drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && drivesStr != "" {
 		err := json.Unmarshal([]byte(drivesStr), &alreadySignedDrives)
 		if err != nil {
 			// If unmarshal fails, return empty slice to be safe

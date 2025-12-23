@@ -244,9 +244,9 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyDeployment(ctx context.
 
 		// Labels
 		labels := map[string]string{
-			"app":                "weka-management-proxy",
-			"weka.io/cluster":    r.cluster.Name,
-			"weka.io/component":  "management-proxy",
+			"app":               "weka-management-proxy",
+			"weka.io/cluster":   r.cluster.Name,
+			"weka.io/component": "management-proxy",
 		}
 
 		deployment.Labels = labels

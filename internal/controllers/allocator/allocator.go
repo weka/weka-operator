@@ -33,6 +33,9 @@ type Allocator interface {
 
 type AllocatorNodeInfo struct {
 	AvailableDrives []string
+	// SharedDrives contains shared drive information for drive sharing mode (proxy mode)
+	// Empty if node doesn't have shared drives or is using non-proxy mode
+	SharedDrives []SharedDriveInfo
 }
 
 type ResourcesAllocator struct {
