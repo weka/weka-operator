@@ -16,12 +16,188 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
+
+// AddVirtualDrives signs virtual drives on physical proxy devices using weka-sign-drive virtual add
+// This is only called for drive containers in drive sharing mode
+func (r *containerReconcilerLoop) AddVirtualDrives(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	container := r.container
+	pod := r.pod
+
+	// Only for drive sharing mode
+	if !container.Spec.UseDriveSharing {
+		logger.Debug("Container not using drive sharing, skipping virtual drive signing")
+		return nil
+	}
+
+	// Check if we have virtual drives allocated
+	if container.Status.Allocations == nil || len(container.Status.Allocations.VirtualDrives) == 0 {
+		logger.Debug("No virtual drives allocated")
+		return nil
+	}
+
+	// Check if cluster ID is available (needed for --owner-cluster-guid)
+	if container.Status.ClusterID == "" {
+		err := errors.New("cluster ID is not set, cannot sign virtual drives")
+		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
+	}
+
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		return err
+	}
+
+	// Get list of virtual drives already signed on proxy devices (not yet added to cluster)
+	// This checks the actual device state via weka-sign-drive list --json
+	signedVirtualDrives, err := r.getSignedVirtualDrives(ctx, executor)
+	if err != nil {
+		return fmt.Errorf("failed to get signed virtual drives: %w", err)
+	}
+
+	// Check if all virtual drives are already signed on the proxy devices
+	allSigned := true
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		if !signedVirtualDrives[vd.VirtualUUID] {
+			allSigned = false
+			break
+		}
+	}
+
+	if allSigned {
+		logger.Info("All virtual drives already signed and present on proxy devices")
+		return nil
+	}
+
+	var errs []error
+
+	// Sign each virtual drive that hasn't been signed yet
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "devicePath", vd.DevicePath)
+
+		// Check if already signed
+		if signedVirtualDrives[vd.VirtualUUID] {
+			l.Info("Virtual drive already signed on device, skipping")
+			continue
+		}
+
+		l.Info("Signing virtual drive on physical device")
+
+		// Build weka-sign-drive virtual add command
+		// Command: weka-sign-drive virtual add {device} --virtual-uuid {uuid} --owner-cluster-guid {cluster} --size {capacity}
+		cmd := fmt.Sprintf(
+			"weka-sign-drive virtual add %s --virtual-uuid %s --owner-cluster-guid %s --size %d",
+			vd.DevicePath,
+			vd.VirtualUUID,
+			container.Status.ClusterID,
+			vd.CapacityGiB,
+		)
+
+		stdout, stderr, err := executor.ExecNamed(ctx, "SignVirtualDrive", []string{"bash", "-ce", cmd})
+		if err != nil {
+			l.Error(err, "Failed to sign virtual drive", "stderr", stderr.String())
+			errs = append(errs, fmt.Errorf("failed to sign virtual drive %s: %w, stderr: %s", vd.VirtualUUID, err, stderr.String()))
+			continue
+		}
+
+		l.Info("Virtual drive signed successfully", "stdout", stdout.String())
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors while signing virtual drives: %v", errs)
+	}
+
+	logger.InfoWithStatus(codes.Ok, "All virtual drives signed successfully")
+	return nil
+}
+
+// RemoveVirtualDrives removes virtual drives from physical proxy devices using weka-sign-drive virtual remove
+// This is called during container deletion for drive containers in drive sharing mode
+func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error {
+	container := r.container
+	pod := r.pod
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveVirtualDrives")
+	defer end()
+
+	// Only for drive sharing mode
+	if !container.Spec.UseDriveSharing {
+		logger.Debug("Container not using drive sharing, skipping virtual drive removal")
+		return nil
+	}
+
+	// Check if we have virtual drives allocated
+	if container.Status.Allocations == nil || len(container.Status.Allocations.VirtualDrives) == 0 {
+		logger.Debug("No virtual drives allocated to remove")
+		return nil
+	}
+
+	// Check if cluster ID is available (needed for --owner-cluster-guid)
+	if container.Status.ClusterID == "" {
+		logger.Warn("Cluster ID is not set, cannot remove virtual drives safely")
+		// We can't remove without cluster ID, but we don't want to block deletion
+		// Log warning and continue
+		return nil
+	}
+
+	// Check if pod is available for exec
+	if pod == nil {
+		logger.Warn("Pod is not available, cannot remove virtual drives")
+		// Pod might be deleted already, don't block deletion
+		return nil
+	}
+
+	executor, err := util.NewExecInPod(r.RestClient, r.Manager.GetConfig(), pod)
+	if err != nil {
+		logger.Warn("Failed to create executor, cannot remove virtual drives", "error", err)
+		// Don't block deletion if we can't exec
+		return nil
+	}
+
+	var errs []error
+	removedCount := 0
+
+	// Remove each virtual drive
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "devicePath", vd.DevicePath)
+
+		l.Info("Removing virtual drive from physical device")
+
+		// Build weka-sign-drive virtual remove command
+		// Command: weka-sign-drive virtual remove {device} --virtual-uuid {uuid} --owner-cluster-guid {cluster}
+		cmd := fmt.Sprintf(
+			"weka-sign-drive virtual remove %s --virtual-uuid %s --owner-cluster-guid %s",
+			vd.DevicePath,
+			vd.VirtualUUID,
+			container.Status.ClusterID,
+		)
+
+		stdout, stderr, err := executor.ExecNamed(ctx, "RemoveVirtualDrive", []string{"bash", "-ce", cmd})
+		if err != nil {
+			l.Error(err, "Failed to remove virtual drive", "stderr", stderr.String())
+			errs = append(errs, fmt.Errorf("failed to remove virtual drive %s: %w, stderr: %s", vd.VirtualUUID, err, stderr.String()))
+			continue
+		}
+
+		l.Info("Virtual drive removed successfully", "stdout", stdout.String())
+		removedCount++
+	}
+
+	if len(errs) > 0 {
+		logger.Warn("Some virtual drives failed to remove", "errorCount", len(errs), "errors", errs)
+		return fmt.Errorf("errors while removing virtual drives: %v", errs)
+	}
+
+	logger.InfoWithStatus(codes.Ok, "Virtual drive removal completed", "removedCount", removedCount)
+	return nil
+}
 
 func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 	container := r.container
@@ -34,7 +210,15 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
 	}
 
-	if len(container.Status.AddedDrives) == len(container.Status.Allocations.Drives) {
+	// Determine expected drive count based on mode
+	var expectedDriveCount int
+	if container.Spec.UseDriveSharing {
+		expectedDriveCount = len(container.Status.Allocations.VirtualDrives)
+	} else {
+		expectedDriveCount = len(container.Status.Allocations.Drives)
+	}
+
+	if len(container.Status.AddedDrives) == expectedDriveCount {
 		return r.updateContainerStatusIfNotEquals(ctx, weka.Running)
 	}
 
@@ -69,55 +253,90 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 	var errs []error
 
-	// Adding drives to weka one by one
-	for _, drive := range container.Status.Allocations.Drives {
-		l := logger.WithValues("drive_name", drive)
-
-		// check if drive is already added to weka
-		if _, ok := drivesAddedBySerial[drive]; ok {
-			l.Info("drive is already added to weka")
-			continue
+	// Handle drive sharing mode (virtual drives) vs regular mode (exclusive drives)
+	if container.Spec.UseDriveSharing {
+		// Drive sharing mode: add virtual drives using device paths
+		// Build map of added drives by device path
+		drivesAddedByPath := make(map[string]bool)
+		for _, d := range container.Status.AddedDrives {
+			drivesAddedByPath[d.DevicePath] = true
 		}
 
-		l.Info("Attempting to configure drive")
+		// Add each virtual drive to the cluster
+		for _, vd := range container.Status.Allocations.VirtualDrives {
+			l := logger.WithValues("virtualUUID", vd.VirtualUUID, "devicePath", vd.DevicePath)
 
-		err := getKernelDrives()
-		if err != nil {
-			return err
+			// Check if drive is already added to weka
+			if drivesAddedByPath[vd.DevicePath] {
+				l.Info("Virtual drive already added to weka")
+				continue
+			}
+
+			l.Info("Adding virtual drive to cluster")
+
+			// Add drive using device path (virtual drive UUID was already signed via AddVirtualDrives)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.DevicePath)
+			if err != nil {
+				l.Error(err, "Error adding virtual drive to cluster")
+				errs = append(errs, err)
+				continue
+			}
+
+			l.Info("Virtual drive added to cluster")
+			r.RecordEvent("", "VirtualDriveAdded", fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID))
 		}
-		if _, ok := kDrives[drive]; !ok {
-			err := fmt.Errorf("drive %s not found in kernel", drive)
-			l.Error(err, "Error configuring drive")
-			errs = append(errs, err)
-			continue
-		}
+	} else {
+		// Regular mode: add exclusive drives
+		// Adding drives to weka one by one
+		for _, drive := range container.Status.Allocations.Drives {
+			l := logger.WithValues("drive_name", drive)
 
-		if kDrives[drive].Partition == "" {
-			err := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
-			l.Error(err, "Error configuring drive")
-			errs = append(errs, err)
-			continue
-		}
+			// check if drive is already added to weka
+			if _, ok := drivesAddedBySerial[drive]; ok {
+				l.Info("drive is already added to weka")
+				continue
+			}
 
-		l = l.WithValues("partition", kDrives[drive].Partition, "weka_guid", kDrives[drive].WekaGuid)
+			l.Info("Attempting to configure drive")
 
-		if kDrives[drive].IsSigned {
-			l.Info("Drive has Weka signature on it, forbidding usage")
-			err := fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
-			errs = append(errs, err)
-			continue
-		}
+			err := getKernelDrives()
+			if err != nil {
+				return err
+			}
+			if _, ok := kDrives[drive]; !ok {
+				err := fmt.Errorf("drive %s not found in kernel", drive)
+				l.Error(err, "Error configuring drive")
+				errs = append(errs, err)
+				continue
+			}
 
-		l.Info("Adding drive into system")
-		// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-		err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
-		if err != nil {
-			l.Error(err, "Error adding drive into system")
-			errs = append(errs, err)
-			continue
-		} else {
-			l.Info("Drive added into system")
-			r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive))
+			if kDrives[drive].Partition == "" {
+				err := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
+				l.Error(err, "Error configuring drive")
+				errs = append(errs, err)
+				continue
+			}
+
+			l = l.WithValues("partition", kDrives[drive].Partition, "weka_guid", kDrives[drive].WekaGuid)
+
+			if kDrives[drive].IsSigned {
+				l.Info("Drive has Weka signature on it, forbidding usage")
+				err := fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
+				errs = append(errs, err)
+				continue
+			}
+
+			l.Info("Adding drive into system")
+			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath)
+			if err != nil {
+				l.Error(err, "Error adding drive into system")
+				errs = append(errs, err)
+				continue
+			} else {
+				l.Info("Drive added into system")
+				r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive))
+			}
 		}
 	}
 
@@ -415,7 +634,7 @@ func (r *containerReconcilerLoop) getNodeBlockedDrives(ctx context.Context) ([]s
 	}
 
 	annotationBlockedDrives := make([]string, 0)
-	blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]
+	blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
 	if ok && blockedDrivesStr != "" {
 		err := json.Unmarshal([]byte(blockedDrivesStr), &annotationBlockedDrives)
 		if err != nil {

@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/umount"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -43,7 +44,7 @@ func (r *containerReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	controllerutil.RemoveFinalizer(r.container, resources.WekaFinalizer)
+	controllerutil.RemoveFinalizer(r.container, consts.WekaFinalizer)
 	err = r.Update(ctx, r.container)
 	if err != nil {
 		logger.Error(err, "Error removing finalizer")

@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
@@ -204,7 +205,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	if !controllerutil.ContainsFinalizer(c.wekaClient, resources.WekaFinalizer) {
+	if !controllerutil.ContainsFinalizer(c.wekaClient, consts.WekaFinalizer) {
 		return nil
 	}
 
@@ -216,7 +217,7 @@ func (c *clientReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 
-	controllerutil.RemoveFinalizer(c.wekaClient, resources.WekaFinalizer)
+	controllerutil.RemoveFinalizer(c.wekaClient, consts.WekaFinalizer)
 	if err := c.Update(ctx, c.wekaClient); err != nil {
 		logger.Error(err, "Error removing finalizer")
 		return errors.Wrap(err, "failed to update wekaClient")
@@ -244,7 +245,7 @@ func (c *clientReconcilerLoop) ensureFinalizer(ctx context.Context) error {
 	defer end()
 
 	logger.Info("Adding Finalizer for weka client")
-	if ok := controllerutil.AddFinalizer(c.wekaClient, resources.WekaFinalizer); !ok {
+	if ok := controllerutil.AddFinalizer(c.wekaClient, consts.WekaFinalizer); !ok {
 		return nil
 	}
 

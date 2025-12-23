@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -108,12 +109,12 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 	}
 
 	blockedDrives := []string{}
-	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
 		json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
 	}
 
 	allDrives := []string{}
-	if allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok {
+	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
 		json.Unmarshal([]byte(allDrivesStr), &allDrives)
 	}
 
@@ -148,14 +149,14 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 	}
 
 	newBlockedDrivesStr, _ := json.Marshal(updatedBlockedDrives)
-	node.Annotations["weka.io/blocked-drives"] = string(newBlockedDrivesStr)
+	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
 	availableDrives := len(allDrives) - len(updatedBlockedDrives)
 	newQuantity := resource.MustParse(strconv.Itoa(availableDrives))
 
 	// Update weka.io/drives extended resource
-	node.Status.Capacity["weka.io/drives"] = newQuantity
-	node.Status.Allocatable["weka.io/drives"] = newQuantity
+	node.Status.Capacity[consts.ResourceDrives] = newQuantity
+	node.Status.Allocatable[consts.ResourceDrives] = newQuantity
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
@@ -187,12 +188,12 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 	}
 
 	blockedDrives := []string{}
-	if blockedDrivesStr, ok := node.Annotations["weka.io/blocked-drives"]; ok {
+	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
 		json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
 	}
 
 	allDrives := []string{}
-	if allDrivesStr, ok := node.Annotations["weka.io/weka-drives"]; ok {
+	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
 		json.Unmarshal([]byte(allDrivesStr), &allDrives)
 	}
 
@@ -227,14 +228,14 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 	}
 
 	newBlockedDrivesStr, _ := json.Marshal(blockedDrives)
-	node.Annotations["weka.io/blocked-drives"] = string(newBlockedDrivesStr)
+	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
 	availableDrives := len(allDrives) - len(blockedDrives)
 	newQuantity := resource.MustParse(strconv.Itoa(availableDrives))
 
 	// Update weka.io/drives extended resource
-	node.Status.Capacity["weka.io/drives"] = newQuantity
-	node.Status.Allocatable["weka.io/drives"] = newQuantity
+	node.Status.Capacity[consts.ResourceDrives] = newQuantity
+	node.Status.Allocatable[consts.ResourceDrives] = newQuantity
 
 	if err := o.client.Status().Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node status: %w", err)
@@ -242,7 +243,7 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 	}
 
 	// remove weka.io/sign-drives-hash annotation from nodes to force drives re-scan on the next sign drives operation
-	delete(node.Annotations, "weka.io/sign-drives-hash")
+	delete(node.Annotations, consts.AnnotationSignDrivesHash)
 
 	if err := o.client.Update(ctx, node); err != nil {
 		err = fmt.Errorf("error updating node: %w", err)

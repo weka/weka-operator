@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -185,7 +185,7 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		return err
 	}
 
-	if controllerutil.ContainsFinalizer(r.cluster, resources.WekaFinalizer) {
+	if controllerutil.ContainsFinalizer(r.cluster, consts.WekaFinalizer) {
 		logger.Info("Performing Finalizer Operations for wekaCluster before delete CR")
 
 		// Perform all operations required before remove the finalizer and allow
@@ -206,7 +206,7 @@ func (r *wekaClusterReconcilerLoop) HandleDeletion(ctx context.Context) error {
 		}
 
 		logger.Info("Removing Finalizer for wekaCluster after successfully perform the operations")
-		if ok := controllerutil.RemoveFinalizer(r.cluster, resources.WekaFinalizer); !ok {
+		if ok := controllerutil.RemoveFinalizer(r.cluster, consts.WekaFinalizer); !ok {
 			err := errors.New("Failed to remove finalizer for wekaCluster")
 			return err
 		}

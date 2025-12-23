@@ -319,15 +319,34 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	// Calculate how many drives we need
-	currentDrives := container.Status.Allocations.Drives
-	numDrivesToAllocate := container.Spec.NumDrives - len(currentDrives)
+	// Calculate how many drives we need (handle both regular and virtual drives)
+	var currentDriveCount int
+	if container.Spec.UseDriveSharing {
+		currentDriveCount = len(container.Status.Allocations.VirtualDrives)
+	} else {
+		currentDriveCount = len(container.Status.Allocations.Drives)
+	}
+
+	numDrivesToAllocate := container.Spec.NumDrives - currentDriveCount
 	if numDrivesToAllocate <= 0 {
 		logger.Debug("No additional drives to allocate for container", "container", container.Name)
 		return nil
 	}
 
-	// Use ContainerResourceAllocator to reallocate drives
+	logger.Info("Need to allocate additional drives",
+		"container", container.Name,
+		"currentDrives", currentDriveCount,
+		"targetDrives", container.Spec.NumDrives,
+		"toAllocate", numDrivesToAllocate,
+		"useDriveSharing", container.Spec.UseDriveSharing)
+
+	if container.Spec.UseDriveSharing {
+		// For drive sharing mode, we need to allocate additional virtual drives
+		// This is similar to initial allocation but adds to existing VirtualDrives
+		return fmt.Errorf("scaling virtual drives not yet implemented (need %d more drives)", numDrivesToAllocate)
+	}
+
+	// Regular drive mode: use ReallocateDrives
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 	reallocRequest := &allocator.DriveReallocationRequest{
 		Container:    container,
@@ -364,6 +383,97 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 	return nil
 }
 
+// deallocateVirtualDrives removes virtual drive allocations for blocked physical drives
+func (r *containerReconcilerLoop) deallocateVirtualDrives(ctx context.Context, node *v1.Node, blockedDrives []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateVirtualDrives")
+	defer end()
+
+	container := r.container
+
+	logger.Info("Deallocating virtual drives mapped to blocked physical drives",
+		"container", container.Name,
+		"blockedDrives", blockedDrives)
+
+	// Get shared drives from node to map serial IDs to physical UUIDs
+	nodeInfoGetter := allocator.NewK8sNodeInfoGetter(r.Client)
+	nodeInfo, err := nodeInfoGetter(ctx, weka.NodeName(node.Name))
+	if err != nil {
+		return fmt.Errorf("failed to get node info: %w", err)
+	}
+
+	// Build map of serial ID to physical UUID
+	serialToPhysicalUUID := make(map[string]string)
+	for _, sharedDrive := range nodeInfo.SharedDrives {
+		serialToPhysicalUUID[sharedDrive.Serial] = sharedDrive.UUID
+	}
+
+	// Find virtual drives that are mapped to blocked physical drives
+	virtualDrivesToRemove := []string{}
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		// Check if this virtual drive's physical drive is blocked
+		// Blocked drives list contains serial IDs, so we need to match PhysicalUUID
+		isBlocked := false
+		for _, blockedSerial := range blockedDrives {
+			// Map blocked serial to physical UUID
+			if physicalUUID, ok := serialToPhysicalUUID[blockedSerial]; ok {
+				if vd.PhysicalUUID == physicalUUID {
+					isBlocked = true
+					break
+				}
+			}
+		}
+		if isBlocked {
+			virtualDrivesToRemove = append(virtualDrivesToRemove, vd.VirtualUUID)
+		}
+	}
+
+	if len(virtualDrivesToRemove) == 0 {
+		logger.Info("No virtual drives to deallocate")
+		return nil
+	}
+
+	logger.Info("Removing virtual drive claims", "virtualDrives", virtualDrivesToRemove)
+
+	// Get node claims
+	claims, err := allocator.ParseNodeClaims(node)
+	if err != nil {
+		return fmt.Errorf("failed to parse node claims: %w", err)
+	}
+
+	// Get claim key for this container
+	claimKey := allocator.ClaimKeyFromContainer(container)
+
+	// Remove virtual drive claims
+	for _, virtualUUID := range virtualDrivesToRemove {
+		if claim, exists := claims.VirtualDrives[virtualUUID]; exists && claim.Container == claimKey {
+			delete(claims.VirtualDrives, virtualUUID)
+			logger.Debug("Removed virtual drive claim", "virtualUUID", virtualUUID)
+		}
+	}
+
+	// Save claims to node annotation
+	if err := claims.SaveToNode(ctx, r.Client, node); err != nil {
+		return fmt.Errorf("failed to save claims to node: %w", err)
+	}
+
+	// Update container status allocations
+	updatedVirtualDrives := []weka.VirtualDrive{}
+	for _, vd := range container.Status.Allocations.VirtualDrives {
+		if !slices.Contains(virtualDrivesToRemove, vd.VirtualUUID) {
+			updatedVirtualDrives = append(updatedVirtualDrives, vd)
+		}
+	}
+	container.Status.Allocations.VirtualDrives = updatedVirtualDrives
+
+	err = r.Status().Update(ctx, container)
+	if err != nil {
+		return fmt.Errorf("failed to update container status: %w", err)
+	}
+
+	logger.Info("Successfully deallocated virtual drives", "count", len(virtualDrivesToRemove))
+	return nil
+}
+
 func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, blockedDrives []string) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deallocateRemovedDrives")
 	defer end()
@@ -381,6 +491,12 @@ func (r *containerReconcilerLoop) deallocateRemovedDrives(ctx context.Context, b
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
+	// Drive sharing mode needs different handling for blocked drives
+	if container.Spec.UseDriveSharing {
+		return r.deallocateVirtualDrives(ctx, node, blockedDrives)
+	}
+
+	// Regular drive mode
 	containerAllocator := allocator.NewContainerResourceAllocator(r.Client)
 	deallocRequest := &allocator.DriveDeallocRequest{
 		Container:      container,

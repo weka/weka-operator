@@ -16,6 +16,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/weka/weka-operator/internal/consts"
 )
 
 func setupLogging(ctx context.Context) (context.Context, func(context.Context) error, error) {
@@ -158,7 +160,7 @@ func TestGetAvailableDrives(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node1",
 					Annotations: map[string]string{
-						"weka.io/weka-drives": `["drive1", "drive2", "drive3"]`,
+						consts.AnnotationWekaDrives: `["drive1", "drive2", "drive3"]`,
 					},
 				},
 			},
@@ -172,7 +174,7 @@ func TestGetAvailableDrives(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node1",
 					Annotations: map[string]string{
-						"weka.io/weka-drives": `["drive1", "drive2", "drive3"]`,
+						consts.AnnotationWekaDrives: `["drive1", "drive2", "drive3"]`,
 					},
 				},
 			},
@@ -191,7 +193,7 @@ func TestGetAvailableDrives(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node1",
 					Annotations: map[string]string{
-						"weka.io/weka-drives": `["drive1", "drive2"]`,
+						consts.AnnotationWekaDrives: `["drive1", "drive2"]`,
 					},
 				},
 			},
