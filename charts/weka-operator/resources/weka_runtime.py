@@ -1137,6 +1137,69 @@ async def copy_drivers():
     logging.info("done copying drivers")
 
 
+async def setup_overlayfs_for_lib_modules():
+    """
+    Set up overlayfs for /lib/modules to allow writes on top of readonly host mount.
+    This is needed for drivers-loader mode where we need to load kernel modules
+    but want to keep the host /lib/modules readonly.
+
+    Uses tmpfs for overlay storage and handles /lib -> usr/lib symlinks properly.
+    """
+    logging.info("Setting up overlayfs for /lib/modules")
+
+    # Get the real path of /lib/modules (handles symlinks like /lib -> usr/lib)
+    stdout, stderr, ec = await run_command("readlink -f /lib/modules")
+    if ec != 0:
+        raise Exception(f"Failed to get real path of /lib/modules: {stderr.decode('utf-8')}")
+    real_path = stdout.decode('utf-8').strip()
+    logging.info(f"Real path of /lib/modules: {real_path}")
+
+    # Setup paths
+    ovl_root = "/tmp/ovl-libmodules"
+    upper_dir = f"{ovl_root}/upper"
+    work_dir = f"{ovl_root}/work"
+    ovl_mnt = f"{ovl_root}/mnt"
+
+    # Create overlay root directory
+    os.makedirs(ovl_root, exist_ok=True)
+
+    # Check if tmpfs is already mounted, if not mount it
+    stdout, stderr, ec = await run_command(f"mountpoint -q {ovl_root}")
+    if ec != 0:
+        # Not mounted yet, create tmpfs
+        stdout, stderr, ec = await run_command(f"mount -t tmpfs -o size=512m tmpfs {ovl_root}")
+        if ec != 0:
+            raise Exception(f"Failed to mount tmpfs at {ovl_root}: {stderr.decode('utf-8')}")
+        logging.info(f"Mounted tmpfs at {ovl_root}")
+
+    # Create overlay directories
+    os.makedirs(upper_dir, exist_ok=True)
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(ovl_mnt, exist_ok=True)
+
+    # Create overlay view
+    overlay_opts = f"lowerdir={real_path},upperdir={upper_dir},workdir={work_dir}"
+    stdout, stderr, ec = await run_command(f"mount -t overlay overlay -o {overlay_opts} {ovl_mnt}")
+    if ec != 0:
+        raise Exception(f"Failed to mount overlayfs: {stderr.decode('utf-8')}")
+    logging.info(f"Created overlay at {ovl_mnt}")
+
+    # Overmount the real path in this mount namespace
+    stdout, stderr, ec = await run_command(f"mount --bind {ovl_mnt} {real_path}")
+    if ec != 0:
+        raise Exception(f"Failed to bind mount overlay over {real_path}: {stderr.decode('utf-8')}")
+    logging.info(f"Overmounted {real_path} with overlay")
+
+    # If /lib/modules is not the same as real_path, keep /lib/modules consistent too
+    if real_path != "/lib/modules":
+        stdout, stderr, ec = await run_command(f"mount --bind {real_path} /lib/modules")
+        if ec != 0:
+            raise Exception(f"Failed to bind mount {real_path} to /lib/modules: {stderr.decode('utf-8')}")
+        logging.info("Ensured /lib/modules points to overlay")
+
+    logging.info(f"Overlayfs active: lower={real_path} upper={upper_dir} work={work_dir}")
+
+
 async def cos_build_drivers():
     weka_driver_version = version_params["wekafs"]
     weka_driver_file_version = weka_driver_version.rsplit("-", 1)[0]
@@ -3280,6 +3343,18 @@ async def main():
         # 2 minutes timeout for driver loading
         end_time = time.time() + 120
         await disable_driver_signing()
+
+        # Set up overlayfs for /lib/modules to allow writes on readonly host mount
+        try:
+            await setup_overlayfs_for_lib_modules()
+        except Exception as e:
+            logging.error(f"Failed to set up overlayfs: {e}")
+            write_results(dict(
+                err=f"Failed to set up overlayfs: {str(e)}",
+                drivers_loaded=False,
+            ))
+            return
+
         loaded = False
         while time.time() < end_time:
             try:
