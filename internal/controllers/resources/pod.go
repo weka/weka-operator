@@ -234,10 +234,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							MountPath: "/host/run",
 						},
 						{
-							Name:      "hugepages",
-							MountPath: "/dev/hugepages",
-						},
-						{
 							Name:      "sys",
 							MountPath: "/sys",
 						},
@@ -434,14 +430,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			},
 			Volumes: []corev1.Volume{
 				{
-					Name: "hugepages",
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{
-							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
-						},
-					},
-				},
-				{
 					Name: "osrelease",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
@@ -488,6 +476,9 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			},
 		},
 	}
+
+	// Set up hugepages volume and mount (skipped for drivers containers)
+	f.setHugePages(pod)
 
 	if f.container.Spec.GetOverrides().PreRunScript != "" {
 		// encode in base64 and write into env var
@@ -953,60 +944,6 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	return tolerations
 }
 
-type HugePagesDetails struct {
-	HugePagesStr          string
-	HugePagesK8sSuffix    string
-	HugePagesMb           int
-	WekaMemoryString      string
-	HugePagesResourceName corev1.ResourceName
-}
-
-func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
-	hugePagesStr := ""
-	hugePagesK8sSuffix := "2Mi"
-	wekaMemoryString := ""
-	if f.container.Spec.HugepagesSize == "1Gi" {
-		hugePagesK8sSuffix = f.container.Spec.HugepagesSize
-		hugePagesStr = fmt.Sprintf("%dGi", f.container.Spec.Hugepages/1000)
-		wekaMemoryString = fmt.Sprintf("%dGiB", f.container.Spec.Hugepages/1000)
-	} else {
-		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
-		hugePagesK8sSuffix = "2Mi"
-		offset := f.getHugePagesOffset()
-		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-offset)
-	}
-
-	if f.container.Spec.HugepagesOverride != "" {
-		wekaMemoryString = f.container.Spec.HugepagesOverride
-	}
-
-	hugePagesName := corev1.ResourceName(
-		strings.Join(
-			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
-			""))
-
-	return HugePagesDetails{
-		HugePagesStr:          hugePagesStr,
-		HugePagesK8sSuffix:    hugePagesK8sSuffix,
-		WekaMemoryString:      wekaMemoryString,
-		HugePagesResourceName: hugePagesName,
-		HugePagesMb:           f.container.Spec.Hugepages,
-	}
-}
-
-func (f *PodFactory) getHugePagesOffset() int {
-	offset := f.container.Spec.HugepagesOffset
-	// get default if not set
-	if offset == 0 {
-		if f.container.Spec.Mode == weka.WekaContainerModeDrive {
-			offset = 200 * f.container.Spec.NumDrives
-		} else {
-			offset = 200
-		}
-	}
-	return offset
-}
-
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
 	if f.container.Spec.Mode == weka.WekaContainerModeCompute {
@@ -1214,18 +1151,27 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
+
+	// Build resource lists
+	limitsResourceList := corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse(cpuLimitStr),
+		corev1.ResourceMemory: resource.MustParse(memLimit),
+	}
+	requestsResourceList := corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+		corev1.ResourceMemory:           resource.MustParse(memRequest),
+		corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
+	}
+
+	// Add hugepages only for non-drivers containers
+	if !f.container.IsDriversContainer() {
+		limitsResourceList[hgDetails.HugePagesResourceName] = resource.MustParse(hgDetails.HugePagesStr)
+		requestsResourceList[hgDetails.HugePagesResourceName] = resource.MustParse(hgDetails.HugePagesStr)
+	}
+
 	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
-			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-			corev1.ResourceMemory:           resource.MustParse(memLimit),
-		},
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
-			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-			corev1.ResourceMemory:           resource.MustParse(memRequest),
-			corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
-		},
+		Limits:   limitsResourceList,
+		Requests: requestsResourceList,
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDrive {
