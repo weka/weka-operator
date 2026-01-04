@@ -254,10 +254,14 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 		}
 	}
 
-	// Allocate weka port if requested (100 ports from cluster base)
+	// Get dynamic port configuration based on feature flags
+	portsPerContainer := getPortsPerContainer(ctx, cluster.Spec.Image)
+	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
+
+	// Allocate weka port if requested (portsPerContainer ports from cluster base)
 	wekaPortRange := 0
 	if allocateWeka {
-		wekaPortRange, err = GetFreeRange(clusterRange, allocatedRanges, 100)
+		wekaPortRange, err = GetFreeRange(clusterRange, allocatedRanges, portsPerContainer)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to find free weka port range: %w", err)
 		}
@@ -267,7 +271,7 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 	// Allocate agent port if requested (1 port from offset range)
 	agentPortRange := 0
 	if allocateAgent {
-		agentPortRange, err = GetFreeRangeWithOffset(clusterRange, allocatedRanges, 1, SinglePortsOffset)
+		agentPortRange, err = GetFreeRangeWithOffset(clusterRange, allocatedRanges, 1, singlePortsOffset)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to find free agent port: %w", err)
 		}

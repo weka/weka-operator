@@ -11,13 +11,62 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 const (
-	SinglePortsOffset = 300
-	WekaPortRangeSize = 100
+	DefaultPortsPerContainer = 100
+	ReducedPortsPerContainer = 60
+	WekaPortRangeSize        = 100 // Used for aggregating container port claims
+	// Cluster port range: container ports + headroom for single-port allocations
+	DefaultClusterPortRange = 500 // 100 * 5 containers
+	ReducedClusterPortRange = 260 // 60 * 4 containers + 20 for single-port allocations
+	// Offset where single-port allocations start (at end of container port ranges)
+	DefaultSinglePortsOffset = 300 // After 3 containers worth of ports (100*3), leaving room for 2 more + single ports
+	ReducedSinglePortsOffset = 240 // After 4 containers worth of ports (60*4), leaving 20 for single ports
 )
+
+// getPortsPerContainer returns the number of ports to allocate per container
+// based on feature flags. Returns 60 if agent_validate_60_ports_per_container
+// is set, otherwise returns 100 (default).
+func getPortsPerContainer(ctx context.Context, image string) int {
+	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
+	if err != nil {
+		return DefaultPortsPerContainer
+	}
+	if flags != nil && flags.AgentValidate60PortsPerContainer {
+		return ReducedPortsPerContainer
+	}
+	return DefaultPortsPerContainer
+}
+
+// getClusterPortRange returns the default cluster port range based on feature flags.
+// Returns 260 if agent_validate_60_ports_per_container is set, otherwise returns 500.
+func getClusterPortRange(ctx context.Context, image string) int {
+	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
+	if err != nil {
+		return DefaultClusterPortRange
+	}
+	if flags != nil && flags.AgentValidate60PortsPerContainer {
+		return ReducedClusterPortRange
+	}
+	return DefaultClusterPortRange
+}
+
+// getSinglePortsOffset returns the offset where single-port allocations start.
+// Returns 240 if agent_validate_60_ports_per_container is set (60*4 containers),
+// otherwise returns 300.
+func getSinglePortsOffset(ctx context.Context, image string) int {
+	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
+	if err != nil {
+		return DefaultSinglePortsOffset
+	}
+	if flags != nil && flags.AgentValidate60PortsPerContainer {
+		return ReducedSinglePortsOffset
+	}
+	return DefaultSinglePortsOffset
+}
 
 type AllocateClusterRangeError struct {
 	Msg string
@@ -90,7 +139,8 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 	}
 
 	// Allocate management proxy port using the global allocations
-	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, SinglePortsOffset, nodePortClaims)
+	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, singlePortsOffset, nodePortClaims)
 	if err != nil {
 		return err
 	}
@@ -188,7 +238,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	targetSize := cluster.Spec.Ports.PortRange
 
 	if targetSize == 0 {
-		targetSize = 500
+		targetSize = getClusterPortRange(ctx, cluster.Spec.Image)
 	}
 
 	if targetPort == 0 {
@@ -218,12 +268,13 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	}
 
 	var envoyPort, envoyAdminPort, s3Port Range
+	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
 
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
 	if cluster.Spec.Ports.LbPort != 0 {
 		envoyPort, err = allocations.EnsureSpecificGlobalRange(owner, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, SinglePortsOffset, nodePortClaims)
+		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
@@ -232,7 +283,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	if cluster.Spec.Ports.LbAdminPort != 0 {
 		envoyAdminPort, err = allocations.EnsureSpecificGlobalRange(owner, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, SinglePortsOffset, nodePortClaims)
+		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
@@ -241,7 +292,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	if cluster.Spec.Ports.S3Port != 0 {
 		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1}, nodePortClaims)
 	} else {
-		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset, nodePortClaims)
+		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
 		return err
