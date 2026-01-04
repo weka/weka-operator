@@ -28,39 +28,44 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		// initialize shared drives slice
 		nodeInfo.SharedDrives = []domain.SharedDriveInfo{}
 
-		// get from annotations, all serial ids minus blocked-drives serial ids
-		allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
-		if !ok {
-			nodeInfo.AvailableDrives = []string{}
-			return
-		}
-		blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
-		if !ok {
-			blockedDrivesStr = "[]"
-		}
-		// blockedDrivesStr is json list, unwrap it
+		// blockedDriveSerials is used for both exclusive drives and shared drives filtering
 		blockedDriveSerials := []string{}
-		err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveSerials)
-		if err != nil {
-			err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
-			return
-		}
 
-		availableDrives := []string{}
-		allDrives := []string{}
-		err = json.Unmarshal([]byte(allDrivesStr), &allDrives)
-		if err != nil {
-			err = fmt.Errorf("failed to unmarshal weka-drives: %v", err)
-			return
-		}
-
-		for _, drive := range allDrives {
-			if !slices.Contains(blockedDriveSerials, drive) {
-				availableDrives = append(availableDrives, drive)
+		// get from annotations, all serial ids minus blocked-drives serial ids
+		// Note: this is for exclusive drive allocation mode only
+		allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
+		if ok {
+			blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
+			if !ok {
+				blockedDrivesStr = "[]"
 			}
-		}
+			// blockedDrivesStr is json list, unwrap it
+			err = json.Unmarshal([]byte(blockedDrivesStr), &blockedDriveSerials)
+			if err != nil {
+				err = fmt.Errorf("failed to unmarshal blocked-drives: %v", err)
+				return
+			}
 
-		nodeInfo.AvailableDrives = availableDrives
+			availableDrives := []string{}
+			allDrives := []string{}
+			err = json.Unmarshal([]byte(allDrivesStr), &allDrives)
+			if err != nil {
+				err = fmt.Errorf("failed to unmarshal weka-drives: %v", err)
+				return
+			}
+
+			for _, drive := range allDrives {
+				if !slices.Contains(blockedDriveSerials, drive) {
+					availableDrives = append(availableDrives, drive)
+				}
+			}
+
+			nodeInfo.AvailableDrives = availableDrives
+		} else {
+			// No exclusive drives annotation - set empty list
+			// This is expected in drive-sharing/proxy mode where we only use shared drives
+			nodeInfo.AvailableDrives = []string{}
+		}
 
 		var sharedDrives []domain.SharedDriveInfo
 		// Parse shared drives if present (drive sharing / proxy mode)
