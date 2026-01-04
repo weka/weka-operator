@@ -95,14 +95,14 @@ func TestAllocationsRanges(t *testing.T) {
 	}
 
 	owner.Container = "test2"
-	rN2, err := allocations.FindNodeRangeWithOffset(owner, "wekabox14.lan", 1, SinglePortsOffset)
+	rN2, err := allocations.FindNodeRangeWithOffset(owner, "wekabox14.lan", 1, DefaultSinglePortsOffset)
 	if err != nil {
 		t.Errorf("Expected nil, got %v", err)
 		return
 	}
 
-	if rN2.Base != StartingPort+SinglePortsOffset {
-		t.Errorf("Expected %d, got %d", StartingPort+SinglePortsOffset, rN2.Base)
+	if rN2.Base != StartingPort+DefaultSinglePortsOffset {
+		t.Errorf("Expected %d, got %d", StartingPort+DefaultSinglePortsOffset, rN2.Base)
 		return
 	}
 }
