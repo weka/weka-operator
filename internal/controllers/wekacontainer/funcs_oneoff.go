@@ -246,19 +246,6 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	}
 
 	node.Annotations[consts.AnnotationSharedDrives] = string(proxyDrivesJSON)
-
-	// Also set weka.io/weka-drives with the physical drive serials
-	// This is needed for the allocator's node info getter to work correctly
-	driveSerials := make([]string, 0, len(opResult.ProxyDrives))
-	for _, drive := range opResult.ProxyDrives {
-		driveSerials = append(driveSerials, drive.Serial)
-	}
-	driveSerialsJSON, err := json.Marshal(driveSerials)
-	if err != nil {
-		return fmt.Errorf("error marshalling drive serials: %w", err)
-	}
-	node.Annotations[consts.AnnotationWekaDrives] = string(driveSerialsJSON)
-
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 
 	// Update weka.io/shared-drives-capacity extended resource
@@ -268,6 +255,10 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	// QLC drive type
 	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+
+	// delete weka.io/drives extended resource if exists
+	delete(node.Status.Capacity, consts.ResourceDrives)
+	delete(node.Status.Allocatable, consts.ResourceDrives)
 
 	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
 
