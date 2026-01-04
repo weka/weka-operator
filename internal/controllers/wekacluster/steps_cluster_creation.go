@@ -200,6 +200,12 @@ func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) e
 
 	logger.InfoWithStatus(codes.Unset, "Allocating cluster-level port ranges")
 
+	// Fetch feature flags before allocation - they determine ports per container
+	_, err := r.GetFeatureFlags(ctx)
+	if err != nil {
+		return err // Propagate error (including WaitError if ad-hoc container still running)
+	}
+
 	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
 	if err != nil {
 		logger.Error(err, "Failed to create resources allocator")

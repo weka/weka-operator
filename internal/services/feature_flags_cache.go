@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -45,6 +46,9 @@ func NewFeatureFlagsCacheService() FeatureFlagsCacheService {
 	}
 }
 
+// ErrFeatureFlagsNotCached is returned when feature flags are not in cache
+var ErrFeatureFlagsNotCached = fmt.Errorf("feature flags not cached")
+
 func (s *featureFlagsCacheService) GetFeatureFlags(ctx context.Context, image string) (*domain.FeatureFlags, error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "GetFeatureFlags", "image", image)
 	defer end()
@@ -55,7 +59,7 @@ func (s *featureFlagsCacheService) GetFeatureFlags(ctx context.Context, image st
 	flags, ok := s.cache[image]
 	if !ok {
 		logger.Debug("Feature flags not found in cache")
-		return nil, nil
+		return nil, fmt.Errorf("%w for image: %s", ErrFeatureFlagsNotCached, image)
 	}
 
 	logger.Debug("Feature flags found in cache")
