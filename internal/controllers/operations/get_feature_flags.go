@@ -10,6 +10,7 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -200,18 +201,26 @@ func (o *GetFeatureFlagsOperation) GetAdhocContainer(ctx context.Context) error 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetAdhocContainer")
 	defer end()
 
+	operatorNamespace, err := util.GetPodNamespace()
+	if err != nil {
+		return fmt.Errorf("error getting operator namespace: %w", err)
+	}
+
 	var existing weka.WekaContainer
 
 	containerName := o.getAdhocContainerName()
 
-	err := o.client.Get(ctx, client.ObjectKey{
-		Namespace: o.namespace,
+	err = o.client.Get(ctx, client.ObjectKey{
+		Namespace: operatorNamespace,
 		Name:      containerName,
 	}, &existing)
 
-	if err != nil {
+	if apierrors.IsNotFound(err) {
 		logger.Info("No existing ad-hoc container found", "container", containerName)
 		return nil // No existing container
+	}
+	if err != nil {
+		return fmt.Errorf("error getting ad-hoc container: %w", err)
 	}
 
 	o.adhocContainer = &existing
@@ -220,8 +229,7 @@ func (o *GetFeatureFlagsOperation) GetAdhocContainer(ctx context.Context) error 
 }
 
 func (o *GetFeatureFlagsOperation) getAdhocContainerName() string {
-	imageHash := util.GetHash(o.image, 12)
-	return fmt.Sprintf("weka-feature-flags-%s", imageHash)
+	return GetFeatureFlagsAdhocContainerName(o.image)
 }
 
 // EnsureAdhocContainer creates an ad-hoc container to read feature flags
@@ -263,6 +271,9 @@ func (o *GetFeatureFlagsOperation) EnsureAdhocContainer(ctx context.Context) err
 	if err != nil {
 		return fmt.Errorf("error getting operator deployment: %w", err)
 	}
+
+	// Create ad-hoc container in operator's namespace for owner reference to work
+	newContainer.Namespace = operatorDeployment.Namespace
 
 	// Set owner reference to operator deployment for cleanup
 	err = controllerutil.SetControllerReference(operatorDeployment, newContainer, o.scheme)
