@@ -57,7 +57,7 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 			return r.Client.Delete(ctx, r.pod)
 		}
 	}
-	if r.container.IsDriversLoaderMode() { // sounds like
+	if r.container.IsDriversLoaderMode() {
 		for _, c := range r.container.Status.Conditions {
 			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
 				if time.Since(c.LastTransitionTime.Time) > time.Minute*5 {
@@ -66,8 +66,27 @@ func (r *containerReconcilerLoop) cleanupFinishedOneOff(ctx context.Context) err
 			}
 		}
 	}
+	// Cleanup feature-flags containers after results are processed
+	// These containers are created by GetFeatureFlagsOperation and should be cleaned up
+	// after the feature flags have been cached (which happens when results are processed)
+	if r.isFeatureFlagsOperation() {
+		for _, c := range r.container.Status.Conditions {
+			if c.Type == condition.CondResultsProcessed && c.Status == metav1.ConditionTrue {
+				// Give a short grace period before cleanup to ensure cache is populated
+				if time.Since(c.LastTransitionTime.Time) > time.Second*30 {
+					return r.Client.Delete(ctx, r.container)
+				}
+			}
+		}
+	}
 
 	return nil
+}
+
+func (r *containerReconcilerLoop) isFeatureFlagsOperation() bool {
+	return r.container.Spec.Mode == weka.WekaContainerModeAdhocOpWC &&
+		r.container.Spec.Instructions != nil &&
+		r.container.Spec.Instructions.Type == "feature-flags-update"
 }
 
 func (r *containerReconcilerLoop) isSignOrDiscoverDrivesOperation(ctx context.Context) bool {

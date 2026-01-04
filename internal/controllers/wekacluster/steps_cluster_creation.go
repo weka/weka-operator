@@ -251,6 +251,12 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 
 	k8sClient := r.Manager.GetClient()
 	if len(r.containers) == 0 {
+		// Fetch feature flags before allocation - they determine ports per container
+		_, err = r.GetFeatureFlags(ctx)
+		if err != nil {
+			return err // Propagate error (including WaitError if ad-hoc container still running)
+		}
+
 		logger.InfoWithStatus(codes.Unset, "Ensuring cluster-level allocation")
 		//TODO: should've be just own step function
 		err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
