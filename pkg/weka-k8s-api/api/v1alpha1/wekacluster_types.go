@@ -379,6 +379,19 @@ type SplunkExportConfig struct {
 	AuthTokenSecretRef string `json:"authTokenSecretRef"`
 	// Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI)
 	Endpoint string `json:"endpoint"`
+	// CACertSecretRef optionally references a secret containing a user-provided CA certificate PEM file.
+	// Format: "secretName.keyName" where secretName is the name of the secret in the same namespace
+	// and keyName is the key within the secret's data that contains the certificate.
+	// Maps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).
+	// Mutually exclusive with VerifyWithClusterCACert.
+	CACertSecretRef *string `json:"caCertSecretRef,omitempty"`
+	// AllowUnverifiedCertificate allows accessing without verifying the target certificate.
+	// Maps to --allow-unverified-certificate in weka CLI.
+	AllowUnverifiedCertificate bool `json:"allowUnverifiedCertificate,omitempty"`
+	// VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.
+	// Maps to --verify-with-cluster-cacert in weka CLI.
+	// Mutually exclusive with CACertSecretRef.
+	VerifyWithClusterCACert bool `json:"verifyWithClusterCACert,omitempty"`
 }
 
 // WekaClusterSpec defines the desired state of WekaCluster
