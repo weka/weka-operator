@@ -268,6 +268,8 @@ var Consts struct {
 	TolerationsMismatchCleanupInterval time.Duration
 	// Management service update interval
 	ManagementServiceUpdateInterval time.Duration
+	// Interval for telemetry exports configuration updates
+	TelemetryUpdateInterval time.Duration
 }
 
 func init() {
@@ -289,6 +291,7 @@ func init() {
 	Consts.SelectorMismatchCleanupInterval = 2 * time.Minute
 	Consts.TolerationsMismatchCleanupInterval = 1 * time.Minute
 	Consts.ManagementServiceUpdateInterval = 1 * time.Minute
+	Consts.TelemetryUpdateInterval = 1 * time.Minute
 }
 
 func ConfigureEnv(ctx context.Context) {
