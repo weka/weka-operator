@@ -252,7 +252,7 @@
 | nfsExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container |
 | nfsFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend |
 | nfsFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend |
-| tgCores | *int | TgCores is the number of cores for telemetry gateway container.<br>nil means auto-defined (default is 1 when telemetry exports are configured).<br>0 means explicitly no additional cores despite telemetry being enabled.<br>These cores are allocated only when telemetry exports are enabled. |
+| driveCapacity | int | DriveCapacity is the capacity in GiB to allocate per virtual drive.<br>Minimum: 1024 GiB (1 TiB).<br>This value determines how much capacity each container receives from shared drives. |
 
 ---
 
@@ -515,6 +515,9 @@
 |------------|------|-------------|
 | authTokenSecretRef | string | AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.<br>Format: "secretName.keyName" where secretName is the name of the secret in the same namespace<br>and keyName is the key within the secret's data that contains the token. |
 | endpoint | string | Endpoint is the Splunk HEC endpoint URL (maps to --target in weka CLI) |
+| caCertSecretRef | *string | CACertSecretRef optionally references a secret containing a user-provided CA certificate PEM file.<br>Format: "secretName.keyName" where secretName is the name of the secret in the same namespace<br>and keyName is the key within the secret's data that contains the certificate.<br>Maps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).<br>Mutually exclusive with VerifyWithClusterCACert. |
+| allowUnverifiedCertificate | bool | AllowUnverifiedCertificate allows accessing without verifying the target certificate.<br>Maps to --allow-unverified-certificate in weka CLI. |
+| verifyWithClusterCACert | bool | VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.<br>Maps to --verify-with-cluster-cacert in weka CLI.<br>Mutually exclusive with CACertSecretRef. |
 
 ---
 
