@@ -20,6 +20,7 @@
 - [ContainerPrinterColumns](#containerprintercolumns)
 - [NetworkSelector](#networkselector)
 - [PodResources](#podresources)
+- [VirtualDrive](#virtualdrive)
 - [EntityStatefulNum](#entitystatefulnum)
 - [DriveMetrics](#drivemetrics)
 - [DriveFailures](#drivefailures)
@@ -55,7 +56,6 @@
 | mode | string |  |
 | numCores | int | numCores is weka-specific cores |
 | extraCores | int | extraCores is temporary solution for S3 containers, cores allocation on top of weka cores |
-| tgCores | int | tgCores is cores for telemetry gateway, only applied when telemetry exports are configured |
 | coreIds | []int |  |
 | cpuPolicy | CpuPolicy |  |
 | network | Network |  |
@@ -83,6 +83,7 @@
 | upgradePolicyType | UpgradePolicyType |  |
 | state | ContainerState |  |
 | allowHotUpgrade | bool |  |
+| driveCapacity | int | DriveCapacity specifies the capacity (in GiB) per virtual drive, indicates this container uses shared drives via SSD proxy.<br>When enabled, the container will:<br>- Use virtual UUIDs instead of device paths for drives<br>- Allocate capacity from shared drives rather than exclusive drives<br>- Require an SSD proxy container to be running on the same node<br>This value is copied from the cluster's DriveSharing.DriveCapacity configuration.<br>Used to calculate total capacity request: NumDrives * DriveCapacity |
 | autoRemoveTimeout | metav1.Duration | sets weka cluster-side timeout, if client is not coming back in specified duration it will be auto removed from cluster config |
 | overrides | *WekaContainerSpecOverrides |  |
 | hostPID | bool |  |
@@ -226,6 +227,7 @@
 | failureDomain | *string | value of the failure domain label of the node where the container is running |
 | machineIdentifier | string |  |
 | netDevices | []string |  |
+| virtualDrives | []VirtualDrive | VirtualDrives contains virtual drive allocations for drive sharing mode.<br>Each VirtualDrive maps a virtual UUID to a physical drive UUID with allocated capacity. |
 
 ---
 
@@ -282,6 +284,17 @@
 |------------|------|-------------|
 | cpu | resource.Quantity |  |
 | memory | resource.Quantity |  |
+
+---
+
+## VirtualDrive
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| virtualUUID | string | VirtualUUID is the virtual drive identifier |
+| physicalUUID | string | PhysicalUUID is the physical drive UUID obtained from proxy signing |
+| capacityGiB | int | CapacityGiB is the allocated capacity in GiB |
+| serial | string | Serial is the serial number of the physical drive |
 
 ---
 

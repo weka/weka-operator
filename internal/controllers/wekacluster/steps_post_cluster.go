@@ -146,11 +146,12 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run:             loop.EnsureNfsIpRanges,
 		},
 		&lifecycle.SimpleStep{
-			Predicates: lifecycle.Predicates{
-				loop.ShouldConfigureTelemetry,
-			},
 			ContinueOnError: true,
 			Run:             loop.EnsureTelemetry,
+			Throttling: &throttling.ThrottlingSettings{
+				Interval:          config.Consts.TelemetryUpdateInterval,
+				EnsureStepSuccess: true,
+			},
 		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{

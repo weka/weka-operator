@@ -2,9 +2,14 @@ package allocator
 
 import (
 	"context"
+	"os"
 	"testing"
+	"time"
 
+	"github.com/go-logr/zerologr"
+	"github.com/rs/zerolog"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/go-weka-observability/instrumentation"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,6 +18,21 @@ import (
 
 	"github.com/weka/weka-operator/pkg/util"
 )
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	writer := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}
+	zeroLogger := zerolog.New(writer).Level(zerolog.DebugLevel).With().Timestamp().Logger()
+	logger := zerologr.New(&zeroLogger)
+
+	shutdown, err := instrumentation.SetupOTelSDK(ctx, "allocator-tests", "", logger)
+	if err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = shutdown(ctx)
+	os.Exit(code)
+}
 
 func newTestAllocator(ctx context.Context, numDrives int) (Allocator, *InMemoryConfigStore, error) {
 	cs := NewInMemoryConfigStore()

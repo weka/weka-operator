@@ -3,11 +3,13 @@ package wekacluster
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -46,6 +48,19 @@ func isOperatorManagedExport(name string) bool {
 	return strings.HasPrefix(name, operatorExportPrefix)
 }
 
+// extractNumericID extracts the numeric ID from a TelemetrySinkId<N> string.
+// The weka CLI returns IDs like "TelemetrySinkId<0>" but update command expects just "0".
+func extractNumericID(fullID string) string {
+	// Try to extract number from TelemetrySinkId<N> format
+	start := strings.Index(fullID, "<")
+	end := strings.Index(fullID, ">")
+	if start != -1 && end != -1 && end > start {
+		return fullID[start+1 : end]
+	}
+	// If not in expected format, return as-is
+	return fullID
+}
+
 // parseSecretRef parses a secret reference in the format "secretName.keyName"
 // and returns the secret name and key name.
 func parseSecretRef(ref string) (secretName, keyName string, err error) {
@@ -56,8 +71,8 @@ func parseSecretRef(ref string) (secretName, keyName string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// getAuthTokenFromSecret retrieves the auth token from the referenced secret.
-func (r *wekaClusterReconcilerLoop) getAuthTokenFromSecret(ctx context.Context, secretRef, namespace string) (string, error) {
+// getSecretValue retrieves a value from a secret using the "secretName.keyName" format.
+func (r *wekaClusterReconcilerLoop) getSecretValue(ctx context.Context, secretRef, namespace string) (string, error) {
 	secretName, keyName, err := parseSecretRef(secretRef)
 	if err != nil {
 		return "", err
@@ -71,27 +86,91 @@ func (r *wekaClusterReconcilerLoop) getAuthTokenFromSecret(ctx context.Context, 
 		return "", errors.Wrapf(err, "failed to get secret %q", secretName)
 	}
 
-	tokenBytes, ok := secret.Data[keyName]
+	valueBytes, ok := secret.Data[keyName]
 	if !ok {
 		return "", errors.Errorf("key %q not found in secret %q", keyName, secretName)
 	}
 
-	return string(tokenBytes), nil
+	return string(valueBytes), nil
 }
 
-// ShouldConfigureTelemetry returns true if telemetry needs to be configured.
-// It checks the condition hash against the current spec hash.
-func (r *wekaClusterReconcilerLoop) ShouldConfigureTelemetry() bool {
-	// Calculate hash of target telemetry config
-	currentHash := calculateTelemetryHash(r.cluster.Spec.Telemetry)
+// getAuthTokenFromSecret retrieves the auth token from the referenced secret.
+func (r *wekaClusterReconcilerLoop) getAuthTokenFromSecret(ctx context.Context, secretRef, namespace string) (string, error) {
+	return r.getSecretValue(ctx, secretRef, namespace)
+}
 
-	// Check if condition exists and hash matches
-	condition := meta.FindStatusCondition(r.cluster.Status.Conditions, "TelemetryConfigured")
-	if condition != nil && condition.Status == metav1.ConditionTrue && condition.Message == currentHash {
-		return false // Already configured with current spec
+// writeSecretToTempFile writes a secret value to a temporary file in the pod using ExecSensitive.
+// Returns the path to the temporary file.
+func (r *wekaClusterReconcilerLoop) writeSecretToTempFile(ctx context.Context, executor util.Exec, content, prefix string) (string, error) {
+	// Create a temp file path
+	tempPath := fmt.Sprintf("/tmp/%s-%d", prefix, time.Now().UnixNano())
+
+	// Use ExecSensitive to write the content to avoid logging sensitive data
+	// Base64 encode the content to safely transfer it without shell interpretation issues
+	// Use printf '%s' instead of echo to avoid adding a trailing newline
+	encoded := base64.StdEncoding.EncodeToString([]byte(content))
+	cmd := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", encoded, tempPath)
+	_, stderr, err := executor.ExecSensitive(ctx, fmt.Sprintf("WriteSecret.%s", prefix), []string{"bash", "-c", cmd})
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to write secret to temp file: %s", stderr.String())
 	}
 
-	return true // Needs configuration
+	return tempPath, nil
+}
+
+// cleanupTempFile removes a temporary file from the pod.
+func (r *wekaClusterReconcilerLoop) cleanupTempFile(ctx context.Context, executor util.Exec, path string) {
+	if path == "" {
+		return
+	}
+	// Best effort cleanup, don't fail if it doesn't work
+	_, _, _ = executor.ExecNamed(ctx, "CleanupTempFile", []string{"bash", "-c", fmt.Sprintf("rm -f %s", path)})
+}
+
+// calculateTelemetryHash creates a deterministic hash of telemetry config for change detection.
+// It includes secret content to detect changes to tokens and certificates.
+func (r *wekaClusterReconcilerLoop) calculateTelemetryHash(ctx context.Context, telemetry *weka.TelemetryConfig) string {
+	if telemetry == nil || len(telemetry.Exports) == 0 {
+		return "empty"
+	}
+
+	// Create a sorted representation for consistent hashing
+	var parts []string
+	for _, exp := range telemetry.Exports {
+		part := exp.Name + ":" + strings.Join(exp.Sources, ",")
+		if exp.Splunk != nil {
+			// Include auth token content in hash
+			authTokenContent := ""
+			if exp.Splunk.AuthTokenSecretRef != "" {
+				if token, err := r.getSecretValue(ctx, exp.Splunk.AuthTokenSecretRef, r.cluster.Namespace); err == nil {
+					authTokenContent = token
+				}
+			}
+
+			// Include CA cert content in hash if specified
+			caCertContent := ""
+			if exp.Splunk.CACertSecretRef != nil && *exp.Splunk.CACertSecretRef != "" {
+				if cert, err := r.getSecretValue(ctx, *exp.Splunk.CACertSecretRef, r.cluster.Namespace); err == nil {
+					caCertContent = cert
+				}
+			}
+
+			part += fmt.Sprintf(":splunk:%s:token=%s:cacert=%s:allowUnverified=%t:clusterCACert=%t",
+				exp.Splunk.Endpoint,
+				authTokenContent,
+				caCertContent,
+				exp.Splunk.AllowUnverifiedCertificate,
+				exp.Splunk.VerifyWithClusterCACert)
+		}
+		parts = append(parts, part)
+	}
+
+	// Sort to ensure consistent hash regardless of order
+	sort.Strings(parts)
+
+	// Calculate SHA256 hash
+	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(hash[:])
 }
 
 // EnsureTelemetry ensures the telemetry exports are configured according to the spec.
@@ -101,8 +180,15 @@ func (r *wekaClusterReconcilerLoop) EnsureTelemetry(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureTelemetry")
 	defer end()
 
-	// Calculate hash of target telemetry config
-	currentHash := calculateTelemetryHash(r.cluster.Spec.Telemetry)
+	// Calculate hash of target telemetry config (includes secret content)
+	currentHash := r.calculateTelemetryHash(ctx, r.cluster.Spec.Telemetry)
+
+	// Check if already configured with current spec (hash matches)
+	condition := meta.FindStatusCondition(r.cluster.Status.Conditions, "TelemetryConfigured")
+	if condition != nil && condition.Status == metav1.ConditionTrue && condition.Message == currentHash {
+		logger.Info("Telemetry already configured with current spec, skipping")
+		return nil
+	}
 
 	// Get an active container to execute commands
 	execInContainer := discovery.SelectActiveContainer(r.containers)
@@ -379,24 +465,64 @@ func (r *wekaClusterReconcilerLoop) addTelemetryExport(ctx context.Context, exec
 		return errors.Errorf("cannot add export %s: no splunk configuration provided", exportName)
 	}
 
-	// Get auth token from secret
+	// Validate mutual exclusivity: caCertSecretRef (user-provided cert) and verifyWithClusterCACert (weka internal cert) cannot both be set
+	hasCACert := export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != ""
+	if hasCACert && export.Splunk.VerifyWithClusterCACert {
+		return errors.Errorf("export %s: caCertSecretRef and verifyWithClusterCACert are mutually exclusive - use caCertSecretRef for user-provided certificates or verifyWithClusterCACert for weka cluster internal certificate", exportName)
+	}
+
+	// Get auth token from secret and write to temp file
 	authToken, err := r.getAuthTokenFromSecret(ctx, export.Splunk.AuthTokenSecretRef, r.cluster.Namespace)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get auth token for export %s", exportName)
 	}
 
+	tokenPath, err := r.writeSecretToTempFile(ctx, executor, authToken, "splunk-token")
+	if err != nil {
+		return errors.Wrapf(err, "failed to write auth token to temp file for export %s", exportName)
+	}
+	defer r.cleanupTempFile(ctx, executor, tokenPath)
+
+	// Handle CA certificate if configured
+	var caCertPath string
+	if export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != "" {
+		caCert, err := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get CA cert for export %s", exportName)
+		}
+
+		caCertPath, err = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
+		if err != nil {
+			return errors.Wrapf(err, "failed to write CA cert to temp file for export %s", exportName)
+		}
+		defer r.cleanupTempFile(ctx, executor, caCertPath)
+	}
+
 	// Build sources string
 	sources := strings.Join(export.Sources, ",")
 
-	// weka telemetry exports add splunk <name> --sources <sources> --target <endpoint> --auth-token <token>
-	cmd := fmt.Sprintf("weka telemetry exports add splunk %s --sources %s --target %s --auth-token %s",
+	// Build the command - use double quotes around $(cat) to protect token content from shell interpretation
+	// Trim endpoint to handle any trailing newlines from YAML parsing
+	endpoint := strings.TrimSpace(export.Splunk.Endpoint)
+	cmd := fmt.Sprintf("weka telemetry exports add splunk %s --sources %s --target '%s' --auth-token \"$(cat '%s')\"",
 		exportName,
 		sources,
-		export.Splunk.Endpoint,
-		authToken,
+		endpoint,
+		tokenPath,
 	)
 
-	_, stderr, err := executor.ExecNamed(ctx, "AddTelemetryExport", []string{"bash", "-ce", cmd})
+	// Add optional certificate flags
+	if caCertPath != "" {
+		cmd += fmt.Sprintf(" --ca-cert '%s'", caCertPath)
+	}
+	if export.Splunk.AllowUnverifiedCertificate {
+		cmd += " --allow-unverified-certificate yes"
+	}
+	if export.Splunk.VerifyWithClusterCACert {
+		cmd += " --verify-with-cluster-cacert yes"
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "AddTelemetryExport", []string{"bash", "-c", cmd})
 	if err != nil {
 		stderrStr := stderr.String()
 		// Check if export already exists (race condition handling)
@@ -430,20 +556,62 @@ func (r *wekaClusterReconcilerLoop) updateTelemetryExport(ctx context.Context, e
 		return errors.Errorf("cannot update export %s: no splunk configuration provided", export.Name)
 	}
 
-	// Get auth token from secret
+	// Validate mutual exclusivity: caCertSecretRef (user-provided cert) and verifyWithClusterCACert (weka internal cert) cannot both be set
+	hasCACert := export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != ""
+	if hasCACert && export.Splunk.VerifyWithClusterCACert {
+		return errors.Errorf("export %s: caCertSecretRef and verifyWithClusterCACert are mutually exclusive - use caCertSecretRef for user-provided certificates or verifyWithClusterCACert for weka cluster internal certificate", export.Name)
+	}
+
+	// Get auth token from secret and write to temp file
 	authToken, err := r.getAuthTokenFromSecret(ctx, export.Splunk.AuthTokenSecretRef, r.cluster.Namespace)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get auth token for export %s", export.Name)
 	}
 
-	// weka telemetry exports update splunk <export-id> --target <endpoint> --auth-token <token>
-	cmd := fmt.Sprintf("weka telemetry exports update splunk %s --target %s --auth-token %s",
-		exportID,
-		export.Splunk.Endpoint,
-		authToken,
+	tokenPath, err := r.writeSecretToTempFile(ctx, executor, authToken, "splunk-token")
+	if err != nil {
+		return errors.Wrapf(err, "failed to write auth token to temp file for export %s", export.Name)
+	}
+	defer r.cleanupTempFile(ctx, executor, tokenPath)
+
+	// Handle CA certificate if configured
+	var caCertPath string
+	if export.Splunk.CACertSecretRef != nil && *export.Splunk.CACertSecretRef != "" {
+		caCert, err := r.getSecretValue(ctx, *export.Splunk.CACertSecretRef, r.cluster.Namespace)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get CA cert for export %s", export.Name)
+		}
+
+		caCertPath, err = r.writeSecretToTempFile(ctx, executor, caCert, "splunk-cacert")
+		if err != nil {
+			return errors.Wrapf(err, "failed to write CA cert to temp file for export %s", export.Name)
+		}
+		defer r.cleanupTempFile(ctx, executor, caCertPath)
+	}
+
+	// Build the command - use double quotes around $(cat) to protect token content from shell interpretation
+	// Trim endpoint to handle any trailing newlines from YAML parsing
+	// Extract numeric ID from TelemetrySinkId<N> format - weka CLI expects just the number
+	endpoint := strings.TrimSpace(export.Splunk.Endpoint)
+	numericID := extractNumericID(exportID)
+	cmd := fmt.Sprintf("weka telemetry exports update splunk %s --target '%s' --auth-token \"$(cat '%s')\"",
+		numericID,
+		endpoint,
+		tokenPath,
 	)
 
-	_, stderr, err := executor.ExecNamed(ctx, "UpdateTelemetryExport", []string{"bash", "-ce", cmd})
+	// Add optional certificate flags
+	if caCertPath != "" {
+		cmd += fmt.Sprintf(" --ca-cert '%s'", caCertPath)
+	}
+	if export.Splunk.AllowUnverifiedCertificate {
+		cmd += " --allow-unverified-certificate yes"
+	}
+	if export.Splunk.VerifyWithClusterCACert {
+		cmd += " --verify-with-cluster-cacert yes"
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "UpdateTelemetryExport", []string{"bash", "-c", cmd})
 	if err != nil {
 		return errors.Wrapf(err, "failed to update telemetry export %s: %s", export.Name, stderr.String())
 	}
@@ -457,8 +625,10 @@ func (r *wekaClusterReconcilerLoop) removeTelemetryExport(ctx context.Context, e
 	_, logger, end := instrumentation.GetLogSpan(ctx, "removeTelemetryExport", "name", exportName, "id", exportID)
 	defer end()
 
-	cmd := fmt.Sprintf("weka telemetry exports remove %s --force", exportID)
-	_, stderr, err := executor.ExecNamed(ctx, "RemoveTelemetryExport", []string{"bash", "-ce", cmd})
+	// Extract numeric ID from TelemetrySinkId<N> format - weka CLI expects just the number
+	numericID := extractNumericID(exportID)
+	cmd := fmt.Sprintf("weka telemetry exports remove %s --force", numericID)
+	_, stderr, err := executor.ExecNamed(ctx, "RemoveTelemetryExport", []string{"bash", "-c", cmd})
 	if err != nil {
 		stderrStr := stderr.String()
 		// Check if export doesn't exist (already removed)
@@ -492,31 +662,6 @@ func (r *wekaClusterReconcilerLoop) disableAuditCluster(ctx context.Context, exe
 
 	logger.Info("Audit cluster disabled successfully")
 	return nil
-}
-
-// calculateTelemetryHash creates a deterministic hash of telemetry config for change detection
-func calculateTelemetryHash(telemetry *weka.TelemetryConfig) string {
-	if telemetry == nil || len(telemetry.Exports) == 0 {
-		return "empty"
-	}
-
-	// Create a sorted representation for consistent hashing
-	var parts []string
-	for _, exp := range telemetry.Exports {
-		part := exp.Name + ":" + strings.Join(exp.Sources, ",")
-		if exp.Splunk != nil {
-			// Note: we don't include auth token in hash for security, but include endpoint
-			part += ":splunk:" + exp.Splunk.Endpoint
-		}
-		parts = append(parts, part)
-	}
-
-	// Sort to ensure consistent hash regardless of order
-	sort.Strings(parts)
-
-	// Calculate SHA256 hash
-	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
-	return hex.EncodeToString(hash[:])
 }
 
 // setTelemetryConditionError sets the TelemetryConfigured condition to false with error
