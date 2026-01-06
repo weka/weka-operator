@@ -226,6 +226,18 @@ nfs:
   # Port for notify service
   notifyPort: 18002
 
+# Drive types configuration
+# hybridFlashRatio specifies the global default ratio of QLC (Quad-Level Cell) drives when using drive sharing.
+# Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
+# This value is used as a default when spec.dynamicTemplate.driveTypesRatio is not explicitly specified.
+# Value represents the QLC percentage as a decimal (0.0 to 1.0):
+#   - 0.0 = 0% QLC, 100% TLC (all high-performance)
+#   - 0.2 = 20% QLC, 80% TLC (default, recommended balance for cost/performance)
+#   - 0.5 = 50% QLC, 50% TLC
+#   - 1.0 = 100% QLC (all cost-optimized)
+# Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
+hybridFlashRatio: 0
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network
