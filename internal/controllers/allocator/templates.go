@@ -80,7 +80,20 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 			config.DriveHugepages = 1400*config.DriveCores + 200*config.NumDrives
 		} else {
 			// for container capacity based allocation
-			config.DriveHugepages = 2000 * config.DriveCores
+			// NOTE: weka needs ~ 800 MB per drive core + 105 MB overhead
+			// For example, for the 4 cores case - "nodes need a minimum of 3355443200":
+			// root@h6-8-a:/# weka local ps
+			// CONTAINER                                   CONTAINER ID  STATE    STATUS        UPTIME   PID   PORT  VERSION                                       VALID LEASE  LAST FAILURE
+			// drivexd88c41b6x9d87x40a3x809exa16b09c739c7  65535         Running  Initializing  3.17s   1873  15000  5.1.1.11038-43abd63c5138b0990a2a16120eaf7f8f  False        Asked to allocated 2936012800 memory bytes but nodes need a minimum of 3355443200
+			//
+			// Then in fact usage is:
+			// PID 1792     HugeTLB   927744 kB  /weka/wekanode --slot 2 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
+			// PID 1793     HugeTLB   925696 kB  /weka/wekanode --slot 3 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
+			// PID 1802     HugeTLB   925696 kB  /weka/wekanode --slot 4 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
+			// PID 1807     HugeTLB   925696 kB  /weka/wekanode --slot 1 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
+			// ---
+			// TOTAL: 3704832 kB = 3618 MB = 3.53 GB (~ 904 MB per core)
+			config.DriveHugepages = 1000 * config.DriveCores
 		}
 	}
 
