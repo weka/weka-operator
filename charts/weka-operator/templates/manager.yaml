@@ -358,6 +358,8 @@ spec:
               value: "{{ .Values.nfs.lockmanagerPort }}"
             - name: NFS_NOTIFY_PORT
               value: "{{ .Values.nfs.notifyPort }}"
+            - name: HYBRID_FLASH_RATIO
+              value: "{{ .Values.hybridFlashRatio }}"
             - name: LOG_FORMAT
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL

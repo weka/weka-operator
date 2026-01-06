@@ -143,6 +143,10 @@ type NfsConfig struct {
 	NotifyPort      int
 }
 
+type DriveTypesConfig struct {
+	HybridFlashRatio float64
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -210,6 +214,7 @@ var Config struct {
 	Proxy           string
 	PriorityClasses PriorityClasses
 	Nfs             NfsConfig
+	DriveTypes      DriveTypesConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -409,6 +414,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Nfs.MountdPort = getIntEnvOrDefault("NFS_MOUNTD_PORT", 0)
 	Config.Nfs.LockmanagerPort = getIntEnvOrDefault("NFS_LOCKMANAGER_PORT", 0)
 	Config.Nfs.NotifyPort = getIntEnvOrDefault("NFS_NOTIFY_PORT", 0)
+
+	// Drive types configuration
+	Config.DriveTypes.HybridFlashRatio = getFloatEnvOrDefault("HYBRID_FLASH_RATIO", 0)
 }
 
 func getEnvOrFail(envKey string) string {
@@ -494,6 +502,22 @@ func getIntEnvOrDefault(envKey string, defaultVal int) int {
 	}
 
 	return ival
+}
+
+func getFloatEnvOrDefault(envKey string, defaultVal float64) float64 {
+	val, found := os.LookupEnv(envKey)
+	if !found || val == "" {
+		return defaultVal
+	}
+
+	fval, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		err = fmt.Errorf("failed to parse float value %s from env var %s", val, envKey)
+		klog.Error(err)
+		os.Exit(1)
+	}
+
+	return fval
 }
 
 func getDurationEnv(envKey string) time.Duration {

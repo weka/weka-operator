@@ -1,6 +1,5 @@
 # Drive Sharing Support in Weka Kubernetes Operator
 
-**Status:** Implemented (Phase 1-8 complete, testing pending)
 **Created:** 2025-11-25
 **Feature:** Multi-tenant drive sharing for Weka clusters in Kubernetes
 
@@ -62,6 +61,136 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 
 ---
 
+## Drive Allocation Modes
+
+Drive sharing supports three allocation modes, each suitable for different use cases:
+
+### Mode 1: Fixed Capacity Per Drive (DriveCapacity)
+
+**Configuration:**
+```yaml
+spec:
+  dynamicTemplate:
+    numDrives: 6
+    driveCapacity: 1000  # 1000 GiB per virtual drive
+```
+
+**Behavior:**
+- Each drive container requests `numDrives` virtual drives
+- Each virtual drive is allocated exactly `driveCapacity` GiB
+- Total capacity per container: `numDrives * driveCapacity`
+- Simple and predictable allocation
+
+**Use case:** When you want uniform drive sizes across all containers
+
+---
+
+### Mode 2: Total Container Capacity (ContainerCapacity)
+
+**Configuration:**
+```yaml
+spec:
+  dynamicTemplate:
+    driveCores: 4
+    containerCapacity: 8000  # 8000 GiB total per container
+```
+
+**Behavior:**
+- Each drive container requests a total of `containerCapacity` GiB
+- The operator intelligently divides capacity across virtual drives
+- The number of virtual drives is determined by the allocation strategy and is typically >= `driveCores`
+- The allocator tries multiple strategies to find optimal drive sizes
+- **ContainerCapacity takes precedence over DriveCapacity when both are set**
+
+**Allocation Strategy:**
+The operator generates allocation strategies in order of preference:
+
+1. **Uniform strategies** (preferred):
+   - Tries creating `numCores`, `numCores+1`, ..., up to `numCores*3` drives of equal size
+   - Only yields strategies where capacity divides evenly
+   - Each drive must meet minimum chunk size (1024 GiB)
+   - Example: 8000 GiB with 4 cores → tries 4 drives of 2000 GiB, then 5 drives of 1600 GiB, etc.
+
+2. **Non-uniform strategies**:
+   - When capacity doesn't divide evenly, distributes as evenly as possible
+   - Some drives get slightly larger sizes to account for remainder
+   - Example: 9000 GiB with 4 cores → 4 drives: [2251, 2250, 2250, 2249] GiB
+
+For each strategy, the allocator:
+- Verifies sufficient physical drive capacity is available
+- Simulates allocation across physical drives using round-robin distribution
+- Ensures no over-allocation occurs
+
+**Use case:** When you want to specify total capacity per container and let the operator optimize drive distribution
+
+---
+
+### Mode 3: Container Capacity with Drive Type Ratio (ContainerCapacity + DriveTypesRatio)
+
+**Configuration:**
+```yaml
+spec:
+  dynamicTemplate:
+    driveCores: 6
+    containerCapacity: 12000  # 12000 GiB total per container
+    driveTypesRatio:
+      tlc: 4  # 80% TLC
+      qlc: 1  # 20% QLC
+```
+
+**Behavior:**
+- Container capacity is split between TLC and QLC drives based on the ratio
+- For the example above with 4:1 ratio:
+  - TLC capacity: `12000 * 4 / (4+1) = 9600 GiB`
+  - QLC capacity: `12000 * 1 / (4+1) = 2400 GiB`
+- The operator allocates TLC and QLC drives separately from their respective physical drive pools
+- Each type uses the same allocation strategy logic as Mode 2 (uniform first, then non-uniform)
+- The number of virtual drives per type is determined by allocation strategy
+
+**Drive Type Detection:**
+- Physical drives are categorized by their `Type` field (TLC or QLC) - fetched from node annotation (weka.io/weka-shared-drives)
+- Type information comes from the `weka-sign-drive show --json` output during proxy signing
+- If physical drives don't have type information, drive type ratio allocation will fail
+
+**Global Hybrid Flash Ratio:**
+If `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the operator automatically applies a default ratio based on the global `hybridFlashRatio` configuration setting. For example, a `hybridFlashRatio` of 0.2 (20% QLC) translates to a `driveTypesRatio` of TLC=4, QLC=1.
+
+**Use case:** When you have mixed TLC/QLC drives and want to control the ratio of drive types per container
+
+---
+
+### Allocation Process Overview
+
+**High-Level Steps:**
+1. Operator reads physical drive information from node annotation (`weka.io/shared-drives`)
+2. Builds capacity map for each physical drive (total, claimed, available)
+3. Filters drives by minimum capacity (MinChunkSizeGiB = 1024 GiB = 128 GiB * 3)
+4. Sorts drives by available capacity (most available first)
+5. For drive type ratio mode:
+   - Separates physical drives by type (TLC vs QLC)
+   - Allocates TLC drives first from TLC physical drives
+   - Allocates QLC drives from QLC physical drives
+   - Fails if either type doesn't have sufficient capacity
+6. For each allocation strategy (in order):
+   - Simulates allocation across physical drives
+   - Uses round-robin distribution for even wear
+   - Re-sorts after each allocation to maintain balance
+   - If strategy succeeds, stops and uses that strategy
+7. On success, creates VirtualDrive entries with:
+   - Random VirtualUUID (generated fresh)
+   - PhysicalUUID mapping
+   - CapacityGiB
+   - Serial number
+   - Type (TLC/QLC if applicable)
+
+**Error Handling:**
+- `InsufficientDriveCapacityError`: Not enough total capacity available
+  - Reports needed vs available capacity
+  - Includes drive type if using drive type ratio
+- `InsufficientDrivesError`: Not enough drives matching criteria
+
+---
+
 ## Complete Flow: From Physical Drives to Running Cluster
 
 ### Step 1: Proxy Container Creation
@@ -76,7 +205,7 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 ---
 
 ### Step 2: Physical Drive Signing for Proxy
-**When:** Manual operation executes (WekaManualOperation with `ForProxy: true`)
+**When:** Manual operation executes (WekaManualOperation with `Shared: true`)
 **What happens:**
 - Python runtime executes on proxy container
 - Uses `weka-sign-drive sign proxy` command on each physical device
@@ -99,10 +228,14 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 ---
 
 ### Step 3: Drive Container Creation & Virtual Drive Allocation
-**When:** User creates drive container with `UseDriveSharing: true` and `DriveCapacity: 4000`
+**When:** User creates drive container with drive sharing enabled (via `DriveCapacity` or `ContainerCapacity`)
 **What happens:**
 - Operator reads `weka.io/shared-drives` annotation
 - Calculates available capacity (total - already claimed by other containers)
+- Determines allocation mode:
+  - Mode 1: `NumDrives` * `DriveCapacity` (fixed capacity per drive)
+  - Mode 2: `ContainerCapacity` (total capacity with intelligent distribution)
+  - Mode 3: `ContainerCapacity` + `DriveTypesRatio` (capacity split by drive type)
 - Generates random UUIDs for virtual drives
 - Maps virtual drives to physical drives using round-robin distribution
 - Creates claim in node annotation
@@ -112,11 +245,12 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 - Claimed capacity = sum of all virtual drives from existing containers
 - Available = total - claimed
 - If insufficient capacity → allocation fails with clear error
+- See **Drive Allocation Modes** section above for detailed strategy information
 
 **Result stored:**
 1. **Container Status:**
    - `Status.Allocations.VirtualDrives`: List of allocated virtual drives
-   - Each entry: `{VirtualUUID, PhysicalUUID, CapacityGiB, DevicePath}`
+   - Each entry: `{VirtualUUID, PhysicalUUID, CapacityGiB, Serial, Type}`
 
 2. **Node Annotation:**
    - Annotation: `weka.io/virtual-drive-claims`
@@ -195,17 +329,31 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 ### CRD Schema Changes
 
 **WekaCluster:**
-- Added `DriveSharing` configuration section
-- Fields: `Enabled` (bool), `DriveSize` (minimum capacity in GiB)
+- Added `DriveCapacity` (int) to `WekaConfig` - capacity per virtual drive in GiB
+- Added `ContainerCapacity` (int) to `WekaConfig` - total capacity per drive container in GiB (takes precedence over DriveCapacity * NumDrives)
+- Added `DriveTypesRatio` (object) to `WekaConfig` - specifies the desired ratio of TLC vs QLC drives when allocating drives
+  - `Tlc` (int) - TLC drive ratio part (e.g., 4 for 4:1 ratio)
+  - `Qlc` (int) - QLC drive ratio part (e.g., 1 for 4:1 ratio)
+- If `DriveTypesRatio` is not set and `ContainerCapacity` > 0, the operator automatically applies a ratio based on the global `hybridFlashRatio` config
 
 **WekaContainer:**
-- Added `UseDriveSharing` (bool) to spec - enables sharing mode for this container
-- Added `DriveCapacity` (int) to spec - capacity per virtual drive in GiB (minimum 1024)
-- Added `VirtualDrives` list to `Status.Allocations` - stores allocated virtual drives
+- Added `DriveCapacity` (int) to spec - capacity per virtual drive in GiB
+- Added `ContainerCapacity` (int) to spec - total capacity per drive container in GiB (takes precedence over DriveCapacity * NumDrives)
+- Added `DriveTypesRatio` (object) to spec - specifies the desired ratio of TLC vs QLC drives
+  - `Tlc` (int) - TLC drive ratio part
+  - `Qlc` (int) - QLC drive ratio part
+- Added `VirtualDrives` list to `Status.Allocations` - stores allocated virtual drives with capacity and type information
 - Added `AddedVirtualDrives` list to status - tracks virtual drives that completed full lifecycle (allocated → signed with virtual add → added to cluster)
 
+**VirtualDrive:**
+- `VirtualUUID` (string) - unique identifier for the virtual drive
+- `PhysicalUUID` (string) - physical drive UUID this virtual drive is mapped to
+- `CapacityGiB` (int) - allocated capacity in GiB
+- `Serial` (string) - physical drive serial number
+- `Type` (string) - drive type (TLC or QLC)
+
 **WekaManualOperation:**
-- Added `ForProxy` (bool) to `SignDrivesPayload` - triggers proxy-mode signing
+- Added `Shared` (bool) to `SignDrivesPayload` - triggers proxy-mode signing
 
 ### New Files Created
 

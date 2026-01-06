@@ -859,14 +859,14 @@ async def sign_drives(instruction: dict):
     global EXCLUDED_DRIVE_PATHS
 
     type = instruction['type']
-    for_proxy = instruction.get('forProxy', False)
+    for_proxy = instruction.get('shared', False)
     options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
 
     # Extract and convert excluded serial IDs to device paths
     excluded_serials = instruction.get('excludedSerialIds', [])
     EXCLUDED_DRIVE_PATHS = await convert_serials_to_device_paths(excluded_serials)
 
-    # Route to proxy signing functions if forProxy is true
+    # Route to proxy signing functions if shared is true
     if for_proxy:
         logging.info("Signing drives for proxy mode")
         if type == "aws-all":
@@ -4007,7 +4007,7 @@ async def main():
         elif instruction.get('type') and instruction['type'] == 'sign-drives':
             logging.info(f"sign-drives instruction: {instruction}")
             payload = json.loads(instruction['payload'])
-            for_proxy = payload.get('forProxy', False)
+            for_proxy = payload.get('shared', False)
             signed_drives = await sign_drives(payload)
             logging.info(f"signed_drives: {signed_drives}")
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
