@@ -3317,10 +3317,9 @@ def write_telemetry_config_override():
 
 async def ensure_ssdproxy_container():
     logging.info("ensuring ssdproxy container")
-    # Use SSD_PROXY_MEMORY if set, otherwise fall back to MEMORY env var
-    proxy_memory = os.getenv("SSD_PROXY_MEMORY") or os.getenv("MEMORY")
+    proxy_memory = os.getenv("MEMORY")
     if not proxy_memory:
-        raise Exception("SSD_PROXY_MEMORY or MEMORY environment variable must be set for ssdproxy")
+        raise Exception("MEMORY environment variable must be set for ssdproxy")
     cmd = dedent(f"""
         weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
     """)

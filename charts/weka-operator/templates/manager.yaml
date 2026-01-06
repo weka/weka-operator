@@ -348,10 +348,6 @@ spec:
               value: "{{ .Values.syslogPackage }}"
             - name: PROXY
               value: "{{ .Values.proxy }}"
-            - name: SSD_PROXY_MEMORY
-              value: "{{ .Values.ssdProxy.memory }}"
-            - name: SSD_PROXY_HUGEPAGES_MI
-              value: "{{ .Values.ssdProxy.hugepagesMi }}"
             - name: PRIORITY_CLASS_INITIAL
               value: "{{ .Values.priorityClasses.initial }}"
             - name: PRIORITY_CLASS_TARGETED

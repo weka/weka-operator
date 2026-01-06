@@ -2,18 +2,22 @@ package wekacontainer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/factory"
+	"github.com/weka/weka-operator/internal/controllers/resources"
+	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
 )
@@ -80,7 +84,7 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 	}
 
 	// Create the proxy container spec
-	proxyContainer, err := r.buildProxyContainerSpec(cluster, nodeName, proxyName, operatorNamespace)
+	proxyContainer, err := r.buildProxyContainerSpec(ctx, cluster, nodeName, proxyName, operatorNamespace)
 	if err != nil {
 		return errors.Wrap(err, "failed to build proxy container spec")
 	}
@@ -106,17 +110,18 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 }
 
 // buildProxyContainerSpec creates the specification for a proxy container
-func (r *containerReconcilerLoop) buildProxyContainerSpec(cluster *weka.WekaCluster, nodeName weka.NodeName, proxyName, namespace string) (*weka.WekaContainer, error) {
+func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, cluster *weka.WekaCluster, nodeName weka.NodeName, proxyName, namespace string) (*weka.WekaContainer, error) {
 	// Build labels for the proxy container
 	labels := util.MergeMaps(
 		cluster.GetLabels(),
 		factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeSSDProxy),
 	)
 
-	// TODO: Calculate appropriate resources based on total drive capacity
-	// For now, use conservative defaults
-	// Memory calculation: (totalCapacityTiB * 4 MiB) + 128 MiB base
-	// This will be refined in testing
+	// Calculate hugepages based on shared drives on the node
+	hugepagesMB, err := r.calculateProxyHugepages(ctx, nodeName)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to calculate hugepages for proxy container")
+	}
 
 	proxyContainer := &weka.WekaContainer{
 		ObjectMeta: metav1.ObjectMeta{
@@ -133,13 +138,66 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(cluster *weka.WekaClus
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			Tolerations:        cluster.Spec.RawTolerations,
 			HostPID:            true, // Needed for drive access
-			Hugepages:          config.Config.SsdProxy.HugepagesMi,
+			Hugepages:          hugepagesMB + resources.SsdProxyHugepagesOffsetMB,
 			HugepagesSize:      "2Mi",
-			// Resources will be set by the pod factory based on container mode
 		},
 	}
 
 	return proxyContainer, nil
+}
+
+// calculateProxyHugepages calculates the required hugepages for ssd_proxy
+// based on the shared drives available on the node
+func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, nodeName weka.NodeName) (int, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "calculateProxyHugepages", "node", nodeName)
+	defer end()
+
+	// Get the node to read annotations
+	node := &corev1.Node{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: string(nodeName)}, node); err != nil {
+		return 0, errors.Wrap(err, "failed to get node")
+	}
+
+	// Parse shared drives annotation
+	sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]
+	if !ok || sharedDrivesStr == "" {
+		return 0, errors.New("node has no shared drives annotation")
+	}
+
+	var sharedDrives []domain.SharedDriveInfo
+	if err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives); err != nil {
+		return 0, errors.Wrap(err, "failed to parse shared drives annotation")
+	}
+
+	if len(sharedDrives) == 0 {
+		return 0, errors.New("no shared drives found in annotation")
+	}
+
+	// Calculate maxDrives and expectedMaxDriveTiB
+	maxDrives := len(sharedDrives)
+	maxCapacityGiB := 0
+	for _, drive := range sharedDrives {
+		if drive.CapacityGiB > maxCapacityGiB {
+			maxCapacityGiB = drive.CapacityGiB
+		}
+	}
+
+	// Convert GiB to TiB (round up to be safe)
+	expectedMaxDriveTiB := (maxCapacityGiB + 1023) / 1024
+
+	// Calculate hugepages in kB using the formula
+	hugepagesKB := resources.GetSsdProxyHugeTLBKB(maxDrives, expectedMaxDriveTiB)
+
+	// Convert kB to MB (round up)
+	hugepagesMB := int((hugepagesKB + 1023) / 1024)
+
+	logger.Info("Calculated hugepages for ssd_proxy",
+		"maxDrives", maxDrives,
+		"expectedMaxDriveTiB", expectedMaxDriveTiB,
+		"hugepagesMB", hugepagesMB,
+	)
+
+	return hugepagesMB, nil
 }
 
 // findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container
