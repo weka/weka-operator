@@ -105,11 +105,11 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| ethDevice | string |  |
-| ethDevices | []string |  |
-| gateway | string |  |
-| udpMode | bool |  |
-| deviceSubnets | []string | subnet that is used for devices auto-discovery |
+| ethDevice | string | The name of a single network interface (for example, eth1) to be used by every backend container.<br>This is for clusters that use only one dedicated NIC for the data path.<br>You cannot use this field with ethDevices.<br>If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets. |
+| ethDevices | []string | A list of network interface names to be used by backend containers when you have multiple dedicated NICs.<br>The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).<br>You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster. |
+| gateway | string | The default gateway IPv4 address for the backend containers’ data-path network.<br>This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).<br>If you have a flat, non-routed backend network, you can leave this field empty. |
+| udpMode | bool | A setting that enables or disables UDP encapsulation for backend traffic.<br>- false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.<br>This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based. |
+| deviceSubnets | []string | A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).<br>The operator assigns IP addresses from these subnets to the backend containers for their data path network |
 | selectors | []NetworkSelector |  |
 | managementIpsSelectors | []NetworkSelector |  |
 | bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |

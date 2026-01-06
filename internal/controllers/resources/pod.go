@@ -515,15 +515,6 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, envVars...)
 	}
 
-	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
-		// Set SSD_PROXY_MEMORY for explicit proxy configuration
-		// weka_runtime.py will use this, falling back to MEMORY if not set
-		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-			Name:  "SSD_PROXY_MEMORY",
-			Value: config.Config.SsdProxy.Memory,
-		})
-	}
-
 	if f.container.HasPersistentStorage() {
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "weka-container-persistence-dir",
@@ -1045,9 +1036,12 @@ func (f *PodFactory) getHugePagesOffset() int {
 	offset := f.container.Spec.HugepagesOffset
 	// get default if not set
 	if offset == 0 {
-		if f.container.Spec.Mode == weka.WekaContainerModeDrive {
+		switch f.container.Spec.Mode {
+		case weka.WekaContainerModeDrive:
 			offset = 200 * f.container.Spec.NumDrives
-		} else {
+		case weka.WekaContainerModeSSDProxy:
+			offset = SsdProxyHugepagesOffsetMB
+		default:
 			offset = 200
 		}
 	}
@@ -1190,12 +1184,8 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
 		cpuRequestStr = "500m"
+		memRequest = "2500M"
 		cpuLimitStr = "2000m"
-		// Memory needs to account for hugepages allocation
-		// Base memory (2Gi) + overhead buffer
-		baseMemory := 2048
-		buffer := 512
-		memRequest = fmt.Sprintf("%dMi", baseMemory+buffer+hgDetails.HugePagesMb)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeClient {
