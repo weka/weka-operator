@@ -153,16 +153,17 @@ func (o *GetFeatureFlagsViaAdhocOperation) EnsureAdhocContainer(ctx context.Cont
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Mode:               weka.WekaContainerModeAdhocOpWC,
-			Port:               weka.StaticPortAdhocyWCOperations,
-			AgentPort:          weka.StaticPortAdhocyWCOperationsAgent,
-			NodeSelector:       o.params.NodeSelector,
-			NodeAffinity:       o.params.NodeAffinity,
-			Image:              o.params.Image,
-			ImagePullSecret:    o.params.ImagePullSecret,
-			Instructions:       instructions,
-			Tolerations:        o.params.Tolerations,
-			ServiceAccountName: o.params.ServiceAccountName,
+			Mode:            weka.WekaContainerModeAdhocOpWC,
+			Port:            weka.StaticPortAdhocyWCOperations,
+			AgentPort:       weka.StaticPortAdhocyWCOperationsAgent,
+			NodeSelector:    o.params.NodeSelector,
+			NodeAffinity:    o.params.NodeAffinity,
+			Image:           o.params.Image,
+			ImagePullSecret: o.params.ImagePullSecret,
+			Instructions:    instructions,
+			Tolerations:     o.params.Tolerations,
+			// ServiceAccountName intentionally not set - ad-hoc container runs in operator namespace
+			// where the caller's SA may not exist
 		},
 	}
 
