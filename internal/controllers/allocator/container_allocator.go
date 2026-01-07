@@ -255,8 +255,14 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 	}
 
 	// Get dynamic port configuration based on feature flags
-	portsPerContainer := getPortsPerContainer(ctx, cluster.Spec.Image)
-	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	portsPerContainer, err := getPortsPerContainer(ctx, cluster.Spec.Image)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get ports per container: %w", err)
+	}
+	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get single ports offset: %w", err)
+	}
 
 	// Allocate weka port if requested (portsPerContainer ports from cluster base)
 	wekaPortRange := 0
