@@ -30,42 +30,45 @@ const (
 // getPortsPerContainer returns the number of ports to allocate per container
 // based on feature flags. Returns 60 if agent_validate_60_ports_per_container
 // is set, otherwise returns 100 (default).
-func getPortsPerContainer(ctx context.Context, image string) int {
+// Returns error if feature flags are not available.
+func getPortsPerContainer(ctx context.Context, image string) (int, error) {
 	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
 	if err != nil {
-		return DefaultPortsPerContainer
+		return 0, fmt.Errorf("feature flags not available: %w", err)
 	}
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedPortsPerContainer
+		return ReducedPortsPerContainer, nil
 	}
-	return DefaultPortsPerContainer
+	return DefaultPortsPerContainer, nil
 }
 
 // getClusterPortRange returns the default cluster port range based on feature flags.
 // Returns 260 if agent_validate_60_ports_per_container is set, otherwise returns 500.
-func getClusterPortRange(ctx context.Context, image string) int {
+// Returns error if feature flags are not available.
+func getClusterPortRange(ctx context.Context, image string) (int, error) {
 	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
 	if err != nil {
-		return DefaultClusterPortRange
+		return 0, fmt.Errorf("feature flags not available: %w", err)
 	}
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedClusterPortRange
+		return ReducedClusterPortRange, nil
 	}
-	return DefaultClusterPortRange
+	return DefaultClusterPortRange, nil
 }
 
 // getSinglePortsOffset returns the offset where single-port allocations start.
 // Returns 240 if agent_validate_60_ports_per_container is set (60*4 containers),
 // otherwise returns 300.
-func getSinglePortsOffset(ctx context.Context, image string) int {
+// Returns error if feature flags are not available.
+func getSinglePortsOffset(ctx context.Context, image string) (int, error) {
 	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
 	if err != nil {
-		return DefaultSinglePortsOffset
+		return 0, fmt.Errorf("feature flags not available: %w", err)
 	}
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedSinglePortsOffset
+		return ReducedSinglePortsOffset, nil
 	}
-	return DefaultSinglePortsOffset
+	return DefaultSinglePortsOffset, nil
 }
 
 type AllocateClusterRangeError struct {
@@ -139,7 +142,10 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 	}
 
 	// Allocate management proxy port using the global allocations
-	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	if err != nil {
+		return fmt.Errorf("failed to get single ports offset: %w", err)
+	}
 	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, singlePortsOffset, nodePortClaims)
 	if err != nil {
 		return err
@@ -238,7 +244,10 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	targetSize := cluster.Spec.Ports.PortRange
 
 	if targetSize == 0 {
-		targetSize = getClusterPortRange(ctx, cluster.Spec.Image)
+		targetSize, err = getClusterPortRange(ctx, cluster.Spec.Image)
+		if err != nil {
+			return fmt.Errorf("failed to get cluster port range: %w", err)
+		}
 	}
 
 	if targetPort == 0 {
@@ -268,7 +277,10 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	}
 
 	var envoyPort, envoyAdminPort, s3Port Range
-	singlePortsOffset := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
+	if err != nil {
+		return fmt.Errorf("failed to get single ports offset: %w", err)
+	}
 
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
 	if cluster.Spec.Ports.LbPort != 0 {

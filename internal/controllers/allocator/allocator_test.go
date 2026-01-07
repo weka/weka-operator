@@ -8,14 +8,16 @@ import (
 
 	"github.com/go-logr/zerologr"
 	"github.com/rs/zerolog"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -140,6 +142,10 @@ allocatedranges:
 	}
 	config.allocations.Global = startingAllocations
 	cluster1 := testWekaCluster("cluster-1")
+
+	// Setup feature flags cache for the test (using empty image as testWekaCluster doesn't set it)
+	_ = services.FeatureFlagsCache.SetFeatureFlags(ctx, "", &domain.FeatureFlags{})
+
 	err = allocator.AllocateClusterRange(ctx, cluster1)
 	if err != nil {
 		t.Errorf("Failed to allocate cluster range: %v", err)
