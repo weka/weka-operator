@@ -71,6 +71,16 @@ func getSinglePortsOffset(ctx context.Context, image string) (int, error) {
 	return DefaultSinglePortsOffset, nil
 }
 
+// derivePortConfigFromClusterRange derives port configuration from the cluster's
+// already-allocated port range size. This ensures container allocation is consistent
+// with the cluster's allocation decision, without needing to re-fetch feature flags.
+func derivePortConfigFromClusterRange(clusterPortRange int) (portsPerContainer int, singlePortsOffset int) {
+	if clusterPortRange == ReducedClusterPortRange {
+		return ReducedPortsPerContainer, ReducedSinglePortsOffset
+	}
+	return DefaultPortsPerContainer, DefaultSinglePortsOffset
+}
+
 type AllocateClusterRangeError struct {
 	Msg string
 }
@@ -142,10 +152,8 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 	}
 
 	// Allocate management proxy port using the global allocations
-	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
-	if err != nil {
-		return fmt.Errorf("failed to get single ports offset: %w", err)
-	}
+	// Derive offset from cluster's already-allocated port range
+	_, singlePortsOffset := derivePortConfigFromClusterRange(cluster.Status.Ports.PortRange)
 	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, singlePortsOffset, nodePortClaims)
 	if err != nil {
 		return err
