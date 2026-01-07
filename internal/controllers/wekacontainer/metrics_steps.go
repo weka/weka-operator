@@ -232,7 +232,7 @@ func (r *containerReconcilerLoop) RegisterContainerOnMetrics(ctx context.Context
 
 	// include feature flags for client containers
 	if r.container.IsClientContainer() {
-		flags, err := r.GetCachedFeatureFlags(ctx)
+		flags, err := r.GetFeatureFlags(ctx)
 		if err != nil {
 			return errors.Wrap(err, "failed to get feature flags for container")
 		}
