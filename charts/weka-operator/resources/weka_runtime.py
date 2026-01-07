@@ -106,6 +106,13 @@ GCP_VENDOR_ID = "0x1ae0"
 GCP_DEVICE_ID = "0x001f"
 AUTO_REMOVE_TIMEOUT = int(os.environ.get("AUTO_REMOVE_TIMEOUT", "0"))
 
+# Regex pattern for extracting UUID from weka-sign-drive sign proxy output
+# Matches: "Partition 1 UUID: 8f15b7b2-280a-4718-8e97-e82aecc295c1 Start: 256 End: 1875366143"
+SIGN_OUTPUT_UUID_PATTERN = re.compile(
+    r'Partition\s+\d+\s+UUID:\s+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})',
+    re.IGNORECASE
+)
+
 # for client dynamic port allocation
 BASE_PORT = os.environ.get("BASE_PORT", "")
 PORT_RANGE = os.environ.get("PORT_RANGE", "0")
@@ -504,6 +511,11 @@ class SignException(Exception):
     pass
 
 
+class UUIDMismatchException(SignException):
+    """Raised when UUID from sign output doesn't match UUID from show/list commands."""
+    pass
+
+
 async def sign_device_path(device_path, options: SignOptions):
     # Check if device path should be excluded
     if device_path in EXCLUDED_DRIVE_PATHS:
@@ -526,6 +538,61 @@ async def sign_device_path(device_path, options: SignOptions):
     if ec != 0:
         err = f"Failed to sign drive {device_path}: {stderr}"
         raise SignException(err)
+
+
+def parse_uuid_from_sign_output(stdout: bytes) -> Optional[str]:
+    """
+    Parse UUID from weka-sign-drive sign proxy command output.
+
+    Expected format: "Partition 1 UUID: 8f15b7b2-280a-4718-8e97-e82aecc295c1 Start: 256 End: 1875366143"
+
+    Returns:
+        UUID string (lowercase) if found, None otherwise.
+    """
+    if not stdout:
+        return None
+
+    try:
+        output_text = stdout.decode('utf-8')
+        match = SIGN_OUTPUT_UUID_PATTERN.search(output_text)
+        if match:
+            return match.group(1).lower()
+    except (UnicodeDecodeError, AttributeError) as e:
+        logging.warning(f"Failed to parse sign output for UUID: {e}")
+
+    return None
+
+
+def validate_uuid_consistency(sign_uuid: Optional[str], show_uuid: str, device_path: str) -> None:
+    """
+    Validate that UUID from sign output matches UUID from show command.
+
+    Args:
+        sign_uuid: UUID parsed from sign command output (may be None)
+        show_uuid: UUID from weka-sign-drive show command (required)
+        device_path: Device path for error messages
+
+    Raises:
+        UUIDMismatchException: If UUIDs don't match
+    """
+    if sign_uuid is None:
+        logging.debug(f"No UUID found in sign output for {device_path}, skipping validation")
+        return
+
+    # Normalize both UUIDs to lowercase for comparison
+    sign_uuid_normalized = sign_uuid.lower()
+    show_uuid_normalized = show_uuid.lower()
+
+    if sign_uuid_normalized != show_uuid_normalized:
+        err_msg = (
+            f"UUID mismatch for {device_path}: "
+            f"sign output UUID={sign_uuid_normalized}, "
+            f"show command UUID={show_uuid_normalized}"
+        )
+        logging.error(err_msg)
+        raise UUIDMismatchException(err_msg)
+
+    logging.debug(f"UUID validation passed for {device_path}: {show_uuid_normalized}")
 
 
 async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
@@ -556,9 +623,22 @@ async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
         logging.error(err)
         raise SignException(err)
 
-    # Parse signing output (may contain info, but we'll use show command for consistency)
+    # Parse UUID from sign output
+    sign_uuid = parse_uuid_from_sign_output(stdout)
+    if sign_uuid:
+        logging.info(f"Parsed UUID from sign output for {device_path}: {sign_uuid}")
+    else:
+        logging.warning(f"Could not parse UUID from sign output for {device_path}")
+
     logging.info(f"Successfully signed {device_path} for proxy")
-    return await get_proxy_drive_info(device_path)
+
+    # Get drive info from show command
+    drive_info = await get_proxy_drive_info(device_path)
+
+    # Validate UUID consistency between sign output and show command
+    validate_uuid_consistency(sign_uuid, drive_info['physical_uuid'], device_path)
+
+    return drive_info
 
 
 async def get_device_serial_id(device_path: str) -> str:
@@ -997,8 +1077,41 @@ async def discover_drives():
     ))
 
 
-async def discover_ssdproxy_drives():
+def validate_drives_against_list(signed_drives: List[dict], list_drives: List[dict]) -> None:
+    """
+    Validate that all signed drives' UUIDs match those in the list output.
+
+    Args:
+        signed_drives: List of dicts from sign_device_path_for_proxy() with 'physical_uuid' and 'device_path'
+        list_drives: List from list_weka_proxy_drives_with_sign_tool()
+
+    Raises:
+        UUIDMismatchException: If any UUID mismatch found
+    """
+    list_uuids = {d.get('physical_uuid', '').lower() for d in list_drives if d.get('physical_uuid')}
+
+    for signed_drive in signed_drives:
+        show_uuid = signed_drive.get('physical_uuid', '').lower()
+        device_path = signed_drive.get('device_path', 'unknown')
+
+        if show_uuid and show_uuid not in list_uuids:
+            err_msg = (
+                f"UUID mismatch for {device_path}: "
+                f"show command UUID={show_uuid} not found in weka-sign-drive list output"
+            )
+            logging.error(err_msg)
+            raise UUIDMismatchException(err_msg)
+
+    logging.info(f"All {len(signed_drives)} drives validated against list output")
+
+
+async def discover_ssdproxy_drives(signed_drives: List[dict] = None):
     drives = await list_weka_proxy_drives_with_sign_tool()
+
+    # Validate signed drives against list output if provided
+    if signed_drives:
+        validate_drives_against_list(signed_drives, drives)
+
     write_results(dict(
         err=None,
         proxy_drives=drives,
@@ -4013,7 +4126,7 @@ async def main():
             await asyncio.sleep(3)  # a hack to give kernel a chance to update paths, as it's not instant
 
             if for_proxy:
-                await discover_ssdproxy_drives()
+                await discover_ssdproxy_drives(signed_drives=signed_drives)
             else:
                 # Regular mode: discover drives and write annotation
                 await discover_drives()
