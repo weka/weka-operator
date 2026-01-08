@@ -196,11 +196,44 @@ spec:
 - TLC capacity: 12000 × 4/(4+1) = 9600 GiB from TLC physical drives
 - QLC capacity: 12000 × 1/(4+1) = 2400 GiB from QLC physical drives
 - Total: 12000 GiB per container
+- **Drive count**: Minimum 6 TLC drives AND 6 QLC drives (equal to `driveCores`)
 
 **Requirements:**
 - Physical drives must have type information (TLC or QLC)
 - Type information comes from `weka-sign-drive show --json` during proxy signing
 - Separate physical drive pools for TLC and QLC must have sufficient capacity
+
+**Minimum Capacity Constraint:**
+
+When using mixed drive types, **each type (TLC and QLC) must get at least `driveCores` virtual drives**. Since each virtual drive requires a minimum of 384 GiB, the capacity requirements are:
+
+- **TLC capacity** ≥ `driveCores × 384 GiB`
+- **QLC capacity** ≥ `driveCores × 384 GiB`
+
+**Example validation:**
+```yaml
+driveCores: 6
+containerCapacity: 12000
+driveTypesRatio: {tlc: 4, qlc: 1}
+```
+- TLC capacity: 9600 GiB ≥ 2304 GiB (6 × 384) ✓
+- QLC capacity: 2400 GiB ≥ 2304 GiB (6 × 384) ✓
+- **Valid configuration**
+
+**Invalid example:**
+```yaml
+driveCores: 5
+containerCapacity: 5000
+driveTypesRatio: {tlc: 4, qlc: 1}
+```
+- TLC capacity: 4000 GiB ≥ 1920 GiB (5 × 384) ✓
+- QLC capacity: 1000 GiB < 1920 GiB (5 × 384) ✗
+- **Error:** "insufficient QLC capacity: need at least 1920 GiB to allocate 5 QLC drives, but only 1000 GiB available"
+
+**To fix insufficient capacity errors:**
+1. Increase `containerCapacity`
+2. Decrease `driveCores`
+3. Adjust `driveTypesRatio` to allocate more capacity to the constrained type
 
 **Use case:** Mixed drive types for performance/cost balance, tiered storage.
 
@@ -373,6 +406,28 @@ kubectl get wekacontainer <container-name> -n <namespace> -o jsonpath='{.status.
 - Available: 15360 - 11000 = 4360 GiB
 
 ### Allocation Errors
+
+**Minimum Drive Count Constraint Error (Mixed Types):**
+```
+insufficient QLC capacity for default/my-cluster-drive-0: need at least 1920 GiB
+to allocate 5 QLC drives (minimum 384 GiB per drive), but only 1000 GiB available
+```
+
+**Resolution:**
+- **Increase** `containerCapacity` to provide more capacity for the constrained type
+- **Decrease** `driveCores` if fewer drives are acceptable
+- **Adjust** `driveTypesRatio` to allocate more capacity to the constrained type
+  - Example: Change from `{tlc: 4, qlc: 1}` to `{tlc: 3, qlc: 2}` to give more capacity to QLC
+
+**Minimum Drive Count Constraint Error (Single Type):**
+```
+insufficient capacity for default/my-cluster-drive-0: need at least 1920 GiB
+to allocate 5 drives (minimum 384 GiB per drive), but only 1500 GiB available
+```
+
+**Resolution:**
+- **Increase** `containerCapacity` to meet minimum requirement
+- **Decrease** `driveCores` if fewer drives are acceptable
 
 **InsufficientDriveCapacityError:**
 ```

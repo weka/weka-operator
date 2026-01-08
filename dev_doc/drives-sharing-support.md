@@ -155,6 +155,25 @@ spec:
 **Global Drive Types Ratio:**
 If per-cluster `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the operator automatically applies the global default ratio from Helm values. For example, `driveTypesRatio: {tlc: 4, qlc: 1}` (80% TLC, 20% QLC) in Helm values is directly used as the cluster's `driveTypesRatio`. Default is TLC-only (`tlc: 1, qlc: 0`).
 
+**Minimum Drive Count Constraint:**
+When using mixed drive types, each type (TLC and QLC) must receive **at least `driveCores` virtual drives**. This constraint is enforced at allocation time in the allocator.
+
+- **Implementation**: `internal/controllers/allocator/container_allocator.go`
+  - Function: `allocateSharedDrivesByCapacityWithTypes()` (mixed types)
+  - Function: `allocateSharedDrivesByCapacity()` (single type)
+- **Constant**: `MinChunkSizeGiB = 384 GiB` (128 GiB × 3)
+- **Validation**: Each type's capacity must be ≥ `driveCores × 384 GiB`
+- **Behavior**:
+  - For mixed types: `tlcCores = numCores`, `qlcCores = numCores` (if capacity needed)
+  - The `driveTypesRatio` is used ONLY for capacity distribution, not drive count distribution
+- **Error handling**: Returns clear error message if capacity is insufficient for minimum drive count
+
+**Example:**
+- `driveCores: 5`, `containerCapacity: 5000`, `driveTypesRatio: {tlc: 4, qlc: 1}`
+- TLC capacity: 4000 GiB (80%) → needs 1920 GiB (5 × 384) ✓
+- QLC capacity: 1000 GiB (20%) → needs 1920 GiB (5 × 384) ✗
+- Result: Allocation fails with error message
+
 **Use case:** When you have mixed TLC/QLC drives and want to control the ratio of drive types per container
 
 ---
@@ -164,9 +183,10 @@ If per-cluster `driveTypesRatio` is not explicitly set and `containerCapacity` >
 **High-Level Steps:**
 1. Operator reads physical drive information from node annotation (`weka.io/shared-drives`)
 2. Builds capacity map for each physical drive (total, claimed, available)
-3. Filters drives by minimum capacity (MinChunkSizeGiB = 1024 GiB = 128 GiB * 3)
-4. Sorts drives by available capacity (most available first)
-5. For drive type ratio mode:
+3. Filters drives by minimum capacity (MinChunkSizeGiB = 384 GiB = 128 GiB × 3)
+4. Validates minimum drive count constraint (capacity ≥ `driveCores × 384 GiB` per type)
+5. Sorts drives by available capacity (most available first)
+6. For drive type ratio mode:
    - Separates physical drives by type (TLC vs QLC)
    - Allocates TLC drives first from TLC physical drives
    - Allocates QLC drives from QLC physical drives

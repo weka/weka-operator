@@ -574,25 +574,34 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	tlcCapacityNeeded := req.Container.Spec.GetTlcContainerCapacity()
 	qlcCapacityNeeded := req.Container.Spec.GetQlcContainerCapacity()
 
-	// Calculate proportional core allocation based on drive type ratio
-	// Use integer division and assign remainder to ensure all cores are used
-	totalParts := req.Container.Spec.DriveTypesRatio.Tlc + req.Container.Spec.DriveTypesRatio.Qlc
-	qlcCores := (numCores * req.Container.Spec.DriveTypesRatio.Qlc) / totalParts
-	tlcCores := numCores - qlcCores // Assign remainder to TLC to use all cores
-
-	// Ensure at least 1 core per type if capacity is needed
-	if tlcCapacityNeeded > 0 && tlcCores == 0 {
-		tlcCores = 1
-		// Adjust qlcCores to maintain total
-		if qlcCores > 0 {
-			qlcCores--
+	// Validate minimum drive count constraint
+	// Each drive type gets numCores drives if it needs any capacity
+	// Each drive must be at least MinChunkSizeGiB (384 GiB)
+	if tlcCapacityNeeded > 0 {
+		minTlcCapacity := numCores * MinChunkSizeGiB
+		if tlcCapacityNeeded < minTlcCapacity {
+			return nil, fmt.Errorf(
+				"insufficient TLC capacity for %s: need at least %d GiB to allocate %d TLC drives (minimum %d GiB per drive), but only %d GiB available",
+				req.Container.Name,
+				minTlcCapacity,
+				numCores,
+				MinChunkSizeGiB,
+				tlcCapacityNeeded,
+			)
 		}
 	}
-	if qlcCapacityNeeded > 0 && qlcCores == 0 {
-		qlcCores = 1
-		// Adjust tlcCores to maintain total
-		if tlcCores > 0 {
-			tlcCores--
+
+	if qlcCapacityNeeded > 0 {
+		minQlcCapacity := numCores * MinChunkSizeGiB
+		if qlcCapacityNeeded < minQlcCapacity {
+			return nil, fmt.Errorf(
+				"insufficient QLC capacity for %s: need at least %d GiB to allocate %d QLC drives (minimum %d GiB per drive), but only %d GiB available",
+				req.Container.Name,
+				minQlcCapacity,
+				numCores,
+				MinChunkSizeGiB,
+				qlcCapacityNeeded,
+			)
 		}
 	}
 
@@ -600,14 +609,11 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		"tlcCapacityNeeded", tlcCapacityNeeded,
 		"qlcCapacityNeeded", qlcCapacityNeeded,
 		"numCores", numCores,
-		"tlcCores", tlcCores,
-		"qlcCores", qlcCores,
 	)
 	defer end()
 
 	logger.Info("Allocating virtual drives by capacity with drive types",
-		"tlcCores", tlcCores,
-		"qlcCores", qlcCores,
+		"numCores", numCores,
 	)
 
 	// Separate drives by type
@@ -637,7 +643,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		}
 
 		tlcDriveCapacities := buildDriveCapacityMap(ctx, tlcDrives, containers)
-		generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, tlcCores, MinChunkSizeGiB, tlcDriveCapacities)
+		generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, numCores, MinChunkSizeGiB, tlcDriveCapacities)
 
 		done := make(chan struct{})
 		defer close(done)
@@ -697,7 +703,7 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		}
 
 		qlcDriveCapacities := buildDriveCapacityMap(ctx, qlcDrives, containers)
-		generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, qlcCores, MinChunkSizeGiB, qlcDriveCapacities)
+		generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, numCores, MinChunkSizeGiB, qlcDriveCapacities)
 
 		done := make(chan struct{})
 		defer close(done)
@@ -768,6 +774,20 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacity(ctx context.
 		"numCores", numCores,
 	)
 	defer end()
+
+	// Validate minimum drive count constraint
+	// Each drive must be at least MinChunkSizeGiB (384 GiB)
+	minCapacity := numCores * MinChunkSizeGiB
+	if totalCapacityNeeded < minCapacity {
+		return nil, fmt.Errorf(
+			"insufficient capacity for %s: need at least %d GiB to allocate %d drives (minimum %d GiB per drive), but only %d GiB available",
+			req.Container.Name,
+			minCapacity,
+			numCores,
+			MinChunkSizeGiB,
+			totalCapacityNeeded,
+		)
+	}
 
 	logger.Info("Allocating virtual drives by capacity")
 
