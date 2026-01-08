@@ -240,7 +240,7 @@ nfs:
 # Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
 driveTypesRatio:
   tlc: 1
-  qlc: 0
+  qlc: 10
 
 # Management proxy configuration
 managementProxy:
