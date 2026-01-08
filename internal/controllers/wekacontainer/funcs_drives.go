@@ -94,24 +94,14 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding virtual drive to cluster")
 
-			var pool *string
+			pool := "iu4k" // default to TLC
 
-			if r.container.TlcToQlcRatioEnabled() {
-				var p string
-				switch vd.Type {
-				case "TLC":
-					p = "iu4k"
-				case "QLC":
-					p = "iubig"
-				}
-
-				if p != "" {
-					pool = &p
-				}
+			if vd.Type == "QLC" {
+				pool = "iubig"
 			}
 
 			// Add drive using virtual UUID (virtual UUID was already signed on device via AddVirtualDrives)
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID, pool)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID, &pool)
 			if err != nil {
 				l.Error(err, "Error adding virtual drive to cluster")
 				errs = append(errs, err)
