@@ -3,6 +3,8 @@ package allocator
 import (
 	"fmt"
 	"sort"
+
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 )
 
 func (r ClusterRanges) GetFreeRange(size int) (int, error) {
@@ -121,65 +123,74 @@ func IsRangeAvailable(boundaries Range, ranges []Range, targetRange Range) bool 
 	return true
 }
 
-func (a *Allocations) EnsureSpecificGlobalRange(Owner OwnerCluster, name string, target Range, nodePortClaims []Range) (Range, error) {
-	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
-		if existing.Base != target.Base {
-			return Range{}, fmt.Errorf("range %s is already allocated with different base %d", name, existing.Base)
+// getClusterPortByName returns the current allocated port from cluster status by name
+func getClusterPortByName(cluster *weka.WekaCluster, name string) int {
+	switch name {
+	case "lb":
+		return cluster.Status.Ports.LbPort
+	case "lbAdmin":
+		return cluster.Status.Ports.LbAdminPort
+	case "s3":
+		return cluster.Status.Ports.S3Port
+	case "managementProxy":
+		return cluster.Status.Ports.ManagementProxyPort
+	default:
+		return 0
+	}
+}
+
+// getClusterRange returns the cluster's port range boundaries
+func getClusterRange(cluster *weka.WekaCluster) Range {
+	return Range{
+		Base: cluster.Status.Ports.BasePort,
+		Size: cluster.Status.Ports.PortRange,
+	}
+}
+
+// EnsureSpecificGlobalRange validates that a specific port range is available.
+// Similar to the original ConfigMap-based version but reads from cluster status.
+func EnsureSpecificGlobalRange(cluster *weka.WekaCluster, name string, target Range, nodePortClaims []Range) (Range, error) {
+	existing := getClusterPortByName(cluster, name)
+
+	// Idempotency check - if already allocated, validate it matches
+	if existing != 0 {
+		if existing != target.Base {
+			return Range{}, fmt.Errorf("range %s is already allocated with different base %d", name, existing)
 		}
-		if existing.Size != target.Size {
-			return Range{}, fmt.Errorf("range %s is already allocated with different size %d", name, existing.Size)
+		if target.Size != 1 {
+			return Range{}, fmt.Errorf("range %s is already allocated with different size", name)
 		}
-		return existing, nil
+		return Range{Base: existing, Size: target.Size}, nil
 	}
 
-	boundaries := a.Global.ClusterRanges[Owner]
-	allocatedRanges := []Range{}
-	for _, v := range a.Global.AllocatedRanges[Owner] {
-		allocatedRanges = append(allocatedRanges, v)
-	}
-
-	// Include per-container port allocations from node annotations to prevent conflicts
-	allocatedRanges = append(allocatedRanges, nodePortClaims...)
+	boundaries := getClusterRange(cluster)
+	allocatedRanges := append(GetClusterGlobalAllocatedRanges(cluster), nodePortClaims...)
 
 	SortRanges(allocatedRanges)
 	if !IsRangeAvailable(boundaries, allocatedRanges, target) {
 		return Range{}, fmt.Errorf("range %s is not available", name)
-	} else {
-		if _, ok := a.Global.AllocatedRanges[Owner]; !ok {
-			a.Global.AllocatedRanges[Owner] = map[string]Range{}
-		}
-		a.Global.AllocatedRanges[Owner][name] = target
-		return target, nil
 	}
+	return target, nil
 }
 
-func (a *Allocations) EnsureGlobalRangeWithOffset(Owner OwnerCluster, name string, size int, offset int, nodePortClaims []Range) (Range, error) {
-	if existing, ok := a.Global.AllocatedRanges[Owner][name]; ok {
-		return existing, nil
+// EnsureGlobalRangeWithOffset finds a free range within the cluster's port range starting at the given offset.
+// Similar to the original ConfigMap-based version but reads from cluster status.
+func EnsureGlobalRangeWithOffset(cluster *weka.WekaCluster, name string, size int, offset int, nodePortClaims []Range) (Range, error) {
+	existing := getClusterPortByName(cluster, name)
+
+	// Idempotency check - if already allocated, return it
+	if existing != 0 {
+		return Range{Base: existing, Size: size}, nil
 	}
 
-	allowedRange := a.Global.ClusterRanges[Owner]
-	globalRanges := []Range{}
-	for _, v := range a.Global.AllocatedRanges[Owner] {
-		globalRanges = append(globalRanges, v)
-	}
+	boundaries := getClusterRange(cluster)
+	allocatedRanges := append(GetClusterGlobalAllocatedRanges(cluster), nodePortClaims...)
 
-	// Include per-container port allocations from node annotations to prevent conflicts
-	allRanges := append(globalRanges, nodePortClaims...)
-
-	SortRanges(allRanges)
-	rangeBase, err := GetFreeRangeWithOffset(allowedRange, allRanges, size, offset)
+	SortRanges(allocatedRanges)
+	rangeBase, err := GetFreeRangeWithOffset(boundaries, allocatedRanges, size, offset)
 	if err != nil {
 		return Range{}, err
 	}
-	newRange := Range{Base: rangeBase, Size: size}
-	if _, ok := a.Global.AllocatedRanges[Owner]; !ok {
-		a.Global.AllocatedRanges[Owner] = map[string]Range{}
-	}
-	a.Global.AllocatedRanges[Owner][name] = newRange
-	return newRange, nil
+	return Range{Base: rangeBase, Size: size}, nil
 }
 
-func (a *Allocations) EnsureGlobalRange(Owner OwnerCluster, name string, size int, nodePortClaims []Range) (Range, error) {
-	return a.EnsureGlobalRangeWithOffset(Owner, name, size, 0, nodePortClaims)
-}

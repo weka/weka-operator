@@ -199,31 +199,20 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
 	defer end()
 
-	// Get the cluster's allocated port range from global allocator
-	resourceAllocator, err := GetAllocator(ctx, a.client)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get allocator: %w", err)
-	}
-
-	allocations, err := resourceAllocator.GetAllocations(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get allocations: %w", err)
-	}
-
-	ownerCluster := OwnerCluster{
-		ClusterName: cluster.Name,
-		Namespace:   cluster.Namespace,
-	}
-
-	clusterRange, ok := allocations.Global.ClusterRanges[ownerCluster]
-	if !ok {
+	// Get the cluster's allocated port range from cluster Status
+	if cluster.Status.Ports.BasePort == 0 {
 		return 0, 0, fmt.Errorf("no port range allocated for cluster %s", cluster.Name)
+	}
+
+	clusterRange := Range{
+		Base: cluster.Status.Ports.BasePort,
+		Size: cluster.Status.Ports.PortRange,
 	}
 
 	logger.Debug("Cluster port range", "base", clusterRange.Base, "size", clusterRange.Size)
 
-	// Build list of allocated ranges from allocatedPorts map and global singleton ports
-	// This prevents container ports from conflicting with global LB/S3/LbAdmin ports
+	// Build list of allocated ranges from allocatedPorts map and singleton ports from cluster Status
+	// This prevents container ports from conflicting with LB/S3/LbAdmin/ManagementProxy ports
 	allocatedRanges := []Range{}
 
 	// Convert allocated ports map to ranges (group consecutive ports)
@@ -246,14 +235,7 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 		i++
 	}
 
-	// Add global singleton ports (LB, S3, LbAdmin) to exclusion list
-	if globalRanges, ok := allocations.Global.AllocatedRanges[ownerCluster]; ok {
-		for rangeName, rangeData := range globalRanges {
-			allocatedRanges = append(allocatedRanges, rangeData)
-			logger.Debug("Excluding global port range", "name", rangeName, "base", rangeData.Base, "size", rangeData.Size)
-		}
-	}
-
+	allocatedRanges = append(allocatedRanges, GetClusterGlobalAllocatedRanges(cluster)...)
 	// Derive port configuration from cluster's allocated port range
 	// This ensures consistency with the cluster's allocation decision
 	portsPerContainer, singlePortsOffset := derivePortConfigFromClusterRange(clusterRange.Size)

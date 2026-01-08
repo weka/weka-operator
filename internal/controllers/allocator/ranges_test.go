@@ -53,24 +53,13 @@ func TestGetFreeRange(t *testing.T) {
 
 }
 
-func TestAllocationsRanges(t *testing.T) {
-	ownerCluster := OwnerCluster{
-		ClusterName: "test",
-		Namespace:   "test",
-	}
-
+func TestClusterRangesAllocation(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
 	r1, _ := clusterRanges.GetFreeRange(500)
 	if r1 != StartingPort {
-		t.Errorf("Expected 14001, got %d", r1)
+		t.Errorf("Expected %d, got %d", StartingPort, r1)
 		return
-	}
-
-	allocations := InitAllocationsMap()
-	allocations.Global.ClusterRanges[ownerCluster] = Range{
-		Base: r1,
-		Size: 500,
 	}
 }
 

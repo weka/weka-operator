@@ -27,21 +27,6 @@ const (
 	ReducedSinglePortsOffset = 240 // After 4 containers worth of ports (60*4), leaving 20 for single ports
 )
 
-// getPortsPerContainer returns the number of ports to allocate per container
-// based on feature flags. Returns 60 if agent_validate_60_ports_per_container
-// is set, otherwise returns 100 (default).
-// Returns error if feature flags are not available.
-func getPortsPerContainer(ctx context.Context, image string) (int, error) {
-	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
-	if err != nil {
-		return 0, fmt.Errorf("feature flags not available: %w", err)
-	}
-	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedPortsPerContainer, nil
-	}
-	return DefaultPortsPerContainer, nil
-}
-
 // getClusterPortRange returns the default cluster port range based on feature flags.
 // Returns 260 if agent_validate_60_ports_per_container is set, otherwise returns 500.
 // Returns error if feature flags are not available.
@@ -91,8 +76,6 @@ func (e *AllocateClusterRangeError) Error() string {
 
 type Allocator interface {
 	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error
-	DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error
-	GetAllocations(ctx context.Context) (*Allocations, error)
 	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error
 }
 
@@ -104,77 +87,35 @@ type AllocatorNodeInfo struct {
 }
 
 type ResourcesAllocator struct {
-	configStore AllocationsStore
-	client      client.Client
-}
-
-func newResourcesAllocator(ctx context.Context, client client.Client) (Allocator, error) {
-	cs, err := NewConfigMapStore(ctx, client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config store: %w", err)
-	}
-
-	resAlloc := &ResourcesAllocator{
-		configStore: cs,
-		client:      client,
-	}
-
-	return resAlloc, nil
-}
-
-func (t *ResourcesAllocator) GetAllocations(ctx context.Context) (*Allocations, error) {
-	return t.configStore.GetAllocations(ctx)
+	client client.Client
 }
 
 func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error {
-	// If port already allocated in cluster status, nothing to do
-	if cluster.Status.Ports.ManagementProxyPort != 0 {
-		return nil
-	}
-
-	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
-
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Check if already allocated in the global allocations (but not in cluster status yet)
-	if existingPort, ok := allocations.Global.AllocatedRanges[owner]["managementProxy"]; ok {
-		// Port is allocated in ConfigMap but not in cluster status, just update status
-		cluster.Status.Ports.ManagementProxyPort = existingPort.Base
-		return nil
-	}
-
-	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, owner)
+	// Aggregate container port allocations to avoid conflicts
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
-	// Allocate management proxy port using the global allocations
 	// Derive offset from cluster's already-allocated port range
 	_, singlePortsOffset := derivePortConfigFromClusterRange(cluster.Status.Ports.PortRange)
-	managementProxyPort, err := allocations.EnsureGlobalRangeWithOffset(owner, "managementProxy", 1, singlePortsOffset, nodePortClaims)
+
+	// Allocate management proxy port (EnsureGlobalRangeWithOffset handles idempotency)
+	managementProxyPortRange, err := EnsureGlobalRangeWithOffset(cluster, "managementProxy", 1, singlePortsOffset, nodePortClaims)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to allocate management proxy port: %w", err)
 	}
 
-	// Update cluster status
-	cluster.Status.Ports.ManagementProxyPort = managementProxyPort.Base
-
-	// Persist the allocations back to the ConfigMap (with optimistic locking)
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return err
-	}
+	// Update cluster status (caller will persist)
+	cluster.Status.Ports.ManagementProxyPort = managementProxyPortRange.Base
 
 	return nil
 }
 
 // AggregateContainerPortAllocations aggregates all per-container port allocations from WekaContainer Status
-// across all nodes. This is used to ensure global port allocations don't conflict with existing
+// across all nodes. This is used to ensure port allocations don't conflict with existing
 // container allocations.
-func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Context, ownerCluster OwnerCluster) ([]Range, error) {
+func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Context) ([]Range, error) {
 	// List all nodes
 	nodeList := &v1.NodeList{}
 	err := t.client.List(ctx, nodeList)
@@ -218,39 +159,51 @@ func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Conte
 	return aggregatedRanges, nil
 }
 
+// aggregateClusterPortRanges lists all WekaClusters and builds a map of allocated port ranges
+// from their Status.Ports. This is used to find free port ranges for new clusters.
+func (t *ResourcesAllocator) aggregateClusterPortRanges(ctx context.Context) (ClusterRanges, error) {
+	clusterList := &weka.WekaClusterList{}
+	if err := t.client.List(ctx, clusterList); err != nil {
+		return nil, fmt.Errorf("failed to list clusters: %w", err)
+	}
+
+	clusterRanges := make(ClusterRanges)
+	for _, c := range clusterList.Items {
+		if c.Status.Ports.BasePort > 0 {
+			owner := OwnerCluster{ClusterName: c.Name, Namespace: c.Namespace}
+			clusterRanges[owner] = Range{
+				Base: c.Status.Ports.BasePort,
+				Size: c.Status.Ports.PortRange,
+			}
+		}
+	}
+
+	return clusterRanges, nil
+}
+
 func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error {
-	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
+	// Validate Spec hasn't changed if already allocated
+	if cluster.Spec.Ports.BasePort != 0 && cluster.Status.Ports.BasePort != 0 && cluster.Status.Ports.BasePort != cluster.Spec.Ports.BasePort {
+		return fmt.Errorf("updating base port is not supported")
+	}
+	if cluster.Spec.Ports.PortRange != 0 && cluster.Status.Ports.PortRange != 0 && cluster.Status.Ports.PortRange != cluster.Spec.Ports.PortRange {
+		return fmt.Errorf("updating port range is not supported")
+	}
 
-	allocations, err := t.configStore.GetAllocations(ctx)
+	// If already allocated in cluster Status, nothing to do
+	// The step predicate should prevent re-entry, but we double-check here
+	if cluster.Status.Ports.BasePort != 0 {
+		return nil
+	}
+
+	// List all clusters to get existing port allocations from their Status
+	clusterRanges, err := t.aggregateClusterPortRanges(ctx)
 	if err != nil {
-		return nil
+		return err
 	}
 
-	if currentAllocation, ok := allocations.Global.ClusterRanges[owner]; ok {
-		if cluster.Spec.Ports.BasePort != 0 {
-			if currentAllocation.Base != cluster.Spec.Ports.BasePort {
-				return fmt.Errorf("updating port range is not supported yet")
-			}
-		}
-
-		if cluster.Spec.Ports.BasePort != 0 {
-			if currentAllocation.Size != cluster.Spec.Ports.BasePort {
-				return fmt.Errorf("updating port range is not supported yet")
-			}
-		}
-
-		cluster.Status.Ports.LbPort = allocations.Global.AllocatedRanges[owner]["lb"].Base
-		cluster.Status.Ports.LbAdminPort = allocations.Global.AllocatedRanges[owner]["lbAdmin"].Base
-		cluster.Status.Ports.S3Port = allocations.Global.AllocatedRanges[owner]["s3"].Base
-
-		cluster.Status.Ports.PortRange = currentAllocation.Size
-		cluster.Status.Ports.BasePort = currentAllocation.Base
-		return nil
-	}
-
-	targetPort := cluster.Spec.Ports.BasePort
+	// Determine target port range size
 	targetSize := cluster.Spec.Ports.PortRange
-
 	if targetSize == 0 {
 		targetSize, err = getClusterPortRange(ctx, cluster.Spec.Image)
 		if err != nil {
@@ -258,82 +211,98 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		}
 	}
 
+	// Determine target base port
+	targetPort := cluster.Spec.Ports.BasePort
 	if targetPort == 0 {
-		// if still 0 - lets find a free port
-		targetPort, err = allocations.Global.ClusterRanges.GetFreeRange(targetSize)
+		// Find a free port range by polling existing clusters
+		targetPort, err = clusterRanges.GetFreeRange(targetSize)
 		if err != nil {
 			return err
 		}
 	}
 
-	isAvailable := allocations.Global.ClusterRanges.IsClusterRangeAvailable(Range{Base: targetPort, Size: targetSize})
+	// Validate the range is available
+	isAvailable := clusterRanges.IsClusterRangeAvailable(Range{Base: targetPort, Size: targetSize})
 	if !isAvailable {
 		msg := fmt.Sprintf("range %d-%d is not available", targetPort, targetPort+targetSize)
 		return &AllocateClusterRangeError{Msg: msg}
 	}
 
-	allocations.Global.ClusterRanges[owner] = Range{
-		Base: targetPort,
-		Size: targetSize,
-	}
+	// Set the cluster's port range in Status
+	cluster.Status.Ports.BasePort = targetPort
+	cluster.Status.Ports.PortRange = targetSize
 
-	// Aggregate per-container port claims from node annotations to prevent conflicts
-	// with global singleton ports (LB, S3, LbAdmin)
-	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, owner)
+	// Aggregate per-container port claims to prevent conflicts with singleton ports
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
-	var envoyPort, envoyAdminPort, s3Port Range
+	// Determine singleton ports offset
 	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
 	if err != nil {
 		return fmt.Errorf("failed to get single ports offset: %w", err)
 	}
 
-	// allocate envoy, envoys3 and envoyadmin ports and ranges
+	// Allocate singleton ports (LB, LB Admin, S3)
+	// Each allocation updates cluster.Status, so the next call sees the previous allocation
+
+	// Allocate LB port
+	var lbPortRange Range
 	if cluster.Spec.Ports.LbPort != 0 {
-		envoyPort, err = allocations.EnsureSpecificGlobalRange(owner, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1}, nodePortClaims)
+		lbPortRange, err = EnsureSpecificGlobalRange(cluster, "lb", Range{Base: cluster.Spec.Ports.LbPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lb", 1, singlePortsOffset, nodePortClaims)
+		lbPortRange, err = EnsureGlobalRangeWithOffset(cluster, "lb", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to allocate LB port: %w", err)
 	}
+	cluster.Status.Ports.LbPort = lbPortRange.Base
 
+	// Allocate LB Admin port
+	var lbAdminPortRange Range
 	if cluster.Spec.Ports.LbAdminPort != 0 {
-		envoyAdminPort, err = allocations.EnsureSpecificGlobalRange(owner, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1}, nodePortClaims)
+		lbAdminPortRange, err = EnsureSpecificGlobalRange(cluster, "lbAdmin", Range{Base: cluster.Spec.Ports.LbAdminPort, Size: 1}, nodePortClaims)
 	} else {
-		envoyAdminPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "lbAdmin", 1, singlePortsOffset, nodePortClaims)
+		lbAdminPortRange, err = EnsureGlobalRangeWithOffset(cluster, "lbAdmin", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to allocate LB Admin port: %w", err)
 	}
+	cluster.Status.Ports.LbAdminPort = lbAdminPortRange.Base
 
+	// Allocate S3 port
+	var s3PortRange Range
 	if cluster.Spec.Ports.S3Port != 0 {
-		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1}, nodePortClaims)
+		s3PortRange, err = EnsureSpecificGlobalRange(cluster, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1}, nodePortClaims)
 	} else {
-		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, singlePortsOffset, nodePortClaims)
+		s3PortRange, err = EnsureGlobalRangeWithOffset(cluster, "s3", 1, singlePortsOffset, nodePortClaims)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to allocate S3 port: %w", err)
 	}
-
-	cluster.Status.Ports.LbPort = envoyPort.Base
-	cluster.Status.Ports.LbAdminPort = envoyAdminPort.Base
-	cluster.Status.Ports.S3Port = s3Port.Base
+	cluster.Status.Ports.S3Port = s3PortRange.Base
 
 	// Management proxy port is allocated on-demand when the management proxy is first enabled
 	// This avoids wasting a port if the feature is not used
 
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return err
-	}
-
-	cluster.Status.Ports.PortRange = targetSize
-	cluster.Status.Ports.BasePort = targetPort
-
 	return nil
+}
+
+func GetClusterGlobalAllocatedRanges(cluster *weka.WekaCluster) (allocatedRanges []Range) {
+	if cluster.Status.Ports.LbPort > 0 {
+		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.LbPort, Size: 1})
+	}
+	if cluster.Status.Ports.LbAdminPort > 0 {
+		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.LbAdminPort, Size: 1})
+	}
+	if cluster.Status.Ports.S3Port > 0 {
+		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.S3Port, Size: 1})
+	}
+	if cluster.Status.Ports.ManagementProxyPort > 0 {
+		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.ManagementProxyPort, Size: 1})
+	}
+	return
 }
 
 type AllocationFailure struct {
@@ -350,29 +319,6 @@ func (f *FailedAllocations) Error() string {
 		strBuilder.WriteString(fmt.Sprintf("%s: %s\n", failed.Container.Name, failed.Err.Error()))
 	}
 	return strBuilder.String()
-}
-
-// DeallocateCluster removes global cluster port range allocations from ConfigMap.
-// Per-container resources (drives, ports) are cleaned up via node annotations
-// when containers are deleted (see CleanupClaimsOnNode in funcs_node_claims.go).
-func (t *ResourcesAllocator) DeallocateCluster(ctx context.Context, cluster *weka.WekaCluster) error {
-	owner := OwnerCluster{ClusterName: cluster.Name, Namespace: cluster.Namespace}
-
-	allocations, err := t.configStore.GetAllocations(ctx)
-	if err != nil {
-		return nil
-	}
-
-	// Only clean up global cluster port ranges
-	delete(allocations.Global.ClusterRanges, owner)
-	delete(allocations.Global.AllocatedRanges, owner)
-
-	err = t.configStore.UpdateAllocations(ctx, allocations)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func NewContainerName(role string) string {
@@ -488,9 +434,9 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 }
 
 // GetAllocator creates and returns a new ResourcesAllocator instance.
-// Each instance maintains its own cached view of allocations from the shared ConfigMap.
-// The ConfigMapStore handles synchronization through Kubernetes optimistic locking,
-// ensuring consistent resource allocation across multiple controller instances.
-func GetAllocator(ctx context.Context, client client.Client) (Allocator, error) {
-	return newResourcesAllocator(ctx, client)
+// Port allocations are serialized by polling WekaCluster Status objects,
+func GetAllocator(client client.Client) Allocator {
+	return &ResourcesAllocator{
+		client: client,
+	}
 }

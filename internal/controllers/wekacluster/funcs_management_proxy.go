@@ -138,13 +138,10 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyPortAllocated(ctx conte
 	}
 
 	// Use the allocator interface which handles concurrency safely with optimistic locking
-	allocatorInstance, err := allocator.GetAllocator(ctx, r.getClient())
-	if err != nil {
-		return err
-	}
+	resourcesAllocator := allocator.GetAllocator(r.getClient())
 
 	// Allocate the port using the allocator interface
-	err = allocatorInstance.EnsureManagementProxyPort(ctx, r.cluster)
+	err := resourcesAllocator.EnsureManagementProxyPort(ctx, r.cluster)
 	if err != nil {
 		return err
 	}

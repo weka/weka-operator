@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,22 +35,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestAllocator(ctx context.Context, numDrives int) (Allocator, *InMemoryConfigStore, error) {
-	cs := NewInMemoryConfigStore()
-
-	// Create fake client with proper scheme
+func newTestAllocator(existingClusters []weka.WekaCluster) Allocator {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = weka.AddToScheme(scheme)
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		Build()
+	clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
+	for i := range existingClusters {
+		clientBuilder = clientBuilder.WithStatusSubresource(&existingClusters[i])
+		clientBuilder = clientBuilder.WithObjects(&existingClusters[i])
+	}
 
 	return &ResourcesAllocator{
-		configStore: cs,
-		client:      fakeClient,
-	}, cs, nil
+		client: clientBuilder.Build(),
+	}
 }
 
 func testWekaCluster(name string) *weka.WekaCluster {
@@ -71,89 +68,54 @@ func testWekaCluster(name string) *weka.WekaCluster {
 	}
 }
 
-func TestAllocatorGlobalRanges(t *testing.T) {
-	badYaml := `clusterranges:
-  cluster-obs-test;default:
-    base: 46000
-    size: 500
-  weka-infra;infra:
-    base: 35000
-    size: 500
-  scalenodes;default:
-    base: 35500
-    size: 500
-  crocodile;weka-operator-system:
-    base: 36500
-    size: 500
-allocatedranges:
-  weka-infra;infra:
-    lb:
-      base: 35300
-      size: 1
-    lbAdmin:
-      base: 35301
-      size: 1
-    s3:
-      base: 35302
-      size: 1
-  crocodile;weka-operator-system:
-    lb:
-      base: 36800
-      size: 1
-    lbAdmin:
-      base: 36801
-      size: 1
-    s3:
-      base: 36802
-      size: 1
-  scalenodes;default:
-    lb:
-      base: 35800
-      size: 1
-    lbAdmin:
-      base: 35801
-      size: 1
-    s3:
-      base: 35802
-      size: 1
-  cluster-obs-test;default:
-    lb:
-      base: 46300
-      size: 1
-    lbAdmin:
-      base: 46301
-      size: 1
-    s3:
-      base: 46302
-      size: 1`
+func testWekaClusterWithPorts(name, namespace string, basePort, portRange int) *weka.WekaCluster {
+	return &weka.WekaCluster{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Status: weka.WekaClusterStatus{
+			Ports: weka.ClusterPorts{
+				BasePort:  basePort,
+				PortRange: portRange,
+			},
+		},
+	}
+}
 
+func TestAllocatorGlobalRanges(t *testing.T) {
 	ctx := context.Background()
-	allocator, config, err := newTestAllocator(ctx, 4)
-	if err != nil {
-		t.Errorf("Failed to create allocator: %v", err)
-		return
+
+	// Create existing clusters with port allocations in their Status
+	existingClusters := []weka.WekaCluster{
+		*testWekaClusterWithPorts("cluster-obs-test", "default", 46000, 500),
+		*testWekaClusterWithPorts("weka-infra", "infra", 35000, 500),
+		*testWekaClusterWithPorts("scalenodes", "default", 35500, 500),
+		*testWekaClusterWithPorts("crocodile", "weka-operator-system", 36500, 500),
 	}
-	//unmarshal
-	startingAllocations := GlobalAllocations{}
-	err = yaml.Unmarshal([]byte(badYaml), &startingAllocations)
-	if err != nil {
-		t.Errorf("Failed to unmarshal yaml: %v", err)
-		return
-	}
-	config.allocations.Global = startingAllocations
-	cluster1 := testWekaCluster("cluster-1")
+
+	allocator := newTestAllocator(existingClusters)
 
 	// Setup feature flags cache for the test (using empty image as testWekaCluster doesn't set it)
 	_ = services.FeatureFlagsCache.SetFeatureFlags(ctx, "", &domain.FeatureFlags{})
 
-	err = allocator.AllocateClusterRange(ctx, cluster1)
+	// Create a new cluster to allocate
+	cluster1 := testWekaCluster("cluster-1")
+
+	err := allocator.AllocateClusterRange(ctx, cluster1)
 	if err != nil {
 		t.Errorf("Failed to allocate cluster range: %v", err)
 		return
 	}
-	// would expect to recieve range of 36000 here
+
+	// The existing clusters occupy:
+	// - 35000-35499 (weka-infra)
+	// - 35500-35999 (scalenodes)
+	// - 36500-36999 (crocodile)
+	// - 46000-46499 (cluster-obs-test)
+	// So the first available gap is 36000-36499
 	if cluster1.Status.Ports.BasePort != 36000 {
-		t.Errorf("Failed to allocate correct base port: %v", cluster1.Status.Ports.BasePort)
+		t.Errorf("Expected base port 36000, got: %v", cluster1.Status.Ports.BasePort)
 		return
 	}
 }

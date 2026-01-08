@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/weka/weka-operator/internal/consts"
-	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/utils"
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
@@ -264,23 +263,7 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 		return err
 	}
 
-	logger.Debug("All containers are removed, deallocating cluster resources")
+	logger.Debug("All containers are removed")
 
-	err = r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusDeallocating)
-	if err != nil {
-		return err
-	}
-
-	_ = r.RecordEventThrottled(v1.EventTypeNormal, "DeallocatingClusterResources", "Deallocating cluster resources", time.Second*15)
-
-	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
-	if err != nil {
-		return err
-	}
-
-	err = resourcesAllocator.DeallocateCluster(ctx, cluster)
-	if err != nil {
-		return err
-	}
 	return nil
 }

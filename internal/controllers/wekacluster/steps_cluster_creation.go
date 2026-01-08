@@ -206,11 +206,7 @@ func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) e
 		return err // Propagate error (including WaitError if ad-hoc container still running)
 	}
 
-	resourcesAllocator, err := allocator.GetAllocator(ctx, r.getClient())
-	if err != nil {
-		logger.Error(err, "Failed to create resources allocator")
-		return err
-	}
+	resourcesAllocator := allocator.GetAllocator(r.getClient())
 
 	err = resourcesAllocator.AllocateClusterRange(ctx, cluster)
 	var allocateRangeErr *allocator.AllocateClusterRangeError
