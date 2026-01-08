@@ -80,6 +80,17 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	// Get failure domain
 	failureDomain := r.getFailureDomain(ctx)
 
+	// Validate drive sharing configuration before allocation
+	if err := r.validateDriveSharingConfig(); err != nil {
+		var configErr *allocator.InvalidDriveSharingConfigError
+		if errors.As(err, &configErr) {
+			logger.Error(err, "Invalid drive sharing configuration")
+			_ = r.RecordEvent(v1.EventTypeWarning, "InvalidDriveSharingConfig", err.Error())
+			return lifecycle.NewWaitErrorWithDuration(err, 30*time.Second)
+		}
+		return err
+	}
+
 	// Determine which port allocations are needed
 	// Weka port (100 ports): only for host-network containers that are not Envoy
 	allocateWekaPort := r.container.IsHostNetwork() && !r.container.IsEnvoy()
@@ -202,4 +213,26 @@ func (r *containerReconcilerLoop) getOwnerCluster(ctx context.Context) (*weka.We
 	}
 
 	return cluster, nil
+}
+
+// validateDriveSharingConfig validates the drive sharing configuration
+// Returns an error if the configuration is invalid
+func (r *containerReconcilerLoop) validateDriveSharingConfig() error {
+	spec := r.container.Spec
+
+	// Check mutual exclusivity: numDrives and containerCapacity
+	if spec.NumDrives > 0 && spec.ContainerCapacity > 0 {
+		return &allocator.InvalidDriveSharingConfigError{
+			Message: "numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types",
+		}
+	}
+
+	// Check numDrives >= numCores when using driveCapacity (TLC-only mode)
+	if spec.DriveCapacity > 0 && spec.NumDrives > 0 && spec.NumDrives < spec.NumCores {
+		return &allocator.InvalidDriveSharingConfigError{
+			Message: fmt.Sprintf("numDrives (%d) must be >= numCores (%d) when using driveCapacity (TLC-only mode); each core requires at least one virtual drive", spec.NumDrives, spec.NumCores),
+		}
+	}
+
+	return nil
 }

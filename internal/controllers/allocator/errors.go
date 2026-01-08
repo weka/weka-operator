@@ -40,3 +40,12 @@ func (e *PortAllocationError) Error() string {
 func (e *PortAllocationError) Unwrap() error {
 	return e.Cause
 }
+
+// InvalidDriveSharingConfigError is returned when drive sharing configuration is invalid
+type InvalidDriveSharingConfigError struct {
+	Message string
+}
+
+func (e *InvalidDriveSharingConfigError) Error() string {
+	return e.Message
+}
