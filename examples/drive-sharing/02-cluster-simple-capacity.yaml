@@ -1,0 +1,53 @@
+# Simple drive sharing configuration using total container capacity
+# Each drive container gets 8000 GiB total, automatically distributed across virtual drives
+#
+# Prerequisites:
+# - Drives must be signed for proxy mode (shared: true)
+# - Sufficient shared drive capacity available on nodes
+#
+# This is the RECOMMENDED approach for most deployments
+
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: my-cluster
+  namespace: default
+spec:
+  # Weka container image
+  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  imagePullSecret: quay-io-secret
+
+  # Driver distribution service
+  driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
+
+  # Template type
+  template: dynamic
+
+  # Cluster topology
+  dynamicTemplate:
+    # Drive containers
+    driveContainers: 6
+    driveCores: 4
+    containerCapacity: 8000  # 8TB per drive container (enables drive sharing)
+
+    # Compute containers
+    computeContainers: 6
+    computeCores: 3
+
+  # Node selection
+  nodeSelector:
+    weka.io/supports-backends: "true"
+
+  # Network configuration
+  network:
+    deviceSubnets:
+    - 10.100.0.0/16
+
+  # Port allocation
+  ports:
+    basePort: 15000
+
+  # Storage configuration
+  redundancyLevel: 2
+  stripeWidth: 3
+  hotSpare: 1

@@ -1,5 +1,9 @@
 ### Sign Drives (backends only)
-Drive containers will be scheduled on nodes that have available signed drives
+
+Drive containers will be scheduled on nodes that have available signed drives.
+
+**Note:** This section covers **exclusive drive signing** for single-cluster deployments. For multi-cluster deployments where physical drives are shared between clusters, see [Drive Sharing](drive-sharing.md).
+
 To scan nodes for drives that can be used for weka and sign them, apply following policy
 
 ```yaml

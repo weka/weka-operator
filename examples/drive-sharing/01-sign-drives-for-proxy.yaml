@@ -1,0 +1,43 @@
+# Sign drives for proxy mode to enable drive sharing between multiple clusters
+# This is required BEFORE creating any clusters that use drive sharing
+#
+# What this does:
+# - Signs all non-root drives on backend nodes for shared/proxy mode
+# - Creates weka.io/shared-drives annotation with drive information
+# - Creates weka.io/shared-drives-capacity extended resource for scheduling
+#
+# Run this once per cluster environment, or use WekaPolicy for ongoing operations
+
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaManualOperation
+metadata:
+  name: sign-drives-for-proxy
+  namespace: weka-operator-system  # Replace with your operator namespace
+spec:
+  action: sign-drives
+  deletionDelay: 5m
+  payload:
+    signDrivesPayload:
+      shared: true  # CRITICAL: Enables proxy mode signing
+      type: all-not-root
+      nodeSelector:
+        weka.io/supports-backends: "true"
+      options:
+        allowEraseWekaPartitions: true
+        allowEraseNonWekaPartitions: true
+
+---
+# Alternative: Use WekaPolicy for continuous drive signing (recommended for production)
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: sign-drives-for-proxy-policy
+  namespace: weka-operator-system  # Replace with your operator namespace
+spec:
+  type: sign-drives
+  payload:
+    signDrivesPayload:
+      shared: true  # CRITICAL: Enables proxy mode signing
+      type: all-not-root
+      nodeSelector:
+        weka.io/supports-backends: "true"

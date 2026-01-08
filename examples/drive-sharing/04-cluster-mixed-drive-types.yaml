@@ -1,0 +1,48 @@
+# Drive sharing with mixed TLC/QLC drive types
+# Allocates capacity from both high-performance (TLC) and cost-optimized (QLC) drives
+#
+# Use this when:
+# - You have mixed TLC and QLC drives on nodes
+# - You want to control the performance/cost ratio
+# - Physical drives have type information from proxy signing
+#
+# Prerequisites:
+# - Physical drives must have type metadata (TLC or QLC)
+# - Both drive types must have sufficient capacity available
+
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: mixed-type-cluster
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  imagePullSecret: quay-io-secret
+  driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
+  template: dynamic
+
+  dynamicTemplate:
+    # Drive configuration with type ratio
+    driveContainers: 6
+    driveCores: 6
+    containerCapacity: 12000  # 12TB total per container
+    driveTypesRatio:
+      tlc: 4  # 80% TLC (high-performance)
+      qlc: 1  # 20% QLC (cost-optimized)
+    # Result:
+    #   TLC capacity: 12000 × 4/5 = 9600 GiB (from TLC physical drives)
+    #   QLC capacity: 12000 × 1/5 = 2400 GiB (from QLC physical drives)
+
+    # Compute configuration
+    computeContainers: 6
+    computeCores: 3
+
+  nodeSelector:
+    weka.io/supports-backends: "true"
+
+  network:
+    deviceSubnets:
+    - 10.100.0.0/16
+
+  ports:
+    basePort: 15000

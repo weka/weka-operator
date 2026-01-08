@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/env"
 )
@@ -144,7 +145,7 @@ type NfsConfig struct {
 }
 
 type DriveTypesConfig struct {
-	HybridFlashRatio float64
+	DefaultRatio v1alpha1.DriveTypesRatio
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -416,7 +417,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Nfs.NotifyPort = getIntEnvOrDefault("NFS_NOTIFY_PORT", 0)
 
 	// Drive types configuration
-	Config.DriveTypes.HybridFlashRatio = getFloatEnvOrDefault("HYBRID_FLASH_RATIO", 0)
+	Config.DriveTypes.DefaultRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
+	Config.DriveTypes.DefaultRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
 }
 
 func getEnvOrFail(envKey string) string {

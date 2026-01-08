@@ -1,8 +1,6 @@
 package allocator
 
 import (
-	"math"
-
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
@@ -132,31 +130,15 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.EnvoyCores = 1
 	}
 
-	// Apply global hybridFlashRatio as default for driveTypesRatio when using drive sharing
+	// Apply global default driveTypesRatio when using drive sharing
 	// Drive sharing is enabled when containerCapacity > 0
 	if config.DriveTypesRatio == nil && config.ContainerCapacity > 0 {
-		ratio := globalconfig.Config.DriveTypes.HybridFlashRatio
-		if ratio > 0 && ratio <= 1.0 {
-			// Convert ratio (0.0-1.0) to TLC/QLC parts
-			// For example: 0.2 (20% QLC) -> TLC=4, QLC=1
-			// Scale by 100 and find GCD to get simplest integer ratio
-			qlcParts := int(math.Round(ratio * 100))
-			tlcParts := 100 - qlcParts
-			// Simplify by GCD
-			gcd := func(a, b int) int {
-				for b != 0 {
-					a, b = b, a%b
-				}
-				return a
-			}
-			divisor := gcd(tlcParts, qlcParts)
-			if divisor > 0 {
-				tlcParts /= divisor
-				qlcParts /= divisor
-			}
+		ratio := globalconfig.Config.DriveTypes.DefaultRatio
+		// Only apply if non-zero ratio is configured
+		if ratio.Tlc > 0 || ratio.Qlc > 0 {
 			config.DriveTypesRatio = &v1alpha1.DriveTypesRatio{
-				Tlc: tlcParts,
-				Qlc: qlcParts,
+				Tlc: ratio.Tlc,
+				Qlc: ratio.Qlc,
 			}
 		}
 	}

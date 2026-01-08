@@ -152,8 +152,8 @@ spec:
 - Type information comes from the `weka-sign-drive show --json` output during proxy signing
 - If physical drives don't have type information, drive type ratio allocation will fail
 
-**Global Hybrid Flash Ratio:**
-If `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the operator automatically applies a default ratio based on the global `hybridFlashRatio` configuration setting. For example, a `hybridFlashRatio` of 0.2 (20% QLC) translates to a `driveTypesRatio` of TLC=4, QLC=1.
+**Global Drive Types Ratio:**
+If per-cluster `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the operator automatically applies the global default ratio from Helm values. For example, `driveTypesRatio: {tlc: 4, qlc: 1}` (80% TLC, 20% QLC) in Helm values is directly used as the cluster's `driveTypesRatio`. Default is TLC-only (`tlc: 1, qlc: 0`).
 
 **Use case:** When you have mixed TLC/QLC drives and want to control the ratio of drive types per container
 
@@ -334,7 +334,7 @@ If `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the oper
 - Added `DriveTypesRatio` (object) to `WekaConfig` - specifies the desired ratio of TLC vs QLC drives when allocating drives
   - `Tlc` (int) - TLC drive ratio part (e.g., 4 for 4:1 ratio)
   - `Qlc` (int) - QLC drive ratio part (e.g., 1 for 4:1 ratio)
-- If `DriveTypesRatio` is not set and `ContainerCapacity` > 0, the operator automatically applies a ratio based on the global `hybridFlashRatio` config
+- If `DriveTypesRatio` is not set and `ContainerCapacity` > 0, the operator automatically applies the global `driveTypesRatio` from Helm values (default: tlc=1, qlc=0)
 
 **WekaContainer:**
 - Added `DriveCapacity` (int) to spec - capacity per virtual drive in GiB

@@ -1,0 +1,43 @@
+# Drive sharing with fixed capacity per virtual drive
+# Each virtual drive gets exactly 1000 GiB
+#
+# Use this when:
+# - You want uniform drive sizes
+# - Simple, predictable capacity allocation
+# - Total capacity = numDrives × driveCapacity per container
+#
+# Important: driveCapacity is for TLC-only mode and cannot be used with driveTypesRatio.
+# For mixed TLC/QLC drives, use containerCapacity with driveTypesRatio instead (see 04-cluster-mixed-drive-types.yaml)
+
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: fixed-capacity-cluster
+  namespace: default
+spec:
+  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  imagePullSecret: quay-io-secret
+  driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
+  template: dynamic
+
+  dynamicTemplate:
+    # Drive configuration with fixed capacity per drive
+    driveContainers: 6
+    driveCores: 4
+    numDrives: 6            # Number of virtual drives per container
+    driveCapacity: 1000     # 1000 GiB per drive (enables drive sharing)
+    # Total per container: 6 drives × 1000 GiB = 6000 GiB
+
+    # Compute configuration
+    computeContainers: 6
+    computeCores: 3
+
+  nodeSelector:
+    weka.io/supports-backends: "true"
+
+  network:
+    deviceSubnets:
+    - 10.100.0.0/16
+
+  ports:
+    basePort: 15000

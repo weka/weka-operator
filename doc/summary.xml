@@ -66,6 +66,10 @@
         <tags>sign drives, WekaPolicy, WekaManualOperation, signDrivesPayload, all-not-root, drive containers, backend nodes, image specification</tags>
         <summary>Documentation for drive signing operations required for backend containers, including WekaPolicy and WekaManualOperation configurations for scanning and signing drives, with guidance on image specification and drive type selection.</summary>
     </file>
+    <file relpath="operator/operations/drive-sharing.md">
+        <tags>drive sharing, multi-tenant, shared drives, proxy mode, virtual drives, containerCapacity, driveCapacity, driveTypesRatio, ssdproxy, TLC, QLC, capacity allocation, multi-cluster</tags>
+        <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, three capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global driveTypesRatio settings, multi-cluster configurations, capacity management, and troubleshooting.</summary>
+    </file>
 
     <!-- Operator Clients -->
     <file relpath="operator/clients/wekaclient-and-workload.md">
@@ -105,8 +109,8 @@
 
     <!-- API Reference Documentation -->
     <file relpath="api_dump/wekacluster.md">
-        <tags>WekaCluster API, custom resource, cluster specification, dynamic template, redundancy, stripe width, networking, CSI config, container roles, failure domains, NfsConfig, bindManagementAll, podTerminationDeactivationTimeout, driversBuildId</tags>
-        <summary>Comprehensive API reference for WekaCluster custom resource covering cluster provisioning parameters, networking configuration, role-specific settings, CSI integration, redundancy configuration, cluster lifecycle management options, and NFS frontend configuration with binding and pod termination controls.</summary>
+        <tags>WekaCluster API, custom resource, cluster specification, dynamic template, redundancy, stripe width, networking, CSI config, container roles, failure domains, NfsConfig, bindManagementAll, podTerminationDeactivationTimeout, driversBuildId, driveCapacity, containerCapacity, driveTypesRatio, drive sharing, shared drives</tags>
+        <summary>Comprehensive API reference for WekaCluster custom resource covering cluster provisioning parameters, networking configuration, role-specific settings, CSI integration, redundancy configuration, drive sharing configuration for SSD proxy mode, cluster lifecycle management options, and NFS frontend configuration with binding and pod termination controls.</summary>
     </file>
     <file relpath="api_dump/wekacontainer.md">
         <tags>WekaContainer API, custom resource, container specification, node affinity, port configuration, resource allocation, CPU policy, drive management, upgrade handling, bindManagementAll</tags>
@@ -121,7 +125,7 @@
         <summary>API reference for WekaPolicy custom resource providing automated policy execution including scheduled drive operations, driver distribution management, NIC configuration policies, and recurring operational tasks with interval-based scheduling.</summary>
     </file>
     <file relpath="api_dump/wekamanualoperation.md">
-        <tags>WekaManualOperation API, custom resource, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces</tags>
-        <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing, discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
+        <tags>WekaManualOperation API, custom resource, manual operations, drive signing, discover drives, block drives, ensure NICs, force resign, remote traces, shared drives, drive sharing, proxy mode</tags>
+        <summary>API reference for WekaManualOperation custom resource enabling one-time operations like drive signing (including shared drive signing for proxy mode), discovery, blocking, NIC configuration, and remote trace collection with detailed payload specifications for each operation type.</summary>
     </file>
 </documentation>

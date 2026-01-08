@@ -275,10 +275,6 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 
-	// delete weka.io/drives extended resource if exists
-	delete(node.Status.Capacity, consts.ResourceDrives)
-	delete(node.Status.Allocatable, consts.ResourceDrives)
-
 	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
 
 	// Update node status and annotations
