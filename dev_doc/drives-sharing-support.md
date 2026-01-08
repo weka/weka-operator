@@ -63,69 +63,30 @@ Drive sharing enables multiple independent Weka clusters running on the same Kub
 
 ## Drive Allocation Modes
 
-Drive sharing supports three allocation modes, each suitable for different use cases:
+Drive sharing supports two allocation modes:
 
-### Mode 1: Fixed Capacity Per Drive (DriveCapacity)
+### Mode 1: Fixed Capacity Per Drive (DriveCapacity + NumDrives) - TLC Only
 
 **Configuration:**
 ```yaml
 spec:
   dynamicTemplate:
     numDrives: 6
-    driveCapacity: 1000  # 1000 GiB per virtual drive
+    driveCapacity: 1000  # 1000 GiB per virtual drive (TLC only)
 ```
 
 **Behavior:**
 - Each drive container requests `numDrives` virtual drives
 - Each virtual drive is allocated exactly `driveCapacity` GiB
+- **Only TLC drives are used** - QLC drives are ignored in this mode
 - Total capacity per container: `numDrives * driveCapacity`
 - Simple and predictable allocation
 
-**Use case:** When you want uniform drive sizes across all containers
+**Use case:** Simple TLC-only configuration with uniform drive sizes
 
 ---
 
-### Mode 2: Total Container Capacity (ContainerCapacity)
-
-**Configuration:**
-```yaml
-spec:
-  dynamicTemplate:
-    driveCores: 4
-    containerCapacity: 8000  # 8000 GiB total per container
-```
-
-**Behavior:**
-- Each drive container requests a total of `containerCapacity` GiB
-- The operator intelligently divides capacity across virtual drives
-- The number of virtual drives is determined by the allocation strategy and is typically >= `driveCores`
-- The allocator tries multiple strategies to find optimal drive sizes
-- **ContainerCapacity takes precedence over DriveCapacity when both are set**
-
-**Allocation Strategy:**
-The operator generates allocation strategies in order of preference:
-
-1. **Uniform strategies** (preferred):
-   - Tries creating `numCores`, `numCores+1`, ..., up to `numCores*3` drives of equal size
-   - Only yields strategies where capacity divides evenly
-   - Each drive must meet minimum chunk size (1024 GiB)
-   - Example: 8000 GiB with 4 cores → tries 4 drives of 2000 GiB, then 5 drives of 1600 GiB, etc.
-
-2. **Non-uniform strategies**:
-   - When capacity doesn't divide evenly, distributes as evenly as possible
-   - Some drives get slightly larger sizes to account for remainder
-   - Example: 9000 GiB with 4 cores → 4 drives: [2251, 2250, 2250, 2249] GiB
-
-For each strategy, the allocator:
-- Verifies sufficient physical drive capacity is available
-- Simulates allocation across physical drives using round-robin distribution
-- Ensures no over-allocation occurs
-
-**Use case:** When you want to specify total capacity per container and let the operator optimize drive distribution
-
----
-
-### Mode 3: Container Capacity with Drive Type Ratio (ContainerCapacity + DriveTypesRatio)
+### Mode 2: Container Capacity with Drive Types Ratio (ContainerCapacity + DriveTypesRatio)
 
 **Configuration:**
 ```yaml
@@ -138,31 +99,56 @@ spec:
       qlc: 1  # 20% QLC
 ```
 
+**Important:** When `containerCapacity` is set, the operator **always** uses `driveTypesRatio` to determine drive allocation. If no explicit ratio is provided, the global default from Helm values is used (default: `tlc: 1, qlc: 10`).
+
+**TLC-Only with containerCapacity:**
+To allocate only TLC drives, set `qlc: 0`:
+```yaml
+driveTypesRatio:
+  tlc: 1
+  qlc: 0
+```
+
 **Behavior:**
 - Container capacity is split between TLC and QLC drives based on the ratio
 - For the example above with 4:1 ratio:
   - TLC capacity: `12000 * 4 / (4+1) = 9600 GiB`
   - QLC capacity: `12000 * 1 / (4+1) = 2400 GiB`
 - The operator allocates TLC and QLC drives separately from their respective physical drive pools
-- Each type uses the same allocation strategy logic as Mode 2 (uniform first, then non-uniform)
 - The number of virtual drives per type is determined by allocation strategy
+
+**Allocation Strategy:**
+The operator generates allocation strategies in order of preference:
+
+1. **Uniform strategies** (preferred):
+   - Tries creating `numCores`, `numCores+1`, ..., up to `numCores*3` drives of equal size
+   - Only yields strategies where capacity divides evenly
+   - Each drive must meet minimum chunk size (384 GiB)
+   - Example: 8000 GiB with 4 cores → tries 4 drives of 2000 GiB, then 5 drives of 1600 GiB, etc.
+
+2. **Non-uniform strategies**:
+   - When capacity doesn't divide evenly, distributes as evenly as possible
+   - Some drives get slightly larger sizes to account for remainder
+   - Example: 9000 GiB with 4 cores → 4 drives: [2251, 2250, 2250, 2249] GiB
+
+For each strategy, the allocator:
+- Verifies sufficient physical drive capacity is available
+- Simulates allocation across physical drives using round-robin distribution
+- Ensures no over-allocation occurs
 
 **Drive Type Detection:**
 - Physical drives are categorized by their `Type` field (TLC or QLC) - fetched from node annotation (weka.io/weka-shared-drives)
 - Type information comes from the `weka-sign-drive show --json` output during proxy signing
 - If physical drives don't have type information, drive type ratio allocation will fail
 
-**Global Drive Types Ratio:**
-If per-cluster `driveTypesRatio` is not explicitly set and `containerCapacity` > 0, the operator automatically applies the global default ratio from Helm values. For example, `driveTypesRatio: {tlc: 4, qlc: 1}` (80% TLC, 20% QLC) in Helm values is directly used as the cluster's `driveTypesRatio`. Default is TLC-only (`tlc: 1, qlc: 0`).
-
 **Minimum Drive Count Constraint:**
-When using mixed drive types, each type (TLC and QLC) must receive **at least `driveCores` virtual drives**. This constraint is enforced at allocation time in the allocator.
+When using drive types, each active type (TLC and/or QLC) must receive **at least `driveCores` virtual drives**. This constraint is enforced at allocation time in the allocator.
 
 - **Implementation**: `internal/controllers/allocator/container_allocator.go`
-  - Function: `allocateSharedDrivesByCapacityWithTypes()` (mixed types)
-  - Function: `allocateSharedDrivesByCapacity()` (single type)
+  - Function: `allocateSharedDrivesByCapacityWithTypes()` (for containerCapacity mode)
+  - Function: `allocateSharedDrivesByDrivesNum()` (for driveCapacity + numDrives mode, TLC only)
 - **Constant**: `MinChunkSizeGiB = 384 GiB` (128 GiB × 3)
-- **Validation**: Each type's capacity must be ≥ `driveCores × 384 GiB`
+- **Validation**: Each active type's capacity must be ≥ `driveCores × 384 GiB`
 - **Behavior**:
   - For mixed types: `tlcCores = numCores`, `qlcCores = numCores` (if capacity needed)
   - The `driveTypesRatio` is used ONLY for capacity distribution, not drive count distribution
@@ -174,7 +160,7 @@ When using mixed drive types, each type (TLC and QLC) must receive **at least `d
 - QLC capacity: 1000 GiB (20%) → needs 1920 GiB (5 × 384) ✗
 - Result: Allocation fails with error message
 
-**Use case:** When you have mixed TLC/QLC drives and want to control the ratio of drive types per container
+**Use case:** Flexible capacity allocation with control over TLC/QLC distribution
 
 ---
 
@@ -186,22 +172,25 @@ When using mixed drive types, each type (TLC and QLC) must receive **at least `d
 3. Filters drives by minimum capacity (MinChunkSizeGiB = 384 GiB = 128 GiB × 3)
 4. Validates minimum drive count constraint (capacity ≥ `driveCores × 384 GiB` per type)
 5. Sorts drives by available capacity (most available first)
-6. For drive type ratio mode:
+6. For Mode 1 (driveCapacity + numDrives):
+   - Filters for TLC drives only
+   - Allocates specified number of drives with fixed capacity
+7. For Mode 2 (containerCapacity + driveTypesRatio):
    - Separates physical drives by type (TLC vs QLC)
    - Allocates TLC drives first from TLC physical drives
-   - Allocates QLC drives from QLC physical drives
-   - Fails if either type doesn't have sufficient capacity
-6. For each allocation strategy (in order):
+   - Allocates QLC drives from QLC physical drives (if qlc > 0)
+   - Fails if any active type doesn't have sufficient capacity
+8. For each allocation strategy (in order):
    - Simulates allocation across physical drives
    - Uses round-robin distribution for even wear
    - Re-sorts after each allocation to maintain balance
    - If strategy succeeds, stops and uses that strategy
-7. On success, creates VirtualDrive entries with:
+9. On success, creates VirtualDrive entries with:
    - Random VirtualUUID (generated fresh)
    - PhysicalUUID mapping
    - CapacityGiB
    - Serial number
-   - Type (TLC/QLC if applicable)
+   - Type (TLC/QLC)
 
 **Error Handling:**
 - `InsufficientDriveCapacityError`: Not enough total capacity available

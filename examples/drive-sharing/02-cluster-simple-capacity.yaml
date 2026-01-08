@@ -1,11 +1,16 @@
-# Simple drive sharing configuration using total container capacity
-# Each drive container gets 8000 GiB total, automatically distributed across virtual drives
+# Drive sharing using containerCapacity with GLOBAL driveTypesRatio default
+#
+# This example uses containerCapacity WITHOUT an explicit driveTypesRatio.
+# The operator automatically applies the global default from Helm values.
+# Default: tlc: 1, qlc: 10 (meaning ~9% TLC, ~91% QLC)
+#
+# To change the global default, set driveTypesRatio in your Helm values.yaml
+# To override per-cluster, add explicit driveTypesRatio (see 04-cluster-mixed-drive-types.yaml)
 #
 # Prerequisites:
 # - Drives must be signed for proxy mode (shared: true)
 # - Sufficient shared drive capacity available on nodes
-#
-# This is the RECOMMENDED approach for most deployments
+# - Physical drives must have type information (TLC/QLC)
 
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
@@ -14,7 +19,7 @@ metadata:
   namespace: default
 spec:
   # Weka container image
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
 
   # Driver distribution service

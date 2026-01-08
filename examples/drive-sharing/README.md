@@ -35,35 +35,30 @@ This directory contains example configurations for drive sharing, which enables 
 | File | Description | Use Case |
 |------|-------------|----------|
 | `01-sign-drives-for-proxy.yaml` | Sign drives for proxy mode | **Required first step** - enables drive sharing |
-| `02-cluster-simple-capacity.yaml` | Cluster with total container capacity | **Recommended** - flexible, operator-optimized |
-| `03-cluster-fixed-drive-capacity.yaml` | Cluster with fixed capacity per drive | Simple, predictable, uniform drive sizes |
-| `04-cluster-mixed-drive-types.yaml` | Cluster with TLC/QLC drive ratio | Performance/cost balance with mixed drives |
+| `02-cluster-simple-capacity.yaml` | containerCapacity with global driveTypesRatio | Uses Helm default ratio (tlc:1, qlc:10) |
+| `03-cluster-fixed-drive-capacity.yaml` | driveCapacity + numDrives (TLC only) | Simple TLC-only, uniform drive sizes |
+| `04-cluster-mixed-drive-types.yaml` | containerCapacity with cluster-specific driveTypesRatio | Override global ratio per cluster |
 | `05-multiple-clusters-shared-nodes.yaml` | Production + Dev clusters sharing drives | Multi-tenant deployments |
+
+**Note:** Examples 02 and 04 both use `containerCapacity` mode. The difference is:
+- **02** relies on the global `driveTypesRatio` from Helm values
+- **04** explicitly sets `driveTypesRatio` to override the global default for this cluster
 
 ## Configuration Modes
 
-### Mode 1: Simple Container Capacity (Recommended)
+### Mode 1: Fixed Drive Capacity (TLC Only)
 
-Set total capacity per container, operator distributes optimally:
-
-```yaml
-dynamicTemplate:
-  containerCapacity: 8000  # 8TB per container
-```
-
-### Mode 2: Fixed Drive Capacity
-
-Set capacity per individual virtual drive:
+Set capacity per individual virtual drive. **Only TLC drives are used**:
 
 ```yaml
 dynamicTemplate:
   numDrives: 6
-  driveCapacity: 1000  # 1TB per drive = 6TB total
+  driveCapacity: 1000  # 1TB per TLC drive = 6TB total
 ```
 
-### Mode 3: Mixed Drive Types
+### Mode 2: Container Capacity with Drive Types Ratio (Recommended)
 
-Split capacity between TLC and QLC drives:
+Set total capacity per container with control over TLC/QLC distribution:
 
 ```yaml
 dynamicTemplate:
@@ -71,6 +66,16 @@ dynamicTemplate:
   driveTypesRatio:
     tlc: 4  # 80% TLC
     qlc: 1  # 20% QLC
+```
+
+**TLC-only with containerCapacity:** Set `qlc: 0`:
+
+```yaml
+dynamicTemplate:
+  containerCapacity: 8000
+  driveTypesRatio:
+    tlc: 1  # 100% TLC
+    qlc: 0  # No QLC
 ```
 
 ## Global Default: driveTypesRatio

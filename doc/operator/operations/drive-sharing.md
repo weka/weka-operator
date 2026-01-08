@@ -81,13 +81,13 @@ spec:
 
 ### Step 2: Configure Cluster with Drive Sharing
 
-Enable drive sharing by setting capacity fields in `spec.dynamicTemplate`. Choose one of three allocation modes:
+Enable drive sharing by setting capacity fields in `spec.dynamicTemplate`. Choose one of two allocation modes:
 
-#### Mode 1: Fixed Capacity Per Virtual Drive
+#### Mode 1: Fixed Capacity Per Virtual Drive (TLC Only)
 
-Specify capacity per individual virtual drive using `driveCapacity`.
+Specify capacity per individual virtual drive using `driveCapacity` with `numDrives`.
 
-**Important:** `driveCapacity` is for TLC-only mode and cannot be used with `driveTypesRatio`. For mixed TLC/QLC drives, use `containerCapacity` with `driveTypesRatio` instead (see Mode 3).
+**Important:** This mode allocates **only TLC drives**. It cannot be used with `driveTypesRatio`. For mixed TLC/QLC drives or QLC-only, use `containerCapacity` with `driveTypesRatio` instead (see Mode 2).
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
@@ -96,7 +96,7 @@ metadata:
   name: cluster-a
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
@@ -104,7 +104,7 @@ spec:
     driveContainers: 6
     driveCores: 3
     numDrives: 6
-    driveCapacity: 1000  # Each virtual drive gets 1000 GiB
+    driveCapacity: 1000  # Each virtual drive gets 1000 GiB (TLC only)
     computeContainers: 6
     computeCores: 3
   nodeSelector:
@@ -114,24 +114,30 @@ spec:
     - 10.100.0.0/16
 ```
 
-**Result:** Each drive container requests 6 virtual drives × 1000 GiB = 6000 GiB total per container.
+**Result:** Each drive container requests 6 TLC virtual drives × 1000 GiB = 6000 GiB total per container.
 
-**Use case:** Uniform drive sizes, simple configuration.
+**Use case:** Simple TLC-only configuration with uniform drive sizes.
 
 ---
 
-#### Mode 2: Total Container Capacity
+#### Mode 2: Container Capacity with Drive Types Ratio
 
-Specify total capacity per container using `containerCapacity`. The operator automatically distributes capacity across virtual drives.
+Specify total capacity per container using `containerCapacity`. The `driveTypesRatio` controls how capacity is split between TLC and QLC drives.
+
+**Important:** When `containerCapacity` is set, the operator **always** uses the `driveTypesRatio` to determine drive allocation. If no explicit ratio is provided, the global default from Helm values is used (default: `tlc: 1, qlc: 10`).
+
+##### TLC-Only with containerCapacity
+
+To allocate only TLC drives while using `containerCapacity`, set `qlc: 0`:
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: cluster-b
+  name: cluster-tlc-only
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
@@ -139,6 +145,9 @@ spec:
     driveContainers: 6
     driveCores: 4
     containerCapacity: 8000  # Total capacity per container
+    driveTypesRatio:
+      tlc: 1  # 100% TLC
+      qlc: 0  # No QLC drives
     computeContainers: 6
     computeCores: 3
   nodeSelector:
@@ -148,31 +157,20 @@ spec:
     - 10.100.0.0/16
 ```
 
-**Result:** Each drive container receives 8000 GiB total, distributed across multiple virtual drives (typically `driveCores` or more drives).
+**Result:** Each drive container receives 8000 GiB total from TLC drives only, distributed across multiple virtual drives (typically `driveCores` or more drives).
 
-**Allocation strategy:**
-1. Operator tries uniform distributions (all drives equal size)
-2. Falls back to near-uniform if capacity doesn't divide evenly
-3. Ensures minimum drive size (1024 GiB minimum)
+##### Mixed TLC/QLC Drives
 
-**Use case:** Flexible capacity allocation, let operator optimize drive distribution.
-
-**Note:** `containerCapacity` takes precedence over `driveCapacity` when both are set.
-
----
-
-#### Mode 3: Mixed Drive Types with Ratio
-
-Specify capacity split between TLC (high-performance) and QLC (cost-optimized) drives using `driveTypesRatio`.
+For mixed drive types, specify both `tlc` and `qlc` values:
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
 metadata:
-  name: cluster-c
+  name: cluster-mixed
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
@@ -203,12 +201,17 @@ spec:
 - Type information comes from `weka-sign-drive show --json` during proxy signing
 - Separate physical drive pools for TLC and QLC must have sufficient capacity
 
+**Allocation strategy:**
+1. Operator tries uniform distributions (all drives equal size)
+2. Falls back to near-uniform if capacity doesn't divide evenly
+3. Ensures minimum drive size (384 GiB minimum per drive)
+
 **Minimum Capacity Constraint:**
 
-When using mixed drive types, **each type (TLC and QLC) must get at least `driveCores` virtual drives**. Since each virtual drive requires a minimum of 384 GiB, the capacity requirements are:
+When using drive types, **each active type (TLC and/or QLC) must get at least `driveCores` virtual drives**. Since each virtual drive requires a minimum of 384 GiB, the capacity requirements are:
 
-- **TLC capacity** ≥ `driveCores × 384 GiB`
-- **QLC capacity** ≥ `driveCores × 384 GiB`
+- **TLC capacity** ≥ `driveCores × 384 GiB` (if tlc > 0)
+- **QLC capacity** ≥ `driveCores × 384 GiB` (if qlc > 0)
 
 **Example validation:**
 ```yaml
@@ -235,7 +238,7 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 2. Decrease `driveCores`
 3. Adjust `driveTypesRatio` to allocate more capacity to the constrained type
 
-**Use case:** Mixed drive types for performance/cost balance, tiered storage.
+**Use case:** Flexible capacity allocation with control over TLC/QLC distribution.
 
 ---
 
@@ -278,7 +281,7 @@ metadata:
   name: prod-cluster
   namespace: production
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
@@ -303,7 +306,7 @@ metadata:
   name: dev-cluster
   namespace: development
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic

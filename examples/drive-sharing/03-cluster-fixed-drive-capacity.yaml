@@ -1,13 +1,15 @@
-# Drive sharing with fixed capacity per virtual drive
-# Each virtual drive gets exactly 1000 GiB
+# Drive sharing with driveCapacity + numDrives (TLC ONLY mode)
+#
+# This mode allocates ONLY TLC drives with fixed capacity per virtual drive.
+# Each virtual drive gets exactly 1000 GiB.
 #
 # Use this when:
-# - You want uniform drive sizes
+# - You want TLC-only with uniform drive sizes
 # - Simple, predictable capacity allocation
 # - Total capacity = numDrives × driveCapacity per container
 #
-# Important: driveCapacity is for TLC-only mode and cannot be used with driveTypesRatio.
-# For mixed TLC/QLC drives, use containerCapacity with driveTypesRatio instead (see 04-cluster-mixed-drive-types.yaml)
+# Important: This mode CANNOT use QLC drives. For mixed TLC/QLC or QLC-only,
+# use containerCapacity with driveTypesRatio instead (see 02 or 04 examples)
 
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaCluster
@@ -15,7 +17,7 @@ metadata:
   name: fixed-capacity-cluster
   namespace: default
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic

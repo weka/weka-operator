@@ -19,7 +19,7 @@ metadata:
   name: prod-cluster
   namespace: production
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
@@ -56,7 +56,7 @@ metadata:
   name: dev-cluster
   namespace: development
 spec:
-  image: quay.io/weka.io/weka-in-container:4.4.10.183
+  image: quay.io/weka.io/weka-in-container:WEKA_VERSION
   imagePullSecret: quay-io-secret
   driversDistService: https://weka-drivers-dist.weka-operator-system.svc.cluster.local:60002
   template: dynamic
