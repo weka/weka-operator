@@ -161,6 +161,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 	return additionalMemory
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)",message="driveCapacity and driveTypesRatio are mutually exclusive; use driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 type WekaConfig struct {
 	ComputeContainers         *int `json:"computeContainers,omitempty"`
 	DriveContainers           *int `json:"driveContainers,omitempty"`

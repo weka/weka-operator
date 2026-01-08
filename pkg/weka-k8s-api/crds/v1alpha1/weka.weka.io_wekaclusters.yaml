@@ -217,25 +217,48 @@ spec:
                   computeCores:
                     type: integer
                   computeExtraCores:
-                    description: Additional CPU cores for compute containers beyond
-                      computeCores, added to pod resources but not to weka configuration
                     type: integer
                   computeHugepages:
                     type: integer
                   computeHugepagesOffset:
+                    type: integer
+                  containerCapacity:
+                    description: |-
+                      ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
+                      This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+                    type: integer
+                  driveCapacity:
+                    description: |-
+                      DriveCapacity is the capacity in GiB to allocate per single virtual drive.
+                      NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.
+                      This value determines how much capacity each container receives from shared drives.
                     type: integer
                   driveContainers:
                     type: integer
                   driveCores:
                     type: integer
                   driveExtraCores:
-                    description: Additional CPU cores for drive containers beyond driveCores,
-                      added to pod resources but not to weka configuration
                     type: integer
                   driveHugepages:
                     type: integer
                   driveHugepagesOffset:
                     type: integer
+                  driveTypesRatio:
+                    description: DriveTypesRatio specifies the desired ratio of drive
+                      types (TLC vs QLC) when allocating drives for the cluster.
+                    properties:
+                      qlc:
+                        default: 0
+                        minimum: 0
+                        type: integer
+                      tlc:
+                        default: 0
+                        minimum: 0
+                        type: integer
+                    required:
+                    - qlc
+                    - tlc
+                    type: object
                   envoyCores:
                     type: integer
                   nfsContainers:
@@ -265,14 +288,17 @@ spec:
                   s3Cores:
                     type: integer
                   s3ExtraCores:
-                    description: Additional CPU cores for S3 containers beyond s3Cores,
-                      added to pod resources but not to weka configuration
                     type: integer
                   s3FrontendHugepages:
                     type: integer
                   s3FrontendHugepagesOffset:
                     type: integer
                 type: object
+                x-kubernetes-validations:
+                - message: driveCapacity and driveTypesRatio are mutually exclusive;
+                    use driveCapacity for TLC-only mode, or containerCapacity with
+                    driveTypesRatio for mixed drive types
+                  rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)'
               encryption:
                 properties:
                   vault:
@@ -386,18 +412,33 @@ spec:
                       When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                     type: boolean
                   deviceSubnets:
-                    description: subnet that is used for devices auto-discovery
+                    description: |-
+                      A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                      The operator assigns IP addresses from these subnets to the backend containers for their data path network
                     items:
                       pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                       type: string
                     type: array
                   ethDevice:
+                    description: |-
+                      The name of a single network interface (for example, eth1) to be used by every backend container.
+                      This is for clusters that use only one dedicated NIC for the data path.
+                      You cannot use this field with ethDevices.
+                      If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                     type: string
                   ethDevices:
+                    description: |-
+                      A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                      The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                      You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                     items:
                       type: string
                     type: array
                   gateway:
+                    description: |-
+                      The default gateway IPv4 address for the backend containers’ data-path network.
+                      This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                      If you have a flat, non-routed backend network, you can leave this field empty.
                     type: string
                   managementIpsSelectors:
                     items:
@@ -430,7 +471,22 @@ spec:
                       type: object
                     type: array
                   udpMode:
+                    description: |-
+                      A setting that enables or disables UDP encapsulation for backend traffic.
+                      - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                      This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                     type: boolean
+                type: object
+              nfs:
+                properties:
+                  interfaces:
+                    items:
+                      type: string
+                    type: array
+                  ipRanges:
+                    items:
+                      type: string
+                    type: array
                 type: object
               nodeSelector:
                 additionalProperties:
@@ -445,10 +501,18 @@ spec:
                 properties:
                   allowS3ClusterDestroy:
                     type: boolean
+                  cancelDeletion:
+                    description: Cancel deletion of the cluster if it is in graceful
+                      destroy period, a disaster recovery mechanism
+                    type: boolean
                   disregardRedundancy:
                     description: disregard redundancy constraints, useful for testing,
                       should not be used in production as misaligns failure domains
                     type: boolean
+                  driversBuildId:
+                    description: can be used to specify a build_id for a driver in
+                      the distributor service, keep empty for auto detection default
+                    type: string
                   driversLoaderImage:
                     description: image to be used for loading drivers, do not use
                       unless explicitly instructed by Weka team
@@ -458,6 +522,14 @@ spec:
                       nvme (impacts performance, but might serve as a fallback in
                       case of incompatible device)
                     type: boolean
+                  podTerminationDeactivationTimeout:
+                    description: |-
+                      Timeout duration for deactivating pods that are terminating longer than this duration.
+                      When nil (default), the default timeout of 5 minutes is used.
+                      When set to 0, deactivation of terminating pods is disabled.
+                      Otherwise, the specified duration is used.
+                    pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
+                    type: string
                   postFormClusterScript:
                     description: script to run post cluster create (i.e before starting
                       io)
@@ -6043,6 +6115,8 @@ spec:
                     type: integer
                   lbPort:
                     type: integer
+                  managementProxyPort:
+                    type: integer
                   portRange:
                     type: integer
                   s3Port:
@@ -6164,18 +6238,33 @@ spec:
                           When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                         type: boolean
                       deviceSubnets:
-                        description: subnet that is used for devices auto-discovery
+                        description: |-
+                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
                           pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                           type: string
                         type: array
                       ethDevice:
+                        description: |-
+                          The name of a single network interface (for example, eth1) to be used by every backend container.
+                          This is for clusters that use only one dedicated NIC for the data path.
+                          You cannot use this field with ethDevices.
+                          If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                         type: string
                       ethDevices:
+                        description: |-
+                          A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                          The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                          You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                         items:
                           type: string
                         type: array
                       gateway:
+                        description: |-
+                          The default gateway IPv4 address for the backend containers’ data-path network.
+                          This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                          If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
                         items:
@@ -6208,6 +6297,10 @@ spec:
                           type: object
                         type: array
                       udpMode:
+                        description: |-
+                          A setting that enables or disables UDP encapsulation for backend traffic.
+                          - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                          This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                         type: boolean
                     type: object
                   drive:
@@ -6220,18 +6313,33 @@ spec:
                           When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                         type: boolean
                       deviceSubnets:
-                        description: subnet that is used for devices auto-discovery
+                        description: |-
+                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
                           pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                           type: string
                         type: array
                       ethDevice:
+                        description: |-
+                          The name of a single network interface (for example, eth1) to be used by every backend container.
+                          This is for clusters that use only one dedicated NIC for the data path.
+                          You cannot use this field with ethDevices.
+                          If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                         type: string
                       ethDevices:
+                        description: |-
+                          A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                          The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                          You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                         items:
                           type: string
                         type: array
                       gateway:
+                        description: |-
+                          The default gateway IPv4 address for the backend containers’ data-path network.
+                          This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                          If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
                         items:
@@ -6264,6 +6372,10 @@ spec:
                           type: object
                         type: array
                       udpMode:
+                        description: |-
+                          A setting that enables or disables UDP encapsulation for backend traffic.
+                          - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                          This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                         type: boolean
                     type: object
                   nfs:
@@ -6276,18 +6388,33 @@ spec:
                           When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                         type: boolean
                       deviceSubnets:
-                        description: subnet that is used for devices auto-discovery
+                        description: |-
+                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
                           pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                           type: string
                         type: array
                       ethDevice:
+                        description: |-
+                          The name of a single network interface (for example, eth1) to be used by every backend container.
+                          This is for clusters that use only one dedicated NIC for the data path.
+                          You cannot use this field with ethDevices.
+                          If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                         type: string
                       ethDevices:
+                        description: |-
+                          A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                          The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                          You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                         items:
                           type: string
                         type: array
                       gateway:
+                        description: |-
+                          The default gateway IPv4 address for the backend containers’ data-path network.
+                          This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                          If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
                         items:
@@ -6320,6 +6447,10 @@ spec:
                           type: object
                         type: array
                       udpMode:
+                        description: |-
+                          A setting that enables or disables UDP encapsulation for backend traffic.
+                          - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                          This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                         type: boolean
                     type: object
                   s3:
@@ -6332,18 +6463,33 @@ spec:
                           When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                         type: boolean
                       deviceSubnets:
-                        description: subnet that is used for devices auto-discovery
+                        description: |-
+                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          The operator assigns IP addresses from these subnets to the backend containers for their data path network
                         items:
                           pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                           type: string
                         type: array
                       ethDevice:
+                        description: |-
+                          The name of a single network interface (for example, eth1) to be used by every backend container.
+                          This is for clusters that use only one dedicated NIC for the data path.
+                          You cannot use this field with ethDevices.
+                          If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                         type: string
                       ethDevices:
+                        description: |-
+                          A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                          The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                          You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                         items:
                           type: string
                         type: array
                       gateway:
+                        description: |-
+                          The default gateway IPv4 address for the backend containers’ data-path network.
+                          This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                          If you have a flat, non-routed backend network, you can leave this field empty.
                         type: string
                       managementIpsSelectors:
                         items:
@@ -6376,6 +6522,10 @@ spec:
                           type: object
                         type: array
                       udpMode:
+                        description: |-
+                          A setting that enables or disables UDP encapsulation for backend traffic.
+                          - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                          This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                         type: boolean
                     type: object
                 type: object
@@ -6418,6 +6568,67 @@ spec:
                 description: stripe width is the number of blocks within a common
                   protection set, ranging from 3 to 16 https://docs.weka.io/weka-system-overview/ssd-capacity-management#stripe-width
                 type: integer
+              telemetry:
+                description: Telemetry configuration for exporting audit logs and
+                  other telemetry data
+                properties:
+                  exports:
+                    description: List of telemetry exports to configure
+                    items:
+                      description: TelemetryExport defines a single telemetry export
+                        destination
+                      properties:
+                        name:
+                          description: Name is the unique identifier for this export
+                          type: string
+                        sources:
+                          description: Sources specifies which telemetry sources to
+                            export (e.g., "audit")
+                          items:
+                            type: string
+                          type: array
+                        splunk:
+                          description: Splunk configuration for Splunk HEC export
+                          properties:
+                            allowUnverifiedCertificate:
+                              description: |-
+                                AllowUnverifiedCertificate allows accessing without verifying the target certificate.
+                                Maps to --allow-unverified-certificate in weka CLI.
+                              type: boolean
+                            authTokenSecretRef:
+                              description: |-
+                                AuthTokenSecretRef references a secret containing the Splunk HEC authentication token.
+                                Format: "secretName.keyName" where secretName is the name of the secret in the same namespace
+                                and keyName is the key within the secret's data that contains the token.
+                              type: string
+                            caCertSecretRef:
+                              description: |-
+                                CACertSecretRef optionally references a secret containing a user-provided CA certificate PEM file.
+                                Format: "secretName.keyName" where secretName is the name of the secret in the same namespace
+                                and keyName is the key within the secret's data that contains the certificate.
+                                Maps to --ca-cert in weka CLI. Empty string is treated same as nil (de-configures if was configured).
+                                Mutually exclusive with VerifyWithClusterCACert.
+                              type: string
+                            endpoint:
+                              description: Endpoint is the Splunk HEC endpoint URL
+                                (maps to --target in weka CLI)
+                              type: string
+                            verifyWithClusterCACert:
+                              description: |-
+                                VerifyWithClusterCACert uses the Weka cluster's internal CA certificate to verify.
+                                Maps to --verify-with-cluster-cacert in weka CLI.
+                                Mutually exclusive with CACertSecretRef.
+                              type: boolean
+                          required:
+                          - authTokenSecretRef
+                          - endpoint
+                          type: object
+                      required:
+                      - name
+                      - sources
+                      type: object
+                    type: array
+                type: object
               template:
                 default: dynamic
                 description: A template/strategy of how to build a cluster, right
@@ -6538,6 +6749,8 @@ spec:
                   lbAdminPort:
                     type: integer
                   lbPort:
+                    type: integer
+                  managementProxyPort:
                     type: integer
                   portRange:
                     type: integer

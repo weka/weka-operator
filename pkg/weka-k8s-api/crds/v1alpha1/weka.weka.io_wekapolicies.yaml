@@ -138,6 +138,40 @@ spec:
                     default: 5m
                     pattern: ^(0|([0-9]+(\.[0-9]+)?(s|m|h))+)$
                     type: string
+                  remoteTracesSessionPayload:
+                    properties:
+                      allowHttpWekahomeEndpoint:
+                        type: boolean
+                      allowInsecureWekahomeEndpoint:
+                        type: boolean
+                      cluster:
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      duration:
+                        description: |-
+                          Duration specifies how long the trace session should run.
+                          WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.
+                          WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.
+                          Examples: "30m", "2h", "7d", "168h"
+                        type: string
+                      hostNetwork:
+                        type: boolean
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      wekahomeCaSecret:
+                        type: string
+                      wekahomeEndpointOverride:
+                        type: string
+                    type: object
                   schedulingConfigPayload:
                     type: object
                   signDrivesPayload:
@@ -192,6 +226,16 @@ spec:
                         - deviceId
                         - vendorId
                         type: object
+                      shared:
+                        description: |-
+                          Shared enables shared drive signing for proxy mode (defaults to false).
+                          When enabled:
+                          - Drives are signed for proxy using 'weka-sign-drive sign proxy' command
+                          - Drives are signed with a proxy system GUID
+                          - Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)
+                          - Physical UUIDs, serial IDs, and capacities are captured
+                          - Enables multi-tenant drive sharing via SSD proxy
+                        type: boolean
                       type:
                         enum:
                         - aws-all

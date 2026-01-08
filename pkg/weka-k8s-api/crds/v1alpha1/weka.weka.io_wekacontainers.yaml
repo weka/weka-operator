@@ -1020,6 +1020,11 @@ spec:
                   config
                 pattern: ^(0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$
                 type: string
+              containerCapacity:
+                description: |-
+                  ContainerCapacity specifies the total capacity (in GiB) requested by this container when using shared drives via SSD proxy.
+                  This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+                type: integer
               coreIds:
                 items:
                   type: integer
@@ -1032,6 +1037,34 @@ spec:
                 - dedicated
                 - dedicated_ht
                 - manual
+                type: string
+              driveCapacity:
+                description: |-
+                  DriveCapacity specifies the capacity (in GiB) per virtual drive, indicates this container uses shared drives via SSD proxy.
+                  When enabled, the container will:
+                  - Use virtual UUIDs instead of device paths for drives
+                  - Allocate capacity from shared drives rather than exclusive drives
+                  - Require an SSD proxy container to be running on the same node
+                  This value is copied from the cluster's DriveSharing.DriveCapacity configuration.
+                  Used to calculate total capacity request: NumDrives * DriveCapacity
+                type: integer
+              driveTypesRatio:
+                description: DriveTypesRatio specifies the desired ratio of drive
+                  types (TLC vs QLC) when allocating drives for the container.
+                properties:
+                  qlc:
+                    default: 0
+                    minimum: 0
+                    type: integer
+                  tlc:
+                    default: 0
+                    minimum: 0
+                    type: integer
+                required:
+                - qlc
+                - tlc
+                type: object
+              driversBuildId:
                 type: string
               driversDistService:
                 type: string
@@ -1154,6 +1187,8 @@ spec:
                 - adhoc-op
                 - envoy
                 - nfs
+                - telemetry
+                - ssdproxy
                 type: string
               name:
                 type: string
@@ -1166,18 +1201,33 @@ spec:
                       When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
                     type: boolean
                   deviceSubnets:
-                    description: subnet that is used for devices auto-discovery
+                    description: |-
+                      A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                      The operator assigns IP addresses from these subnets to the backend containers for their data path network
                     items:
                       pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
                       type: string
                     type: array
                   ethDevice:
+                    description: |-
+                      The name of a single network interface (for example, eth1) to be used by every backend container.
+                      This is for clusters that use only one dedicated NIC for the data path.
+                      You cannot use this field with ethDevices.
+                      If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
                     type: string
                   ethDevices:
+                    description: |-
+                      A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                      The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                      You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
                     items:
                       type: string
                     type: array
                   gateway:
+                    description: |-
+                      The default gateway IPv4 address for the backend containers’ data-path network.
+                      This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                      If you have a flat, non-routed backend network, you can leave this field empty.
                     type: string
                   managementIpsSelectors:
                     items:
@@ -1210,6 +1260,10 @@ spec:
                       type: object
                     type: array
                   udpMode:
+                    description: |-
+                      A setting that enables or disables UDP encapsulation for backend traffic.
+                      - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                      This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
                     type: boolean
                 type: object
               nodeAffinity:
@@ -1694,8 +1748,34 @@ spec:
             - name
             - numCores
             type: object
+            x-kubernetes-validations:
+            - message: driveCapacity and driveTypesRatio are mutually exclusive; use
+                driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio
+                for mixed drive types
+              rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)'
           status:
             properties:
+              addedDrives:
+                items:
+                  properties:
+                    added_time:
+                      type: string
+                    device_path:
+                      type: string
+                    serial_number:
+                      type: string
+                    status:
+                      type: string
+                    uuid:
+                      type: string
+                  required:
+                  - added_time
+                  - device_path
+                  - serial_number
+                  - status
+                  - uuid
+                  type: object
+                type: array
               allocations:
                 properties:
                   agentPort:
@@ -1719,6 +1799,38 @@ spec:
                   netDevices:
                     items:
                       type: string
+                    type: array
+                  virtualDrives:
+                    description: |-
+                      VirtualDrives contains virtual drive allocations for drive sharing mode.
+                      Each VirtualDrive maps a virtual UUID to a physical drive UUID with allocated capacity.
+                    items:
+                      description: VirtualDrive represents a virtual drive allocation
+                        in drive sharing mode
+                      properties:
+                        capacityGiB:
+                          description: CapacityGiB is the allocated capacity in GiB
+                          type: integer
+                        physicalUUID:
+                          description: PhysicalUUID is the physical drive UUID obtained
+                            from proxy signing
+                          type: string
+                        serial:
+                          description: Serial is the serial number of the physical
+                            drive
+                          type: string
+                        type:
+                          description: Type is the type of the drive (e.g., TLC, QLC)
+                          type: string
+                        virtualUUID:
+                          description: VirtualUUID is the virtual drive identifier
+                          type: string
+                      required:
+                      - capacityGiB
+                      - physicalUUID
+                      - serial
+                      - virtualUUID
+                      type: object
                     type: array
                   wekaPort:
                     type: integer

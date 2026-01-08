@@ -68,6 +68,13 @@ spec:
                 - ensure-nics
                 - remote-traces-session
                 type: string
+              deletionDelay:
+                default: 5m
+                description: |-
+                  DeletionDelay specifies how long to wait after completion before deleting the resource.
+                  Defaults to 5m if not specified.
+                pattern: ^(0|([0-9]+(\.[0-9]+)?(s|m|h))+)$
+                type: string
               image:
                 type: string
               imagePullSecret:
@@ -78,13 +85,16 @@ spec:
                     properties:
                       node:
                         type: string
+                      physicalUUIDs:
+                        items:
+                          type: string
+                        type: array
                       serialIDs:
                         items:
                           type: string
                         type: array
                     required:
                     - node
-                    - serialIDs
                     type: object
                   discoverDrivesPayload:
                     properties:
@@ -162,7 +172,14 @@ spec:
                         - namespace
                         type: object
                       duration:
+                        description: |-
+                          Duration specifies how long the trace session should run.
+                          WekaManualOperation: defaults to 1 week if omitted/0. CR auto-deletes after expiration.
+                          WekaPolicy: defaults to continuous if omitted/0. Resources cleaned up after expiration.
+                          Examples: "30m", "2h", "7d", "168h"
                         type: string
+                      hostNetwork:
+                        type: boolean
                       nodeSelector:
                         additionalProperties:
                           type: string
@@ -224,6 +241,16 @@ spec:
                         - deviceId
                         - vendorId
                         type: object
+                      shared:
+                        description: |-
+                          Shared enables shared drive signing for proxy mode (defaults to false).
+                          When enabled:
+                          - Drives are signed for proxy using 'weka-sign-drive sign proxy' command
+                          - Drives are signed with a proxy system GUID
+                          - Results are stored in weka.io/shared-drives annotation (instead of weka.io/weka-drives)
+                          - Physical UUIDs, serial IDs, and capacities are captured
+                          - Enables multi-tenant drive sharing via SSD proxy
+                        type: boolean
                       type:
                         enum:
                         - aws-all
