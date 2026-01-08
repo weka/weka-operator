@@ -163,6 +163,7 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)",message="driveCapacity and driveTypesRatio are mutually exclusive; use driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives) || self.numDrives == 0 || self.numDrives >= self.driveCores",message="numDrives must be >= driveCores when using driveCapacity (TLC-only mode); each drive core requires at least one virtual drive"
+// +kubebuilder:validation:XValidation:rule="!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity) || self.containerCapacity == 0",message="numDrives and containerCapacity are mutually exclusive; use numDrives with driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio for mixed drive types"
 type WekaConfig struct {
 	ComputeContainers         *int `json:"computeContainers,omitempty"`
 	DriveContainers           *int `json:"driveContainers,omitempty"`
