@@ -366,7 +366,8 @@ func (o *SignDrivesOperation) RecordEvent(reason string, message string) error {
 	return nil
 }
 
-// getAlreadySignedDrives extracts the list of already signed drives from the node's weka.io/weka-drives annotation
+// getAlreadySignedDrives extracts the list of already signed drives from node annotations.
+// It checks both weka.io/weka-drives (regular mode) and weka.io/weka-shared-drives (drive sharing mode).
 func getAlreadySignedDrives(node *v1.Node) []string {
 	alreadySignedDrives := []string{}
 
@@ -374,11 +375,21 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 		return alreadySignedDrives
 	}
 
+	// Regular drives (non-proxy mode)
 	if drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && drivesStr != "" {
-		err := json.Unmarshal([]byte(drivesStr), &alreadySignedDrives)
-		if err != nil {
-			// If unmarshal fails, return empty slice to be safe
-			return []string{}
+		var drives []string
+		if err := json.Unmarshal([]byte(drivesStr), &drives); err == nil {
+			alreadySignedDrives = append(alreadySignedDrives, drives...)
+		}
+	}
+
+	// Shared drives (proxy/drive sharing mode)
+	if sharedDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok && sharedDrivesStr != "" {
+		var sharedDrives []domain.SharedDriveInfo
+		if err := json.Unmarshal([]byte(sharedDrivesStr), &sharedDrives); err == nil {
+			for _, drive := range sharedDrives {
+				alreadySignedDrives = append(alreadySignedDrives, drive.Serial)
+			}
 		}
 	}
 
