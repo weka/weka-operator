@@ -42,14 +42,9 @@ type DiscoveryNodeInfo struct {
 	Schema             int      `json:"schema,omitempty"`
 	InitContainerImage string   `json:"init_container_image,omitempty"`
 	NumCpus            int      `json:"num_cpus,omitempty"`
-	NumDrives          int      `json:"num_drives,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
 	// this field is for internal use only, is populayed by DiscoverNodeOperation.Enrich
 	//Node *corev1.Node `json:"-"` // this is not necesserally aligned with a node
-}
-
-func (nodeInfo *DiscoveryNodeInfo) GetDrivesNumber() int {
-	return nodeInfo.NumDrives
 }
 
 func (nodeInfo *DiscoveryNodeInfo) ShouldRequestNICs() bool {

@@ -19,7 +19,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/exec"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
@@ -120,25 +119,6 @@ func (o *DiscoverNodeOperation) GetNode(ctx context.Context) error {
 	return nil
 }
 
-func (o *DiscoverNodeOperation) GetDrivesNum() int {
-	// get from nodes annotations
-	// TODO: This should go away, as we wont need this eventually
-	if o.node.Annotations == nil {
-		return 0
-	}
-
-	if drivesStr, ok := o.node.Annotations[consts.AnnotationWekaDrives]; ok {
-		// unmarshal first, as a list of strings
-		var drives []string
-		err := json.Unmarshal([]byte(drivesStr), &drives)
-		if err != nil {
-			return 0
-		}
-		return len(drives)
-	}
-	return 0
-}
-
 func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
 	if strings.HasPrefix(o.node.Spec.ProviderID, "aws://") {
 		return discovery.ProviderAWS
@@ -151,7 +131,6 @@ func (o *DiscoverNodeOperation) GetProvider() discovery.Provider {
 
 func (o *DiscoverNodeOperation) Enrich(ctx context.Context) error {
 	o.result.NumCpus = int(o.node.Status.Allocatable.Cpu().Value())
-	o.result.NumDrives = o.GetDrivesNum()
 	o.result.Provider = o.GetProvider()
 
 	if o.result.IsRhCos() {
