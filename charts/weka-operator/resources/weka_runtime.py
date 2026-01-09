@@ -504,6 +504,38 @@ class SignException(Exception):
     pass
 
 
+async def get_drives_with_cluster_guid() -> dict:
+    """
+    Get all drives from weka-sign-drive list and return dict mapping serial -> path
+    for drives that have a cluster_guid (i.e., are claimed by a Weka cluster).
+    """
+    try:
+        stdout, stderr, ec = await run_command("/weka-sign-drive list -j")
+        if ec != 0:
+            logging.warning(f"Failed to list drives: {stderr}")
+            return {}
+
+        drive_list = json.loads(stdout.decode())
+        drives_with_guid = {}
+
+        for device in drive_list.get('devices', []):
+            hardware = device.get('hardware', {})
+            weka_info = device.get('weka_info') or {}
+            serial = hardware.get('serial_number')
+            path = device.get('path')
+            cluster_guid = weka_info.get('cluster_guid')
+
+            if serial and path and cluster_guid:
+                drives_with_guid[serial] = path
+                logging.debug(f"Drive {path} (serial {serial}) has cluster_guid: {cluster_guid}")
+
+        logging.info(f"Found {len(drives_with_guid)} drives with cluster_guid")
+        return drives_with_guid
+    except Exception as e:
+        logging.error(f"Error getting drives with cluster_guid: {e}")
+        return {}
+
+
 async def sign_device_path(device_path, options: SignOptions):
     # Check if device path should be excluded
     if device_path in EXCLUDED_DRIVE_PATHS:
@@ -862,9 +894,18 @@ async def sign_drives(instruction: dict):
     for_proxy = instruction.get('shared', False)
     options = SignOptions(**instruction.get('options', {})) if instruction.get('options') else SignOptions()
 
-    # Extract and convert excluded serial IDs to device paths
+    # Extract excluded serial IDs and filter to only include drives with cluster_guid
+    # (drives without cluster_guid are not truly claimed by Weka and should be available for signing)
     excluded_serials = instruction.get('excludedSerialIds', [])
-    EXCLUDED_DRIVE_PATHS = await convert_serials_to_device_paths(excluded_serials)
+    drives_with_guid = await get_drives_with_cluster_guid()
+    EXCLUDED_DRIVE_PATHS = []
+    for serial in excluded_serials:
+        if serial in drives_with_guid:
+            EXCLUDED_DRIVE_PATHS.append(drives_with_guid[serial])
+            logging.info(f"Serial {serial} -> {drives_with_guid[serial]} (has cluster_guid, will exclude)")
+        else:
+            logging.info(f"Serial {serial} has no cluster_guid or not found, NOT excluding")
+    logging.info(f"Final excluded paths: {EXCLUDED_DRIVE_PATHS}")
 
     # Route to proxy signing functions if shared is true
     if for_proxy:
@@ -957,34 +998,6 @@ async def get_block_device_path_by_serial(serial: str):
         return None
     device_path = stdout.decode().strip()
     return device_path
-
-
-async def convert_serials_to_device_paths(serials: List[str]) -> List[str]:
-    """
-    Convert serial IDs to device paths.
-
-    :param serials: List of serial IDs to convert
-    :return: List of device paths
-    """
-    if not serials:
-        return []
-
-    excluded_paths = []
-    logging.info(f"Converting {len(serials)} excluded serials to device paths")
-
-    for serial in serials:
-        try:
-            device_path = await get_block_device_path_by_serial(serial)
-            if device_path:
-                excluded_paths.append(device_path)
-                logging.info(f"Serial {serial} maps to device path {device_path}")
-            else:
-                logging.warning(f"Could not find device path for serial {serial}")
-        except Exception as e:
-            logging.error(f"Error converting serial {serial} to device path: {e}")
-
-    logging.info(f"Total excluded device paths: {excluded_paths}")
-    return excluded_paths
 
 
 async def discover_drives():

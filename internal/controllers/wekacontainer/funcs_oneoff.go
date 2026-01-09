@@ -248,9 +248,44 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 
 	logger.Info("Updating node annotations for proxy mode")
 
+	// Read existing shared drives from annotation
+	existingDrives := []domain.SharedDriveInfo{}
+	if existingDrivesStr, ok := node.Annotations[consts.AnnotationSharedDrives]; ok {
+		_ = json.Unmarshal([]byte(existingDrivesStr), &existingDrives)
+	}
+
+	// Build map keyed by serial for efficient merge
+	drivesBySerial := make(map[string]domain.SharedDriveInfo)
+	for _, drive := range existingDrives {
+		if drive.Serial != "" {
+			drivesBySerial[drive.Serial] = drive
+		}
+	}
+
+	// Merge new results: update existing or add new drives
+	// This does NOT delete drives that aren't in opResult.ProxyDrives
+	newDrivesFound := 0
+	for _, drive := range opResult.ProxyDrives {
+		if drive.Serial == "" {
+			continue // skip drives without serial
+		}
+		if _, exists := drivesBySerial[drive.Serial]; !exists {
+			newDrivesFound++
+		}
+		drivesBySerial[drive.Serial] = drive
+	}
+
+	if newDrivesFound == 0 {
+		logger.Info("No new drives found")
+	}
+
+	// Convert map back to slice and calculate capacities
+	mergedDrives := make([]domain.SharedDriveInfo, 0, len(drivesBySerial))
 	tlcDriveCapacityGiB := int64(0)
 	qlcDriveCapacityGiB := int64(0)
-	for _, drive := range opResult.ProxyDrives {
+
+	for _, drive := range drivesBySerial {
+		mergedDrives = append(mergedDrives, drive)
 		if drive.Type == "QLC" {
 			qlcDriveCapacityGiB += int64(drive.CapacityGiB)
 		} else {
@@ -258,8 +293,8 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 		}
 	}
 
-	// Write proxy drives to weka.io/shared-drives annotation
-	proxyDrivesJSON, err := json.Marshal(opResult.ProxyDrives)
+	// Write merged proxy drives to annotation
+	proxyDrivesJSON, err := json.Marshal(mergedDrives)
 	if err != nil {
 		return fmt.Errorf("error marshalling proxy drives: %w", err)
 	}
@@ -270,12 +305,12 @@ func (r *containerReconcilerLoop) updateProxyModeAnnotations(ctx context.Context
 	// Update weka.io/shared-drives-capacity extended resource
 	// TLC drive type
 	node.Status.Capacity[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
-	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
+	node.Status.Allocatable[consts.ResourceSharedDrivesCapacity] = *resource.NewQuantity(tlcDriveCapacityGiB, resource.DecimalSI)
 	// QLC drive type
 	node.Status.Capacity[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 	node.Status.Allocatable[consts.ResourcesSharedDrivesCapacityQLC] = *resource.NewQuantity(qlcDriveCapacityGiB, resource.DecimalSI)
 
-	logger.Info("Updated proxy mode annotations", "drives", len(opResult.ProxyDrives), "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
+	logger.Info("Updated proxy mode annotations", "drives", len(mergedDrives), "newDrives", newDrivesFound, "tlcCapacityGiB", tlcDriveCapacityGiB, "qlcCapacityGiB", qlcDriveCapacityGiB)
 
 	// Update node status and annotations
 	if err := r.Status().Update(ctx, node); err != nil {
