@@ -222,7 +222,10 @@ func (r *WekaManualOperationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// defaults to 5m
-	deletionDelay := wekaManualOperation.Spec.DeletionDelay.Duration
+	deletionDelay := 5 * time.Minute
+	if wekaManualOperation.Spec.DeletionDelay != nil {
+		deletionDelay = wekaManualOperation.Spec.DeletionDelay.Duration
+	}
 
 	steps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
