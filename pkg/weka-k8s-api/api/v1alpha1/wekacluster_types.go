@@ -59,6 +59,16 @@ func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
 		slices.Equal(n.DeviceNames, o.DeviceNames)
 }
 
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 type Network struct {
 	// The name of a single network interface (for example, eth1) to be used by every backend container.
 	// This is for clusters that use only one dedicated NIC for the data path.
@@ -87,6 +97,9 @@ type Network struct {
 	// When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
 	// When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
 	BindManagementAll bool `json:"bindManagementAll,omitempty"`
+	// NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+	// When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+	NvidiaVfSingleIp *bool `json:"nvidiaVfSingleIp,omitempty"`
 }
 
 func (n *Network) Equal(o *Network) bool {
@@ -97,19 +110,24 @@ func (n *Network) Equal(o *Network) bool {
 		return false
 	}
 
-	// Compare simple fields
-	if n.EthDevice != o.EthDevice ||
-		n.Gateway != o.Gateway ||
-		n.UdpMode != o.UdpMode ||
-		n.BindManagementAll != o.BindManagementAll {
+	if n.EthDevice != o.EthDevice {
 		return false
 	}
-
-	// Compare string slices
+	if n.Gateway != o.Gateway {
+		return false
+	}
+	if n.UdpMode != o.UdpMode {
+		return false
+	}
+	if n.BindManagementAll != o.BindManagementAll {
+		return false
+	}
+	if !boolPtrEqual(n.NvidiaVfSingleIp, o.NvidiaVfSingleIp) {
+		return false
+	}
 	if !slices.Equal(n.EthDevices, o.EthDevices) {
 		return false
 	}
-
 	if !slices.Equal(n.DeviceSubnets, o.DeviceSubnets) {
 		return false
 	}
