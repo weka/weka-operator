@@ -647,6 +647,50 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	// SSDProxy container needs access to its socket directory for container.sock (sign-drives communication)
+	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
+		hostsideGlobalSharedData := f.nodeInfo.GetHostsideSharedData()
+		volumeName := "weka-ssdproxy-local-socket"
+		pathType := corev1.HostPathDirectoryOrCreate
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: inPodHostBinds + "/ssdproxy-local-socket",
+		})
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideGlobalSharedData + "/local-sockets/ssdproxy",
+					Type: &pathType,
+				},
+			},
+		})
+	}
+
+	// Sign-drives adhoc operations with shared=true need access to ssdproxy socket
+	if f.needsLocalSocketsForAdhocOp() {
+		hostsideGlobalSharedData := f.nodeInfo.GetHostsideSharedData()
+		volumeName := "weka-ssdproxy-local-socket"
+		pathType := corev1.HostPathDirectoryOrCreate
+
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: inPodHostBinds + "/ssdproxy-local-socket",
+		})
+
+		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: hostsideGlobalSharedData + "/local-sockets/ssdproxy",
+					Type: &pathType,
+				},
+			},
+		})
+	}
+
 	if f.container.IsDiscoveryContainer() {
 		allowCosHugepageConfig := config.Config.GkeCompatibility.HugepageConfiguration.Enabled
 		if allowCosHugepageConfig {
@@ -1006,6 +1050,28 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	// expand with custom tolerations
 	tolerations = append(tolerations, container.Spec.Tolerations...)
 	return tolerations
+}
+
+// needsLocalSocketsForAdhocOp returns true if the container is an adhoc operation
+// that needs access to the ssdproxy socket directory (sign-drives with shared=true)
+func (f *PodFactory) needsLocalSocketsForAdhocOp() bool {
+	if !f.container.IsAdhocOpContainer() {
+		return false
+	}
+	if f.container.Spec.Instructions == nil {
+		return false
+	}
+	if f.container.Spec.Instructions.Type != "sign-drives" {
+		return false
+	}
+	// Parse payload to check if shared=true
+	var payload struct {
+		Shared bool `json:"shared"`
+	}
+	if err := json.Unmarshal([]byte(f.container.Spec.Instructions.Payload), &payload); err != nil {
+		return false
+	}
+	return payload.Shared
 }
 
 type HugePagesDetails struct {

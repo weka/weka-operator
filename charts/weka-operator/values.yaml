@@ -160,7 +160,7 @@ tolerationsMismatchSettings:
     - "node.kubernetes.io/not-ready"
     - "node.kubernetes.io/unreachable"
 
-signDrivesImage: quay.io/weka.io/weka-sign-tool:9287767f8b82cda339b774475aa543fca2808d25
+signDrivesImage: quay.io/weka.io/weka-sign-tool:ecd47a8b1746b3ef0ede929db7201e44b8d7080e-dev
 
 taskmon:
   defaultImage: quay.io/weka.io/taskmon:5dfdbcb1c220ae204ccfb9386805a61e5b125867_x86_64

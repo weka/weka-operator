@@ -68,6 +68,9 @@ UDP_MODE = os.environ.get("UDP_MODE", "false") == "true"
 DUMPER_CONFIG_MODE = os.environ.get("DUMPER_CONFIG_MODE", "auto")
 EXCLUDED_DRIVE_PATHS = []  # List of device paths to exclude from signing
 
+# SSD Proxy socket path for sign-drives operations (mounted at /host-binds/ssdproxy-local-socket)
+SSDPROXY_SOCKET_PATH = "/host-binds/ssdproxy-local-socket/container.sock"
+
 # OpenTelemetry configuration
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 OTEL_EXPORTER_OTLP_LOGS_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "")
@@ -504,13 +507,21 @@ class SignException(Exception):
     pass
 
 
-async def get_drives_with_cluster_guid() -> dict:
+async def get_drives_with_cluster_guid(use_proxy_socket: bool = False) -> dict:
     """
     Get all drives from weka-sign-drive list and return dict mapping serial -> path
     for drives that have a cluster_guid (i.e., are claimed by a Weka cluster).
+
+    Args:
+        use_proxy_socket: If True, use the ssdproxy socket to see proxy-taken drives
     """
     try:
-        stdout, stderr, ec = await run_command("/weka-sign-drive list -j")
+        cmd = "/weka-sign-drive list -j"
+        if use_proxy_socket and os.path.exists(SSDPROXY_SOCKET_PATH):
+            logging.info(f"Using proxy socket at {SSDPROXY_SOCKET_PATH}")
+            cmd = f"/weka-sign-drive --unix-socket {SSDPROXY_SOCKET_PATH}:/api/v1 list -j"
+
+        stdout, stderr, ec = await run_command(cmd)
         if ec != 0:
             logging.warning(f"Failed to list drives: {stderr}")
             return {}
@@ -896,8 +907,9 @@ async def sign_drives(instruction: dict):
 
     # Extract excluded serial IDs and filter to only include drives with cluster_guid
     # (drives without cluster_guid are not truly claimed by Weka and should be available for signing)
+    # Use proxy socket when signing for proxy mode to see proxy-taken drives
     excluded_serials = instruction.get('excludedSerialIds', [])
-    drives_with_guid = await get_drives_with_cluster_guid()
+    drives_with_guid = await get_drives_with_cluster_guid(use_proxy_socket=for_proxy)
     EXCLUDED_DRIVE_PATHS = []
     for serial in excluded_serials:
         if serial in drives_with_guid:
@@ -1025,7 +1037,13 @@ async def list_weka_proxy_drives_with_sign_tool():
     """
     try:
         # Execute weka-sign-drive list -j for JSON output
-        stdout, stderr, ec = await run_command("/weka-sign-drive list -j")
+        # Use proxy socket if available to see proxy-taken drives
+        cmd = "/weka-sign-drive list -j"
+        if os.path.exists(SSDPROXY_SOCKET_PATH):
+            logging.info(f"Using proxy socket at {SSDPROXY_SOCKET_PATH}")
+            cmd = f"/weka-sign-drive --unix-socket {SSDPROXY_SOCKET_PATH}:/api/v1 list -j"
+
+        stdout, stderr, ec = await run_command(cmd)
         if ec != 0:
             logging.error(f"Failed to list drives with weka-sign-drive: {stderr}")
             raise Exception("weka-sign-drive list command failed")
@@ -1051,8 +1069,8 @@ async def list_weka_proxy_drives_with_sign_tool():
         for device_data in drive_data.get('devices', []):
             try:
                 # Only process weka_formatted drives that are usable
-                if device_data.get('status') != 'weka_formatted' or not device_data.get('usable', False):
-                    logging.debug(f"Skipping non-weka_formatted or unusable drive: {device_data.get('path', 'unknown')}")
+                if device_data.get('status') != 'weka_formatted':
+                    logging.debug(f"Skipping non-weka_formatted drive: {device_data.get('path', 'unknown')}")
                     continue
 
                 weka_info = device_data.get('weka_info', {})
@@ -1061,7 +1079,7 @@ async def list_weka_proxy_drives_with_sign_tool():
 
                 # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
                 # TODO: hardcoded "Proxy GUID" is weka bug, remove when fixed
-                if cluster_guid not in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "Proxy GUID") and not is_proxy:
+                if cluster_guid.lower() not in ("026938d8-a8a2-4ad4-a316-2f23358a1e7a", "proxy guid") and not is_proxy:
                     logging.debug(f"Skipping drive not signed for proxy: {device_data.get('path', 'unknown')}")
                     continue
 
@@ -2812,6 +2830,14 @@ async def configure_persistency():
             mkdir -p /host-binds/shared/local-sockets
             mkdir -p /opt/weka/external-mounts/local-sockets
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
+        fi
+
+        # ssdproxy local-socket mount for ssdproxy to create container.sock (sign-drives communication)
+        # This runs when the volume is mounted (ssdproxy mode or sign-drives adhoc with shared=true)
+        # Must be AFTER the shared/local-sockets mount to overlay the ssdproxy subdirectory
+        if [ -d /host-binds/ssdproxy-local-socket ]; then
+            mkdir -p /opt/weka/external-mounts/local-sockets/ssdproxy
+            mount -o bind /host-binds/ssdproxy-local-socket /opt/weka/external-mounts/local-sockets/ssdproxy
         fi
 
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
