@@ -682,6 +682,13 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
+	if f.container.Spec.Network.NvidiaVfSingleIp != nil {
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+			Name:  "NVIDIA_VF_SINGLE_IP",
+			Value: strconv.FormatBool(*f.container.Spec.Network.NvidiaVfSingleIp),
+		})
+	}
+
 	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader && config.Config.Proxy != "" {
 		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
 			Name:  "HTTPS_PROXY",
