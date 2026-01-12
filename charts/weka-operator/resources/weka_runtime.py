@@ -2214,6 +2214,10 @@ async def ensure_weka_container():
     if ff.supports_binding_to_not_all_interfaces and os.environ.get("BIND_MANAGEMENT_ALL", "false").lower() == "false":
         resources["restrict_listen"] = True
 
+    nvidia_vf_single_ip = os.environ.get("NVIDIA_VF_SINGLE_IP")
+    if nvidia_vf_single_ip is not None:
+        resources["nvidia_vf_single_ip"] = nvidia_vf_single_ip.lower() == "true"
+
     # resources["mask_interrupts"] = True
 
     resources['auto_remove_timeout'] = AUTO_REMOVE_TIMEOUT
