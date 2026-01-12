@@ -4,6 +4,7 @@ import asyncio
 # Removed requests import, handled by GitHubClient
 import logging
 import math  # Added for ceiling division
+import os
 import re
 import subprocess
 import sys
@@ -100,6 +101,110 @@ def get_file_patch(commit, path):
     return run_git(['show', commit, '--', path])
 
 
+# --- Submodule (weka-k8s-api) Support ---
+SUBMODULE_PATH = "pkg/weka-k8s-api"
+
+
+def get_submodule_hash_change(commit: str) -> tuple[str, str] | None:
+    """Detect if a commit updates the weka-k8s-api submodule, return (old_hash, new_hash)."""
+    result = subprocess.run(
+        ['git', 'diff-tree', '--no-commit-id', '-r', commit, '--', SUBMODULE_PATH],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if result.returncode != 0 or not result.stdout:
+        return None
+
+    # Format: :160000 160000 old_hash new_hash M pkg/weka-k8s-api
+    line = result.stdout.decode().strip()
+    if not line:
+        return None
+
+    parts = line.split()
+    if len(parts) >= 4:
+        return (parts[2], parts[3])
+    return None
+
+
+def get_submodule_commits(old_hash: str, new_hash: str) -> list[str]:
+    """Get list of commit SHAs in the API submodule between old and new hashes."""
+    # Ensure submodule is initialized and has the commits
+    if not os.path.exists(os.path.join(SUBMODULE_PATH, '.git')):
+        logger.warning(f"Submodule at {SUBMODULE_PATH} not initialized")
+        return []
+
+    # Fetch to ensure we have the commits
+    subprocess.run(['git', '-C', SUBMODULE_PATH, 'fetch', '--all'],
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    result = subprocess.run(
+        ['git', '-C', SUBMODULE_PATH, 'rev-list', '--reverse', f'{old_hash}..{new_hash}'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    if result.returncode != 0:
+        logger.error(f"Failed to get submodule commits: {result.stderr.decode()}")
+        return []
+    return result.stdout.decode().strip().splitlines()
+
+
+def get_submodule_commit_message(commit: str) -> str:
+    """Get commit message from API submodule."""
+    result = subprocess.run(
+        ['git', '-C', SUBMODULE_PATH, 'log', '--format=%B', '-n', '1', commit],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    return result.stdout.decode().strip() if result.returncode == 0 else ""
+
+
+def get_submodule_commit_show(commit: str) -> str:
+    """Get full commit show output from API submodule."""
+    result = subprocess.run(
+        ['git', '-C', SUBMODULE_PATH, 'show', '--format=fuller', commit],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    return result.stdout.decode() if result.returncode == 0 else ""
+
+
+def process_api_commit(commit: str, dry_run: bool = False) -> CommitInfo | None:
+    """Process a single commit from the weka-k8s-api submodule."""
+    message = get_submodule_commit_message(commit)
+    if not message:
+        logger.warning(f"API commit {commit[:7]}: Could not get message")
+        return None
+
+    subject = message.splitlines()[0]
+    ctype = infer_type(message)
+
+    # Skip non-user-facing commits
+    if ctype not in ('fix', 'feature', 'breaking'):
+        logger.info(f"API commit {commit[:7]} type '{ctype}' not fix/feature/breaking. Ignoring.")
+        return None
+
+    # Use prefixed SHA to distinguish API commits
+    commit_info = CommitInfo(sha=f"api:{commit}", subject=f"[API] {subject}", ctype=ctype)
+
+    # Get diff for generation
+    diff_content = get_submodule_commit_show(commit)
+    if len(diff_content.encode('utf-8')) > MAX_DIFF_SIZE:
+        diff_content = diff_content[:MAX_DIFF_SIZE] + "\n...(truncated)"
+
+    # Generate release notes using the same function
+    rn = generate_release_notes(
+        title=f"[API] {subject}",
+        ctype=ctype,
+        original_body=message,
+        diff_or_show_content=diff_content
+    )
+
+    commit_info.release_notes = rn
+    if rn == "Ignored":
+        commit_info.ignored = True
+        logger.info(f"API commit {commit[:7]}: Generated 'Ignored'")
+    else:
+        logger.info(f"API commit {commit[:7]}: Generated release notes")
+
+    return commit_info
+
+
 def summarize_large_file_diff(file_patch_content):
     """Summarizes a large file patch content."""
     # Assumes file_patch_content is already fetched
@@ -127,7 +232,24 @@ def extract_release_notes_tag(pr_body):
 
 # agent_generate_release_notes is replaced by the imported generate_release_notes
 
-def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: str, dry_run=False):
+def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: str, dry_run=False) -> tuple[CommitInfo | None, list[CommitInfo]]:
+    """Process a commit and return both operator CommitInfo and any API CommitInfos from submodule changes."""
+    api_commit_infos = []
+
+    # Check for submodule update and process API commits
+    submodule_change = get_submodule_hash_change(commit)
+    if submodule_change:
+        old_hash, new_hash = submodule_change
+        logger.info(f"Commit {commit[:7]}: Detected API submodule update {old_hash[:7]}..{new_hash[:7]}")
+
+        api_commits = get_submodule_commits(old_hash, new_hash)
+        logger.info(f"Found {len(api_commits)} commits in API submodule")
+
+        for api_commit in api_commits:
+            api_ci = process_api_commit(api_commit, dry_run)
+            if api_ci and not api_ci.ignored:
+                api_commit_infos.append(api_ci)
+
     message = get_commit_message(commit)
     subject = message.splitlines()[0]
     # Use imported infer_type
@@ -136,8 +258,8 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     # Immediately ignore commits that are not fix, feature, or breaking
     if ctype not in ('fix', 'feature', 'breaking'):
         logger.info(f"Commit {commit[:7]} type '{ctype}' is not fix/feature/breaking. Marking as ignored.")
-        # Create CommitInfo marked as ignored and return
-        return CommitInfo(sha=commit, subject=subject, ctype=ctype, ignored=True, release_notes="Ignored (type)")
+        # Create CommitInfo marked as ignored and return with any API commits
+        return (CommitInfo(sha=commit, subject=subject, ctype=ctype, ignored=True, release_notes="Ignored (type)"), api_commit_infos)
 
     # If type is valid, proceed with creating CommitInfo and finding PR
     commit_info = CommitInfo(sha=commit, subject=subject, ctype=ctype)
@@ -165,11 +287,11 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                 commit_info.release_notes = "Ignored"
                 commit_info.ignored = True
                 logger.info(f"Commit {commit[:7]}: Found existing 'Ignored' tag in PR #{pr_number}. Skipping.")
-                return commit_info  # Already processed and ignored
+                return (commit_info, api_commit_infos)  # Already processed and ignored
             else:
                 commit_info.release_notes = rn_tag
                 logger.info(f"Commit {commit[:7]}: Found existing release notes tag in PR #{pr_number}.")
-                return commit_info  # Use existing notes
+                return (commit_info, api_commit_infos)  # Use existing notes
 
         # No valid <release_notes> tag found in matched PR, generate and update PR
         logger.info(f"Commit {commit[:7]}: No release notes tag in PR #{pr_number}. Preparing diff and generating...")
@@ -230,7 +352,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
                 # Decide if we should return commit_info even if update failed
                 # return commit_info # Or maybe return None or raise
 
-        return commit_info
+        return (commit_info, api_commit_infos)
 
     # If we reach here, no PR was matched by title.
     if not matched_pr:
@@ -272,7 +394,7 @@ def process_commit(commit, recent_prs, github_client: GitHubClient, repo_name: s
     else:
         logger.info(f"Commit {commit[:7]}: Generated release notes (no PR).")
 
-    return commit_info
+    return (commit_info, api_commit_infos)
 
 
 def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, abort_on_miss=False):
@@ -281,17 +403,9 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
     if not included:
         return "No user-facing changes found in this range."
 
-    # Get repo name from the first commit info's PR if available, needed for links
-    # This assumes all PRs are from the same repo, which should be the case here.
-    repo_name = None
-    if included and included[0].pr_number:
-        # We need the client's repo_full_name to construct the link correctly
-        # This requires passing the client or its repo name down
-        # For now, let's assume a fixed repo name for link generation,
-        # but ideally, this should come from the client instance used.
-        # TODO: Pass repo_name explicitly or get from client if possible
-        repo_name_for_links = "weka/weka-operator"  # Hardcoded for now, replace if needed
-        logger.warning(f"Using hardcoded repo name '{repo_name_for_links}' for PR links in aggregation.")
+    # Repo name for PR links - hardcoded for now
+    # TODO: Pass repo_name explicitly or get from client if possible
+    repo_name_for_links = "weka/weka-operator"
 
     input_items = []
     for ci in included:
@@ -305,12 +419,20 @@ def aggregate_release_notes(commit_infos: List[CommitInfo], review_mode=False, a
 
     input_text = "\n\n".join(input_items)
 
-    instructions = """You are provided with release notes for multiple commits. 
+    instructions = """You are provided with release notes for multiple commits.
+        Some commits may be prefixed with [API] indicating they are from the weka-k8s-api submodule (CRD/API type changes).
+
+        **Important for API changes:**
+        - API changes typically involve new CRD fields, validations, or type changes
+        - Group related API changes with their corresponding operator changes when applicable
+        - Clearly indicate when API/CRD changes require user action or affect configuration
+        - API commit SHAs are prefixed with "api:" (e.g., api:abc1234)
+
         Combine and structure them into a user-facing release notes.
         You may merge similar/related commits into a single entry, but preserve all commits SHAs.
         You may drop items if they are not user-facing, with high level of confidence.
         Output in markdown. Each change must be clearly referenced by commit SHA.
-        Consolidate Reverts/Disable of features into a single entry, but keep references. Rely on PR number to establish if revert was done before or after feature was introduced. If there are newer(by PR number) PRs that mention the feature after it was reverted/disabled - assume that feature was re-enabled. If conclusion is that feature is disabled at final state - mention all relevant PRs as dropped 
+        Consolidate Reverts/Disable of features into a single entry, but keep references. Rely on PR number to establish if revert was done before or after feature was introduced. If there are newer(by PR number) PRs that mention the feature after it was reverted/disabled - assume that feature was re-enabled. If conclusion is that feature is disabled at final state - mention all relevant PRs as dropped
         <instructions>
         - Do not wrap pull requests as markdown links, just put links as-is, as a space separated list. Make sure to include all PRs in appropriate place
         - Make sure to include all input items in the output, do not drop any of them, they are separated by <item> tags in the input
@@ -402,10 +524,10 @@ Do not begin with “This page...” or “This topic ...” for the line under 
     result = asyncio.run(Runner.run(agent, input_text))
     final_output = result.final_output
 
-    # Validate commits (SHAs)
-    sha_pattern = r"[0-9a-f]{7,40}"  # SHA-1 hashes (7+ hex chars)
-    found_shas = set(sha[:7] for sha in re.findall(sha_pattern, final_output))
-    expected_shas = set(ci.sha[:7] for ci in included)
+    # Validate commits (SHAs) - handles both regular SHAs and API SHAs (api:abc1234)
+    sha_pattern = r"(?:api:)?[0-9a-f]{7,40}"  # SHA-1 hashes, optionally prefixed with "api:"
+    found_shas = set(sha[:11] if sha.startswith("api:") else sha[:7] for sha in re.findall(sha_pattern, final_output))
+    expected_shas = set(ci.sha[:11] if ci.sha.startswith("api:") else ci.sha[:7] for ci in included)
     if found_shas != expected_shas:
         logger.warning(
             f"Number of unique commit SHAs in output ({len(found_shas)}) does not match number of processed commits ({len(expected_shas)}).")
@@ -529,7 +651,7 @@ def main():
     # Fetch recent PRs once using the client
     num_commits = len(commits)
     # Fetch slightly more PRs than commits, adjust multiplier as needed
-    num_prs_to_fetch = math.ceil(num_commits * 5) + 30
+    num_prs_to_fetch = math.ceil(num_commits * 3) + 30
     logger.info(f"Attempting to fetch up to {num_prs_to_fetch} recent closed PRs for repo {args.repo}...")
     try:
         recent_prs = github_client.fetch_recent_closed_prs(num_prs_to_fetch)
@@ -544,16 +666,18 @@ def main():
         sys.exit(1)
 
     commit_infos = []
+    api_commit_infos = []  # Collect API changes from submodule updates
     processed_commit_count = 0
     repo_name = args.repo  # Pass repo name for potential use in process_commit
     for commit in commits:
         processed_commit_count += 1
         logger.info(f"Processing commit {processed_commit_count}/{num_commits}: {commit[:7]}...")
         try:
-            ci = process_commit(commit, recent_prs, github_client, repo_name, dry_run=args.dry_run)
+            ci, api_cis = process_commit(commit, recent_prs, github_client, repo_name, dry_run=args.dry_run)
             # process_commit now handles the case where no matching PR is found
             if ci:
                 commit_infos.append(ci)
+            api_commit_infos.extend(api_cis)  # Collect API changes
         except GitHubError as e:
             logger.error(f"GitHub error processing commit {commit[:7]}: {e}. Skipping commit.")
             # Optionally add placeholder or mark as failed
@@ -561,8 +685,10 @@ def main():
             logger.error(f"Unexpected error processing commit {commit[:7]}: {e}. Skipping commit.")
         # Removed early exit if PR not found, process_commit handles it
 
-    logger.info("Aggregating release notes...")
-    final_output = aggregate_release_notes(commit_infos, review_mode=args.review, abort_on_miss=args.abort_on_miss)
+    # Combine operator and API changes for aggregation
+    all_commit_infos = commit_infos + api_commit_infos
+    logger.info(f"Aggregating release notes ({len(commit_infos)} operator, {len(api_commit_infos)} API)...")
+    final_output = aggregate_release_notes(all_commit_infos, review_mode=args.review, abort_on_miss=args.abort_on_miss)
     # Only the final output goes to stdout
     print(final_output)
 
