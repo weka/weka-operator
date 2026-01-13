@@ -22,14 +22,8 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfs")
 	defer end()
 
-	nfsContainers := r.SelectNfsContainers(r.containers)
-
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
-	containerIds := []int{}
-	for _, c := range nfsContainers {
-		containerIds = append(containerIds, *c.Status.ClusterContainerID)
-	}
 
 	err := wekaService.ConfigureNfs(ctx, services.NFSParams{
 		ConfigFilesystem: ".config_fs",
