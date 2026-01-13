@@ -22,5 +22,4 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: true
           allow-initial-development-versions: true
-          hooks: goreleaser
           dry: true

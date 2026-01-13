@@ -24,7 +24,6 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # weka.io/weka-operator-bundle:$VERSION and weka.io/weka-operator-catalog:$VERSION.
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
 REGISTRY_ENDPOINT ?= quay.io/weka.io
-GORELEASER_BUILDER ?= docker
 VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
 WH_ENABLE_INSECURE ?= false
@@ -144,15 +143,6 @@ cluster-sample: ## Deploy sample cluster CRD
 	kubectl apply -f $(CLUSTER_SAMPLE)
 
 ##@ Build
-
-.PHONY: build
-build: ## Build manager binary.
-	REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT} VERSION=${VERSION} GORELEASER_BUILDER=${GORELEASER_BUILDER} goreleaser release --snapshot --clean --config .goreleaser.dev.yaml
-
-.PHONY: push-dev
-push-dev: ## Build manager binary.
-	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
-	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
 
 .PHONY: clean
 clean: ## Clean build artifacts.

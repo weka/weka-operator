@@ -45,9 +45,6 @@ Primary index file allowed to grow larger (up to ~10KB) for comprehensive overvi
 ## Build Commands
 
 ```bash
-# Build operator binary
-make build
-
 # Run tests
 make test
 

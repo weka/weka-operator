@@ -62,18 +62,3 @@ jobs:
           go generate ./...
           make generate
           make test
-
-#      - uses: goreleaser/goreleaser-action@v5
-#        id: goreleaser
-#        with:
-#          distribution: goreleaser
-#          version: latest
-#          args: release --snapshot --clean
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#
-#      - name: Build chart
-#        run: |
-#          echo '${{ steps.goreleaser.outputs.metadata }}' | jq '.version'
-#          export VERSION=$(echo '${{ steps.goreleaser.outputs.metadata }}' | jq '.version')
-#          make chart VERSION="${VERSION}"
