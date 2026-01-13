@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/controllers/allocator"
-	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
 // AllocateResources allocates drives and ports for the container using leader election
@@ -98,13 +97,11 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 	// Agent port (1 port): only for containers that have an agent
 	allocateAgentPort := r.container.HasAgent()
 
-	// Fetch feature flags for the container's image to determine ports per container
-	var featureFlags *domain.FeatureFlags
-	if allocateWekaPort {
-		featureFlags, err = r.GetFeatureFlags(ctx)
-		if err != nil {
-			return err
-		}
+	// Fetch feature flags for the container's image
+	// Always fetch - feature flags affect multiple allocation decisions (ports per container, offsets, etc.)
+	featureFlags, err := r.GetFeatureFlags(ctx)
+	if err != nil {
+		return err
 	}
 
 	// Use ContainerResourceAllocator service to allocate resources
