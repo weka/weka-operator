@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
@@ -565,9 +566,9 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		minTlcCapacity := numCores * MinChunkSizeGiB
 		if tlcCapacityNeeded < minTlcCapacity {
 			return nil, fmt.Errorf(
-				"insufficient TLC capacity for %s: need at least %d GiB to allocate %d TLC drives (minimum %d GiB per drive), but only %d GiB available",
-				req.Container.Name,
-				minTlcCapacity,
+				"insufficient TLC capacity: with %d drive cores, each of the %d TLC drives needs at least %d GiB (got %d GiB for TLC). "+
+					"Increase containerCapacity or adjust driveTypesRatio to allocate more capacity to TLC",
+				numCores,
 				numCores,
 				MinChunkSizeGiB,
 				tlcCapacityNeeded,
@@ -579,9 +580,9 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		minQlcCapacity := numCores * MinChunkSizeGiB
 		if qlcCapacityNeeded < minQlcCapacity {
 			return nil, fmt.Errorf(
-				"insufficient QLC capacity for %s: need at least %d GiB to allocate %d QLC drives (minimum %d GiB per drive), but only %d GiB available",
-				req.Container.Name,
-				minQlcCapacity,
+				"insufficient QLC capacity: with %d drive cores, each of the %d QLC drives needs at least %d GiB (got %d GiB for QLC). "+
+					"Increase containerCapacity or adjust driveTypesRatio to allocate more capacity to QLC",
+				numCores,
 				numCores,
 				MinChunkSizeGiB,
 				qlcCapacityNeeded,
@@ -627,7 +628,8 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		}
 
 		tlcDriveCapacities := buildDriveCapacityMap(ctx, tlcDrives, containers)
-		generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, numCores, MinChunkSizeGiB, tlcDriveCapacities)
+		maxDrives := numCores * globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
+		generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, numCores, MinChunkSizeGiB, tlcDriveCapacities, maxDrives)
 
 		done := make(chan struct{})
 		defer close(done)
@@ -687,7 +689,8 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		}
 
 		qlcDriveCapacities := buildDriveCapacityMap(ctx, qlcDrives, containers)
-		generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, numCores, MinChunkSizeGiB, qlcDriveCapacities)
+		maxDrives := numCores * globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
+		generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, numCores, MinChunkSizeGiB, qlcDriveCapacities, maxDrives-len(allVirtualDrives))
 
 		done := make(chan struct{})
 		defer close(done)

@@ -68,7 +68,7 @@
     </file>
     <file relpath="operator/operations/drive-sharing.md">
         <tags>drive sharing, multi-tenant, shared drives, proxy mode, virtual drives, containerCapacity, driveCapacity, driveTypesRatio, ssdproxy, TLC, QLC, capacity allocation, multi-cluster</tags>
-        <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, three capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global driveTypesRatio settings, multi-cluster configurations, capacity management, and troubleshooting.</summary>
+        <summary>Comprehensive guide for configuring drive sharing to enable multiple Weka clusters to share physical NVMe drives. Covers proxy mode signing, three capacity allocation modes (fixed per drive, total container capacity, mixed drive type ratios), global configuration settings (driveTypesRatio, maxVirtualDrivesPerCore), multi-cluster configurations, capacity management, and troubleshooting.</summary>
     </file>
 
     <!-- Operator Clients -->

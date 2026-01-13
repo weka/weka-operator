@@ -36,6 +36,7 @@ func (s *AllocationStrategy) NumDrives() int {
 type AllocationStrategyGenerator struct {
 	totalCapacityNeeded int
 	numCores            int
+	maxDrives           int
 	minChunkSizeGiB     int
 	driveCapacities     map[string]*physicalDriveCapacity
 
@@ -49,6 +50,7 @@ func NewAllocationStrategyGenerator(
 	numCores int,
 	minChunkSizeGiB int,
 	driveCapacities map[string]*physicalDriveCapacity,
+	maxDrives int,
 ) *AllocationStrategyGenerator {
 	// Extract and sort available capacities (descending)
 	availableCapacities := make([]int, 0, len(driveCapacities))
@@ -62,6 +64,7 @@ func NewAllocationStrategyGenerator(
 	return &AllocationStrategyGenerator{
 		totalCapacityNeeded:       totalCapacityNeeded,
 		numCores:                  numCores,
+		maxDrives:                 maxDrives,
 		minChunkSizeGiB:           minChunkSizeGiB,
 		driveCapacities:           driveCapacities,
 		sortedAvailableCapacities: availableCapacities,
@@ -102,8 +105,8 @@ func (g *AllocationStrategyGenerator) yieldUniformStrategies(ch chan<- Allocatio
 		return true // Skip but don't signal done
 	}
 
-	// Try dividing capacity by numCores, numCores+1, ..., up to numCores*3
-	for numDrives := g.numCores; numDrives <= g.numCores*3; numDrives++ {
+	// Try dividing capacity by numCores, numCores+1, ..., up to maxDrives
+	for numDrives := g.numCores; numDrives <= g.maxDrives; numDrives++ {
 		if g.totalCapacityNeeded%numDrives == 0 {
 			driveSize := g.totalCapacityNeeded / numDrives
 
@@ -124,6 +127,9 @@ func (g *AllocationStrategyGenerator) yieldUniformStrategies(ch chan<- Allocatio
 				case <-done:
 					return false // Consumer stopped reading
 				}
+			} else {
+				// Drive size is too small, all subsequent iterations will be even smaller
+				break
 			}
 		}
 	}
@@ -139,8 +145,8 @@ func (g *AllocationStrategyGenerator) yieldNonUniformStrategies(ch chan<- Alloca
 		return true // Skip but don't signal done
 	}
 
-	// Try with numCores, numCores+1, ..., up to numCores*3
-	for numDrives := g.numCores; numDrives <= g.numCores*3; numDrives++ {
+	// Try with numCores, numCores+1, ..., up to maxDrives
+	for numDrives := g.numCores; numDrives <= g.maxDrives; numDrives++ {
 		driveSizes := g.distributeEvenly(numDrives)
 		if driveSizes != nil {
 			select {
@@ -152,6 +158,9 @@ func (g *AllocationStrategyGenerator) yieldNonUniformStrategies(ch chan<- Alloca
 			case <-done:
 				return false // Consumer stopped reading
 			}
+		} else {
+			// Base size is too small, all subsequent iterations will be even smaller
+			break
 		}
 	}
 	return true

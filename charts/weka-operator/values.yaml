@@ -242,6 +242,10 @@ driveTypesRatio:
   tlc: 1
   qlc: 10
 
+# Maximum number of virtual drives per CPU core when using drive sharing.
+# Default: 8
+maxVirtualDrivesPerCore: 8
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network

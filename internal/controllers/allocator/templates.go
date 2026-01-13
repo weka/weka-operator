@@ -133,7 +133,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	// Apply global default driveTypesRatio when using drive sharing
 	// Drive sharing is enabled when containerCapacity > 0
 	if config.DriveTypesRatio == nil && config.ContainerCapacity > 0 {
-		ratio := globalconfig.Config.DriveTypes.DefaultRatio
+		ratio := globalconfig.Config.DriveSharing.DriveTypesRatio
 		// Only apply if non-zero ratio is configured
 		if ratio.Tlc > 0 || ratio.Qlc > 0 {
 			config.DriveTypesRatio = &v1alpha1.DriveTypesRatio{

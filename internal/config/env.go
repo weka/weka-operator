@@ -144,8 +144,9 @@ type NfsConfig struct {
 	NotifyPort      int
 }
 
-type DriveTypesConfig struct {
-	DefaultRatio v1alpha1.DriveTypesRatio
+type DriveSharingConfig struct {
+	DriveTypesRatio         v1alpha1.DriveTypesRatio
+	MaxVirtualDrivesPerCore int
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -193,29 +194,29 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes                    bool
-	CleanupBackendsOnNodeSelectorMismatch  bool
-	CleanupClientsOnNodeSelectorMismatch   bool
-	CleanupContainersOnTolerationsMismatch bool
-	EvictContainerOnDeletion               bool
-	RemovalThrottlingEnabled               bool
-	SkipClientsTolerationValidation        bool
-	TolerationsMismatchSettings            TolerationsMismatchSettings
+	CleanupRemovedNodes                          bool
+	CleanupBackendsOnNodeSelectorMismatch        bool
+	CleanupClientsOnNodeSelectorMismatch         bool
+	CleanupContainersOnTolerationsMismatch       bool
+	EvictContainerOnDeletion                     bool
+	RemovalThrottlingEnabled                     bool
+	SkipClientsTolerationValidation              bool
+	TolerationsMismatchSettings                  TolerationsMismatchSettings
 	DeleteEnvoyWithoutS3NeighborTimeout          time.Duration
 	DeleteTelemetryWithoutComputeNeighborTimeout time.Duration
 	DeleteUnschedulablePodsAfter                 time.Duration
-	RemoveFailedDrivesFromWeka             bool
-	AllowMultipleProtocolsPerNode          bool
-	ManagementProxyHostNetwork             bool
-	ManagementProxyIngressBaseDomain       string
-	ManagementProxyIngressClass            string
+	RemoveFailedDrivesFromWeka                   bool
+	AllowMultipleProtocolsPerNode                bool
+	ManagementProxyHostNetwork                   bool
+	ManagementProxyIngressBaseDomain             string
+	ManagementProxyIngressClass                  string
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
 	Proxy           string
 	PriorityClasses PriorityClasses
 	Nfs             NfsConfig
-	DriveTypes      DriveTypesConfig
+	DriveSharing    DriveSharingConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -416,9 +417,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Nfs.LockmanagerPort = getIntEnvOrDefault("NFS_LOCKMANAGER_PORT", 0)
 	Config.Nfs.NotifyPort = getIntEnvOrDefault("NFS_NOTIFY_PORT", 0)
 
-	// Drive types configuration
-	Config.DriveTypes.DefaultRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
-	Config.DriveTypes.DefaultRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
+	// Drive sharing configuration
+	Config.DriveSharing.DriveTypesRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
+	Config.DriveSharing.DriveTypesRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
+	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 }
 
 func getEnvOrFail(envKey string) string {
