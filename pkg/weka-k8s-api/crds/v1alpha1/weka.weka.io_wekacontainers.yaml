@@ -1244,6 +1244,11 @@ spec:
                           type: string
                       type: object
                     type: array
+                  nvidiaVfSingleIp:
+                    description: |-
+                      NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                      When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                    type: boolean
                   selectors:
                     items:
                       properties:
@@ -1753,6 +1758,15 @@ spec:
                 driveCapacity for TLC-only mode, or containerCapacity with driveTypesRatio
                 for mixed drive types
               rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)'
+            - message: numDrives must be >= numCores when using driveCapacity (TLC-only
+                mode); each core requires at least one virtual drive
+              rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives)
+                || self.numDrives == 0 || self.numDrives >= self.numCores'
+            - message: numDrives and containerCapacity are mutually exclusive; use
+                numDrives with driveCapacity for TLC-only mode, or containerCapacity
+                with driveTypesRatio for mixed drive types
+              rule: '!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity)
+                || self.containerCapacity == 0'
           status:
             properties:
               addedDrives:
@@ -1784,16 +1798,10 @@ spec:
                     items:
                       type: string
                     type: array
-                  ethSlots:
-                    items:
-                      type: string
-                    type: array
                   failureDomain:
                     description: value of the failure domain label of the node where
                       the container is running
                     type: string
-                  lbPort:
-                    type: integer
                   machineIdentifier:
                     type: string
                   netDevices:

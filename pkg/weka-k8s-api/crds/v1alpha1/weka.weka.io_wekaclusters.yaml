@@ -299,6 +299,16 @@ spec:
                     use driveCapacity for TLC-only mode, or containerCapacity with
                     driveTypesRatio for mixed drive types
                   rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.driveTypesRatio)'
+                - message: numDrives must be >= driveCores when using driveCapacity
+                    (TLC-only mode); each drive core requires at least one virtual
+                    drive
+                  rule: '!has(self.driveCapacity) || self.driveCapacity == 0 || !has(self.numDrives)
+                    || self.numDrives == 0 || self.numDrives >= self.driveCores'
+                - message: numDrives and containerCapacity are mutually exclusive;
+                    use numDrives with driveCapacity for TLC-only mode, or containerCapacity
+                    with driveTypesRatio for mixed drive types
+                  rule: '!has(self.numDrives) || self.numDrives == 0 || !has(self.containerCapacity)
+                    || self.containerCapacity == 0'
               encryption:
                 properties:
                   vault:
@@ -455,6 +465,11 @@ spec:
                           type: string
                       type: object
                     type: array
+                  nvidiaVfSingleIp:
+                    description: |-
+                      NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                      When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                    type: boolean
                   selectors:
                     items:
                       properties:
@@ -6281,6 +6296,11 @@ spec:
                               type: string
                           type: object
                         type: array
+                      nvidiaVfSingleIp:
+                        description: |-
+                          NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                          When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                        type: boolean
                       selectors:
                         items:
                           properties:
@@ -6356,6 +6376,11 @@ spec:
                               type: string
                           type: object
                         type: array
+                      nvidiaVfSingleIp:
+                        description: |-
+                          NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                          When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                        type: boolean
                       selectors:
                         items:
                           properties:
@@ -6431,6 +6456,11 @@ spec:
                               type: string
                           type: object
                         type: array
+                      nvidiaVfSingleIp:
+                        description: |-
+                          NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                          When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                        type: boolean
                       selectors:
                         items:
                           properties:
@@ -6506,6 +6536,11 @@ spec:
                               type: string
                           type: object
                         type: array
+                      nvidiaVfSingleIp:
+                        description: |-
+                          NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                          When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                        type: boolean
                       selectors:
                         items:
                           properties:

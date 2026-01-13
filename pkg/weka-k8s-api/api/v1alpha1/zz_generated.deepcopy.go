@@ -260,11 +260,6 @@ func (in *ContainerAllocations) DeepCopyInto(out *ContainerAllocations) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.EthSlots != nil {
-		in, out := &in.EthSlots, &out.EthSlots
-		*out = make([]string, len(*in))
-		copy(*out, *in)
-	}
 	if in.FailureDomain != nil {
 		in, out := &in.FailureDomain, &out.FailureDomain
 		*out = new(string)

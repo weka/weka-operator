@@ -287,8 +287,6 @@ type VirtualDrive struct {
 
 type ContainerAllocations struct {
 	Drives    []string `json:"drives,omitempty"`
-	EthSlots  []string `json:"ethSlots,omitempty"`
-	LbPort    int      `json:"lbPort,omitempty"`
 	WekaPort  int      `json:"wekaPort,omitempty"`
 	AgentPort int      `json:"agentPort,omitempty"`
 	// value of the failure domain label of the node where the container is running
@@ -307,10 +305,10 @@ func (c *ContainerAllocations) Equals(other *ContainerAllocations) bool {
 	if c == nil || other == nil {
 		return false
 	}
-	if c.LbPort != other.LbPort || c.WekaPort != other.WekaPort || c.AgentPort != other.AgentPort {
+	if c.WekaPort != other.WekaPort || c.AgentPort != other.AgentPort {
 		return false
 	}
-	if !slices.Equal(c.Drives, other.Drives) || !slices.Equal(c.EthSlots, other.EthSlots) || !slices.Equal(c.NetDevices, other.NetDevices) {
+	if !slices.Equal(c.Drives, other.Drives) || !slices.Equal(c.NetDevices, other.NetDevices) {
 		return false
 	}
 	if (c.FailureDomain == nil && other.FailureDomain != nil) || (c.FailureDomain != nil && other.FailureDomain == nil) {
