@@ -98,8 +98,8 @@ func (r *containerReconcilerLoop) reconcileWekaLocalStatus(ctx context.Context) 
 		r.RecordEventThrottled(v1.EventTypeWarning, "WekaLocalStatus", msg, time.Minute)
 	}
 
-	// skip status update for DrivesAdding
-	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding {
+	// skip status update for DrivesAdding (if still adding drives)
+	if status == string(weka.Running) && container.Status.Status == weka.DrivesAdding && r.HasDrivesToAdd() {
 		// update internal status if it changed (this part is for backward compatibility)
 		if container.Status.InternalStatus != internalStatus {
 			return fmt.Errorf("internal status changed: %s -> %s", container.Status.InternalStatus, internalStatus)
