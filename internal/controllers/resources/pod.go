@@ -1264,6 +1264,13 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memLimit = "32Gi"
 	}
 
+	// Adhoc-op containers (sign-drives, discover-drives, force-resign-drives, umount, etc.)
+	// use minimal resources with no limits
+	if f.container.IsAdhocOpContainer() {
+		cpuRequestStr = "100m"
+		memRequest = "128Mi"
+	}
+
 	if memLimit == "" {
 		memLimit = memRequest
 	}
@@ -1280,18 +1287,29 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
-	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
-			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-			corev1.ResourceMemory:           resource.MustParse(memLimit),
-		},
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
-			hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
-			corev1.ResourceMemory:           resource.MustParse(memRequest),
-			corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
-		},
+	if f.container.IsAdhocOpContainer() {
+		// Adhoc-op containers: minimal requests, no limits
+		pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+				corev1.ResourceMemory:           resource.MustParse(memRequest),
+				corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
+			},
+		}
+	} else {
+		pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse(cpuLimitStr),
+				hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
+				corev1.ResourceMemory:           resource.MustParse(memLimit),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
+				hgDetails.HugePagesResourceName: resource.MustParse(hgDetails.HugePagesStr),
+				corev1.ResourceMemory:           resource.MustParse(memRequest),
+				corev1.ResourceEphemeralStorage: resource.MustParse(requestedEphemeralStorage),
+			},
+		}
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDrive && !f.container.UsesDriveSharing() {
