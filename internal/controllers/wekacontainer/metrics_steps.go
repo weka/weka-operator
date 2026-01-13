@@ -32,13 +32,6 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 
 	return []lifecycle.Step{
 		&lifecycle.SimpleStep{
-			Run: loop.EnsureFeatureFlags,
-			Predicates: lifecycle.Predicates{
-				// Currently, we only need feature flags for client containers
-				container.IsClientContainer,
-			},
-		},
-		&lifecycle.SimpleStep{
 			Name: "SetStatusMetrics",
 			Run:  loop.SetStatusMetrics,
 			Predicates: lifecycle.Predicates{

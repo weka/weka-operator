@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -96,13 +95,13 @@ func TestAllocatorGlobalRanges(t *testing.T) {
 
 	allocator := newTestAllocator(existingClusters)
 
-	// Setup feature flags cache for the test (using empty image as testWekaCluster doesn't set it)
-	_ = services.FeatureFlagsCache.SetFeatureFlags(ctx, "", &domain.FeatureFlags{})
+	// Feature flags for the test (empty flags = default port range)
+	featureFlags := &domain.FeatureFlags{}
 
 	// Create a new cluster to allocate
 	cluster1 := testWekaCluster("cluster-1")
 
-	err := allocator.AllocateClusterRange(ctx, cluster1)
+	err := allocator.AllocateClusterRange(ctx, cluster1, featureFlags)
 	if err != nil {
 		t.Errorf("Failed to allocate cluster range: %v", err)
 		return

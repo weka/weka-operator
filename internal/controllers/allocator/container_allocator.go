@@ -35,10 +35,11 @@ type AllocationRequest struct {
 	Container     *weka.WekaContainer
 	Node          *v1.Node
 	Cluster       *weka.WekaCluster
+	FeatureFlags  *domain.FeatureFlags // Feature flags for the container's image (determines ports per container)
 	NumDrives     int
 	CapacityGiB   int // Total capacity that should be allocated for the container (mutually exclusive with NumDrives)
 	FailureDomain *string
-	AllocateWeka  bool // Whether to allocate weka port (100 ports)
+	AllocateWeka  bool // Whether to allocate weka port (60 or 100 ports based on feature flags)
 	AllocateAgent bool // Whether to allocate agent port (1 port)
 }
 
@@ -97,8 +98,8 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 		logger.Debug("Allocated drives", "count", len(result.Drives))
 	}
 
-	// Allocate port ranges based on request flags
-	wekaPort, agentPort, err := a.allocatePortRangesFromStatus(ctx, req.Cluster, allocatedPorts, req.AllocateWeka, req.AllocateAgent)
+	// Allocate port ranges based on request flags and feature flags
+	wekaPort, agentPort, err := a.allocatePortRangesFromStatus(ctx, req.Cluster, req.FeatureFlags, allocatedPorts, req.AllocateWeka, req.AllocateAgent)
 	if err != nil {
 		return nil, &PortAllocationError{Cause: err}
 	}
@@ -193,9 +194,10 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 
 // allocatePortRangesFromStatus allocates weka and agent port ranges from the cluster's port range
 // using aggregated allocations from container Status
-// allocateWeka: if true, allocate weka port (100 ports)
+// featureFlags: feature flags for the container's image (determines ports per container)
+// allocateWeka: if true, allocate weka port (60 or 100 ports based on feature flags)
 // allocateAgent: if true, allocate agent port (1 port)
-func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, allocatedPorts map[int]bool, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
+func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedPorts map[int]bool, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
 	defer end()
 
@@ -235,10 +237,12 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 		i++
 	}
 
+	// Add global singleton ports (LB, S3, LbAdmin, ManagementProxy) to exclusion list
 	allocatedRanges = append(allocatedRanges, GetClusterGlobalAllocatedRanges(cluster)...)
-	// Derive port configuration from cluster's allocated port range
-	// This ensures consistency with the cluster's allocation decision
-	portsPerContainer, singlePortsOffset := derivePortConfigFromClusterRange(clusterRange.Size)
+
+	// Get port configuration from feature flags for the container's image
+	portsPerContainer := getPortsPerContainerFromFlags(featureFlags)
+	singlePortsOffset := getSinglePortsOffsetFromFlags(featureFlags)
 
 	// Allocate weka port if requested (portsPerContainer ports from cluster base)
 	wekaPortRange := 0

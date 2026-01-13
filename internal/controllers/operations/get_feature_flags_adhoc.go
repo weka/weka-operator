@@ -225,7 +225,7 @@ func (o *GetFeatureFlagsViaAdhocOperation) CacheFeatureFlags(ctx context.Context
 		return errors.New("no feature flags to cache")
 	}
 
-	err := services.FeatureFlagsCache.SetFeatureFlags(ctx, o.params.Image, o.featureFlags)
+	err := services.SetFeatureFlags(ctx, o.params.Image, o.featureFlags)
 	if err != nil {
 		return err
 	}

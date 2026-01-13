@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
@@ -27,33 +26,32 @@ const (
 	ReducedSinglePortsOffset = 240 // After 4 containers worth of ports (60*4), leaving 20 for single ports
 )
 
-// getClusterPortRange returns the default cluster port range based on feature flags.
-// Returns 260 if agent_validate_60_ports_per_container is set, otherwise returns 500.
-// Returns error if feature flags are not available.
-func getClusterPortRange(ctx context.Context, image string) (int, error) {
-	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
-	if err != nil {
-		return 0, fmt.Errorf("feature flags not available: %w", err)
-	}
+// getPortsPerContainerFromFlags returns the number of ports per container based on feature flags.
+// Returns 60 if agent_validate_60_ports_per_container is set, otherwise returns 100.
+func getPortsPerContainerFromFlags(flags *domain.FeatureFlags) int {
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedClusterPortRange, nil
+		return ReducedPortsPerContainer
 	}
-	return DefaultClusterPortRange, nil
+	return DefaultPortsPerContainer
 }
 
-// getSinglePortsOffset returns the offset where single-port allocations start.
+// getClusterPortRangeFromFlags returns the default cluster port range based on feature flags.
+// Returns 260 if agent_validate_60_ports_per_container is set, otherwise returns 500.
+func getClusterPortRangeFromFlags(flags *domain.FeatureFlags) int {
+	if flags != nil && flags.AgentValidate60PortsPerContainer {
+		return ReducedClusterPortRange
+	}
+	return DefaultClusterPortRange
+}
+
+// getSinglePortsOffsetFromFlags returns the offset where single-port allocations start.
 // Returns 240 if agent_validate_60_ports_per_container is set (60*4 containers),
 // otherwise returns 300.
-// Returns error if feature flags are not available.
-func getSinglePortsOffset(ctx context.Context, image string) (int, error) {
-	flags, err := services.FeatureFlagsCache.GetFeatureFlags(ctx, image)
-	if err != nil {
-		return 0, fmt.Errorf("feature flags not available: %w", err)
-	}
+func getSinglePortsOffsetFromFlags(flags *domain.FeatureFlags) int {
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
-		return ReducedSinglePortsOffset, nil
+		return ReducedSinglePortsOffset
 	}
-	return DefaultSinglePortsOffset, nil
+	return DefaultSinglePortsOffset
 }
 
 // derivePortConfigFromClusterRange derives port configuration from the cluster's
@@ -75,7 +73,9 @@ func (e *AllocateClusterRangeError) Error() string {
 }
 
 type Allocator interface {
-	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error
+	// AllocateClusterRange allocates cluster-level port ranges.
+	// featureFlags is used to determine default port range size if not specified in cluster spec.
+	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags) error
 	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error
 }
 
@@ -181,7 +181,7 @@ func (t *ResourcesAllocator) aggregateClusterPortRanges(ctx context.Context) (Cl
 	return clusterRanges, nil
 }
 
-func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster) error {
+func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags) error {
 	// Validate Spec hasn't changed if already allocated
 	if cluster.Spec.Ports.BasePort != 0 && cluster.Status.Ports.BasePort != 0 && cluster.Status.Ports.BasePort != cluster.Spec.Ports.BasePort {
 		return fmt.Errorf("updating base port is not supported")
@@ -205,10 +205,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	// Determine target port range size
 	targetSize := cluster.Spec.Ports.PortRange
 	if targetSize == 0 {
-		targetSize, err = getClusterPortRange(ctx, cluster.Spec.Image)
-		if err != nil {
-			return fmt.Errorf("failed to get cluster port range: %w", err)
-		}
+		targetSize = getClusterPortRangeFromFlags(featureFlags)
 	}
 
 	// Determine target base port
@@ -238,11 +235,8 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
-	// Determine singleton ports offset
-	singlePortsOffset, err := getSinglePortsOffset(ctx, cluster.Spec.Image)
-	if err != nil {
-		return fmt.Errorf("failed to get single ports offset: %w", err)
-	}
+	// Determine singleton ports offset from feature flags
+	singlePortsOffset := getSinglePortsOffsetFromFlags(featureFlags)
 
 	// Allocate singleton ports (LB, LB Admin, S3)
 	// Each allocation updates cluster.Status, so the next call sees the previous allocation

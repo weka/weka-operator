@@ -10,12 +10,39 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
-// make this service globally available
-var FeatureFlagsCache FeatureFlagsCacheService
+// featureFlagsCache is the internal cache instance - use the package-level functions below
+var featureFlagsCache featureFlagsCacheService
 
 func init() {
-	FeatureFlagsCache = NewFeatureFlagsCacheService()
+	featureFlagsCache = featureFlagsCacheService{
+		cache: make(map[string]*domain.FeatureFlags),
+	}
 }
+
+// GetFeatureFlags returns cached feature flags for the given image.
+// Returns ErrFeatureFlagsNotCached if flags are not in cache.
+// This is the high-level accessor that should be used by all code needing feature flags.
+// If flags are not cached, callers should ensure they are fetched via the appropriate
+// operation (GetFeatureFlagsOperation or GetFeatureFlagsViaAdhocOperation) before retrying.
+func GetFeatureFlags(ctx context.Context, image string) (*domain.FeatureFlags, error) {
+	return featureFlagsCache.GetFeatureFlags(ctx, image)
+}
+
+// SetFeatureFlags caches feature flags for the given image.
+// This should only be called by operations that fetch feature flags.
+func SetFeatureFlags(ctx context.Context, image string, flags *domain.FeatureFlags) error {
+	return featureFlagsCache.SetFeatureFlags(ctx, image, flags)
+}
+
+// HasFeatureFlags checks if feature flags for the given image are cached.
+func HasFeatureFlags(ctx context.Context, image string) bool {
+	return featureFlagsCache.Has(ctx, image)
+}
+
+// FeatureFlagsCache is exposed for backwards compatibility but prefer using
+// the package-level functions GetFeatureFlags, SetFeatureFlags, HasFeatureFlags.
+// Deprecated: Use GetFeatureFlags, SetFeatureFlags, HasFeatureFlags instead.
+var FeatureFlagsCache FeatureFlagsCacheService = &featureFlagsCache
 
 // FeatureFlagsCacheService is a service that keeps cached feature flags per weka image
 // Feature flags are tied to the weka image version and don't change, so no TTL is needed
