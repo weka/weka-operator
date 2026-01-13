@@ -15,13 +15,13 @@ if not GEMINI_API_KEY:
 gemini_client_agg = AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                                 api_key=GEMINI_API_KEY)
 final_release_notes_model = OpenAIChatCompletionsModel(
-    model="gemini-2.5-pro-preview-03-25",  # Or potentially a larger/different model for aggregation
+    model="gemini-3-pro-preview",  # Or potentially a larger/different model for aggregation
     # model="gemini-2.5-flash-preview-04-17", # Or potentially a larger/different model for aggregation
     openai_client=gemini_client_agg
 )
 
 gemini_pro = OpenAIChatCompletionsModel(
-    model="gemini-2.5-pro-preview-03-25",  # Or potentially a larger/different model for aggregation
+    model="gemini-3-pro-preview",  # Or potentially a larger/different model for aggregation
     openai_client=gemini_client_agg
 )
 
