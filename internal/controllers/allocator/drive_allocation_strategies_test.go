@@ -63,7 +63,7 @@ func TestAllocationStrategyGenerator_UniformStrategies(t *testing.T) {
 				},
 			}
 
-			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, driveCapacities)
+			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, driveCapacities, tt.numCores*8)
 
 			done := make(chan struct{})
 			defer close(done)
@@ -149,7 +149,7 @@ func TestAllocationStrategyGenerator_NonUniformStrategies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, tt.driveCapacities)
+			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, tt.driveCapacities, tt.numCores*8)
 
 			done := make(chan struct{})
 			defer close(done)
@@ -196,7 +196,7 @@ func TestAllocationStrategyGenerator_MinChunkConstraint(t *testing.T) {
 
 	// Request capacity that would create drives smaller than minChunkSize
 	// minChunkSize = 384 GiB, so if we request 1000 GiB / 3 cores = 333 GiB per drive (too small)
-	generator := NewAllocationStrategyGenerator(1000, 3, MinChunkSizeGiB, driveCapacities)
+	generator := NewAllocationStrategyGenerator(1000, 3, MinChunkSizeGiB, driveCapacities, 3*8)
 
 	done := make(chan struct{})
 	defer close(done)
@@ -225,7 +225,7 @@ func TestAllocationStrategyGenerator_NumCoresConstraint(t *testing.T) {
 
 	// Request very small capacity with high numCores requirement
 	// This will fail because 500 / 5 = 100 GiB per drive, which is < minChunkSize (384 GiB)
-	generator := NewAllocationStrategyGenerator(500, 5, MinChunkSizeGiB, driveCapacities)
+	generator := NewAllocationStrategyGenerator(500, 5, MinChunkSizeGiB, driveCapacities, 5*8)
 
 	done := make(chan struct{})
 	defer close(done)
@@ -259,26 +259,27 @@ func TestAllocationStrategyGenerator_StrategyTypes(t *testing.T) {
 	}
 
 	// Use capacity that divides evenly to get uniform strategies
-	generator := NewAllocationStrategyGenerator(6000, 3, MinChunkSizeGiB, driveCapacities)
+	// maxDrives=9 to test a reasonable range
+	generator := NewAllocationStrategyGenerator(6000, 3, MinChunkSizeGiB, driveCapacities, 9)
 
 	done := make(chan struct{})
 	defer close(done)
 
 	// Expected strategies in order they should be generated
 	expected := []AllocationStrategy{
-		// Uniform strategies (tries numCores=3, numCores+1=4, numCores+2=5, numCores+3=6)
-		{Description: "uniform", DriveSizes: []int{2000, 2000, 2000}},           // 6000/3
-		{Description: "uniform", DriveSizes: []int{1500, 1500, 1500, 1500}},     // 6000/4
-		{Description: "uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}}, // 6000/5
-		{Description: "uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}}, // 6000/6
+		// Uniform strategies (tries numCores=3, 4, 5, 6, 7, 8, 9)
+		{Description: "uniform", DriveSizes: []int{2000, 2000, 2000}},                       // 6000/3
+		{Description: "uniform", DriveSizes: []int{1500, 1500, 1500, 1500}},                 // 6000/4
+		{Description: "uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}},           // 6000/5
+		{Description: "uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}},     // 6000/6
 		{Description: "uniform", DriveSizes: []int{750, 750, 750, 750, 750, 750, 750, 750}}, // 6000/8
-		// Non-uniform strategies (tries numCores=3, numCores+1=4, numCores+2=5, etc.)
-		{Description: "non-uniform", DriveSizes: []int{2000, 2000, 2000}},       // 6000/3 = 2000 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1500, 1500, 1500, 1500}}, // 6000/4 = 1500 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}}, // 6000/5 = 1200 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}}, // 6000/6 = 1000 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{858, 857, 857, 857, 857, 857, 857}}, // 6000/7 = 857 remainder 1 (1 drive gets 858, 6 get 857)
-		{Description: "non-uniform", DriveSizes: []int{750, 750, 750, 750, 750, 750, 750, 750}}, // 6000/8 = 750 remainder 0
+		// Non-uniform strategies (tries numCores=3, 4, 5, 6, 7, 8, 9)
+		{Description: "non-uniform", DriveSizes: []int{2000, 2000, 2000}},                            // 6000/3 = 2000 remainder 0
+		{Description: "non-uniform", DriveSizes: []int{1500, 1500, 1500, 1500}},                      // 6000/4 = 1500 remainder 0
+		{Description: "non-uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}},                // 6000/5 = 1200 remainder 0
+		{Description: "non-uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}},          // 6000/6 = 1000 remainder 0
+		{Description: "non-uniform", DriveSizes: []int{858, 857, 857, 857, 857, 857, 857}},           // 6000/7 = 857 remainder 1 (1 drive gets 858, 6 get 857)
+		{Description: "non-uniform", DriveSizes: []int{750, 750, 750, 750, 750, 750, 750, 750}},      // 6000/8 = 750 remainder 0
 		{Description: "non-uniform", DriveSizes: []int{667, 667, 667, 667, 667, 667, 666, 666, 666}}, // 6000/9 = 666 remainder 6 (6 drives get 667, 3 get 666)
 	}
 
@@ -322,7 +323,7 @@ func TestAllocationStrategyGenerator_InsufficientCapacity(t *testing.T) {
 		},
 	}
 
-	generator := NewAllocationStrategyGenerator(10000, 5, MinChunkSizeGiB, driveCapacities)
+	generator := NewAllocationStrategyGenerator(10000, 5, MinChunkSizeGiB, driveCapacities, 5*8)
 
 	done := make(chan struct{})
 	defer close(done)

@@ -242,16 +242,18 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 
 ---
 
-### Global Default: driveTypesRatio
+### Global Defaults
 
-The operator supports a global default for mixed drive types via Helm values.
+The operator supports global defaults for drive sharing configuration via Helm values.
+
+#### driveTypesRatio
 
 **Helm values.yaml:**
 
 ```yaml
 driveTypesRatio:
-  tlc: 4  # 80% TLC (high-performance)
-  qlc: 1  # 20% QLC (cost-optimized)
+  tlc: 1  # 10% TLC (high-performance)
+  qlc: 9  # 90% QLC (cost-optimized)
 ```
 
 **Behavior:**
@@ -259,11 +261,17 @@ driveTypesRatio:
 - Per-cluster `spec.dynamicTemplate.driveTypesRatio` always overrides global setting
 - Ratio represents relative proportions (total parts = tlc + qlc)
 
-**Example values:**
-- `tlc: 1, qlc: 0` = 100% TLC (all high-performance) - DEFAULT
-- `tlc: 4, qlc: 1` = 80% TLC, 20% QLC (recommended balance)
-- `tlc: 1, qlc: 1` = 50% TLC, 50% QLC
-- `tlc: 0, qlc: 1` = 100% QLC (all cost-optimized)
+#### maxVirtualDrivesPerCore
+
+**Helm values.yaml:**
+
+```yaml
+maxVirtualDrivesPerCore: 8  # Default value
+```
+
+**Behavior:**
+Limits the number of virtual drives that can be allocated per CPU core assigned to the container (`driveCores`).
+Formula: `Total Virtual Drives <= driveCores * maxVirtualDrivesPerCore`
 
 ---
 
