@@ -113,6 +113,7 @@
 | selectors | []NetworkSelector |  |
 | managementIpsSelectors | []NetworkSelector |  |
 | bindManagementAll | bool | BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.<br>When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).<br>When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses. |
+| nvidiaVfSingleIp | *bool | NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF<br>When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups |
 
 ---
 

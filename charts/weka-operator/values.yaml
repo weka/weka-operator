@@ -246,6 +246,12 @@ driveTypesRatio:
 # Default: 8
 maxVirtualDrivesPerCore: 8
 
+# Enforce minimum drives per type per core when using drive sharing with mixed TLC/QLC.
+# When true (default): per-type constraints - cores <= tlcDrives AND cores <= qlcDrives
+# When false: combined constraint - cores <= tlcDrives + qlcDrives <= maxDrives
+# Note: Only affects mixed TLC/QLC configurations. Single-type allocations behave the same either way.
+enforceMinDrivesPerTypePerCore: true
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network

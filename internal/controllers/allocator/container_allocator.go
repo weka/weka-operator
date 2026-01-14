@@ -559,21 +559,48 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	tlcCapacityNeeded := req.Container.Spec.GetTlcContainerCapacity()
 	qlcCapacityNeeded := req.Container.Spec.GetQlcContainerCapacity()
 
-	// Validate combined minimum drive count constraint
-	// Total drives (TLC + QLC) must be at least numCores
+	// Validate minimum drive count constraint based on configuration
 	// Each drive must be at least MinChunkSizeGiB (384 GiB)
 	totalCapacity := tlcCapacityNeeded + qlcCapacityNeeded
-	minTotalCapacity := numCores * MinChunkSizeGiB
-	if totalCapacity < minTotalCapacity {
-		return nil, fmt.Errorf(
-			"insufficient total capacity: with %d drive cores, need at least %d GiB total (minimum %d drives × %d GiB each), but only %d GiB available. "+
-				"Increase containerCapacity",
-			numCores,
-			minTotalCapacity,
-			numCores,
-			MinChunkSizeGiB,
-			totalCapacity,
-		)
+	minCapacityPerType := numCores * MinChunkSizeGiB
+
+	if globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
+		// Per-type constraint: each active type must have at least numCores drives
+		if tlcCapacityNeeded > 0 && tlcCapacityNeeded < minCapacityPerType {
+			return nil, fmt.Errorf(
+				"insufficient TLC capacity: with %d drive cores and enforceMinDrivesPerTypePerCore=true, need at least %d GiB TLC (minimum %d drives × %d GiB each), but only %d GiB configured. "+
+					"Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false",
+				numCores,
+				minCapacityPerType,
+				numCores,
+				MinChunkSizeGiB,
+				tlcCapacityNeeded,
+			)
+		}
+		if qlcCapacityNeeded > 0 && qlcCapacityNeeded < minCapacityPerType {
+			return nil, fmt.Errorf(
+				"insufficient QLC capacity: with %d drive cores and enforceMinDrivesPerTypePerCore=true, need at least %d GiB QLC (minimum %d drives × %d GiB each), but only %d GiB configured. "+
+					"Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false",
+				numCores,
+				minCapacityPerType,
+				numCores,
+				MinChunkSizeGiB,
+				qlcCapacityNeeded,
+			)
+		}
+	} else {
+		// Combined constraint: total drives (TLC + QLC) must be at least numCores
+		if totalCapacity < minCapacityPerType {
+			return nil, fmt.Errorf(
+				"insufficient total capacity: with %d drive cores, need at least %d GiB total (minimum %d drives × %d GiB each), but only %d GiB available. "+
+					"Increase containerCapacity",
+				numCores,
+				minCapacityPerType,
+				numCores,
+				MinChunkSizeGiB,
+				totalCapacity,
+			)
+		}
 	}
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateSharedDrivesByCapacityWithTypes",
@@ -630,17 +657,21 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	var allVirtualDrives []weka.VirtualDrive
 	var lastTlcError, lastQlcError error
 
-	// Determine TLC min range based on whether we have both types
-	tlcMinStart := 1
-	tlcMinEnd := numCores
-	if qlcCapacityNeeded == 0 {
-		// TLC only: must have at least numCores drives
-		tlcMinStart = numCores
-	}
+	// Determine TLC min range based on whether we have both types and constraint mode
+	var tlcMinStart, tlcMinEnd int
+
 	if tlcCapacityNeeded == 0 {
 		// QLC only: skip TLC iteration
 		tlcMinStart = 0
 		tlcMinEnd = 0
+	} else if qlcCapacityNeeded == 0 || globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
+		// TLC only OR per-type constraint: must have exactly numCores TLC drives (no iteration)
+		tlcMinStart = numCores
+		tlcMinEnd = numCores
+	} else {
+		// Combined constraint with mixed types: iterate from 1 to numCores
+		tlcMinStart = 1
+		tlcMinEnd = numCores
 	}
 
 	for tlcMin := tlcMinStart; tlcMin <= tlcMinEnd; tlcMin++ {
@@ -705,8 +736,15 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 
 		// Allocate QLC drives with adjusted constraints
 		if qlcCapacityNeeded > 0 {
-			// QLC min ensures combined total >= numCores
-			qlcMin := max(1, numCores-len(allVirtualDrives))
+			// Determine QLC min based on constraint mode
+			var qlcMin int
+			if globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
+				// Per-type constraint: QLC must have at least numCores drives
+				qlcMin = numCores
+			} else {
+				// Combined constraint: QLC min ensures combined total >= numCores
+				qlcMin = max(1, numCores-len(allVirtualDrives))
+			}
 			qlcMax := maxDrives - len(allVirtualDrives)
 
 			generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, qlcMin, MinChunkSizeGiB, qlcDriveCapacities, qlcMax)

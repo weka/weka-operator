@@ -149,23 +149,35 @@ For each strategy, the allocator:
 - If physical drives don't have type information, drive type ratio allocation will fail
 
 **Minimum Drive Count Constraint:**
-When using drive types, each active type (TLC and/or QLC) must receive **at least `driveCores` virtual drives**. This constraint is enforced at allocation time in the allocator.
+The minimum drive count constraint behavior is controlled by the `enforceMinDrivesPerTypePerCore` Helm value (default: `true`).
+
+- **When `enforceMinDrivesPerTypePerCore: true` (default)**: Per-type constraint
+  - Each active type (TLC and/or QLC) must receive **at least `driveCores` virtual drives**
+  - Constraint: `cores <= tlcDrives` AND `cores <= qlcDrives`
+  - More strict, ensures balanced distribution per type
+
+- **When `enforceMinDrivesPerTypePerCore: false`**: Combined constraint
+  - Total drives across both types must be at least `driveCores`
+  - Constraint: `cores <= tlcDrives + qlcDrives <= maxDrives`
+  - More flexible, allows asymmetric distribution between types
 
 - **Implementation**: `internal/controllers/allocator/container_allocator.go`
   - Function: `allocateSharedDrivesByCapacityWithTypes()` (for containerCapacity mode)
   - Function: `allocateSharedDrivesByDrivesNum()` (for driveCapacity + numDrives mode, TLC only)
 - **Constant**: `MinChunkSizeGiB = 384 GiB` (128 GiB × 3)
-- **Validation**: Each active type's capacity must be ≥ `driveCores × 384 GiB`
-- **Behavior**:
-  - For mixed types: `tlcCores = numCores`, `qlcCores = numCores` (if capacity needed)
-  - The `driveTypesRatio` is used ONLY for capacity distribution, not drive count distribution
-- **Error handling**: Returns clear error message if capacity is insufficient for minimum drive count
+- **Validation**: Capacity must be ≥ `driveCores × 384 GiB` (per type or combined, based on setting)
+- **Note**: When only one drive type is active (e.g., `qlc: 0`), both modes behave identically
 
-**Example:**
+**Example with `enforceMinDrivesPerTypePerCore: true` (default):**
 - `driveCores: 5`, `containerCapacity: 5000`, `driveTypesRatio: {tlc: 4, qlc: 1}`
 - TLC capacity: 4000 GiB (80%) → needs 1920 GiB (5 × 384) ✓
 - QLC capacity: 1000 GiB (20%) → needs 1920 GiB (5 × 384) ✗
 - Result: Allocation fails with error message
+
+**Example with `enforceMinDrivesPerTypePerCore: false`:**
+- Same configuration as above
+- Total capacity: 5000 GiB → needs 1920 GiB (5 × 384) ✓
+- Result: Allocation succeeds with asymmetric distribution (e.g., 4 TLC + 1 QLC drives)
 
 **Use case:** Flexible capacity allocation with control over TLC/QLC distribution
 

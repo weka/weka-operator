@@ -205,12 +205,21 @@ spec:
 
 **Minimum Capacity Constraint:**
 
-When using drive types, **each active type (TLC and/or QLC) must get at least `driveCores` virtual drives**. Since each virtual drive requires a minimum of 384 GiB, the capacity requirements are:
+The minimum drive count constraint behavior is controlled by the `enforceMinDrivesPerTypePerCore` Helm value (default: `true`).
 
+**When `enforceMinDrivesPerTypePerCore: true` (default) - Per-type constraint:**
+- Each active type (TLC and/or QLC) must get at least `driveCores` virtual drives
 - **TLC capacity** ≥ `driveCores × 384 GiB` (if tlc > 0)
 - **QLC capacity** ≥ `driveCores × 384 GiB` (if qlc > 0)
 
-**Example validation:**
+**When `enforceMinDrivesPerTypePerCore: false` - Combined constraint:**
+- Total drives across both types must be at least `driveCores`
+- **Total capacity** ≥ `driveCores × 384 GiB`
+- More flexible, allows asymmetric distribution between types
+
+**Note:** When only one drive type is active (e.g., `qlc: 0`), both modes behave identically.
+
+**Example validation with `enforceMinDrivesPerTypePerCore: true`:**
 ```yaml
 driveCores: 6
 containerCapacity: 12000
@@ -220,7 +229,7 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 - QLC capacity: 2400 GiB ≥ 2304 GiB (6 × 384) ✓
 - **Valid configuration**
 
-**Invalid example:**
+**Invalid example with `enforceMinDrivesPerTypePerCore: true`:**
 ```yaml
 driveCores: 5
 containerCapacity: 5000
@@ -230,10 +239,15 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 - QLC capacity: 1000 GiB < 1920 GiB (5 × 384) ✗
 - **Error:** "insufficient QLC capacity: need at least 1920 GiB to allocate 5 QLC drives, but only 1000 GiB available"
 
+**Same example with `enforceMinDrivesPerTypePerCore: false`:**
+- Total capacity: 5000 GiB ≥ 1920 GiB (5 × 384) ✓
+- **Valid configuration** - allocation succeeds with asymmetric distribution (e.g., 4 TLC + 1 QLC drives)
+
 **To fix insufficient capacity errors:**
 1. Increase `containerCapacity`
 2. Decrease `driveCores`
 3. Adjust `driveTypesRatio` to allocate more capacity to the constrained type
+4. Set `enforceMinDrivesPerTypePerCore: false` in Helm values to use combined constraint
 
 **Use case:** Flexible capacity allocation with control over TLC/QLC distribution.
 
@@ -266,10 +280,20 @@ Creates virtual drives matching actual physical drive capacities. Used as a fall
 
 This fallback enables allocation on nodes with mixed drive sizes where even distribution would fail.
 
-#### Combined Drive Count Constraint
+#### Drive Count Constraints
 
-The total number of virtual drives (TLC + QLC combined) must satisfy:
+The constraint behavior depends on the `enforceMinDrivesPerTypePerCore` Helm setting:
 
+**When `enforceMinDrivesPerTypePerCore: true` (default) - Per-type constraint:**
+```
+driveCores <= tlcDrives (if tlc > 0)
+driveCores <= qlcDrives (if qlc > 0)
+tlcDrives + qlcDrives <= driveCores × maxVirtualDrivesPerCore
+```
+
+Each active drive type must independently satisfy the minimum drive count.
+
+**When `enforceMinDrivesPerTypePerCore: false` - Combined constraint:**
 ```
 driveCores <= tlcDrives + qlcDrives <= driveCores × maxVirtualDrivesPerCore
 ```
@@ -278,8 +302,14 @@ This allows flexible distribution between drive types. If one type has limited c
 
 #### Strategy Selection
 
-The operator allocates TLC first, then QLC with an adjusted minimum to satisfy the combined constraint:
+The operator allocates TLC first, then QLC. The allocation behavior depends on the constraint mode:
 
+**Per-type constraint (`enforceMinDrivesPerTypePerCore: true`):**
+1. **TLC allocation:** Start with min=driveCores, find first successful strategy
+2. **QLC allocation:** Start with min=driveCores, find first successful strategy
+3. No iteration needed - each type has fixed minimum
+
+**Combined constraint (`enforceMinDrivesPerTypePerCore: false`):**
 1. **TLC allocation:** Start with min=1 drive, find first successful strategy
 2. **QLC allocation:** Set min = max(1, driveCores - tlcDrives) to ensure combined total ≥ driveCores
 3. **Iteration:** If QLC can't meet its minimum, increase TLC's minimum and retry
@@ -337,6 +367,8 @@ driveTypesRatio:
 
 #### Example: Asymmetric Capacity (Combined Constraint)
 
+**Note:** This example applies when `enforceMinDrivesPerTypePerCore: false` is set.
+
 **Configuration:**
 ```yaml
 driveCores: 3
@@ -361,7 +393,9 @@ driveTypesRatio:
 - QLC: 2 drives (500 GiB each)
 - Total: 3 virtual drives, 1500 GiB
 
-#### Example: Iteration Required
+#### Example: Iteration Required (Combined Constraint)
+
+**Note:** This example applies when `enforceMinDrivesPerTypePerCore: false` is set.
 
 **Configuration:**
 ```yaml
@@ -390,7 +424,9 @@ driveTypesRatio:
 - QLC: 1 drive (500 GiB)
 - Total: 3 virtual drives, 1500 GiB
 
-#### Example: Minimum Viable Configuration
+#### Example: Minimum Viable Configuration (Combined Constraint)
+
+**Note:** This example applies when `enforceMinDrivesPerTypePerCore: false` is set.
 
 **Configuration:**
 ```yaml
@@ -416,7 +452,9 @@ driveTypesRatio:
 
 This is the minimum possible capacity for driveCores=3: each drive is exactly 384 GiB.
 
-#### Example: Uneven Distribution
+#### Example: Uneven Distribution (Combined Constraint)
+
+**Note:** This example applies when `enforceMinDrivesPerTypePerCore: false` is set.
 
 **Configuration:**
 ```yaml
@@ -547,6 +585,23 @@ maxVirtualDrivesPerCore: 8  # Default value
 **Behavior:**
 Limits the number of virtual drives that can be allocated per CPU core assigned to the container (`driveCores`).
 Formula: `Total Virtual Drives <= driveCores * maxVirtualDrivesPerCore`
+
+#### enforceMinDrivesPerTypePerCore
+
+**Helm values.yaml:**
+
+```yaml
+enforceMinDrivesPerTypePerCore: true  # Default value
+```
+
+**Behavior:**
+Controls the minimum drive count constraint when using mixed TLC/QLC configurations.
+
+- **When `true` (default):** Per-type constraint - each active drive type (TLC and/or QLC) must have at least `driveCores` virtual drives. More strict, ensures balanced distribution per type.
+
+- **When `false`:** Combined constraint - total drives across both types must be at least `driveCores`. More flexible, allows asymmetric distribution (e.g., 4 TLC + 2 QLC for 6 cores).
+
+**Note:** This setting only affects mixed TLC/QLC configurations. Single-type allocations (TLC-only or QLC-only) behave identically in both modes.
 
 ---
 
@@ -693,10 +748,11 @@ kubectl get wekacontainer <container-name> -n <namespace> -o jsonpath='{.status.
 
 ### Allocation Errors
 
-**Minimum Drive Count Constraint Error (Mixed Types):**
+**Minimum Drive Count Constraint Error (Mixed Types with `enforceMinDrivesPerTypePerCore: true`):**
 ```
-insufficient QLC capacity for default/my-cluster-drive-0: need at least 1920 GiB
-to allocate 5 QLC drives (minimum 384 GiB per drive), but only 1000 GiB available
+insufficient QLC capacity: with 5 drive cores and enforceMinDrivesPerTypePerCore=true, need at least 1920 GiB QLC
+(minimum 5 drives × 384 GiB each), but only 1000 GiB configured.
+Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false
 ```
 
 **Resolution:**
@@ -704,11 +760,13 @@ to allocate 5 QLC drives (minimum 384 GiB per drive), but only 1000 GiB availabl
 - **Decrease** `driveCores` if fewer drives are acceptable
 - **Adjust** `driveTypesRatio` to allocate more capacity to the constrained type
   - Example: Change from `{tlc: 4, qlc: 1}` to `{tlc: 3, qlc: 2}` to give more capacity to QLC
+- **Set** `enforceMinDrivesPerTypePerCore: false` in Helm values to use combined constraint (allows asymmetric distribution)
 
-**Minimum Drive Count Constraint Error (Single Type):**
+**Minimum Drive Count Constraint Error (Combined constraint or Single Type):**
 ```
-insufficient capacity for default/my-cluster-drive-0: need at least 1920 GiB
-to allocate 5 drives (minimum 384 GiB per drive), but only 1500 GiB available
+insufficient total capacity: with 5 drive cores, need at least 1920 GiB total
+(minimum 5 drives × 384 GiB each), but only 1500 GiB available.
+Increase containerCapacity
 ```
 
 **Resolution:**
