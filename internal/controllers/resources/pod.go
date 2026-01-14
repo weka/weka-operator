@@ -226,48 +226,53 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						}
 						return ports
 					}(),
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "dev",
-							MountPath: "/dev",
-						},
-						{
-							Name:      "run",
-							MountPath: "/host/run",
-						},
-						{
-							Name:      "hugepages",
-							MountPath: "/dev/hugepages",
-						},
-						{
-							Name:      "sys",
-							MountPath: "/sys",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/opt/weka_runtime.py",
-							SubPath:   "weka_runtime.py",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/etc/syslog-ng/syslog-ng.conf",
-							SubPath:   "syslog-ng.conf",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/usr/local/bin/weka",
-							SubPath:   "run-weka-cli.sh",
-						},
-						{
-							Name:      "weka-boot-scripts",
-							MountPath: "/usr/local/bin/wekaauthcli",
-							SubPath:   "run-weka-cli.sh",
-						},
-						{
-							Name:      "osrelease",
-							MountPath: "/hostside/etc/os-release",
-						},
-					},
+					VolumeMounts: func() []corev1.VolumeMount {
+						mounts := []corev1.VolumeMount{
+							{
+								Name:      "dev",
+								MountPath: "/dev",
+							},
+							{
+								Name:      "run",
+								MountPath: "/host/run",
+							},
+							{
+								Name:      "sys",
+								MountPath: "/sys",
+							},
+							{
+								Name:      "weka-boot-scripts",
+								MountPath: "/opt/weka_runtime.py",
+								SubPath:   "weka_runtime.py",
+							},
+							{
+								Name:      "weka-boot-scripts",
+								MountPath: "/etc/syslog-ng/syslog-ng.conf",
+								SubPath:   "syslog-ng.conf",
+							},
+							{
+								Name:      "weka-boot-scripts",
+								MountPath: "/usr/local/bin/weka",
+								SubPath:   "run-weka-cli.sh",
+							},
+							{
+								Name:      "weka-boot-scripts",
+								MountPath: "/usr/local/bin/wekaauthcli",
+								SubPath:   "run-weka-cli.sh",
+							},
+							{
+								Name:      "osrelease",
+								MountPath: "/hostside/etc/os-release",
+							},
+						}
+						if !f.container.IsAdhocOpContainer() {
+							mounts = append(mounts, corev1.VolumeMount{
+								Name:      "hugepages",
+								MountPath: "/dev/hugepages",
+							})
+						}
+						return mounts
+					}(),
 					Env: []corev1.EnvVar{
 						{
 							Name:  "AGENT_PORT",
@@ -434,60 +439,65 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 					},
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "hugepages",
-					VolumeSource: corev1.VolumeSource{
-						EmptyDir: &corev1.EmptyDirVolumeSource{
-							Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
-						},
-					},
-				},
-				{
-					Name: "osrelease",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/etc/os-release",
-							Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
-						},
-					},
-				},
-				{
-					Name: "dev",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/dev",
-						},
-					},
-				},
-				{
-					Name: "run",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/run",
-						},
-					},
-				},
-				{
-					Name: "sys",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/sys",
-						},
-					},
-				},
-				{
-					Name: "weka-boot-scripts",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "weka-boot-scripts",
+			Volumes: func() []corev1.Volume {
+				vols := []corev1.Volume{
+					{
+						Name: "osrelease",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/etc/os-release",
+								Type: &[]corev1.HostPathType{corev1.HostPathFile}[0],
 							},
-							DefaultMode: &[]int32{0o777}[0],
 						},
 					},
-				},
-			},
+					{
+						Name: "dev",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/dev",
+							},
+						},
+					},
+					{
+						Name: "run",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/run",
+							},
+						},
+					},
+					{
+						Name: "sys",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/sys",
+							},
+						},
+					},
+					{
+						Name: "weka-boot-scripts",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "weka-boot-scripts",
+								},
+								DefaultMode: &[]int32{0o777}[0],
+							},
+						},
+					},
+				}
+				if !f.container.IsAdhocOpContainer() {
+					vols = append(vols, corev1.Volume{
+						Name: "hugepages",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
+							},
+						},
+					})
+				}
+				return vols
+			}(),
 		},
 	}
 
