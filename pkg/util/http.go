@@ -18,7 +18,7 @@ type RequestOptions struct {
 // This provides automatic trace propagation (span_id and trace_id injection)
 var defaultHTTPClient = &http.Client{
 	Transport: otelhttp.NewTransport(http.DefaultTransport),
-	Timeout:   30 * time.Second,
+	Timeout:   10 * time.Second,
 }
 
 func SendJsonRequest(ctx context.Context, url string, jsonData []byte, options RequestOptions) (*http.Response, error) {
