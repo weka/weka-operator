@@ -741,7 +741,7 @@ func (s *WekaJSONRPCService) getOrCreateClient(container *ContainerInfo) (*http.
 
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   30 * time.Second,
+		Timeout:   5 * time.Second,
 	}
 
 	s.clients[container.containerId] = client
