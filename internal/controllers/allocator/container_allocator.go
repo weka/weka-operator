@@ -559,35 +559,21 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	tlcCapacityNeeded := req.Container.Spec.GetTlcContainerCapacity()
 	qlcCapacityNeeded := req.Container.Spec.GetQlcContainerCapacity()
 
-	// Validate minimum drive count constraint
-	// Each drive type gets numCores drives if it needs any capacity
+	// Validate combined minimum drive count constraint
+	// Total drives (TLC + QLC) must be at least numCores
 	// Each drive must be at least MinChunkSizeGiB (384 GiB)
-	if tlcCapacityNeeded > 0 {
-		minTlcCapacity := numCores * MinChunkSizeGiB
-		if tlcCapacityNeeded < minTlcCapacity {
-			return nil, fmt.Errorf(
-				"insufficient TLC capacity: with %d drive cores, each of the %d TLC drives needs at least %d GiB (got %d GiB for TLC). "+
-					"Increase containerCapacity or adjust driveTypesRatio to allocate more capacity to TLC",
-				numCores,
-				numCores,
-				MinChunkSizeGiB,
-				tlcCapacityNeeded,
-			)
-		}
-	}
-
-	if qlcCapacityNeeded > 0 {
-		minQlcCapacity := numCores * MinChunkSizeGiB
-		if qlcCapacityNeeded < minQlcCapacity {
-			return nil, fmt.Errorf(
-				"insufficient QLC capacity: with %d drive cores, each of the %d QLC drives needs at least %d GiB (got %d GiB for QLC). "+
-					"Increase containerCapacity or adjust driveTypesRatio to allocate more capacity to QLC",
-				numCores,
-				numCores,
-				MinChunkSizeGiB,
-				qlcCapacityNeeded,
-			)
-		}
+	totalCapacity := tlcCapacityNeeded + qlcCapacityNeeded
+	minTotalCapacity := numCores * MinChunkSizeGiB
+	if totalCapacity < minTotalCapacity {
+		return nil, fmt.Errorf(
+			"insufficient total capacity: with %d drive cores, need at least %d GiB total (minimum %d drives × %d GiB each), but only %d GiB available. "+
+				"Increase containerCapacity",
+			numCores,
+			minTotalCapacity,
+			numCores,
+			MinChunkSizeGiB,
+			totalCapacity,
+		)
 	}
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocateSharedDrivesByCapacityWithTypes",
@@ -619,128 +605,190 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		"qlcDrives", len(qlcDrives),
 	)
 
-	allVirtualDrives := make([]weka.VirtualDrive, 0)
+	maxDrives := numCores * globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
 
-	// Allocate TLC drives if needed
+	// Build drive capacity maps
+	var tlcDriveCapacities map[string]*physicalDriveCapacity
+	var qlcDriveCapacities map[string]*physicalDriveCapacity
+
 	if tlcCapacityNeeded > 0 {
 		if len(tlcDrives) == 0 {
 			return nil, fmt.Errorf("no TLC drives available but TLC capacity %d GiB is required", tlcCapacityNeeded)
 		}
-
-		tlcDriveCapacities := buildDriveCapacityMap(ctx, tlcDrives, containers)
-		maxDrives := numCores * globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
-		generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, numCores, MinChunkSizeGiB, tlcDriveCapacities, maxDrives)
-
-		done := make(chan struct{})
-		defer close(done)
-
-		tlcAllocated := false
-		for strategy := range generator.GenerateStrategies(done) {
-			_, logger, end := instrumentation.GetLogSpan(ctx, "TryingTLCAllocationStrategy",
-				"description", strategy.Description,
-				"numDrives", strategy.NumDrives(),
-				"strategyTotalCapacity", strategy.TotalCapacity(),
-				"driveSizes", strategy.DriveSizes,
-			)
-			defer end()
-
-			usableDrives := filterAndSortUsableDrives(tlcDriveCapacities, MinChunkSizeGiB)
-			canAllocate, allocPlan := tryAllocateStrategy(usableDrives, strategy)
-
-			if canAllocate {
-				for _, alloc := range allocPlan {
-					virtualDrive := weka.VirtualDrive{
-						VirtualUUID:  generateVirtualUUID(),
-						PhysicalUUID: alloc.physicalUUID,
-						CapacityGiB:  alloc.capacityGiB,
-						Serial:       alloc.serial,
-						Type:         "TLC",
-					}
-					allVirtualDrives = append(allVirtualDrives, virtualDrive)
-				}
-
-				logger.Info("Successfully allocated TLC virtual drives",
-					"numVirtualDrives", len(allocPlan),
-					"totalAllocatedGiB", strategy.TotalCapacity(),
-				)
-
-				tlcAllocated = true
-				break
-			}
-		}
-
-		if !tlcAllocated {
-			totalAvailable := 0
-			for _, dc := range tlcDriveCapacities {
-				totalAvailable += dc.availableCapacity
-			}
-			return nil, &InsufficientDriveCapacityError{
-				NeededGiB:    tlcCapacityNeeded,
-				AvailableGiB: totalAvailable,
-				Type:         "TLC",
-			}
-		}
+		tlcDriveCapacities = buildDriveCapacityMap(ctx, tlcDrives, containers)
 	}
 
-	// Allocate QLC drives if needed
 	if qlcCapacityNeeded > 0 {
 		if len(qlcDrives) == 0 {
 			return nil, fmt.Errorf("no QLC drives available but QLC capacity %d GiB is required", qlcCapacityNeeded)
 		}
+		qlcDriveCapacities = buildDriveCapacityMap(ctx, qlcDrives, containers)
+	}
 
-		qlcDriveCapacities := buildDriveCapacityMap(ctx, qlcDrives, containers)
-		maxDrives := numCores * globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
-		generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, numCores, MinChunkSizeGiB, qlcDriveCapacities, maxDrives-len(allVirtualDrives))
+	// Iterative allocation: try TLC with increasing min until QLC succeeds
+	// Combined constraint: numCores <= tlcDrives + qlcDrives <= maxDrives
+	var allVirtualDrives []weka.VirtualDrive
+	var lastTlcError, lastQlcError error
 
-		done := make(chan struct{})
-		defer close(done)
+	// Determine TLC min range based on whether we have both types
+	tlcMinStart := 1
+	tlcMinEnd := numCores
+	if qlcCapacityNeeded == 0 {
+		// TLC only: must have at least numCores drives
+		tlcMinStart = numCores
+	}
+	if tlcCapacityNeeded == 0 {
+		// QLC only: skip TLC iteration
+		tlcMinStart = 0
+		tlcMinEnd = 0
+	}
 
-		qlcAllocated := false
-		for strategy := range generator.GenerateStrategies(done) {
-			_, logger, end := instrumentation.GetLogSpan(ctx, "TryingQLCAllocationStrategy",
-				"description", strategy.Description,
-				"numDrives", strategy.NumDrives(),
-				"strategyTotalCapacity", strategy.TotalCapacity(),
-				"driveSizes", strategy.DriveSizes,
-			)
-			defer end()
+	for tlcMin := tlcMinStart; tlcMin <= tlcMinEnd; tlcMin++ {
+		allVirtualDrives = make([]weka.VirtualDrive, 0)
 
-			usableDrives := filterAndSortUsableDrives(qlcDriveCapacities, MinChunkSizeGiB)
-			canAllocate, allocPlan := tryAllocateStrategy(usableDrives, strategy)
+		// Allocate TLC drives
+		if tlcCapacityNeeded > 0 {
+			generator := NewAllocationStrategyGenerator(tlcCapacityNeeded, tlcMin, MinChunkSizeGiB, tlcDriveCapacities, maxDrives)
 
-			if canAllocate {
-				for _, alloc := range allocPlan {
-					virtualDrive := weka.VirtualDrive{
-						VirtualUUID:  generateVirtualUUID(),
-						PhysicalUUID: alloc.physicalUUID,
-						CapacityGiB:  alloc.capacityGiB,
-						Serial:       alloc.serial,
-						Type:         "QLC",
-					}
-					allVirtualDrives = append(allVirtualDrives, virtualDrive)
-				}
+			done := make(chan struct{})
 
-				logger.Info("Successfully allocated QLC virtual drives",
-					"numVirtualDrives", len(allocPlan),
-					"totalAllocatedGiB", strategy.TotalCapacity(),
+			tlcAllocated := false
+			for strategy := range generator.GenerateStrategies(done) {
+				_, strategyLogger, end := instrumentation.GetLogSpan(ctx, "TryingTLCAllocationStrategy",
+					"description", strategy.Description,
+					"numDrives", strategy.NumDrives(),
+					"strategyTotalCapacity", strategy.TotalCapacity(),
+					"driveSizes", strategy.DriveSizes,
+					"tlcMin", tlcMin,
 				)
 
-				qlcAllocated = true
-				break
+				usableDrives := filterAndSortUsableDrives(tlcDriveCapacities, MinChunkSizeGiB)
+				canAllocate, allocPlan := tryAllocateStrategy(usableDrives, strategy)
+
+				if canAllocate {
+					for _, alloc := range allocPlan {
+						virtualDrive := weka.VirtualDrive{
+							VirtualUUID:  generateVirtualUUID(),
+							PhysicalUUID: alloc.physicalUUID,
+							CapacityGiB:  alloc.capacityGiB,
+							Serial:       alloc.serial,
+							Type:         "TLC",
+						}
+						allVirtualDrives = append(allVirtualDrives, virtualDrive)
+					}
+
+					strategyLogger.Info("Successfully allocated TLC virtual drives",
+						"numVirtualDrives", len(allocPlan),
+						"totalAllocatedGiB", strategy.TotalCapacity(),
+					)
+
+					tlcAllocated = true
+					end()
+					close(done)
+					break
+				}
+				end()
+			}
+
+			if !tlcAllocated {
+				totalAvailable := 0
+				for _, dc := range tlcDriveCapacities {
+					totalAvailable += dc.availableCapacity
+				}
+				lastTlcError = &InsufficientDriveCapacityError{
+					NeededGiB:    tlcCapacityNeeded,
+					AvailableGiB: totalAvailable,
+					Type:         "TLC",
+				}
+				continue // Try next tlcMin
 			}
 		}
 
-		if !qlcAllocated {
-			totalAvailable := 0
-			for _, dc := range qlcDriveCapacities {
-				totalAvailable += dc.availableCapacity
+		// Allocate QLC drives with adjusted constraints
+		if qlcCapacityNeeded > 0 {
+			// QLC min ensures combined total >= numCores
+			qlcMin := max(1, numCores-len(allVirtualDrives))
+			qlcMax := maxDrives - len(allVirtualDrives)
+
+			generator := NewAllocationStrategyGenerator(qlcCapacityNeeded, qlcMin, MinChunkSizeGiB, qlcDriveCapacities, qlcMax)
+
+			done := make(chan struct{})
+
+			qlcAllocated := false
+			for strategy := range generator.GenerateStrategies(done) {
+				_, strategyLogger, end := instrumentation.GetLogSpan(ctx, "TryingQLCAllocationStrategy",
+					"description", strategy.Description,
+					"numDrives", strategy.NumDrives(),
+					"strategyTotalCapacity", strategy.TotalCapacity(),
+					"driveSizes", strategy.DriveSizes,
+					"qlcMin", qlcMin,
+					"qlcMax", qlcMax,
+				)
+
+				usableDrives := filterAndSortUsableDrives(qlcDriveCapacities, MinChunkSizeGiB)
+				canAllocate, allocPlan := tryAllocateStrategy(usableDrives, strategy)
+
+				if canAllocate {
+					for _, alloc := range allocPlan {
+						virtualDrive := weka.VirtualDrive{
+							VirtualUUID:  generateVirtualUUID(),
+							PhysicalUUID: alloc.physicalUUID,
+							CapacityGiB:  alloc.capacityGiB,
+							Serial:       alloc.serial,
+							Type:         "QLC",
+						}
+						allVirtualDrives = append(allVirtualDrives, virtualDrive)
+					}
+
+					strategyLogger.Info("Successfully allocated QLC virtual drives",
+						"numVirtualDrives", len(allocPlan),
+						"totalAllocatedGiB", strategy.TotalCapacity(),
+					)
+
+					qlcAllocated = true
+					end()
+					close(done)
+					break
+				}
+				end()
 			}
-			return nil, &InsufficientDriveCapacityError{
-				NeededGiB:    qlcCapacityNeeded,
-				AvailableGiB: totalAvailable,
-				Type:         "QLC",
+
+			if !qlcAllocated {
+				totalAvailable := 0
+				for _, dc := range qlcDriveCapacities {
+					totalAvailable += dc.availableCapacity
+				}
+				lastQlcError = &InsufficientDriveCapacityError{
+					NeededGiB:    qlcCapacityNeeded,
+					AvailableGiB: totalAvailable,
+					Type:         "QLC",
+				}
+				continue // Try next tlcMin
 			}
 		}
+
+		// Both allocations succeeded
+		break
+	}
+
+	// Check if allocation succeeded
+	expectedTotalDrives := 0
+	if tlcCapacityNeeded > 0 {
+		expectedTotalDrives++ // At least 1 TLC drive expected
+	}
+	if qlcCapacityNeeded > 0 {
+		expectedTotalDrives++ // At least 1 QLC drive expected
+	}
+
+	if len(allVirtualDrives) < expectedTotalDrives || len(allVirtualDrives) < numCores {
+		// Return the most relevant error
+		if lastQlcError != nil {
+			return nil, lastQlcError
+		}
+		if lastTlcError != nil {
+			return nil, lastTlcError
+		}
+		return nil, fmt.Errorf("failed to allocate virtual drives: could not satisfy combined constraint of %d minimum drives", numCores)
 	}
 
 	logger.Info("Successfully allocated all virtual drives with drive types",
