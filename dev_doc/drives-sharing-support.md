@@ -120,16 +120,23 @@ driveTypesRatio:
 **Allocation Strategy:**
 The operator generates allocation strategies in order of preference:
 
-1. **Uniform strategies** (preferred):
-   - Tries creating `numCores`, `numCores+1`, ..., up to `numCores*3` drives of equal size
-   - Only yields strategies where capacity divides evenly
+1. **Even distribution** (primary):
+   - Tries creating `numCores`, `numCores+1`, ..., up to `maxDrives` drives
+   - Distributes capacity as evenly as possible across drives
+   - When capacity divides evenly, all drives have identical sizes
+   - When it doesn't divide evenly, drives differ by at most 1 GiB (remainder distributed)
    - Each drive must meet minimum chunk size (384 GiB)
-   - Example: 8000 GiB with 4 cores → tries 4 drives of 2000 GiB, then 5 drives of 1600 GiB, etc.
+   - Example: 8000 GiB with 4 cores → 4 drives of 2000 GiB each
+   - Example: 9000 GiB with 4 cores → 4 drives: [2250, 2250, 2250, 2250] GiB
+   - Example: 7001 GiB with 3 cores → 3 drives: [2334, 2334, 2333] GiB
 
-2. **Non-uniform strategies**:
-   - When capacity doesn't divide evenly, distributes as evenly as possible
-   - Some drives get slightly larger sizes to account for remainder
-   - Example: 9000 GiB with 4 cores → 4 drives: [2251, 2250, 2250, 2249] GiB
+2. **Fit-to-physical** (fallback):
+   - Creates virtual drives matching actual physical drive capacities
+   - Used when ALL even distribution strategies fail due to heterogeneous physical drive sizes
+   - Example: Physical drives `[20000, 500, 500]` GiB with 21000 GiB needed, 3 cores, maxDrives=24:
+     - Even distribution tries 3, 4, 5, ..., 24 drives → all fail (smallest drives can't hold equal shares)
+     - Fit-to-physical creates `[20000, 500, 500]` → succeeds (matches physical layout)
+   - Enables allocation on nodes with mixed drive sizes
 
 For each strategy, the allocator:
 - Verifies sufficient physical drive capacity is available

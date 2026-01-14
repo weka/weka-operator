@@ -243,13 +243,28 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 
 The operator uses two strategies to allocate virtual drives from physical capacity. Both strategies ensure each drive meets the **minimum 384 GiB** requirement.
 
-#### Strategy 1: Uniform (preferred)
+#### Strategy 1: Even Distribution (primary)
 
-All virtual drives have identical sizes. Used when capacity divides evenly.
+Distributes capacity as evenly as possible across virtual drives. When capacity divides evenly, all drives have identical sizes. When it doesn't divide evenly, drives differ by at most 1 GiB (remainder distributed across drives).
 
-#### Strategy 2: Non-Uniform (fallback)
+**Example:** 7001 GiB with 3 drives → `[2334, 2334, 2333]` GiB
 
-Drives have near-equal sizes when even division isn't possible. Remainder is distributed across drives (+1 GiB each).
+#### Strategy 2: Fit-to-Physical (fallback)
+
+Creates virtual drives matching actual physical drive capacities. Used as a fallback when even distribution fails due to heterogeneous physical drive sizes.
+
+**Example scenario:**
+- Physical drives: `[20000, 500, 500]` GiB
+- Requested: 21000 GiB with 3 cores
+- Even distribution tries `[7000, 7000, 7000]` → **fails** (only one drive can hold 7000 GiB)
+- Fit-to-physical creates `[20000, 500, 500]` → **succeeds** (matches physical layout)
+
+**Drive splitting:** If fit-to-physical doesn't create enough drives to meet `numCores`, it splits the largest drives:
+- Physical: `[20000, 500, 500]` with 21000 GiB needed and **4 cores**
+- Initial: `[20000, 500, 500]` = 3 drives (< numCores)
+- After splitting: `[10000, 10000, 500, 500]` = 4 drives ✓
+
+This fallback enables allocation on nodes with mixed drive sizes where even distribution would fail.
 
 #### Combined Drive Count Constraint
 
@@ -270,12 +285,12 @@ The operator allocates TLC first, then QLC with an adjusted minimum to satisfy t
 3. **Iteration:** If QLC can't meet its minimum, increase TLC's minimum and retry
 
 For each allocation, strategies are generated in this order:
-1. **All uniform strategies** (min, min+1, min+2, ... up to max drives)
-2. **All non-uniform strategies** (min, min+1, min+2, ... up to max drives)
+1. **Even distribution strategies** (min, min+1, min+2, ... up to max drives)
+2. **Fit-to-physical fallback** (if constraints are satisfied)
 
 The first strategy that fits available physical drives is used.
 
-**Early termination:** Within each strategy type, the search stops as soon as drive sizes fall below 384 GiB, since increasing the drive count would only make sizes smaller.
+**Early termination:** The search stops as soon as drive sizes fall below 384 GiB, since increasing the drive count would only make sizes smaller.
 
 #### Configuration: maxVirtualDrivesPerCore
 
@@ -401,7 +416,7 @@ driveTypesRatio:
 
 This is the minimum possible capacity for driveCores=3: each drive is exactly 384 GiB.
 
-#### Example: Non-Uniform Strategy
+#### Example: Uneven Distribution
 
 **Configuration:**
 ```yaml
@@ -415,33 +430,68 @@ driveTypesRatio:
 **Capacity split:** TLC = 700 GiB, QLC = 1400 GiB
 
 **TLC allocation (700 GiB, min=1):**
-- 700 ÷ 1 = 700 GiB ≥ 384 → **1 drive** (uniform)
+- 700 ÷ 1 = 700 GiB ≥ 384 → **1 drive**
 
 **QLC allocation (1400 GiB, min=max(1, 4-1)=3):**
 
-Uniform strategies (tried first):
+Even distribution strategies:
 
-| Drives | Calculation | Uniform? | Size | ≥384 GiB? | Result |
-|--------|-------------|----------|------|-----------|--------|
-| 3 | 1400÷3=466.67 | No (remainder) | - | - | skip |
-| 4 | 1400÷4=350 | Yes | 350 | No | stop (early termination) |
-
-All uniform strategies failed. Non-uniform strategies:
-
-| Drives | Base | Remainder | Distribution | All ≥384? | Result |
-|--------|------|-----------|--------------|-----------|--------|
+| Drives | Base Size | Remainder | Distribution | All ≥384? | Result |
+|--------|-----------|-----------|--------------|-----------|--------|
 | 3 | 466 | 2 | 467, 467, 466 | Yes | **use** |
 
-Non-uniform calculation for 3 drives:
+Even distribution calculation for 3 drives:
 - Base size: 1400 ÷ 3 = 466 GiB (integer division)
 - Remainder: 1400 - (466 × 3) = 1400 - 1398 = 2 GiB
 - Distribution: 2 drives get base + 1 = 467 GiB, 1 drive gets base = 466 GiB
 - Verification: 467 + 467 + 466 = 1400 GiB ✓
 
 **Final allocation:**
-- TLC: 1 drive (700 GiB) - uniform
-- QLC: 3 drives (467, 467, 466 GiB) - non-uniform
+- TLC: 1 drive (700 GiB)
+- QLC: 3 drives (467, 467, 466 GiB)
 - Total: 4 virtual drives, 2100 GiB
+
+#### Example: Fit-to-Physical Fallback (Heterogeneous Drives)
+
+**Scenario:** Node has mixed physical drive sizes that don't allow even distribution.
+
+**Physical drives on node:** `[20000, 500, 500]` GiB (one large, two small)
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 21000
+driveTypesRatio:
+  tlc: 1
+  qlc: 0
+```
+
+**Allocation attempt:**
+
+Even distribution exhausts all options (tries 3, 4, 5, ... up to 24 drives):
+
+| Drives | Size per drive | Result |
+|--------|----------------|--------|
+| 3 | 7000 GiB | ❌ 500 GiB drives can't hold 7000 |
+| 4 | 5250 GiB | ❌ 500 GiB drives can't hold 5250 |
+| 6 | 3500 GiB | ❌ 500 GiB drives can't hold 3500 |
+| 12 | 1750 GiB | ❌ 500 GiB drives can't hold 1750 |
+| 24 | 875 GiB | ❌ 500 GiB drives can't hold 875 |
+
+Since even the smallest even distribution (875 GiB) exceeds the 500 GiB drives, **all even distribution strategies fail**.
+
+**Fit-to-physical fallback** creates strategy matching physical drives:
+- Strategy: `[20000, 500, 500]`
+- **Succeeds**: Each virtual drive size ≤ corresponding physical drive capacity
+
+**Final allocation:**
+- TLC: 3 drives (20000, 500, 500 GiB)
+- Total: 3 virtual drives, 21000 GiB
+
+**Note:** Fit-to-physical is only generated when:
+- All even distribution strategies have been exhausted
+- The physical drive layout meets the `numDrives >= driveCores` constraint
+- Each drive meets the 384 GiB minimum
 
 #### Example: Single Drive Type (TLC Only)
 
