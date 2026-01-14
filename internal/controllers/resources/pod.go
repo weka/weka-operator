@@ -342,6 +342,10 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 							Value: util.StringPtrOrDefault(f.container.Spec.DriversBuildId, "auto"),
 						},
 						{
+							Name:  "BUILDER_WEKA_VERSION",
+							Value: f.container.Spec.GetBuilder().WekaVersion,
+						},
+						{
 							Name:  "MAX_TRACE_CAPACITY_GB",
 							Value: strconv.Itoa(f.container.Spec.TracesConfiguration.MaxCapacityPerIoNode * (f.container.Spec.NumCores + 1)),
 						},
@@ -1275,6 +1279,11 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 		if f.container.IsWekaContainer() {
 			requestedEphemeralStorage = "3.5Gi"
+		}
+
+		if f.container.IsDriversBuilder() {
+			// Driver builders need more space for building drivers
+			requestedEphemeralStorage = "8Gi"
 		}
 	}
 
