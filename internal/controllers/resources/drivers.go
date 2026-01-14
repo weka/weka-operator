@@ -7,9 +7,10 @@ import (
 )
 
 func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
-	if f.container.Spec.Instructions != nil && f.container.Spec.Instructions.Type ==
-		weka.InstructionCopyWekaFilesToDriverLoader {
-		f.copyWekaVersionToDriverLoader(pod)
+	// Handle copy weka files instruction (for both drivers-loader and drivers-builder)
+	if f.container.Spec.Instructions != nil &&
+		f.container.Spec.Instructions.Type == weka.InstructionCopyWekaFilesToContainer {
+		f.copyWekaFilesToMainContainer(pod)
 	}
 	if f.nodeInfo.IsCos() {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override

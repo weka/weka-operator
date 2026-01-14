@@ -223,7 +223,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	if o.driversLoaderImage != "" {
 		containerImage = o.driversLoaderImage
 		instructions = &weka.Instructions{
-			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+			Type:    weka.InstructionCopyWekaFilesToContainer,
 			Payload: o.containerDetails.Image,
 		}
 	}

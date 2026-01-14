@@ -70,7 +70,7 @@ echo "UIO module loaded successfully"
 
 // copy weka dist files if drivers-loader image is
 // different from cluster image
-func (f *PodFactory) copyWekaVersionToDriverLoader(pod *v1.Pod) {
+func (f *PodFactory) copyWekaFilesToMainContainer(pod *v1.Pod) {
 	originalImage := f.container.Spec.Instructions.Payload
 	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, v1.EnvVar{
 		Name:  "CLUSTER_IMAGE_NAME",

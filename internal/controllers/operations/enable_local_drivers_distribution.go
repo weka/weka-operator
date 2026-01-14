@@ -33,15 +33,23 @@ import (
 const (
 	DefaultKernelLabelKey       = "weka.io/kernel"
 	DefaultArchitectureLabelKey = "weka.io/architecture"
+	DefaultOsLabelKey           = "weka.io/os"
 	PolicyNameLabelKey          = "weka.io/policy-name"
 	DriverDistServiceSuffix     = "-dist"
 	DriverDistContainerSuffix   = "-dist"
 	DriversBuilderSuffix        = "builder"
 )
 
+// sanitizeForLabel converts a string to a valid Kubernetes label value
+// by replacing spaces with dashes and removing invalid characters.
+func sanitizeForLabel(s string) string {
+	return strings.ReplaceAll(s, " ", "-")
+}
+
 type nodeAttributes struct {
 	kernelVersion string
 	architecture  string
+	osImage       string
 	nodeSelector  map[string]string // Stores the first nodeSelector from payload that matched this node's attributes
 }
 
@@ -63,7 +71,7 @@ func (na nodeAttributes) StringKey() string {
 	selectorStr := strings.Join(selectorParts, ",")
 
 	// Use a distinct separator for the main parts of the key
-	return fmt.Sprintf("kernel=%s|arch=%s|selector=%s", na.kernelVersion, na.architecture, selectorStr)
+	return fmt.Sprintf("kernel=%s|arch=%s|osImage=%s|selector=%s", na.kernelVersion, na.architecture, na.osImage, selectorStr)
 }
 
 type EnsureDistServiceOperation struct {
@@ -150,6 +158,13 @@ func (o *EnsureDistServiceOperation) getArchLabelKey() string {
 	return DefaultArchitectureLabelKey
 }
 
+func (o *EnsureDistServiceOperation) getOsLabelKey() string {
+	if o.payload.OsLabelKey != nil && *o.payload.OsLabelKey != "" {
+		return *o.payload.OsLabelKey
+	}
+	return DefaultOsLabelKey
+}
+
 func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
 	defer end()
@@ -158,6 +173,7 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 
 	kernelLabelKey := o.getKernelLabelKey()
 	archLabelKey := o.getArchLabelKey()
+	osLabelKey := o.getOsLabelKey()
 
 	type nodeProcessingInfo struct {
 		node         corev1.Node
@@ -208,6 +224,7 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 		attrs := nodeAttributes{
 			kernelVersion: node.Status.NodeInfo.KernelVersion,
 			architecture:  node.Status.NodeInfo.Architecture,
+			osImage:       node.Status.NodeInfo.OSImage,
 			nodeSelector:  item.nodeSelector, // Store the captured nodeSelector (could be nil)
 		}
 		o.mutex.Lock()
@@ -235,6 +252,14 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 				nodeToUpdate.Labels = make(map[string]string)
 			}
 			nodeToUpdate.Labels[archLabelKey] = attrs.architecture
+			updateNeeded = true
+		}
+		sanitizedOsImage := sanitizeForLabel(attrs.osImage)
+		if val, ok := nodeToUpdate.Labels[osLabelKey]; !ok || val != sanitizedOsImage {
+			if nodeToUpdate.Labels == nil {
+				nodeToUpdate.Labels = make(map[string]string)
+			}
+			nodeToUpdate.Labels[osLabelKey] = sanitizedOsImage
 			updateNeeded = true
 		}
 
@@ -507,6 +532,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 	kernelLabelKey := o.getKernelLabelKey()
 	archLabelKey := o.getArchLabelKey()
+	osLabelKey := o.getOsLabelKey()
 
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
@@ -527,8 +553,12 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 			}
 
 			_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
+
+				//builderImage := determineBuilderImage(ka)
+				originalWekaImage := image // Save the original Weka image for which we're building drivers
+
 				wc.Spec = weka.WekaContainerSpec{
-					Image:             image,                              // The Weka image for which to build drivers
+					Image:             image,                              // Use the builder image
 					ImagePullSecret:   o.containerDetails.ImagePullSecret, // Assuming same pull secret for all
 					Mode:              weka.WekaContainerModeDriversBuilder,
 					WekaContainerName: "dist",
@@ -551,14 +581,14 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
 						builderNodeSelector[archLabelKey] = ka.architecture
 						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
+						builderNodeSelector[osLabelKey] = sanitizeForLabel(ka.osImage)
 						// 3. Ensure it runs on amd64 (overrides if kubernetes.io/arch was in ka.nodeSelector)
 						builderNodeSelector["kubernetes.io/arch"] = "amd64"
 						return builderNodeSelector
 					}(),
-					// Instructions to tell the builder what kernel/arch to build for
 					Instructions: &weka.Instructions{
-						Type:    "build-drivers",
-						Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s"}`, ka.kernelVersion, ka.architecture),
+						Type:    weka.InstructionCopyWekaFilesToContainer,
+						Payload: originalWekaImage, // The Weka image from which to copy dist files
 					},
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
@@ -576,6 +606,9 @@ else
     echo "Kernel version mismatch: Expected $TARGET_KERNEL_VERSION_FROM_PAYLOAD, got $ACTUAL_KERNEL_VERSION" >&2
     exit 1
 fi
+
+cp -r /shared-weka-version-data/* /opt/weka
+cp /opt/weka/dist/cli/current /usr/bin/weka
 `, ka.kernelVersion)
 
 				finalPreRunScript := kernelValidationScript
