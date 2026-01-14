@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-steps-engine/throttling"
 	"github.com/weka/go-weka-observability/instrumentation"
@@ -20,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/weka/go-lib/pkg/workers"
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/factory"

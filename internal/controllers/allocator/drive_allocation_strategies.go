@@ -13,8 +13,6 @@ type AllocationStrategy struct {
 	// DriveSizes is a list of sizes for each virtual drive to allocate
 	// The length of this slice is the number of drives
 	DriveSizes []int
-	// Description explains the strategy (for logging/debugging)
-	Description string
 }
 
 // TotalCapacity returns the total capacity this strategy would allocate
@@ -73,7 +71,7 @@ func NewAllocationStrategyGenerator(
 
 // GenerateStrategies returns a channel that yields allocation strategies lazily
 // The channel is closed when all strategies have been generated OR when done is closed
-// Strategies are yielded in order of preference: simpler first, more complex later
+// Strategies are yielded in order of preference: even distribution first, fit-to-physical as fallback
 // IMPORTANT: Pass a done channel to prevent goroutine leaks if you stop reading early
 func (g *AllocationStrategyGenerator) GenerateStrategies(done <-chan struct{}) <-chan AllocationStrategy {
 	ch := make(chan AllocationStrategy)
@@ -81,13 +79,13 @@ func (g *AllocationStrategyGenerator) GenerateStrategies(done <-chan struct{}) <
 	go func() {
 		defer close(ch)
 
-		// Strategy 1: Uniform size strategies (all drives same size)
-		if !g.yieldUniformStrategies(ch, done) {
+		// Strategy 1: Even distribution (primary - divides capacity as evenly as possible)
+		if !g.yieldEvenDistributionStrategies(ch, done) {
 			return // done was closed
 		}
 
-		// Strategy 2: Non-uniform strategies (distribute as evenly as possible)
-		if !g.yieldNonUniformStrategies(ch, done) {
+		// Strategy 2: Fit-to-physical (fallback for heterogeneous drive sizes)
+		if !g.yieldFitToPhysicalStrategies(ch, done) {
 			return // done was closed
 		}
 	}()
@@ -95,51 +93,10 @@ func (g *AllocationStrategyGenerator) GenerateStrategies(done <-chan struct{}) <
 	return ch
 }
 
-// yieldUniformStrategies generates strategies where all drives have the same size
-// Tries dividing totalCapacity by numCores, numCores+1, ..., numCores*3
-// Only yields strategies that divide evenly and meet minChunkSize constraint
+// yieldEvenDistributionStrategies generates strategies that distribute capacity as evenly as possible
+// Tries with numCores, numCores+1, ..., up to maxDrives drives
 // Returns false if done was closed, true otherwise
-func (g *AllocationStrategyGenerator) yieldUniformStrategies(ch chan<- AllocationStrategy, done <-chan struct{}) bool {
-	// Check if we have enough physical capacity
-	if !g.hasEnoughCapacity() {
-		return true // Skip but don't signal done
-	}
-
-	// Try dividing capacity by numCores, numCores+1, ..., up to maxDrives
-	for numDrives := g.numCores; numDrives <= g.maxDrives; numDrives++ {
-		if g.totalCapacityNeeded%numDrives == 0 {
-			driveSize := g.totalCapacityNeeded / numDrives
-
-			// Check if drive size meets minimum chunk constraint
-			if driveSize >= g.minChunkSizeGiB {
-				// Create strategy with all drives of same size
-				driveSizes := make([]int, numDrives)
-				for i := range driveSizes {
-					driveSizes[i] = driveSize
-				}
-
-				select {
-				case ch <- AllocationStrategy{
-					DriveSizes:  driveSizes,
-					Description: "uniform",
-				}:
-					// Successfully sent
-				case <-done:
-					return false // Consumer stopped reading
-				}
-			} else {
-				// Drive size is too small, all subsequent iterations will be even smaller
-				break
-			}
-		}
-	}
-	return true
-}
-
-// yieldNonUniformStrategies generates strategies that distribute capacity as evenly as possible
-// When capacity doesn't divide evenly, some drives get slightly larger sizes
-// Returns false if done was closed, true otherwise
-func (g *AllocationStrategyGenerator) yieldNonUniformStrategies(ch chan<- AllocationStrategy, done <-chan struct{}) bool {
+func (g *AllocationStrategyGenerator) yieldEvenDistributionStrategies(ch chan<- AllocationStrategy, done <-chan struct{}) bool {
 	// Check if we have enough physical capacity
 	if !g.hasEnoughCapacity() {
 		return true // Skip but don't signal done
@@ -151,8 +108,7 @@ func (g *AllocationStrategyGenerator) yieldNonUniformStrategies(ch chan<- Alloca
 		if driveSizes != nil {
 			select {
 			case ch <- AllocationStrategy{
-				DriveSizes:  driveSizes,
-				Description: "non-uniform",
+				DriveSizes: driveSizes,
 			}:
 				// Successfully sent
 			case <-done:
@@ -163,6 +119,84 @@ func (g *AllocationStrategyGenerator) yieldNonUniformStrategies(ch chan<- Alloca
 			break
 		}
 	}
+	return true
+}
+
+// yieldFitToPhysicalStrategies creates virtual drives matching physical drive capacities
+// Used as fallback when even distribution fails due to heterogeneous drive sizes
+// Example: Physical drives [20000, 500, 500] with 21000 needed → creates [20000, 500, 500]
+// If not enough drives to meet numCores, splits the largest drives
+// Example: [20000, 500, 500] with 4 cores → splits to [10000, 10000, 500, 500]
+// Returns false if done was closed, true otherwise
+func (g *AllocationStrategyGenerator) yieldFitToPhysicalStrategies(ch chan<- AllocationStrategy, done <-chan struct{}) bool {
+	if !g.hasEnoughCapacity() {
+		return true
+	}
+
+	// Step 1: Create initial allocation matching physical drive capacities
+	// sortedAvailableCapacities is already sorted descending
+	var driveSizes []int
+	capacitySoFar := 0
+
+	for _, availCap := range g.sortedAvailableCapacities {
+		if availCap < g.minChunkSizeGiB {
+			continue // Skip drives below minimum
+		}
+
+		// Allocate up to what we need from this drive
+		allocate := availCap
+		remaining := g.totalCapacityNeeded - capacitySoFar
+		if allocate > remaining {
+			allocate = remaining
+		}
+
+		if allocate >= g.minChunkSizeGiB {
+			driveSizes = append(driveSizes, allocate)
+			capacitySoFar += allocate
+		}
+
+		if capacitySoFar >= g.totalCapacityNeeded {
+			break
+		}
+	}
+
+	// Not enough total capacity
+	if capacitySoFar < g.totalCapacityNeeded {
+		return true
+	}
+
+	// Step 2: Split largest drives until we meet numCores constraint
+	for len(driveSizes) < g.numCores && len(driveSizes) < g.maxDrives {
+		// Find largest drive that can be split (must be >= 2*minChunkSize)
+		maxIdx := -1
+		maxSize := 0
+		for i, size := range driveSizes {
+			if size > maxSize && size >= 2*g.minChunkSizeGiB {
+				maxIdx = i
+				maxSize = size
+			}
+		}
+
+		if maxIdx == -1 {
+			break // No drive can be split further
+		}
+
+		// Split the largest drive into two
+		size1 := driveSizes[maxIdx] / 2
+		size2 := driveSizes[maxIdx] - size1
+		driveSizes[maxIdx] = size1
+		driveSizes = append(driveSizes, size2)
+	}
+
+	// Check final constraints: enough drives and within limits
+	if len(driveSizes) >= g.numCores && len(driveSizes) <= g.maxDrives {
+		select {
+		case ch <- AllocationStrategy{DriveSizes: driveSizes}:
+		case <-done:
+			return false
+		}
+	}
+
 	return true
 }
 

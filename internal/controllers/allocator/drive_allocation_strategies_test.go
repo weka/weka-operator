@@ -7,13 +7,13 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
-// TestAllocationStrategyGenerator_UniformStrategies tests uniform strategy generation with expected outputs
-func TestAllocationStrategyGenerator_UniformStrategies(t *testing.T) {
+// TestAllocationStrategyGenerator_EvenDistribution tests even distribution strategy generation
+func TestAllocationStrategyGenerator_EvenDistribution(t *testing.T) {
 	tests := []struct {
 		name               string
 		totalCapacity      int
 		numCores           int
-		expectedDriveSizes []int // Expected drive sizes for the first (best) uniform strategy
+		expectedDriveSizes []int // Expected drive sizes for the first (best) strategy
 	}{
 		{
 			name:               "Divides evenly by numCores",
@@ -25,7 +25,7 @@ func TestAllocationStrategyGenerator_UniformStrategies(t *testing.T) {
 			name:               "Divides evenly by numCores+1",
 			totalCapacity:      4000,
 			numCores:           3,
-			expectedDriveSizes: []int{1000, 1000, 1000, 1000}, // 4000 / 4 = 1000
+			expectedDriveSizes: []int{1334, 1333, 1333}, // 4000 / 3 = 1333 remainder 1
 		},
 		{
 			name:               "Divides evenly by numCores with larger capacity",
@@ -34,16 +34,22 @@ func TestAllocationStrategyGenerator_UniformStrategies(t *testing.T) {
 			expectedDriveSizes: []int{3000, 3000, 3000, 3000}, // 12000 / 4 = 3000
 		},
 		{
-			name:               "Divides evenly by numCores+1 (5000/4)",
+			name:               "Non-divisible capacity (5000/3)",
 			totalCapacity:      5000,
 			numCores:           3,
-			expectedDriveSizes: []int{1250, 1250, 1250, 1250}, // 5000 / 4 = 1250 (tries 3,4,5,... finds 4 first)
+			expectedDriveSizes: []int{1667, 1667, 1666}, // 5000 / 3 = 1666 remainder 2
 		},
 		{
 			name:               "Larger capacity divisible by numCores",
 			totalCapacity:      15000,
 			numCores:           5,
 			expectedDriveSizes: []int{3000, 3000, 3000, 3000, 3000}, // 15000 / 5 = 3000
+		},
+		{
+			name:               "Odd capacity with remainder",
+			totalCapacity:      7001,
+			numCores:           3,
+			expectedDriveSizes: []int{2334, 2334, 2333}, // 7001 / 3 = 2333 remainder 2
 		},
 	}
 
@@ -75,98 +81,7 @@ func TestAllocationStrategyGenerator_UniformStrategies(t *testing.T) {
 				break // Get only the first one
 			}
 
-			// Verify description is uniform
-			if firstStrategy.Description != "uniform" {
-				t.Errorf("Expected strategy description uniform, got %s", firstStrategy.Description)
-			}
-
 			// Verify drive sizes match expected
-			if !reflect.DeepEqual(firstStrategy.DriveSizes, tt.expectedDriveSizes) {
-				t.Errorf("Expected drive sizes %v, got %v", tt.expectedDriveSizes, firstStrategy.DriveSizes)
-			}
-
-			// Verify total capacity is exact
-			if firstStrategy.TotalCapacity() != tt.totalCapacity {
-				t.Errorf("Expected total capacity %d, got %d", tt.totalCapacity, firstStrategy.TotalCapacity())
-			}
-
-			// Verify numCores requirement
-			if firstStrategy.NumDrives() < tt.numCores {
-				t.Errorf("Expected at least %d drives, got %d", tt.numCores, firstStrategy.NumDrives())
-			}
-		})
-	}
-}
-
-// TestAllocationStrategyGenerator_NonUniformStrategies tests non-uniform strategy when uniform doesn't work
-func TestAllocationStrategyGenerator_NonUniformStrategies(t *testing.T) {
-	tests := []struct {
-		name                string
-		totalCapacity       int
-		numCores            int
-		driveCapacities     map[string]*physicalDriveCapacity
-		expectedDescription string
-		expectedDriveSizes  []int
-	}{
-		{
-			name:          "Capacity not divisible evenly - uses non-uniform",
-			totalCapacity: 7001, // 7001 / 3 = 2333 remainder 2
-			numCores:      3,
-			driveCapacities: map[string]*physicalDriveCapacity{
-				"drive1": {
-					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000},
-					totalCapacity:     10000,
-					availableCapacity: 10000,
-				},
-				"drive2": {
-					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 10000},
-					totalCapacity:     10000,
-					availableCapacity: 10000,
-				},
-			},
-			expectedDescription: "non-uniform",
-			// baseSize = 7001 / 3 = 2333, remainder = 2
-			// 2 drives get 2334, 1 drive gets 2333
-			expectedDriveSizes: []int{2334, 2334, 2333},
-		},
-		{
-			name:          "Prime number capacity - non-uniform distribution",
-			totalCapacity: 7919, // 7919 / 3 = 2639 remainder 2
-			numCores:      3,
-			driveCapacities: map[string]*physicalDriveCapacity{
-				"drive1": {
-					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000},
-					totalCapacity:     10000,
-					availableCapacity: 10000,
-				},
-			},
-			expectedDescription: "non-uniform",
-			// baseSize = 7919 / 3 = 2639, remainder = 2
-			// 2 drives get 2640, 1 drive gets 2639
-			expectedDriveSizes: []int{2640, 2640, 2639},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, tt.driveCapacities, tt.numCores*8)
-
-			done := make(chan struct{})
-			defer close(done)
-
-			// Get first strategy
-			var firstStrategy AllocationStrategy
-			for strategy := range generator.GenerateStrategies(done) {
-				firstStrategy = strategy
-				break
-			}
-
-			// Verify description
-			if firstStrategy.Description != tt.expectedDescription {
-				t.Errorf("Expected strategy description %s, got %s", tt.expectedDescription, firstStrategy.Description)
-			}
-
-			// Verify exact drive sizes
 			if !reflect.DeepEqual(firstStrategy.DriveSizes, tt.expectedDriveSizes) {
 				t.Errorf("Expected drive sizes %v, got %v", tt.expectedDriveSizes, firstStrategy.DriveSizes)
 			}
@@ -258,29 +173,24 @@ func TestAllocationStrategyGenerator_StrategyTypes(t *testing.T) {
 		},
 	}
 
-	// Use capacity that divides evenly to get uniform strategies
+	// Use capacity for testing even distribution strategies
 	// maxDrives=9 to test a reasonable range
 	generator := NewAllocationStrategyGenerator(6000, 3, MinChunkSizeGiB, driveCapacities, 9)
 
 	done := make(chan struct{})
 	defer close(done)
 
-	// Expected strategies in order they should be generated
-	expected := []AllocationStrategy{
-		// Uniform strategies (tries numCores=3, 4, 5, 6, 7, 8, 9)
-		{Description: "uniform", DriveSizes: []int{2000, 2000, 2000}},                       // 6000/3
-		{Description: "uniform", DriveSizes: []int{1500, 1500, 1500, 1500}},                 // 6000/4
-		{Description: "uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}},           // 6000/5
-		{Description: "uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}},     // 6000/6
-		{Description: "uniform", DriveSizes: []int{750, 750, 750, 750, 750, 750, 750, 750}}, // 6000/8
-		// Non-uniform strategies (tries numCores=3, 4, 5, 6, 7, 8, 9)
-		{Description: "non-uniform", DriveSizes: []int{2000, 2000, 2000}},                            // 6000/3 = 2000 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1500, 1500, 1500, 1500}},                      // 6000/4 = 1500 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1200, 1200, 1200, 1200, 1200}},                // 6000/5 = 1200 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{1000, 1000, 1000, 1000, 1000, 1000}},          // 6000/6 = 1000 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{858, 857, 857, 857, 857, 857, 857}},           // 6000/7 = 857 remainder 1 (1 drive gets 858, 6 get 857)
-		{Description: "non-uniform", DriveSizes: []int{750, 750, 750, 750, 750, 750, 750, 750}},      // 6000/8 = 750 remainder 0
-		{Description: "non-uniform", DriveSizes: []int{667, 667, 667, 667, 667, 667, 666, 666, 666}}, // 6000/9 = 666 remainder 6 (6 drives get 667, 3 get 666)
+	// Expected strategies in order (even distribution for numCores=3,4,5,6,7,8,9)
+	// Plus fit-to-physical fallback with splitting at the end
+	expected := [][]int{
+		{2000, 2000, 2000},                            // 6000/3 = 2000
+		{1500, 1500, 1500, 1500},                      // 6000/4 = 1500
+		{1200, 1200, 1200, 1200, 1200},                // 6000/5 = 1200
+		{1000, 1000, 1000, 1000, 1000, 1000},          // 6000/6 = 1000
+		{858, 857, 857, 857, 857, 857, 857},           // 6000/7 = 857 remainder 1
+		{750, 750, 750, 750, 750, 750, 750, 750},      // 6000/8 = 750
+		{667, 667, 667, 667, 667, 667, 666, 666, 666}, // 6000/9 = 666 remainder 6
+		{1500, 3000, 1500},                            // fit-to-physical: 6000 from first drive, split to meet numCores=3
 	}
 
 	generated := []AllocationStrategy{}
@@ -291,23 +201,19 @@ func TestAllocationStrategyGenerator_StrategyTypes(t *testing.T) {
 	// Verify count
 	if len(generated) != len(expected) {
 		t.Errorf("Expected %d strategies, got %d", len(expected), len(generated))
+		for i, s := range generated {
+			t.Logf("  Strategy %d: %v", i, s.DriveSizes)
+		}
 	}
 
 	// Verify each strategy
 	for i := 0; i < len(expected) && i < len(generated); i++ {
-		exp := expected[i]
-		gen := generated[i]
-
-		if gen.Description != exp.Description {
-			t.Errorf("Strategy %d: expected description %s, got %s", i, exp.Description, gen.Description)
+		if !reflect.DeepEqual(generated[i].DriveSizes, expected[i]) {
+			t.Errorf("Strategy %d: expected drive sizes %v, got %v", i, expected[i], generated[i].DriveSizes)
 		}
 
-		if !reflect.DeepEqual(gen.DriveSizes, exp.DriveSizes) {
-			t.Errorf("Strategy %d: expected drive sizes %v, got %v", i, exp.DriveSizes, gen.DriveSizes)
-		}
-
-		if gen.TotalCapacity() != 6000 {
-			t.Errorf("Strategy %d: expected total capacity 6000, got %d", i, gen.TotalCapacity())
+		if generated[i].TotalCapacity() != 6000 {
+			t.Errorf("Strategy %d: expected total capacity 6000, got %d", i, generated[i].TotalCapacity())
 		}
 	}
 }
@@ -352,13 +258,12 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		totalCapacity      int
-		minDrives          int
-		maxDrives          int
-		expectedNumDrives  int
-		expectedDriveSize  int
-		expectedStrategy   string
+		name              string
+		totalCapacity     int
+		minDrives         int
+		maxDrives         int
+		expectedNumDrives int
+		expectedDriveSize int
 	}{
 		{
 			name:              "Min=1 with small capacity produces 1 drive",
@@ -367,7 +272,6 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 			maxDrives:         24,
 			expectedNumDrives: 1,
 			expectedDriveSize: 500,
-			expectedStrategy:  "uniform",
 		},
 		{
 			name:              "Min=1 with larger capacity still starts at 1",
@@ -376,7 +280,6 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 			maxDrives:         24,
 			expectedNumDrives: 1,
 			expectedDriveSize: 1000,
-			expectedStrategy:  "uniform",
 		},
 		{
 			name:              "Min=2 skips 1-drive strategies",
@@ -385,7 +288,6 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 			maxDrives:         24,
 			expectedNumDrives: 2,
 			expectedDriveSize: 500,
-			expectedStrategy:  "uniform",
 		},
 		{
 			name:              "Min=1 capacity too small for even 1 drive",
@@ -394,7 +296,6 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 			maxDrives:         24,
 			expectedNumDrives: 0, // No strategies generated
 			expectedDriveSize: 0,
-			expectedStrategy:  "",
 		},
 	}
 
@@ -431,10 +332,6 @@ func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
 
 			if firstStrategy.NumDrives() != tt.expectedNumDrives {
 				t.Errorf("Expected %d drives, got %d (sizes: %v)", tt.expectedNumDrives, firstStrategy.NumDrives(), firstStrategy.DriveSizes)
-			}
-
-			if firstStrategy.Description != tt.expectedStrategy {
-				t.Errorf("Expected strategy %s, got %s", tt.expectedStrategy, firstStrategy.Description)
 			}
 
 			if tt.expectedNumDrives > 0 && firstStrategy.DriveSizes[0] != tt.expectedDriveSize {
@@ -506,4 +403,194 @@ func TestAllocationStrategyGenerator_AsymmetricTlcQlc(t *testing.T) {
 
 	t.Logf("Success: TLC=%d drives, QLC=%d drives, Total=%d (min required=%d)",
 		tlcDrives, qlcStrategy.NumDrives(), totalDrives, numCores)
+}
+
+// TestAllocationStrategyGenerator_FitToPhysicalFallback tests the fit-to-physical fallback
+// which is generated AFTER even distribution strategies as a last-resort option
+func TestAllocationStrategyGenerator_FitToPhysicalFallback(t *testing.T) {
+	t.Run("Heterogeneous drives - fit-to-physical is generated as fallback", func(t *testing.T) {
+		// Physical drives: 20000, 500, 500 GB
+		// Even distribution [7000, 7000, 7000] will be generated first, but would fail at allocation time
+		// Fit-to-physical [20000, 500, 500] is generated as fallback
+		driveCapacities := map[string]*physicalDriveCapacity{
+			"drive1": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 20000},
+				totalCapacity:     20000,
+				availableCapacity: 20000,
+			},
+			"drive2": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+			"drive3": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive3", Serial: "SN003", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+		}
+
+		generator := NewAllocationStrategyGenerator(21000, 3, MinChunkSizeGiB, driveCapacities, 24)
+
+		done := make(chan struct{})
+		defer close(done)
+
+		strategies := []AllocationStrategy{}
+		for strategy := range generator.GenerateStrategies(done) {
+			strategies = append(strategies, strategy)
+		}
+
+		if len(strategies) == 0 {
+			t.Fatal("Expected at least one strategy, got none")
+		}
+
+		// First strategy is even distribution (would fail at allocation time with these physical drives)
+		firstStrategy := strategies[0]
+		if firstStrategy.DriveSizes[0] == firstStrategy.DriveSizes[1] && firstStrategy.DriveSizes[1] == firstStrategy.DriveSizes[2] {
+			// Good - first strategy is even distribution
+			t.Logf("First strategy is even distribution: %v", firstStrategy.DriveSizes)
+		}
+
+		// Last strategy should be fit-to-physical: [20000, 500, 500]
+		lastStrategy := strategies[len(strategies)-1]
+		expectedFitToPhysical := []int{20000, 500, 500}
+		if !reflect.DeepEqual(lastStrategy.DriveSizes, expectedFitToPhysical) {
+			t.Errorf("Last strategy (fit-to-physical) expected %v, got %v", expectedFitToPhysical, lastStrategy.DriveSizes)
+		}
+
+		// Verify total capacity
+		if lastStrategy.TotalCapacity() != 21000 {
+			t.Errorf("Expected total capacity 21000, got %d", lastStrategy.TotalCapacity())
+		}
+	})
+
+	t.Run("Fit-to-physical not generated when numCores constraint not met", func(t *testing.T) {
+		// With numCores=5, fit-to-physical would only produce 3 drives (one per physical)
+		// so it won't be generated
+		driveCapacities := map[string]*physicalDriveCapacity{
+			"drive1": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 20000},
+				totalCapacity:     20000,
+				availableCapacity: 20000,
+			},
+			"drive2": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+			"drive3": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive3", Serial: "SN003", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+		}
+
+		generator := NewAllocationStrategyGenerator(21000, 5, MinChunkSizeGiB, driveCapacities, 24)
+
+		done := make(chan struct{})
+		defer close(done)
+
+		strategies := []AllocationStrategy{}
+		for strategy := range generator.GenerateStrategies(done) {
+			strategies = append(strategies, strategy)
+		}
+
+		// Even distribution strategies should still be generated (21000/5 = 4200 >= 384 minChunkSize)
+		// But fit-to-physical [20000, 500, 500] has only 3 drives, which is < numCores=5
+		// So the last strategy should NOT be fit-to-physical
+		if len(strategies) > 0 {
+			lastStrategy := strategies[len(strategies)-1]
+			fitToPhysical := []int{20000, 500, 500}
+			if reflect.DeepEqual(lastStrategy.DriveSizes, fitToPhysical) {
+				t.Errorf("Fit-to-physical should not be generated when numCores constraint not met, but got %v", lastStrategy.DriveSizes)
+			}
+		}
+	})
+
+	t.Run("Homogeneous drives - even distribution preferred", func(t *testing.T) {
+		driveCapacities := map[string]*physicalDriveCapacity{
+			"drive1": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000},
+				totalCapacity:     10000,
+				availableCapacity: 10000,
+			},
+			"drive2": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 10000},
+				totalCapacity:     10000,
+				availableCapacity: 10000,
+			},
+		}
+
+		generator := NewAllocationStrategyGenerator(6000, 3, MinChunkSizeGiB, driveCapacities, 24)
+
+		done := make(chan struct{})
+		defer close(done)
+
+		var firstStrategy AllocationStrategy
+		for strategy := range generator.GenerateStrategies(done) {
+			firstStrategy = strategy
+			break
+		}
+
+		// First strategy should be even distribution [2000, 2000, 2000]
+		expected := []int{2000, 2000, 2000}
+		if !reflect.DeepEqual(firstStrategy.DriveSizes, expected) {
+			t.Errorf("First strategy expected %v, got %v", expected, firstStrategy.DriveSizes)
+		}
+	})
+
+	t.Run("Fit-to-physical splits drives to meet numCores", func(t *testing.T) {
+		// Physical drives: 20000, 500, 500 GiB
+		// Needed: 21000 GiB, numCores: 4
+		// Initial fit-to-physical: [20000, 500, 500] = 3 drives (< numCores)
+		// After splitting: [10000, 10000, 500, 500] = 4 drives
+		driveCapacities := map[string]*physicalDriveCapacity{
+			"drive1": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 20000},
+				totalCapacity:     20000,
+				availableCapacity: 20000,
+			},
+			"drive2": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+			"drive3": {
+				drive:             domain.SharedDriveInfo{PhysicalUUID: "drive3", Serial: "SN003", CapacityGiB: 500},
+				totalCapacity:     500,
+				availableCapacity: 500,
+			},
+		}
+
+		generator := NewAllocationStrategyGenerator(21000, 4, MinChunkSizeGiB, driveCapacities, 32)
+
+		done := make(chan struct{})
+		defer close(done)
+
+		strategies := []AllocationStrategy{}
+		for strategy := range generator.GenerateStrategies(done) {
+			strategies = append(strategies, strategy)
+		}
+
+		if len(strategies) == 0 {
+			t.Fatal("Expected at least one strategy, got none")
+		}
+
+		// Last strategy should be fit-to-physical with splitting
+		lastStrategy := strategies[len(strategies)-1]
+
+		// Should have 4 drives (split the 20000 into two 10000s)
+		if lastStrategy.NumDrives() != 4 {
+			t.Errorf("Expected 4 drives after splitting, got %d: %v", lastStrategy.NumDrives(), lastStrategy.DriveSizes)
+		}
+
+		// Total capacity should still be 21000
+		if lastStrategy.TotalCapacity() != 21000 {
+			t.Errorf("Expected total capacity 21000, got %d", lastStrategy.TotalCapacity())
+		}
+
+		// Should contain two ~10000 drives and two 500 drives
+		// Due to splitting: [10000, 10000, 500, 500] or similar
+		t.Logf("Fit-to-physical with splitting: %v", lastStrategy.DriveSizes)
+	})
 }

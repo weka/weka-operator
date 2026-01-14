@@ -655,7 +655,6 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 			tlcAllocated := false
 			for strategy := range generator.GenerateStrategies(done) {
 				_, strategyLogger, end := instrumentation.GetLogSpan(ctx, "TryingTLCAllocationStrategy",
-					"description", strategy.Description,
 					"numDrives", strategy.NumDrives(),
 					"strategyTotalCapacity", strategy.TotalCapacity(),
 					"driveSizes", strategy.DriveSizes,
@@ -717,7 +716,6 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 			qlcAllocated := false
 			for strategy := range generator.GenerateStrategies(done) {
 				_, strategyLogger, end := instrumentation.GetLogSpan(ctx, "TryingQLCAllocationStrategy",
-					"description", strategy.Description,
 					"numDrives", strategy.NumDrives(),
 					"strategyTotalCapacity", strategy.TotalCapacity(),
 					"driveSizes", strategy.DriveSizes,
