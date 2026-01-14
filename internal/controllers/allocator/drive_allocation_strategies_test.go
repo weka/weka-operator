@@ -1,9 +1,13 @@
 package allocator
 
 import (
+	"context"
 	"reflect"
+	"strings"
 	"testing"
 
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
@@ -16,40 +20,22 @@ func TestAllocationStrategyGenerator_EvenDistribution(t *testing.T) {
 		expectedDriveSizes []int // Expected drive sizes for the first (best) strategy
 	}{
 		{
-			name:               "Divides evenly by numCores",
+			name:               "Divides evenly",
 			totalCapacity:      6000,
 			numCores:           3,
 			expectedDriveSizes: []int{2000, 2000, 2000}, // 6000 / 3 = 2000
 		},
 		{
-			name:               "Divides evenly by numCores+1",
+			name:               "Remainder 1: first drive gets +1",
 			totalCapacity:      4000,
 			numCores:           3,
 			expectedDriveSizes: []int{1334, 1333, 1333}, // 4000 / 3 = 1333 remainder 1
 		},
 		{
-			name:               "Divides evenly by numCores with larger capacity",
-			totalCapacity:      12000,
-			numCores:           4,
-			expectedDriveSizes: []int{3000, 3000, 3000, 3000}, // 12000 / 4 = 3000
-		},
-		{
-			name:               "Non-divisible capacity (5000/3)",
+			name:               "Remainder 2: first two drives get +1",
 			totalCapacity:      5000,
 			numCores:           3,
 			expectedDriveSizes: []int{1667, 1667, 1666}, // 5000 / 3 = 1666 remainder 2
-		},
-		{
-			name:               "Larger capacity divisible by numCores",
-			totalCapacity:      15000,
-			numCores:           5,
-			expectedDriveSizes: []int{3000, 3000, 3000, 3000, 3000}, // 15000 / 5 = 3000
-		},
-		{
-			name:               "Odd capacity with remainder",
-			totalCapacity:      7001,
-			numCores:           3,
-			expectedDriveSizes: []int{2334, 2334, 2333}, // 7001 / 3 = 2333 remainder 2
 		},
 	}
 
@@ -593,4 +579,350 @@ func TestAllocationStrategyGenerator_FitToPhysicalFallback(t *testing.T) {
 		// Due to splitting: [10000, 10000, 500, 500] or similar
 		t.Logf("Fit-to-physical with splitting: %v", lastStrategy.DriveSizes)
 	})
+}
+
+// driveSetup describes physical drives to create for testing
+type driveSetup struct {
+	tlcCount    int
+	tlcCapacity int // capacity per TLC drive in GiB
+	qlcCount    int
+	qlcCapacity int // capacity per QLC drive in GiB
+}
+
+// makeDrives creates SharedDriveInfo slice for testing
+func makeDrives(setup driveSetup) []domain.SharedDriveInfo {
+	drives := make([]domain.SharedDriveInfo, 0, setup.tlcCount+setup.qlcCount)
+	for i := 0; i < setup.tlcCount; i++ {
+		drives = append(drives, domain.SharedDriveInfo{
+			PhysicalUUID: "tlc-" + string(rune('0'+i)),
+			Serial:       "TLC-SN-" + string(rune('0'+i)),
+			CapacityGiB:  setup.tlcCapacity,
+			Type:         "TLC",
+		})
+	}
+	for i := 0; i < setup.qlcCount; i++ {
+		drives = append(drives, domain.SharedDriveInfo{
+			PhysicalUUID: "qlc-" + string(rune('0'+i)),
+			Serial:       "QLC-SN-" + string(rune('0'+i)),
+			CapacityGiB:  setup.qlcCapacity,
+			Type:         "QLC",
+		})
+	}
+	return drives
+}
+
+// TestEnforceMinDrivesPerTypePerCore tests the constraint mode behavior
+// When true (default): each drive type must have at least numCores drives
+// When false: TLC + QLC combined must be >= numCores
+func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
+	tests := []struct {
+		name                           string
+		enforceMinDrivesPerTypePerCore bool
+		drives                         driveSetup
+		containerCapacity              int
+		tlcRatio                       int
+		qlcRatio                       int
+		numCores                       int
+		expectError                    bool
+		errorContains                  string
+		// Expected results when successful
+		expectedTlcDrives int
+		expectedQlcDrives int
+	}{
+		{
+			name:                           "per-type: valid mixed allocation (6 TLC + 6 QLC)",
+			enforceMinDrivesPerTypePerCore: true,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 2, qlcCapacity: 10000},
+			containerCapacity:              12000,
+			tlcRatio:                       1,
+			qlcRatio:                       1,
+			numCores:                       6,
+			expectError:                    false,
+			expectedTlcDrives:              6,
+			expectedQlcDrives:              6,
+		},
+		{
+			name:                           "per-type: fails when TLC capacity insufficient (1000 GiB < 1920 GiB needed)",
+			enforceMinDrivesPerTypePerCore: true,
+			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 5000, qlcCount: 1, qlcCapacity: 5000},
+			containerCapacity:              5000,
+			tlcRatio:                       1,  // TLC = 5000 * 1/5 = 1000 GiB (configured)
+			qlcRatio:                       4,  // QLC = 5000 * 4/5 = 4000 GiB (configured)
+			numCores:                       5,  // need 5*384=1920 GiB per type → TLC too small
+			expectError:                    true,
+			errorContains:                  "insufficient TLC capacity",
+		},
+		{
+			name:                           "per-type: fails when QLC capacity insufficient (1000 GiB < 1920 GiB needed)",
+			enforceMinDrivesPerTypePerCore: true,
+			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 5000, qlcCount: 1, qlcCapacity: 5000},
+			containerCapacity:              5000,
+			tlcRatio:                       4,  // TLC = 5000 * 4/5 = 4000 GiB (configured)
+			qlcRatio:                       1,  // QLC = 5000 * 1/5 = 1000 GiB (configured)
+			numCores:                       5,  // need 5*384=1920 GiB per type → QLC too small
+			expectError:                    true,
+			errorContains:                  "insufficient QLC capacity",
+		},
+		{
+			name:                           "combined: asymmetric 1 TLC + 5 QLC succeeds",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 10000, qlcCount: 2, qlcCapacity: 10000},
+			containerCapacity:              3000,
+			tlcRatio:                       1,  // TLC = 3000 * 1/6 = 500 GiB → 1 drive
+			qlcRatio:                       5,  // QLC = 3000 * 5/6 = 2500 GiB → 5 drives
+			numCores:                       6,
+			expectError:                    false,
+			expectedTlcDrives:              1,
+			expectedQlcDrives:              5,
+		},
+		{
+			name:                           "combined: asymmetric 4 TLC + 2 QLC succeeds",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 1, qlcCapacity: 10000},
+			containerCapacity:              3000,
+			tlcRatio:                       4,  // TLC = 3000 * 4/6 = 2000 GiB → 4 drives
+			qlcRatio:                       2,  // QLC = 3000 * 2/6 = 1000 GiB → 2 drives
+			numCores:                       6,
+			expectError:                    false,
+			expectedTlcDrives:              4,
+			expectedQlcDrives:              2,
+		},
+		{
+			name:                           "combined: asymmetric 2 TLC + 1 QLC (ratio 2:1)",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 1, qlcCapacity: 10000},
+			containerCapacity:              1500,
+			tlcRatio:                       2,  // TLC = 1500 * 2/3 = 1000 GiB → 2 drives
+			qlcRatio:                       1,  // QLC = 1500 * 1/3 = 500 GiB → 1 drive
+			numCores:                       3,
+			expectError:                    false,
+			expectedTlcDrives:              2,
+			expectedQlcDrives:              1,
+		},
+		{
+			name:                           "combined: fails when total capacity insufficient (1000 GiB < 1920 GiB needed)",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 1, tlcCapacity: 10000, qlcCount: 1, qlcCapacity: 10000},
+			containerCapacity:              1000,
+			tlcRatio:                       1,
+			qlcRatio:                       1,
+			numCores:                       5,  // need 5*384=1920 GiB total
+			expectError:                    true,
+			errorContains:                  "insufficient total capacity",
+		},
+		{
+			name:                           "TLC-only: per-type mode",
+			enforceMinDrivesPerTypePerCore: true,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 0, qlcCapacity: 0},
+			containerCapacity:              3000,
+			tlcRatio:                       1,
+			qlcRatio:                       0,
+			numCores:                       3,
+			expectError:                    false,
+			expectedTlcDrives:              3,
+			expectedQlcDrives:              0,
+		},
+		{
+			name:                           "QLC-only: combined mode",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 0, tlcCapacity: 0, qlcCount: 2, qlcCapacity: 10000},
+			containerCapacity:              3000,
+			tlcRatio:                       0,
+			qlcRatio:                       1,
+			numCores:                       3,
+			expectError:                    false,
+			expectedTlcDrives:              0,
+			expectedQlcDrives:              3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore global config
+			origEnforce := globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore
+			origMaxVirtualDrives := globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
+			defer func() {
+				globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore = origEnforce
+				globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = origMaxVirtualDrives
+			}()
+			globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore = tt.enforceMinDrivesPerTypePerCore
+			globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = 8 // Default value
+
+			// Create container with spec
+			container := &weka.WekaContainer{
+				Spec: weka.WekaContainerSpec{
+					NumCores:          tt.numCores,
+					ContainerCapacity: tt.containerCapacity,
+					DriveTypesRatio: &weka.DriveTypesRatio{
+						Tlc: tt.tlcRatio,
+						Qlc: tt.qlcRatio,
+					},
+				},
+			}
+
+			// Create allocator with nil client (not needed for this test path)
+			allocator := NewContainerResourceAllocator(nil)
+
+			// Build allocation request
+			req := &AllocationRequest{
+				Container:   container,
+				CapacityGiB: tt.containerCapacity,
+			}
+
+			// Create drives and run allocation
+			drives := makeDrives(tt.drives)
+			virtualDrives, err := allocator.allocateSharedDrivesByCapacityWithTypes(
+				context.Background(),
+				req,
+				[]weka.WekaContainer{}, // no existing containers
+				drives,
+			)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error containing %q, but got success", tt.errorContains)
+				}
+				if !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errorContains, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			// Count allocated drives by type
+			tlcDrives := 0
+			qlcDrives := 0
+			totalCapacity := 0
+			for _, vd := range virtualDrives {
+				totalCapacity += vd.CapacityGiB
+				if vd.Type == "TLC" {
+					tlcDrives++
+				} else if vd.Type == "QLC" {
+					qlcDrives++
+				}
+			}
+
+			// Validate drive counts
+			if tlcDrives != tt.expectedTlcDrives {
+				t.Errorf("Expected %d TLC drives, got %d", tt.expectedTlcDrives, tlcDrives)
+			}
+			if qlcDrives != tt.expectedQlcDrives {
+				t.Errorf("Expected %d QLC drives, got %d", tt.expectedQlcDrives, qlcDrives)
+			}
+
+			// Validate total capacity matches requested containerCapacity
+			if totalCapacity != tt.containerCapacity {
+				t.Errorf("Expected total capacity %d GiB, got %d GiB", tt.containerCapacity, totalCapacity)
+			}
+
+			// Validate total drives meet numCores constraint
+			totalDrives := tlcDrives + qlcDrives
+			if totalDrives < tt.numCores {
+				t.Errorf("Total drives (%d) < numCores (%d)", totalDrives, tt.numCores)
+			}
+
+			t.Logf("Allocation succeeded: TLC=%d drives, QLC=%d drives, Total=%d drives, Capacity=%d GiB",
+				tlcDrives, qlcDrives, totalDrives, totalCapacity)
+		})
+	}
+}
+
+// TestAllocationStrategyGenerator_MaxDrivesLimit tests when maxDrives limit constrains strategy generation
+// In practice, maxDrives = numCores * maxVirtualDrivesPerCore (always a multiple of numCores)
+func TestAllocationStrategyGenerator_MaxDrivesLimit(t *testing.T) {
+	driveCapacities := map[string]*physicalDriveCapacity{
+		"drive1": {
+			drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 50000},
+			totalCapacity:     50000,
+			availableCapacity: 50000,
+		},
+	}
+
+	tests := []struct {
+		name                    string
+		totalCapacity           int
+		numCores                int
+		maxVirtualDrivesPerCore int
+		expectedStrategies      [][]int // All expected even distribution strategies in order
+	}{
+		{
+			name:                    "numCores=3, maxVirtualDrivesPerCore=2 (maxDrives=6)",
+			totalCapacity:           6000,
+			numCores:                3,
+			maxVirtualDrivesPerCore: 2,
+			expectedStrategies: [][]int{
+				{2000, 2000, 2000},                   // 3 drives: 6000/3 = 2000
+				{1500, 1500, 1500, 1500},             // 4 drives: 6000/4 = 1500
+				{1200, 1200, 1200, 1200, 1200},       // 5 drives: 6000/5 = 1200
+				{1000, 1000, 1000, 1000, 1000, 1000}, // 6 drives: 6000/6 = 1000
+				// No 7+ drive strategies due to maxDrives=6
+			},
+		},
+		{
+			name:                    "numCores=3, maxVirtualDrivesPerCore=1 (maxDrives=3)",
+			totalCapacity:           3000,
+			numCores:                3,
+			maxVirtualDrivesPerCore: 1,
+			expectedStrategies: [][]int{
+				{1000, 1000, 1000}, // 3 drives only
+			},
+		},
+		{
+			name:                    "numCores=4, maxVirtualDrivesPerCore=2 (maxDrives=8)",
+			totalCapacity:           8000,
+			numCores:                4,
+			maxVirtualDrivesPerCore: 2,
+			expectedStrategies: [][]int{
+				{2000, 2000, 2000, 2000},                         // 4 drives: 8000/4 = 2000
+				{1600, 1600, 1600, 1600, 1600},                   // 5 drives: 8000/5 = 1600
+				{1334, 1334, 1333, 1333, 1333, 1333},             // 6 drives: 8000/6 = 1333 r2 (2 drives get +1)
+				{1143, 1143, 1143, 1143, 1143, 1143, 1142},       // 7 drives: 8000/7 = 1142 r6 (6 drives get +1)
+				{1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000}, // 8 drives: 8000/8 = 1000
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			maxDrives := tt.numCores * tt.maxVirtualDrivesPerCore
+			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.numCores, MinChunkSizeGiB, driveCapacities, maxDrives)
+
+			done := make(chan struct{})
+			defer close(done)
+
+			var strategies []AllocationStrategy
+			for strategy := range generator.GenerateStrategies(done) {
+				strategies = append(strategies, strategy)
+				// Verify no strategy exceeds maxDrives
+				if strategy.NumDrives() > maxDrives {
+					t.Errorf("Strategy %v has %d drives, exceeds maxDrives=%d",
+						strategy.DriveSizes, strategy.NumDrives(), maxDrives)
+				}
+			}
+
+			if len(strategies) == 0 {
+				t.Fatal("Expected at least one strategy, got none")
+			}
+
+			// Log all generated strategies
+			t.Logf("Generated %d strategies (maxDrives=%d):", len(strategies), maxDrives)
+			for i, s := range strategies {
+				t.Logf("  Strategy %d: %v", i, s.DriveSizes)
+			}
+
+			// Verify even distribution strategies match expected (ignoring fit-to-physical at the end)
+			for i, expected := range tt.expectedStrategies {
+				if i >= len(strategies) {
+					t.Errorf("Missing strategy %d: expected %v", i, expected)
+					continue
+				}
+				if !reflect.DeepEqual(strategies[i].DriveSizes, expected) {
+					t.Errorf("Strategy %d: expected %v, got %v", i, expected, strategies[i].DriveSizes)
+				}
+			}
+		})
+	}
 }

@@ -364,6 +364,8 @@ spec:
               value: "{{ .Values.driveTypesRatio.qlc }}"
             - name: MAX_VIRTUAL_DRIVES_PER_CORE
               value: "{{ .Values.maxVirtualDrivesPerCore }}"
+            - name: ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE
+              value: "{{ .Values.enforceMinDrivesPerTypePerCore }}"
             - name: LOG_FORMAT
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL
