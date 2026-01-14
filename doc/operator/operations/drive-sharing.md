@@ -201,10 +201,7 @@ spec:
 - Type information comes from `weka-sign-drive show --json` during proxy signing
 - Separate physical drive pools for TLC and QLC must have sufficient capacity
 
-**Allocation strategy:**
-1. Operator tries uniform distributions (all drives equal size)
-2. Falls back to near-uniform if capacity doesn't divide evenly
-3. Ensures minimum drive size (384 GiB minimum per drive)
+**Allocation strategy:** See [Virtual Drive Allocation Strategies](#virtual-drive-allocation-strategies) for details.
 
 **Minimum Capacity Constraint:**
 
@@ -242,6 +239,234 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 
 ---
 
+### Virtual Drive Allocation Strategies
+
+The operator uses two strategies to allocate virtual drives from physical capacity. Both strategies ensure each drive meets the **minimum 384 GiB** requirement.
+
+#### Strategy 1: Uniform (preferred)
+
+All virtual drives have identical sizes. Used when capacity divides evenly.
+
+#### Strategy 2: Non-Uniform (fallback)
+
+Drives have near-equal sizes when even division isn't possible. Remainder is distributed across drives (+1 GiB each).
+
+#### Combined Drive Count Constraint
+
+The total number of virtual drives (TLC + QLC combined) must satisfy:
+
+```
+driveCores <= tlcDrives + qlcDrives <= driveCores × maxVirtualDrivesPerCore
+```
+
+This allows flexible distribution between drive types. If one type has limited capacity, the other can compensate.
+
+#### Strategy Selection
+
+The operator allocates TLC first, then QLC with an adjusted minimum to satisfy the combined constraint:
+
+1. **TLC allocation:** Start with min=1 drive, find first successful strategy
+2. **QLC allocation:** Set min = max(1, driveCores - tlcDrives) to ensure combined total ≥ driveCores
+3. **Iteration:** If QLC can't meet its minimum, increase TLC's minimum and retry
+
+For each allocation, strategies are generated in this order:
+1. **All uniform strategies** (min, min+1, min+2, ... up to max drives)
+2. **All non-uniform strategies** (min, min+1, min+2, ... up to max drives)
+
+The first strategy that fits available physical drives is used.
+
+**Early termination:** Within each strategy type, the search stops as soon as drive sizes fall below 384 GiB, since increasing the drive count would only make sizes smaller.
+
+#### Configuration: maxVirtualDrivesPerCore
+
+The `maxVirtualDrivesPerCore` setting controls the maximum drive count flexibility during allocation. It defines the multiplier applied to `driveCores` when searching for allocation strategies.
+
+**Helm Configuration:**
+
+```yaml
+maxVirtualDrivesPerCore: 8  # Default value
+```
+
+**Behavior:**
+- Maximum virtual drives = `driveCores × maxVirtualDrivesPerCore`
+
+#### Example
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 7000
+driveTypesRatio:
+  tlc: 1
+  qlc: 4
+```
+
+**Capacity split:** TLC = 1400 GiB, QLC = 5600 GiB
+
+**TLC allocation (1400 GiB, min=1):**
+
+| Drives | Uniform? | Size | ≥384 GiB? | Result |
+|--------|----------|------|-----------|--------|
+| 1 | 1400÷1=1400 | Yes | Yes | **use** |
+
+**QLC allocation (5600 GiB, min=max(1, 3-1)=2):**
+
+| Drives | Uniform? | Size | ≥384 GiB? | Result |
+|--------|----------|------|-----------|--------|
+| 2 | 5600÷2=2800 | Yes | Yes | **use** |
+
+**Final allocation:**
+- TLC: 1 drive (1400 GiB)
+- QLC: 2 drives (2800 GiB each)
+- Total: 3 virtual drives, 7000 GiB
+
+#### Example: Asymmetric Capacity (Combined Constraint)
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 1500
+driveTypesRatio:
+  tlc: 1
+  qlc: 2
+```
+
+**Capacity split:** TLC = 500 GiB, QLC = 1000 GiB
+
+**Allocation:**
+
+**Iteration 1:** TLC min=1
+- TLC: 500 ÷ 1 = 500 GiB ≥ 384 → **1 drive**
+- QLC min = max(1, 3-1) = 2
+- QLC: 1000 ÷ 2 = 500 GiB ≥ 384 → **2 drives**
+- Total: 1 + 2 = 3 ≥ driveCores ✓
+
+**Final allocation:**
+- TLC: 1 drive (500 GiB)
+- QLC: 2 drives (500 GiB each)
+- Total: 3 virtual drives, 1500 GiB
+
+#### Example: Iteration Required
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 1500
+driveTypesRatio:
+  tlc: 2
+  qlc: 1
+```
+
+**Capacity split:** TLC = 1000 GiB, QLC = 500 GiB
+
+**Iteration 1:** TLC min=1
+- TLC: 1000 ÷ 1 = 1000 GiB → **1 drive**
+- QLC min = max(1, 3-1) = 2
+- QLC: 500 ÷ 2 = 250 GiB < 384 → **fails** (early termination)
+
+**Iteration 2:** TLC min=2
+- TLC: 1000 ÷ 2 = 500 GiB → **2 drives**
+- QLC min = max(1, 3-2) = 1
+- QLC: 500 ÷ 1 = 500 GiB ≥ 384 → **1 drive**
+- Total: 2 + 1 = 3 ≥ driveCores ✓
+
+**Final allocation:**
+- TLC: 2 drives (500 GiB each)
+- QLC: 1 drive (500 GiB)
+- Total: 3 virtual drives, 1500 GiB
+
+#### Example: Minimum Viable Configuration
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 1152
+driveTypesRatio:
+  tlc: 1
+  qlc: 2
+```
+
+**Capacity split:** TLC = 384 GiB, QLC = 768 GiB
+
+**Allocation:**
+- TLC: 384 ÷ 1 = 384 GiB → **1 drive** (exactly at minimum)
+- QLC min = max(1, 3-1) = 2
+- QLC: 768 ÷ 2 = 384 GiB → **2 drives** (exactly at minimum)
+- Total: 1 + 2 = 3 ≥ driveCores ✓
+
+**Final allocation:**
+- TLC: 1 drive (384 GiB)
+- QLC: 2 drives (384 GiB each)
+- Total: 3 virtual drives, 1152 GiB
+
+This is the minimum possible capacity for driveCores=3: each drive is exactly 384 GiB.
+
+#### Example: Non-Uniform Strategy
+
+**Configuration:**
+```yaml
+driveCores: 4
+containerCapacity: 2100
+driveTypesRatio:
+  tlc: 1
+  qlc: 2
+```
+
+**Capacity split:** TLC = 700 GiB, QLC = 1400 GiB
+
+**TLC allocation (700 GiB, min=1):**
+- 700 ÷ 1 = 700 GiB ≥ 384 → **1 drive** (uniform)
+
+**QLC allocation (1400 GiB, min=max(1, 4-1)=3):**
+
+Uniform strategies (tried first):
+
+| Drives | Calculation | Uniform? | Size | ≥384 GiB? | Result |
+|--------|-------------|----------|------|-----------|--------|
+| 3 | 1400÷3=466.67 | No (remainder) | - | - | skip |
+| 4 | 1400÷4=350 | Yes | 350 | No | stop (early termination) |
+
+All uniform strategies failed. Non-uniform strategies:
+
+| Drives | Base | Remainder | Distribution | All ≥384? | Result |
+|--------|------|-----------|--------------|-----------|--------|
+| 3 | 466 | 2 | 467, 467, 466 | Yes | **use** |
+
+Non-uniform calculation for 3 drives:
+- Base size: 1400 ÷ 3 = 466 GiB (integer division)
+- Remainder: 1400 - (466 × 3) = 1400 - 1398 = 2 GiB
+- Distribution: 2 drives get base + 1 = 467 GiB, 1 drive gets base = 466 GiB
+- Verification: 467 + 467 + 466 = 1400 GiB ✓
+
+**Final allocation:**
+- TLC: 1 drive (700 GiB) - uniform
+- QLC: 3 drives (467, 467, 466 GiB) - non-uniform
+- Total: 4 virtual drives, 2100 GiB
+
+#### Example: Single Drive Type (TLC Only)
+
+**Configuration:**
+```yaml
+driveCores: 3
+containerCapacity: 3000
+driveTypesRatio:
+  tlc: 1
+  qlc: 0
+```
+
+**Capacity split:** TLC = 3000 GiB, QLC = 0 GiB
+
+**Allocation:**
+- TLC min = driveCores = 3 (no QLC to compensate)
+- TLC: 3000 ÷ 3 = 1000 GiB → **3 drives**
+- QLC: skipped (0 capacity)
+
+**Final allocation:**
+- TLC: 3 drives (1000 GiB each)
+- Total: 3 virtual drives, 3000 GiB
+
+---
+
 ### Global Defaults
 
 The operator supports global defaults for drive sharing configuration via Helm values.
@@ -252,8 +477,8 @@ The operator supports global defaults for drive sharing configuration via Helm v
 
 ```yaml
 driveTypesRatio:
-  tlc: 1  # 10% TLC (high-performance)
-  qlc: 9  # 90% QLC (cost-optimized)
+  tlc: 1   # ~9% TLC (high-performance)
+  qlc: 10  # ~91% QLC (cost-optimized)
 ```
 
 **Behavior:**

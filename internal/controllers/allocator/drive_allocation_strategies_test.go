@@ -339,3 +339,171 @@ func TestAllocationStrategyGenerator_InsufficientCapacity(t *testing.T) {
 		t.Fatalf("Expected no strategies (insufficient capacity), but got %d strategies", len(strategies))
 	}
 }
+
+// TestAllocationStrategyGenerator_CombinedConstraint tests the combined constraint scenario
+// where min drives can be 1 (for TLC in mixed TLC/QLC allocation)
+func TestAllocationStrategyGenerator_CombinedConstraint(t *testing.T) {
+	driveCapacities := map[string]*physicalDriveCapacity{
+		"drive1": {
+			drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000},
+			totalCapacity:     10000,
+			availableCapacity: 10000,
+		},
+	}
+
+	tests := []struct {
+		name               string
+		totalCapacity      int
+		minDrives          int
+		maxDrives          int
+		expectedNumDrives  int
+		expectedDriveSize  int
+		expectedStrategy   string
+	}{
+		{
+			name:              "Min=1 with small capacity produces 1 drive",
+			totalCapacity:     500,
+			minDrives:         1,
+			maxDrives:         24,
+			expectedNumDrives: 1,
+			expectedDriveSize: 500,
+			expectedStrategy:  "uniform",
+		},
+		{
+			name:              "Min=1 with larger capacity still starts at 1",
+			totalCapacity:     1000,
+			minDrives:         1,
+			maxDrives:         24,
+			expectedNumDrives: 1,
+			expectedDriveSize: 1000,
+			expectedStrategy:  "uniform",
+		},
+		{
+			name:              "Min=2 skips 1-drive strategies",
+			totalCapacity:     1000,
+			minDrives:         2,
+			maxDrives:         24,
+			expectedNumDrives: 2,
+			expectedDriveSize: 500,
+			expectedStrategy:  "uniform",
+		},
+		{
+			name:              "Min=1 capacity too small for even 1 drive",
+			totalCapacity:     300, // < 384 MinChunkSizeGiB
+			minDrives:         1,
+			maxDrives:         24,
+			expectedNumDrives: 0, // No strategies generated
+			expectedDriveSize: 0,
+			expectedStrategy:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			generator := NewAllocationStrategyGenerator(tt.totalCapacity, tt.minDrives, MinChunkSizeGiB, driveCapacities, tt.maxDrives)
+
+			done := make(chan struct{})
+			defer close(done)
+
+			var firstStrategy AllocationStrategy
+			count := 0
+			for strategy := range generator.GenerateStrategies(done) {
+				if count == 0 {
+					firstStrategy = strategy
+				}
+				count++
+				if count == 1 {
+					break // Only need first strategy
+				}
+			}
+
+			if tt.expectedNumDrives == 0 {
+				// Expect no strategies
+				if count > 0 {
+					t.Errorf("Expected no strategies, got at least one with sizes %v", firstStrategy.DriveSizes)
+				}
+				return
+			}
+
+			if count == 0 {
+				t.Fatalf("Expected at least one strategy, got none")
+			}
+
+			if firstStrategy.NumDrives() != tt.expectedNumDrives {
+				t.Errorf("Expected %d drives, got %d (sizes: %v)", tt.expectedNumDrives, firstStrategy.NumDrives(), firstStrategy.DriveSizes)
+			}
+
+			if firstStrategy.Description != tt.expectedStrategy {
+				t.Errorf("Expected strategy %s, got %s", tt.expectedStrategy, firstStrategy.Description)
+			}
+
+			if tt.expectedNumDrives > 0 && firstStrategy.DriveSizes[0] != tt.expectedDriveSize {
+				t.Errorf("Expected drive size %d, got %d", tt.expectedDriveSize, firstStrategy.DriveSizes[0])
+			}
+		})
+	}
+}
+
+// TestAllocationStrategyGenerator_AsymmetricTlcQlc simulates the combined constraint scenario
+// TLC=500 GiB (can fit 1 drive), QLC needs to compensate
+func TestAllocationStrategyGenerator_AsymmetricTlcQlc(t *testing.T) {
+	driveCapacities := map[string]*physicalDriveCapacity{
+		"drive1": {
+			drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000},
+			totalCapacity:     10000,
+			availableCapacity: 10000,
+		},
+	}
+
+	// Scenario: numCores=3, TLC capacity=500, QLC capacity=1000
+	// With combined constraint, TLC can have 1 drive, QLC needs at least 2
+	numCores := 3
+	maxDrives := numCores * 8 // 24
+
+	// TLC allocation with min=1
+	tlcGenerator := NewAllocationStrategyGenerator(500, 1, MinChunkSizeGiB, driveCapacities, maxDrives)
+	done := make(chan struct{})
+
+	var tlcStrategy AllocationStrategy
+	for strategy := range tlcGenerator.GenerateStrategies(done) {
+		tlcStrategy = strategy
+		break
+	}
+	close(done)
+
+	if tlcStrategy.NumDrives() != 1 {
+		t.Fatalf("TLC: Expected 1 drive, got %d", tlcStrategy.NumDrives())
+	}
+
+	// QLC allocation with min=max(1, numCores-tlcDrives) = max(1, 3-1) = 2
+	tlcDrives := tlcStrategy.NumDrives()
+	qlcMin := numCores - tlcDrives
+	if qlcMin < 1 {
+		qlcMin = 1
+	}
+	qlcMax := maxDrives - tlcDrives
+
+	qlcGenerator := NewAllocationStrategyGenerator(1000, qlcMin, MinChunkSizeGiB, driveCapacities, qlcMax)
+	done2 := make(chan struct{})
+
+	var qlcStrategy AllocationStrategy
+	for strategy := range qlcGenerator.GenerateStrategies(done2) {
+		qlcStrategy = strategy
+		break
+	}
+	close(done2)
+
+	if qlcStrategy.NumDrives() < qlcMin {
+		t.Fatalf("QLC: Expected at least %d drives, got %d", qlcMin, qlcStrategy.NumDrives())
+	}
+
+	// Combined total should meet numCores constraint
+	totalDrives := tlcDrives + qlcStrategy.NumDrives()
+	if totalDrives < numCores {
+		t.Errorf("Combined: Expected at least %d drives, got %d (TLC=%d, QLC=%d)",
+			numCores, totalDrives, tlcDrives, qlcStrategy.NumDrives())
+	}
+
+	t.Logf("Success: TLC=%d drives, QLC=%d drives, Total=%d (min required=%d)",
+		tlcDrives, qlcStrategy.NumDrives(), totalDrives, numCores)
+}
