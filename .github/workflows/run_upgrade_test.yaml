@@ -86,11 +86,6 @@ jobs:
     env:
       GOPRIVATE: github.com/weka
     steps:
-      - name: Check out weka-k8s-testing private repo
-        uses: actions/checkout@v4
-        with:
-          repository: weka/weka-k8s-testing
-          ssh-key: ${{ secrets.WEKA_K8S_TESTING_DEPLOY_SSH_KEY }}
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -105,11 +100,17 @@ jobs:
           echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
           chmod 600 ~/.netrc
 
-      - name: Install submodules
-        run: git submodule update --init --recursive
+      - name: Check out weka-k8s-testing private repo
+        uses: actions/checkout@v4
+        with:
+          repository: weka/weka-k8s-testing
+          token: ${{ steps.app-token.outputs.token }}
+          submodules: recursive
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
+          cache: true
       - name: Build Go Binary
         run: |
           go build -o weka-k8s-testing main.go

@@ -22,9 +22,6 @@ jobs:
       GOPRIVATE: github.com/weka
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -38,19 +35,22 @@ jobs:
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
           echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
           chmod 600 ~/.netrc
-    
-      - name: Install submodules
-        run: git submodule update --init --recursive
 
-      - name: Setup Go (supports caching)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-
-      - name: Setup go
-        run: |
-          go version
-          go mod download
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
 
       - name: Setup envtest
         run: |

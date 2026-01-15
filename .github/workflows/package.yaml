@@ -65,6 +65,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
 
       # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
       - name: Collect Git files in a directory that is part of the Docker build context

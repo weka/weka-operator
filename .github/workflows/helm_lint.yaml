@@ -19,7 +19,7 @@ jobs:
     if: needs.optimize_ci.outputs.skip == 'false'
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Configure git
@@ -27,15 +27,14 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
       - name: Set up Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
         with:
-          version: v3.12.1
-      - uses: actions/setup-python@v4
+          version: v3.16.3
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          check-latest: true
+          python-version: '3.12'
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.6.0
+        uses: helm/chart-testing-action@v2.7.0
       - name: List changes
         id: list-changed
         run: |
