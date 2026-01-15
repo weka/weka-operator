@@ -42,6 +42,25 @@ utils/              # Shared utilities
   health.go         # Health check logic
 ```
 
+## Supporting Packages
+
+### Upgrade Controller
+
+**Path**: `internal/controllers/upgrade/upgrade.go`
+
+Orchestrates container image upgrades across the cluster:
+- `RollingUpgrade()` - Upgrades one container at a time (recommended)
+- `AllAtOnceUpgrade()` - Upgrades all containers simultaneously
+- `AreUpgraded()` - Checks if all containers are at target image
+
+### Metrics Builder
+
+**Path**: `internal/controllers/metrics/metrics.go`
+
+Builds Prometheus-format metrics for cluster monitoring:
+- `BuildClusterPrometheusMetrics()` - Creates metric strings from cluster status
+- Metrics include: throughput, IOPS, drives count, capacity, status, alerts
+
 ## Reconciliation Pattern
 
 All controllers use `go-steps-engine` for step-based reconciliation:

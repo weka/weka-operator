@@ -16,6 +16,7 @@ Key config categories:
 - OTEL/observability settings
 - Priority class names
 - Proxy settings (HTTP/HTTPS)
+- Port allocation settings (starting port for cluster port ranges)
 
 ## Helm Chart
 

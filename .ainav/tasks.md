@@ -41,7 +41,7 @@ See [config/index.md](config/index.md) for config overview.
 
 1. Review `internal/controllers/operations/csi/`
 2. Controller logic: `controller.go`
-3. Node server: `nodeserver.go`, `daemonset.go`
+3. Node daemonset: `daemonset.go`
 4. Storage classes: `storageclass.go`
 5. Integration: `wekacontainer/csi_steps.go`
 

@@ -14,7 +14,6 @@ Container states and their flow files:
 | Deleting | `flow_deleting_state.go` | Graceful shutdown |
 | Destroying | `flow_destroying_state.go` | Force removal |
 | Paused | `flow_paused_state.go` | Suspended operations |
-| NodeAgent | `flow_node_agent.go` | Node agent management |
 
 ## Function Categories (funcs_*.go)
 
@@ -32,7 +31,6 @@ Container states and their flow files:
 | `funcs_image_upgrade.go` | Image upgrade handling |
 | `funcs_weka_local_status.go` | Local weka status |
 | `funcs_getters.go` | State getters |
-| `funcs_ensure_node_agent.go` | Node agent lifecycle |
 | `funcs_get_node_agent.go` | Node agent lookups |
 | `funcs_management_ips.go` | Management IP handling |
 | `funcs_resources_allocation.go` | Resource allocation |
