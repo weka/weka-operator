@@ -28,10 +28,12 @@ jobs:
     needs: optimize_ci
     if: |
       needs.optimize_ci.outputs.skip == 'false' &&
-      (startsWith(github.head_ref, 'gtmq_') || 
+      (startsWith(github.head_ref, 'gtmq_') ||
       contains(github.event.pull_request.labels.*.name, 'run_ci_on_merge_queue_plan')) &&
       !contains(github.event.pull_request.labels.*.name, 'skip_ci_on_merge_queue_plan')
     runs-on: ubuntu-latest
+    outputs:
+      skip_upgrade_test: ${{ steps.check_commits.outputs.skip_upgrade_test }}
     steps:
       - name: Show PR Info
         run: |
@@ -39,9 +41,45 @@ jobs:
           echo "Target branch: ${{ github.base_ref }}"
           echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if all commits are chore/docs
+        id: check_commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Fetching commits for PR #${{ github.event.pull_request.number }}"
+
+          # Get all commit messages in this PR
+          commits=$(gh pr view ${{ github.event.pull_request.number }} --json commits -q '.commits[].messageHeadline')
+
+          echo "Commits in PR:"
+          echo "$commits"
+
+          skip_upgrade_test="true"
+          while IFS= read -r msg; do
+            if [[ -z "$msg" ]]; then
+              continue
+            fi
+            # Check if commit starts with "chore" or "docs" (case insensitive)
+            if [[ ! "$msg" =~ ^(chore|docs)(\(|:|\!) ]]; then
+              echo "Commit '$msg' does NOT start with chore/docs - will run upgrade test"
+              skip_upgrade_test="false"
+              break
+            fi
+            echo "Commit '$msg' starts with chore/docs"
+          done <<< "$commits"
+
+          echo "skip_upgrade_test=$skip_upgrade_test"
+          echo "skip_upgrade_test=$skip_upgrade_test" >> $GITHUB_OUTPUT
+
   upgrade_extended_test:
     needs: [optimize_ci, run_condition_check]
-    if: needs.optimize_ci.outputs.skip == 'false' && needs.run_condition_check.result == 'success'
+    if: |
+      needs.optimize_ci.outputs.skip == 'false' &&
+      needs.run_condition_check.result == 'success' &&
+      needs.run_condition_check.outputs.skip_upgrade_test != 'true'
     env:
       GOPRIVATE: github.com/weka
     name: upgrade_extended_test
@@ -195,7 +233,10 @@ jobs:
   
   clients_only_test:
     needs: [optimize_ci, run_condition_check, upgrade_extended_test]
-    if: needs.run_condition_check.result == 'success' && needs.upgrade_extended_test.result == 'success'
+    if: |
+      needs.run_condition_check.result == 'success' &&
+      needs.run_condition_check.outputs.skip_upgrade_test != 'true' &&
+      needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
       - uses: actions/create-github-app-token@v2
@@ -254,5 +295,10 @@ jobs:
       - name: Validate required workflow
         run: |
           if [[ "${{ needs.run_condition_check.result }}" == "success" ]]; then
+            # If all commits are chore/docs, upgrade test is skipped intentionally - that's OK
+            if [[ "${{ needs.run_condition_check.outputs.skip_upgrade_test }}" == "true" ]]; then
+              echo "Upgrade test skipped (all commits are chore/docs) - passing"
+              exit 0
+            fi
             [[ "${{ needs.upgrade_extended_test.result }}" == "success" && "${{ needs.clients_only_test.result }}" == "success" ]] || exit 1
           fi
