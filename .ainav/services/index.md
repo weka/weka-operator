@@ -47,7 +47,6 @@ HTTP server running on each node (via daemonset or pod):
 
 Related:
 - `scrapper.go` - Metrics scraping logic
-- `weka_structs_test.go` - Test structures
 
 ## Domain Types
 
@@ -76,3 +75,24 @@ IP handling, tolerations, HTTP client, etc.
 - Node agent provides per-node HTTP endpoints
 - K8s utilities abstract controller-runtime operations
 - Domain types define shared data structures
+
+## Constants Package
+
+**Path**: `internal/consts/consts.go`
+
+Shared constants used across controllers:
+- `WekaFinalizer` - Kubernetes finalizer for Weka resources
+- Node annotations for drive management (WekaDrives, BlockedDrives, SharedDrives, DriveClaims, PortClaims, VirtualDriveClaims)
+- Extended resource names (ResourceDrives, ResourceSharedDrivesCapacity)
+
+## REST API Server (Optional)
+
+**Path**: `internal/rest_api/`
+
+Optional HTTP API server for cluster operations (port 8082). Enabled via `ENABLE_CLUSTER_API` env var.
+
+| File | Purpose |
+|------|---------|
+| `router.go` | API server setup, route registration |
+| `cluster.go` | Cluster CRUD operations |
+| `password.go` | Password update endpoint |

@@ -33,10 +33,6 @@ Manages cluster-level resources and post-cluster operations.
 | `funcs_management_proxy.go` | Management proxy service |
 | `funcs_management_service.go` | Management k8s service |
 
-## Other
-
-- `gc.go` - Garbage collection for orphaned resources
-
 ## Key Interactions
 
 - Creates WekaContainer resources for cluster nodes

@@ -11,8 +11,7 @@ Manual operations, policies, CSI, and driver management.
 | File | Purpose |
 |------|---------|
 | `controller.go` | CSI controller deployment |
-| `nodeserver.go` | CSI node server pods |
-| `daemonset.go` | CSI daemonset management |
+| `daemonset.go` | CSI node server daemonset |
 | `driver.go` | CSI driver registration |
 | `storageclass.go` | StorageClass creation |
 | `utils.go` | Shared utilities |
