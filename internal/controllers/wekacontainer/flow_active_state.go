@@ -80,6 +80,37 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.deleteIfNoNode,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deleteIfTolerationsMismatch,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
+			},
+		},
+		&lifecycle.SimpleStep{
+			Run: r.deleteIfNodeSelectorMismatch,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.NodeNotSet),
+				func() bool {
+					// Backends and clients are subject to container-level node selector mismatch cleanup.
+					// Both have NodeSelector propagated from their parent (WekaCluster/WekaClient).
+					//
+					// Note: Clients use NodeAffinity for scheduling (specific node name), but NodeSelector
+					// is still propagated for validation purposes. Empty NodeSelector matches all nodes,
+					// so containers created before NodeSelector propagation was added won't be affected.
+					//
+					// Aux containers (envoy, telemetry, drivers, operations) are NOT cleaned up
+					// on node selector mismatch - they follow their parent containers.
+					if r.container.IsBackend() {
+						return config.Config.CleanupBackendsOnNodeSelectorMismatch
+					}
+					if r.container.IsClientContainer() {
+						return config.Config.CleanupClientsOnNodeSelectorMismatch
+					}
+					return false
+				},
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.ensureFinalizer,
 		},
 		&lifecycle.SimpleStep{
@@ -96,13 +127,6 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.updatePodTolerationsOnChange,
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(r.PodNotSet),
-			},
-		},
-		&lifecycle.SimpleStep{
-			Run: r.checkTolerations,
-			Predicates: lifecycle.Predicates{
-				lifecycle.IsNotFunc(r.NodeNotSet),
-				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
 			},
 		},
 		&lifecycle.SimpleStep{
