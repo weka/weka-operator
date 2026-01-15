@@ -148,6 +148,7 @@ type DriveSharingConfig struct {
 	DriveTypesRatio                v1alpha1.DriveTypesRatio
 	MaxVirtualDrivesPerCore        int
 	EnforceMinDrivesPerTypePerCore bool
+	EnableDynamicDriveScaling      bool
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -423,6 +424,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.DriveTypesRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
 	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
+	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
 }
 
 func getEnvOrFail(envKey string) string {

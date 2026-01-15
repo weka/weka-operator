@@ -252,6 +252,14 @@ maxVirtualDrivesPerCore: 8
 # Note: Only affects mixed TLC/QLC configurations. Single-type allocations behave the same either way.
 enforceMinDrivesPerTypePerCore: true
 
+# Enable dynamic drive scaling for shared drives mode.
+# When false (default): containers won't automatically allocate additional drives when
+# containerCapacity increases or driveTypesRatio changes. Initial allocation still works.
+# When true: containers will automatically allocate additional drives to match new capacity/ratio.
+# Note: This only affects shared drives mode (containerCapacity or driveCapacity configured).
+# Traditional mode (numDrives only) is not affected.
+enableDynamicDriveScalingForSharedDrives: false
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network
