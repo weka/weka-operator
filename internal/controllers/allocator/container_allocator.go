@@ -402,6 +402,7 @@ func (a *ContainerResourceAllocator) reallocateVirtualDrives(ctx context.Context
 		Node:          req.Node,
 		Cluster:       nil, // Not needed for shared drive allocation
 		NumDrives:     req.NumNewDrives,
+		CapacityGiB:   req.CapacityGiB,
 		FailureDomain: nil,
 		AllocateWeka:  false,
 		AllocateAgent: false,
