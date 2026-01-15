@@ -13,6 +13,8 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/weka/weka-operator/internal/config"
+	"github.com/weka/weka-operator/internal/services"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 func (r *containerReconcilerLoop) HandleNodeNotReady(ctx context.Context) error {
@@ -87,4 +89,72 @@ func (r *containerReconcilerLoop) deleteIfNoNode(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// deleteIfTolerationsMismatch checks if container tolerates node taints.
+// If not tolerated, sets container state to deleting.
+func (r *containerReconcilerLoop) deleteIfTolerationsMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteIfTolerationsMismatch")
+	defer end()
+
+	// No node means no taints to check
+	if r.node == nil {
+		return nil
+	}
+
+	// Do not delete containers without owner references - safety protection
+	if len(r.container.GetOwnerReferences()) == 0 {
+		return nil
+	}
+
+	if r.container.IsMarkedForDeletion() || r.container.IsDeletingState() || r.container.IsDestroyingState() {
+		return nil
+	}
+
+	if r.isTolerated() {
+		return nil
+	}
+
+	logger.Info("Container not tolerated on node, marking for deletion",
+		"container", r.container.Name,
+		"node", r.node.Name)
+
+	_ = r.RecordEvent(v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container")
+
+	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
+}
+
+// deleteIfNodeSelectorMismatch checks if container's node selector matches the node.
+// If not matched, sets container state to deleting.
+func (r *containerReconcilerLoop) deleteIfNodeSelectorMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "deleteIfNodeSelectorMismatch")
+	defer end()
+
+	// No node means no labels to check
+	if r.node == nil {
+		return nil
+	}
+
+	// Do not delete containers without owner references - safety protection
+	if len(r.container.GetOwnerReferences()) == 0 {
+		return nil
+	}
+
+	if r.container.IsMarkedForDeletion() || r.container.IsDeletingState() || r.container.IsDestroyingState() {
+		return nil
+	}
+
+	// Check if container's node selector matches the actual node
+	if util.NodeSelectorMatchesNode(r.container.Spec.NodeSelector, r.node) {
+		return nil
+	}
+
+	logger.Info("Container node selector doesn't match node, marking for deletion",
+		"container", r.container.Name,
+		"node", r.node.Name,
+		"nodeSelector", r.container.Spec.NodeSelector)
+
+	_ = r.RecordEvent(v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
+
+	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }
