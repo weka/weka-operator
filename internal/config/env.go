@@ -151,6 +151,10 @@ type DriveSharingConfig struct {
 	EnableDynamicDriveScaling      bool
 }
 
+type PortAllocationConfig struct {
+	StartingPort int
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -219,6 +223,7 @@ var Config struct {
 	PriorityClasses PriorityClasses
 	Nfs             NfsConfig
 	DriveSharing    DriveSharingConfig
+	PortAllocation  PortAllocationConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -425,6 +430,9 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
 	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
+
+	// Port allocation configuration
+	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
 }
 
 func getEnvOrFail(envKey string) string {

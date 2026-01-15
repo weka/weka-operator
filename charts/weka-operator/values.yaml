@@ -260,6 +260,12 @@ enforceMinDrivesPerTypePerCore: true
 # Traditional mode (numDrives only) is not affected.
 enableDynamicDriveScalingForSharedDrives: false
 
+# Port allocation configuration
+portAllocation:
+  # Starting port for Weka container port allocation.
+  # This is the base port from which the operator allocates port ranges for Weka clusters.
+  startingPort: 35000
+
 # Management proxy configuration
 managementProxy:
   # If true, deploy Envoy proxy on host network
