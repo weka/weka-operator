@@ -75,16 +75,8 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 				EnsureStepSuccess: true,
 			},
 		},
-		&lifecycle.SimpleStep{
-			Run: loop.deleteContainersOnTolerationsMismatch,
-			Predicates: lifecycle.Predicates{
-				lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
-			},
-			Throttling: &throttling.ThrottlingSettings{
-				Interval:          config.Consts.TolerationsMismatchCleanupInterval,
-				EnsureStepSuccess: true,
-			},
-		},
+		// NOTE: tolerations mismatch and node selector mismatch deletion is now handled
+		// at container level in deleteIfTolerationsMismatch and deleteIfNodeSelectorMismatch
 	}
 }
 
@@ -418,25 +410,6 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 	}
 
 	return containers, nil
-}
-
-func (r *wekaClusterReconcilerLoop) deleteContainersOnTolerationsMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	toDelete := services.FilterContainersForDeletion(r.containers, func(container *weka.WekaContainer) bool {
-		return container.Status.NotToleratedOnReschedule
-	})
-	if len(toDelete) == 0 {
-		return nil
-	}
-
-	logger.Info("Deleting containers with tolerations mismatch", "toDelete", len(toDelete))
-
-	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
-		r.Recorder.Event(container, v1.EventTypeNormal, "TolerationMismatch", "Toleration mismatch, deleting container")
-		return services.SetContainerStateDeleting(ctx, container, r.getClient())
-	}).AsError()
 }
 
 func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx context.Context) error {

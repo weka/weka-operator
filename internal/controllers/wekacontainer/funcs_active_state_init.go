@@ -56,7 +56,13 @@ func (r *containerReconcilerLoop) initState(ctx context.Context) error {
 	return nil
 }
 
-func (r *containerReconcilerLoop) checkTolerations(ctx context.Context) error {
+// isTolerated checks if the container's tolerations match the node's taints.
+// Returns true if the container tolerates all relevant taints on the node.
+func (r *containerReconcilerLoop) isTolerated() bool {
+	if r.node == nil {
+		return true // no node means no taints to check against
+	}
+
 	ignoredTaints := config.Config.TolerationsMismatchSettings.GetIgnoredTaints()
 
 	tolerations := resources.GetWekaPodTolerations(r.container)
@@ -65,14 +71,7 @@ func (r *containerReconcilerLoop) checkTolerations(ctx context.Context) error {
 		tolerations = resources.ConditionalExpandNoScheduleTolerations(tolerations, !config.Config.SkipClientNoScheduleToleration)
 	}
 
-	notTolerated := !util.CheckTolerations(r.node.Spec.Taints, tolerations, ignoredTaints)
-
-	if notTolerated == r.container.Status.NotToleratedOnReschedule {
-		return nil
-	}
-
-	r.container.Status.NotToleratedOnReschedule = notTolerated
-	return r.Status().Update(ctx, r.container)
+	return util.CheckTolerations(r.node.Spec.Taints, tolerations, ignoredTaints)
 }
 
 func (r *containerReconcilerLoop) ensureFinalizer(ctx context.Context) error {

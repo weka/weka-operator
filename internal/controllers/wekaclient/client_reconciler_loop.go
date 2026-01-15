@@ -126,18 +126,9 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					func() bool { return wekaClient.GetFinalizers() == nil },
 				},
 			},
-			&lifecycle.SimpleStep{
-				Run: loop.deleteContainersOnNodeSelectorMismatch,
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CleanupClientsOnNodeSelectorMismatch),
-				},
-			},
-			&lifecycle.SimpleStep{
-				Run: loop.deleteContainersOnTolerationsMismatch,
-				Predicates: lifecycle.Predicates{
-					lifecycle.BoolValue(config.Config.CleanupContainersOnTolerationsMismatch),
-				},
-			},
+			// NOTE: both tolerations mismatch and node selector mismatch deletion
+			// are now handled at container level in deleteIfTolerationsMismatch
+			// and deleteIfNodeSelectorMismatch respectively.
 			&lifecycle.SimpleStep{
 				Run: loop.FetchTargetCluster,
 				Predicates: lifecycle.Predicates{
@@ -462,6 +453,9 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			Resources:             wekaClient.Spec.Resources,
 			PVC:                   resources.GetPvcConfig(wekaClient.Spec.GlobalPVC),
 			NoAffinityConstraints: wekaClient.Spec.GetOverrides().DropAffinityConstraints,
+			// NodeSelector is propagated from WekaClient for container-level node selector mismatch validation.
+			// Note: Clients use NodeAffinity for scheduling, but NodeSelector is used for validation.
+			NodeSelector: wekaClient.Spec.NodeSelector,
 		},
 	}
 
@@ -704,6 +698,12 @@ func (c *clientReconcilerLoop) updateContainerIfChanged(ctx context.Context, con
 		changed = true
 	}
 
+	// Propagate NodeSelector for container-level node selector mismatch validation.
+	if !util2.NewHashableMap(container.Spec.NodeSelector).Equals(newClientSpec.NodeSelector) {
+		container.Spec.NodeSelector = c.wekaClient.Spec.NodeSelector
+		changed = true
+	}
+
 	if container.Spec.NoAffinityConstraints != newClientSpec.DropAffinityConstraints {
 		container.Spec.NoAffinityConstraints = newClientSpec.DropAffinityConstraints
 		changed = true
@@ -911,51 +911,6 @@ func (c *clientReconcilerLoop) getHugepagesOffset() int {
 	return 200 // back compat mode/unspecified default
 }
 
-func (c *clientReconcilerLoop) deleteContainersOnNodeSelectorMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	applicableNodes := make(map[string]struct{}, len(c.nodes))
-	for _, node := range c.nodes {
-		applicableNodes[node.Name] = struct{}{}
-	}
-
-	toDelete := services.FilterContainersForDeletion(c.containers, func(container *weka.WekaContainer) bool {
-		shouldDelete := false
-		if _, ok := applicableNodes[string(container.Spec.NodeAffinity)]; !ok {
-			shouldDelete = true
-		}
-		return shouldDelete
-	})
-
-	if len(toDelete) == 0 {
-		return nil
-	}
-	logger.Info("Deleting containers with node selector mismatch", "toDelete", len(toDelete))
-	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
-		c.Recorder.Event(container, v1.EventTypeNormal, "NodeSelectorMismatch", "Node selector mismatch, deleting container")
-
-		return services.SetContainerStateDeleting(ctx, container, c.Client)
-	}).AsError()
-}
-
-func (c *clientReconcilerLoop) deleteContainersOnTolerationsMismatch(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
-	defer end()
-
-	toDelete := services.FilterContainersForDeletion(c.containers, func(container *weka.WekaContainer) bool {
-		return container.Status.NotToleratedOnReschedule
-	})
-
-	if len(toDelete) == 0 {
-		return nil
-	}
-	logger.Info("Deleting containers with tolerations mismatch", "toDelete", len(toDelete))
-	return workers.ProcessConcurrently(ctx, toDelete, len(toDelete), func(ctx context.Context, container *weka.WekaContainer) error {
-		return services.SetContainerStateDeleting(ctx, container, c.Client)
-	}).AsError()
-}
-
 func (c *clientReconcilerLoop) setStatusRunning(ctx context.Context) error {
 	return c.updateStatusIfNotEquals(ctx, weka.WekaClientStatusRunning)
 }
@@ -1020,6 +975,9 @@ type UpdatableClientSpec struct {
 	RawTolerations          []v1.Toleration
 	Labels                  *util2.HashableMap
 	Annotations             *util2.HashableMap
+	// NodeSelector is propagated to client containers for container-level node selector
+	// mismatch validation. Not used for scheduling (clients use NodeAffinity).
+	NodeSelector            *util2.HashableMap
 	AutoRemoveTimeout       metav1.Duration
 	ForceDrain              bool
 	SkipActiveMountsCheck   bool
@@ -1053,6 +1011,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		RawTolerations:          spec.RawTolerations,
 		Labels:                  labels,
 		Annotations:             util2.NewHashableMap(meta.Annotations),
+		NodeSelector:            util2.NewHashableMap(spec.NodeSelector),
 		AutoRemoveTimeout:       spec.AutoRemoveTimeout,
 		ForceDrain:              spec.GetOverrides().ForceDrain,
 		SkipActiveMountsCheck:   spec.GetOverrides().SkipActiveMountsCheck,
