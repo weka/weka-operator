@@ -368,6 +368,8 @@ spec:
               value: "{{ .Values.enforceMinDrivesPerTypePerCore }}"
             - name: ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES
               value: "{{ .Values.enableDynamicDriveScalingForSharedDrives }}"
+            - name: PORT_ALLOCATION_STARTING_PORT
+              value: "{{ .Values.portAllocation.startingPort }}"
             - name: LOG_FORMAT
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL

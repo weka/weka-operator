@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	globalconfig "github.com/weka/weka-operator/internal/config"
 )
 
 func (r ClusterRanges) GetFreeRange(size int) (int, error) {
@@ -26,7 +27,7 @@ func (r ClusterRanges) GetFreeRange(size int) (int, error) {
 		}
 	}
 	if totalRanges == 0 {
-		return StartingPort, nil
+		return globalconfig.Config.PortAllocation.StartingPort, nil
 	}
 
 	return 0, fmt.Errorf("no free range available for size %d, pre-existing ranges %d", size, totalRanges)

@@ -4,7 +4,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const StartingPort = 35000
 const MaxPort = 65535
 
 type Range struct {

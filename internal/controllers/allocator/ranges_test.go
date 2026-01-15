@@ -2,7 +2,14 @@ package allocator
 
 import (
 	"testing"
+
+	globalconfig "github.com/weka/weka-operator/internal/config"
 )
+
+func init() {
+	// Set up config for tests
+	globalconfig.Config.PortAllocation.StartingPort = 35000
+}
 
 func TestGetFreeRange(t *testing.T) {
 	ownerCluster := OwnerCluster{
@@ -13,8 +20,8 @@ func TestGetFreeRange(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
 	r1, _ := clusterRanges.GetFreeRange(500)
-	if r1 != StartingPort {
-		t.Errorf("Expected %d, got %d", StartingPort, r1)
+	if r1 != globalconfig.Config.PortAllocation.StartingPort {
+		t.Errorf("Expected %d, got %d", globalconfig.Config.PortAllocation.StartingPort, r1)
 		return
 	}
 
@@ -28,8 +35,8 @@ func TestGetFreeRange(t *testing.T) {
 		t.Errorf("Expected nil, got %v", err)
 		return
 	}
-	if r2 != StartingPort {
-		t.Errorf("Expected %d, got %d", StartingPort, r2)
+	if r2 != globalconfig.Config.PortAllocation.StartingPort {
+		t.Errorf("Expected %d, got %d", globalconfig.Config.PortAllocation.StartingPort, r2)
 		return
 	}
 
@@ -40,13 +47,13 @@ func TestGetFreeRange(t *testing.T) {
 		t.Errorf("Expected nil, got %v", err)
 		return
 	}
-	if r3 != StartingPort+1 {
+	if r3 != globalconfig.Config.PortAllocation.StartingPort+1 {
 		t.Errorf("Expected 14001, got %d", r3)
 		return
 	}
 
 	cr2, _ := clusterRanges.GetFreeRange(500)
-	if cr2 != StartingPort+500 {
+	if cr2 != globalconfig.Config.PortAllocation.StartingPort+500 {
 		t.Errorf("Expected 14500, got %d", r1)
 		return
 	}
@@ -57,8 +64,8 @@ func TestClusterRangesAllocation(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
 	r1, _ := clusterRanges.GetFreeRange(500)
-	if r1 != StartingPort {
-		t.Errorf("Expected %d, got %d", StartingPort, r1)
+	if r1 != globalconfig.Config.PortAllocation.StartingPort {
+		t.Errorf("Expected %d, got %d", globalconfig.Config.PortAllocation.StartingPort, r1)
 		return
 	}
 }
