@@ -528,7 +528,9 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 
 	// if node name is empty, it means no node affinity was set on wekaContainer,
 	// so we should not check if node is alive
-	if nodeName != "" && (!NodeIsReady(r.node) || NodeIsUnschedulable(r.node)) {
+	// Note: we only check NodeIsReady, not NodeIsUnschedulable, because cordoned nodes
+	// are still functional and the resign drives pod has tolerations to be scheduled there
+	if nodeName != "" && !NodeIsReady(r.node) {
 		if config.Config.CleanupRemovedNodes {
 			_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 			if err != nil {
@@ -538,7 +540,7 @@ func (r *containerReconcilerLoop) ResignDrives(ctx context.Context) error {
 				}
 			}
 		}
-		err := fmt.Errorf("container node is not ready or is unschedulable, cannot perform resign drives operation")
+		err := fmt.Errorf("container node is not ready, cannot perform resign drives operation")
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
