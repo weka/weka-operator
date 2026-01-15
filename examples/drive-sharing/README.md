@@ -90,7 +90,7 @@ driveTypesRatio:
 ```
 
 When `containerCapacity` is set without per-cluster `driveTypesRatio`, this global default applies automatically.
-Default is TLC-only (tlc: 1, qlc: 0).
+Default is 1:10 TLC/QLC ratio (tlc: 1, qlc: 10).
 
 ## Complete Documentation
 

@@ -603,6 +603,33 @@ Controls the minimum drive count constraint when using mixed TLC/QLC configurati
 
 **Note:** This setting only affects mixed TLC/QLC configurations. Single-type allocations (TLC-only or QLC-only) behave identically in both modes.
 
+#### enableDynamicDriveScalingForSharedDrives
+
+**Helm values.yaml:**
+
+```yaml
+enableDynamicDriveScalingForSharedDrives: false  # Default value
+```
+
+**Behavior:**
+Controls whether containers automatically allocate additional virtual drives when `containerCapacity` is increased or `driveTypesRatio` is changed.
+
+- **When `false` (default):** Containers will not reallocate drives when capacity configuration changes. Only the initial allocation is performed. To get additional drives, you must delete and recreate containers.
+
+- **When `true`:** Containers will automatically allocate additional virtual drives when:
+  - `containerCapacity` is increased
+  - `driveTypesRatio` changes require additional capacity of a specific type
+
+**Use cases:**
+
+- **Keep disabled (default)** when you want stable, predictable allocations that don't change after initial deployment
+- **Enable** when you need dynamic capacity scaling without recreating containers
+
+**Important notes:**
+- This setting only affects drive sharing mode (`containerCapacity` or `driveCapacity` configured)
+- Traditional mode (`numDrives` only) is not affected
+- Decreasing capacity is not supported - only increases trigger reallocation
+
 ---
 
 ## Multiple Clusters Sharing Drives

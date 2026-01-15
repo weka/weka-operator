@@ -362,7 +362,7 @@ The minimum drive count constraint behavior is controlled by the `enforceMinDriv
 - Added `DriveTypesRatio` (object) to `WekaConfig` - specifies the desired ratio of TLC vs QLC drives when allocating drives
   - `Tlc` (int) - TLC drive ratio part (e.g., 4 for 4:1 ratio)
   - `Qlc` (int) - QLC drive ratio part (e.g., 1 for 4:1 ratio)
-- If `DriveTypesRatio` is not set and `ContainerCapacity` > 0, the operator automatically applies the global `driveTypesRatio` from Helm values (default: tlc=1, qlc=0)
+- If `DriveTypesRatio` is not set and `ContainerCapacity` > 0, the operator automatically applies the global `driveTypesRatio` from Helm values (default: tlc=1, qlc=10)
 
 **WekaContainer:**
 - Added `DriveCapacity` (int) to spec - capacity per virtual drive in GiB
