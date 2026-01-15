@@ -17,6 +17,7 @@ import (
 	k8sTypes "k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -181,6 +182,11 @@ func (r *containerReconcilerLoop) HasDrivesToAdd() bool {
 func (r *containerReconcilerLoop) NeedsDrivesToAllocate() bool {
 	if r.container.Status.Allocations == nil {
 		// if no allocations at all, covered by cluster's AllocateResources
+		return false
+	}
+
+	// Skip dynamic drive scaling for shared drives if disabled
+	if r.container.UsesDriveSharing() && !config.Config.DriveSharing.EnableDynamicDriveScaling {
 		return false
 	}
 
