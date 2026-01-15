@@ -2,7 +2,9 @@ package allocator
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -734,6 +736,30 @@ func TestEnforceMinDrivesPerTypePerCore(t *testing.T) {
 			expectedTlcDrives:              0,
 			expectedQlcDrives:              3,
 		},
+		{
+			name:                           "combined: 5100 GiB with 1:2 TLC:QLC ratio (1 TLC + 3 QLC)",
+			enforceMinDrivesPerTypePerCore: false,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 2, qlcCapacity: 10000},
+			containerCapacity:              5100,
+			tlcRatio:                       1, // 5100 * 1/3 = 1700 GiB TLC
+			qlcRatio:                       2, // 5100 * 2/3 = 3400 GiB QLC
+			numCores:                       4,
+			expectError:                    false,
+			expectedTlcDrives:              1, // 1 drive of 1700 GiB
+			expectedQlcDrives:              3, // 3 drives of ~1133 GiB each
+		},
+		{
+			name:                           "per-type: 5100 GiB with 1:2 TLC:QLC ratio (4 TLC + 4 QLC)",
+			enforceMinDrivesPerTypePerCore: true,
+			drives:                         driveSetup{tlcCount: 2, tlcCapacity: 10000, qlcCount: 2, qlcCapacity: 10000},
+			containerCapacity:              5100,
+			tlcRatio:                       1, // 5100 * 1/3 = 1700 GiB TLC
+			qlcRatio:                       2, // 5100 * 2/3 = 3400 GiB QLC
+			numCores:                       4,
+			expectError:                    false,
+			expectedTlcDrives:              4, // 4 drives of 425 GiB each
+			expectedQlcDrives:              4, // 4 drives of 850 GiB each
+		},
 	}
 
 	for _, tt := range tests {
@@ -923,6 +949,469 @@ func TestAllocationStrategyGenerator_MaxDrivesLimit(t *testing.T) {
 					t.Errorf("Strategy %d: expected %v, got %v", i, expected, strategies[i].DriveSizes)
 				}
 			}
+		})
+	}
+}
+
+// compareVirtualDrives compares actual virtual drives with expected ones (ignoring VirtualUUID which is random)
+func compareVirtualDrives(t *testing.T, actual, expected []weka.VirtualDrive) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Fatalf("Expected %d virtual drives, got %d", len(expected), len(actual))
+	}
+
+	// Sort both by PhysicalUUID+CapacityGiB for deterministic comparison
+	sortKey := func(vd weka.VirtualDrive) string {
+		return fmt.Sprintf("%s-%d", vd.PhysicalUUID, vd.CapacityGiB)
+	}
+
+	// Verify VirtualUUIDs are set
+	for i, vd := range actual {
+		if vd.VirtualUUID == "" {
+			t.Errorf("Virtual drive %d has empty VirtualUUID", i)
+		}
+	}
+
+	// Sort both slices
+	sort.Slice(actual, func(i, j int) bool {
+		return sortKey(actual[i]) < sortKey(actual[j])
+	})
+	sort.Slice(expected, func(i, j int) bool {
+		return sortKey(expected[i]) < sortKey(expected[j])
+	})
+
+	for i := range expected {
+		a, e := actual[i], expected[i]
+		if a.PhysicalUUID != e.PhysicalUUID || a.CapacityGiB != e.CapacityGiB ||
+			a.Serial != e.Serial || a.Type != e.Type {
+			t.Errorf("Virtual drive %d mismatch:\n  expected: {PhysicalUUID:%s CapacityGiB:%d Serial:%s Type:%s}\n  actual:   {PhysicalUUID:%s CapacityGiB:%d Serial:%s Type:%s}",
+				i, e.PhysicalUUID, e.CapacityGiB, e.Serial, e.Type,
+				a.PhysicalUUID, a.CapacityGiB, a.Serial, a.Type)
+		}
+	}
+}
+
+func TestAllocateSingleDriveType(t *testing.T) {
+	tests := []struct {
+		name            string
+		driveType       string
+		capacityNeeded  int
+		minDrives       int
+		maxDrives       int
+		driveCapacities map[string]*physicalDriveCapacity
+		expectedDrives  []weka.VirtualDrive
+		expectError     bool
+		errorType       string // "TLC" or "QLC" for InsufficientDriveCapacityError
+		errorNeeded     int
+		errorAvailable  int
+	}{
+		{
+			name:           "single drive allocation",
+			driveType:      "TLC",
+			capacityNeeded: 1000,
+			minDrives:      1,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 5000, Type: "TLC"},
+					totalCapacity:     5000,
+					availableCapacity: 5000,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 1000, Serial: "SN001", Type: "TLC"},
+			},
+		},
+		{
+			name:           "multiple drives even distribution",
+			driveType:      "TLC",
+			capacityNeeded: 3000,
+			minDrives:      3,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 5000, Type: "TLC"},
+					totalCapacity:     5000,
+					availableCapacity: 5000,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 1000, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 1000, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 1000, Serial: "SN001", Type: "TLC"},
+			},
+		},
+		{
+			name:           "QLC drive type",
+			driveType:      "QLC",
+			capacityNeeded: 2000,
+			minDrives:      2,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"qlc1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "qlc1", Serial: "QLC001", CapacityGiB: 10000, Type: "QLC"},
+					totalCapacity:     10000,
+					availableCapacity: 10000,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "qlc1", CapacityGiB: 1000, Serial: "QLC001", Type: "QLC"},
+				{PhysicalUUID: "qlc1", CapacityGiB: 1000, Serial: "QLC001", Type: "QLC"},
+			},
+		},
+		{
+			name:           "allocation across multiple physical drives",
+			driveType:      "TLC",
+			capacityNeeded: 2000,
+			minDrives:      2,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 1500, Type: "TLC"},
+					totalCapacity:     1500,
+					availableCapacity: 1500,
+				},
+				"drive2": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 1500, Type: "TLC"},
+					totalCapacity:     1500,
+					availableCapacity: 1500,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 1000, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive2", CapacityGiB: 1000, Serial: "SN002", Type: "TLC"},
+			},
+		},
+		{
+			name:           "maxDrives constraint limits allocation to exactly 2 drives",
+			driveType:      "TLC",
+			capacityNeeded: 3000,
+			minDrives:      2,
+			maxDrives:      2, // Force exactly 2 drives
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000, Type: "TLC"},
+					totalCapacity:     10000,
+					availableCapacity: 10000,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 1500, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 1500, Serial: "SN001", Type: "TLC"},
+			},
+		},
+		{
+			name:           "minDrives constraint forces more drives",
+			driveType:      "TLC",
+			capacityNeeded: 1536, // 4 * 384 = minimum for 4 drives
+			minDrives:      4,    // Force 4 drives
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 10000, Type: "TLC"},
+					totalCapacity:     10000,
+					availableCapacity: 10000,
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 384, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 384, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 384, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive1", CapacityGiB: 384, Serial: "SN001", Type: "TLC"},
+			},
+		},
+		{
+			name:           "insufficient capacity returns error",
+			driveType:      "TLC",
+			capacityNeeded: 5000,
+			minDrives:      1,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 1000, Type: "TLC"},
+					totalCapacity:     1000,
+					availableCapacity: 1000,
+				},
+			},
+			expectError:    true,
+			errorType:      "TLC",
+			errorNeeded:    5000,
+			errorAvailable: 1000,
+		},
+		{
+			name:           "insufficient capacity for minDrives",
+			driveType:      "QLC",
+			capacityNeeded: 500,
+			minDrives:      3, // Need 3 * 384 = 1152 GiB minimum
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"qlc1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "qlc1", Serial: "QLC001", CapacityGiB: 10000, Type: "QLC"},
+					totalCapacity:     10000,
+					availableCapacity: 10000,
+				},
+			},
+			expectError:    true,
+			errorType:      "QLC",
+			errorNeeded:    500,
+			errorAvailable: 10000,
+		},
+		{
+			name:           "allocation spreads across drives when capacity limited",
+			driveType:      "TLC",
+			capacityNeeded: 1000,
+			minDrives:      2,
+			maxDrives:      10,
+			driveCapacities: map[string]*physicalDriveCapacity{
+				"drive1": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive1", Serial: "SN001", CapacityGiB: 5000, Type: "TLC"},
+					totalCapacity:     5000,
+					availableCapacity: 600, // Only fits one 500 GiB chunk
+				},
+				"drive2": {
+					drive:             domain.SharedDriveInfo{PhysicalUUID: "drive2", Serial: "SN002", CapacityGiB: 5000, Type: "TLC"},
+					totalCapacity:     5000,
+					availableCapacity: 600, // Only fits one 500 GiB chunk
+				},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "drive1", CapacityGiB: 500, Serial: "SN001", Type: "TLC"},
+				{PhysicalUUID: "drive2", CapacityGiB: 500, Serial: "SN002", Type: "TLC"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			virtualDrives, err := allocateSingleDriveType(
+				context.Background(),
+				tt.driveType,
+				tt.capacityNeeded,
+				tt.minDrives,
+				tt.maxDrives,
+				tt.driveCapacities,
+			)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatal("Expected error, got success")
+				}
+				insufficientErr, ok := err.(*InsufficientDriveCapacityError)
+				if !ok {
+					t.Fatalf("Expected InsufficientDriveCapacityError, got %T: %v", err, err)
+				}
+				if insufficientErr.Type != tt.errorType {
+					t.Errorf("Error type: expected %q, got %q", tt.errorType, insufficientErr.Type)
+				}
+				if insufficientErr.NeededGiB != tt.errorNeeded {
+					t.Errorf("Error NeededGiB: expected %d, got %d", tt.errorNeeded, insufficientErr.NeededGiB)
+				}
+				if insufficientErr.AvailableGiB != tt.errorAvailable {
+					t.Errorf("Error AvailableGiB: expected %d, got %d", tt.errorAvailable, insufficientErr.AvailableGiB)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			compareVirtualDrives(t, virtualDrives, tt.expectedDrives)
+
+			// Log success details
+			totalCapacity := 0
+			for _, vd := range virtualDrives {
+				totalCapacity += vd.CapacityGiB
+			}
+			t.Logf("Allocated %d %s virtual drives, total capacity: %d GiB",
+				len(virtualDrives), tt.driveType, totalCapacity)
+		})
+	}
+}
+
+// TestVirtualDriveReallocation tests reallocation scenarios where a container
+// already has virtual drives and needs additional capacity allocated
+func TestVirtualDriveReallocation(t *testing.T) {
+	tests := []struct {
+		name                  string
+		existingVirtualDrives []weka.VirtualDrive
+		containerCapacity     int // Total capacity in spec
+		missingCapacity       int // CapacityGiB in request (missing capacity to allocate)
+		tlcRatio              int
+		qlcRatio              int
+		numCores              int
+		availableDrives       []domain.SharedDriveInfo // Direct drive specification for predictable selection
+		expectedNewDrives     []weka.VirtualDrive      // Only the NEW drives allocated
+		expectError           bool
+		errorContains         string
+	}{
+		{
+			name: "reallocation adds TLC drives to existing allocation",
+			existingVirtualDrives: []weka.VirtualDrive{
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 1000, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-2", PhysicalUUID: "other-tlc", CapacityGiB: 1000, Serial: "TLC001", Type: "TLC"},
+			},
+			containerCapacity: 4000, // Total desired
+			missingCapacity:   2000, // Need 2000 more
+			tlcRatio:          1,
+			qlcRatio:          0,
+			numCores:          2,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 20000, Type: "TLC"}, // Higher capacity - will be chosen
+				{PhysicalUUID: "tlc-secondary", Serial: "TLC-SN-2", CapacityGiB: 5000, Type: "TLC"},
+			},
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 2000, Serial: "TLC-SN-1", Type: "TLC"},
+			},
+		},
+		{
+			name: "reallocation splits missing capacity by TLC/QLC ratio",
+			existingVirtualDrives: []weka.VirtualDrive{
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 500, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-2", PhysicalUUID: "other-qlc", CapacityGiB: 500, Serial: "QLC001", Type: "QLC"},
+			},
+			containerCapacity: 3000, // Total desired
+			missingCapacity:   2000, // Need 2000 more (1000 TLC + 1000 QLC based on 1:1 ratio)
+			tlcRatio:          1,
+			qlcRatio:          1,
+			numCores:          2,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 20000, Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", Serial: "QLC-SN-1", CapacityGiB: 20000, Type: "QLC"},
+			},
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", CapacityGiB: 1000, Serial: "QLC-SN-1", Type: "QLC"},
+			},
+		},
+		{
+			name: "reallocation with 2:1 TLC/QLC ratio",
+			existingVirtualDrives: []weka.VirtualDrive{
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 1000, Serial: "TLC001", Type: "TLC"},
+			},
+			containerCapacity: 4000,
+			missingCapacity:   3000, // 2000 TLC + 1000 QLC based on 2:1 ratio
+			tlcRatio:          2,
+			qlcRatio:          1,
+			numCores:          3,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 20000, Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", Serial: "QLC-SN-1", CapacityGiB: 20000, Type: "QLC"},
+			},
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 2000, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "qlc-primary", CapacityGiB: 1000, Serial: "QLC-SN-1", Type: "QLC"},
+			},
+		},
+		{
+			name: "reallocation respects maxDrives constraint with existing drives",
+			existingVirtualDrives: []weka.VirtualDrive{
+				// Already have 3 drives (at numCores * maxVirtualDrivesPerCore = 2 * 2 = 4 max)
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 500, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-2", PhysicalUUID: "other-tlc", CapacityGiB: 500, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-3", PhysicalUUID: "other-tlc", CapacityGiB: 500, Serial: "TLC001", Type: "TLC"},
+			},
+			containerCapacity: 2500,
+			missingCapacity:   1000, // Only room for 1 more drive (maxDrives=4, existing=3)
+			tlcRatio:          1,
+			qlcRatio:          0,
+			numCores:          2,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 20000, Type: "TLC"},
+			},
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+			},
+		},
+		{
+			name: "reallocation uses relaxed minDrives (1 instead of numCores)",
+			existingVirtualDrives: []weka.VirtualDrive{
+				{VirtualUUID: "existing-1", PhysicalUUID: "other-tlc", CapacityGiB: 2000, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-2", PhysicalUUID: "other-tlc", CapacityGiB: 2000, Serial: "TLC001", Type: "TLC"},
+				{VirtualUUID: "existing-3", PhysicalUUID: "other-tlc", CapacityGiB: 2000, Serial: "TLC001", Type: "TLC"},
+			},
+			containerCapacity: 7000,
+			missingCapacity:   1000, // Small amount - should allocate 1 drive, not numCores=3
+			tlcRatio:          1,
+			qlcRatio:          0,
+			numCores:          3,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-primary", Serial: "TLC-SN-1", CapacityGiB: 20000, Type: "TLC"},
+			},
+			expectedNewDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-primary", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore global config
+			origMaxVirtualDrives := globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore
+			defer func() {
+				globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = origMaxVirtualDrives
+			}()
+			globalconfig.Config.DriveSharing.MaxVirtualDrivesPerCore = 2
+
+			// Create container with existing allocations
+			container := &weka.WekaContainer{
+				Spec: weka.WekaContainerSpec{
+					NumCores:          tt.numCores,
+					ContainerCapacity: tt.containerCapacity,
+					DriveTypesRatio: &weka.DriveTypesRatio{
+						Tlc: tt.tlcRatio,
+						Qlc: tt.qlcRatio,
+					},
+				},
+				Status: weka.WekaContainerStatus{
+					Allocations: &weka.ContainerAllocations{
+						VirtualDrives: tt.existingVirtualDrives,
+					},
+				},
+			}
+
+			allocator := NewContainerResourceAllocator(nil)
+
+			// Build allocation request with missing capacity
+			req := &AllocationRequest{
+				Container:   container,
+				CapacityGiB: tt.missingCapacity, // This is the missing capacity to allocate
+			}
+
+			newVirtualDrives, err := allocator.allocateSharedDrivesByCapacityWithTypes(
+				context.Background(),
+				req,
+				[]weka.WekaContainer{},
+				tt.availableDrives,
+			)
+
+			if tt.expectError {
+				if err == nil {
+					t.Fatalf("Expected error containing %q, but got success", tt.errorContains)
+				}
+				if !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errorContains, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			compareVirtualDrives(t, newVirtualDrives, tt.expectedNewDrives)
+
+			// Verify total capacity of new drives matches missing capacity
+			totalNewCapacity := 0
+			for _, vd := range newVirtualDrives {
+				totalNewCapacity += vd.CapacityGiB
+			}
+			if totalNewCapacity != tt.missingCapacity {
+				t.Errorf("Total new capacity %d != missing capacity %d", totalNewCapacity, tt.missingCapacity)
+			}
+
+			t.Logf("Reallocation succeeded: added %d new drives with %d GiB to existing %d drives",
+				len(newVirtualDrives), totalNewCapacity, len(tt.existingVirtualDrives))
 		})
 	}
 }
