@@ -47,9 +47,6 @@ jobs:
     env:
       GOPRIVATE: github.com/weka
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -63,44 +60,43 @@ jobs:
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
           echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
           chmod 600 ~/.netrc
-        
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
       # See: https://github.com/webfactory/ssh-agent?tab=readme-ov-file#using-multiple-deploy-keys-inside-docker-builds
       - name: Collect Git files in a directory that is part of the Docker build context
         run: |
           mkdir -p dockerfile_files
           cp -r ~/.gitconfig ~/.netrc dockerfile_files/
-      - name: Install submodules
-        run: git submodule update --init --recursive
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/.local/share/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: "1.23.3"
-      - name: Cache npm modules
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          go-version: "1.24.3"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
       - name: Set up Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
           node-version: 'lts/iron'
+          cache: 'npm'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Docker login
-        run: docker login --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }} quay.io
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
+        uses: docker/login-action@v3
         with:
-          version: v3.12.1
+          registry: quay.io
+          username: ${{ secrets.QuayUsername }}
+          password: ${{ secrets.QuayPassword }}
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
       - name: Login to Registry
         run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
       - name: Configure git
