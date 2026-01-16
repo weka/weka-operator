@@ -260,6 +260,12 @@ enforceMinDrivesPerTypePerCore: true
 # Traditional mode (numDrives only) is not affected.
 enableDynamicDriveScalingForSharedDrives: false
 
+# SSD Proxy configuration (used in drive sharing mode)
+ssdProxy:
+  # Hugepages offset in MB added to calculated hugepages for SSD proxy containers.
+  # Default: 1536 (1.5GB)
+  hugepagesOffsetMB: 1536
+
 # Port allocation configuration
 portAllocation:
   # Starting port for Weka container port allocation.

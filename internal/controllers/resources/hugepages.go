@@ -1,9 +1,5 @@
 package resources
 
-const (
-	SsdProxyHugepagesOffsetMB = 500
-)
-
 // GetSsdProxyHugeTLBKB returns required HugeTLB memory in kB for ssd_proxy
 // based on the number of drives and their maximum capacity.
 //

@@ -1061,7 +1061,7 @@ func (f *PodFactory) getHugePagesOffset() int {
 				offset = 200 * f.container.Spec.NumDrives
 			}
 		case weka.WekaContainerModeSSDProxy:
-			offset = SsdProxyHugepagesOffsetMB
+			offset = config.Config.SsdProxy.HugepagesOffsetMB
 		default:
 			offset = 200
 		}

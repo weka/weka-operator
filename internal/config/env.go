@@ -155,6 +155,10 @@ type PortAllocationConfig struct {
 	StartingPort int
 }
 
+type SsdProxyConfig struct {
+	HugepagesOffsetMB int
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -224,6 +228,7 @@ var Config struct {
 	Nfs             NfsConfig
 	DriveSharing    DriveSharingConfig
 	PortAllocation  PortAllocationConfig
+	SsdProxy        SsdProxyConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -433,6 +438,9 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
+
+	// SSD proxy configuration
+	Config.SsdProxy.HugepagesOffsetMB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MB", 1536)
 }
 
 func getEnvOrFail(envKey string) string {

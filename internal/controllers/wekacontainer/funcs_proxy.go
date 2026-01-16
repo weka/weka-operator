@@ -14,6 +14,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -138,7 +139,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			Tolerations:        cluster.Spec.RawTolerations,
 			HostPID:            true, // Needed for drive access
-			Hugepages:          hugepagesMB + resources.SsdProxyHugepagesOffsetMB,
+			Hugepages:          hugepagesMB + config.Config.SsdProxy.HugepagesOffsetMB,
 			HugepagesSize:      "2Mi",
 		},
 	}
