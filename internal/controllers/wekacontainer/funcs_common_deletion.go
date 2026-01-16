@@ -96,43 +96,42 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 	}
 
 	runPrivileged := false
-
 	var persistencePath string
+
+	// Get nodeInfo for path resolution and OpenShift detection
+	nodeInfo, nodeInfoErr := r.GetNodeInfo(ctx, container.GetNodeAffinity())
+
+	// Check if node is deleted
+	nodeDeleted := nodeInfoErr != nil && (apierrors.IsNotFound(nodeInfoErr) ||
+		strings.Contains(nodeInfoErr.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(nodeInfoErr.Error(), "not found"))
+
 	if r.container.Spec.PVC == nil {
-		// if r.node != nil && NodeIsUnschedulable(r.node) {
-		// 	err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
-		// 	return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		// }
+		// hostPath case: node must be ready and nodeInfo must be available
+		if nodeDeleted {
+			logger.Info("node is deleted, no need for cleanup (hostPath)")
+			return nil
+		}
+
 		if r.node != nil && !NodeIsReady(r.node) {
 			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 		}
 
-		nodeInfo, err := r.GetNodeInfo(ctx, container.GetNodeAffinity())
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("node is deleted, no need for cleanup")
-				return nil
-			}
-			// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
-			// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
-			// but generic ReconcilationError wrapping error is sort of pointless
-			if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
-				logger.Info("node is deleted, no need for cleanup")
-				return nil
-			}
-			logger.Error(err, "Error getting node discovery")
-			return err
+		if nodeInfoErr != nil {
+			logger.Error(nodeInfoErr, "Error getting node discovery")
+			return nodeInfoErr
 		}
 
 		persistencePath = nodeInfo.GetHostsideContainerPersistence()
-
-		// in OpenShift/COS we need to run cleanup in privileged mode to have permissions to delete data in /root/k8s-weka
-		if nodeInfo.IsRhCos() {
-			runPrivileged = true
-		}
 	} else {
+		// PVC case: use fixed path, still attempt cleanup even if node is deleted
+		// (PVC data may be accessible from other nodes)
 		persistencePath = weka.PersistencePathBase + "/containers"
+	}
+
+	// On OpenShift/RHCOS we need to run cleanup in privileged mode to have permissions to delete data
+	if nodeInfo != nil && nodeInfo.IsRhCos() {
+		runPrivileged = true
 	}
 
 	payload := operations.CleanupPersistentDirPayload{

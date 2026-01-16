@@ -8,8 +8,13 @@ metadata:
 allowPrivilegedContainer: true
 allowHostDirVolumePlugin: true
 allowHostNetwork: true
-allowedVolumeTypes:
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
   - hostPath
+  - persistentVolumeClaim
+  - projected
   - secret
 readOnlyRootFilesystem: false
 allowHostPorts: true
