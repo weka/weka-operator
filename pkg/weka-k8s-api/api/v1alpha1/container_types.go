@@ -810,33 +810,3 @@ func (c *WekaContainerSpec) GetOverrides() *WekaContainerSpecOverrides {
 		return c.Overrides
 	}
 }
-
-func (c *WekaContainerSpec) GetTlcContainerCapacity() int {
-	if c.ContainerCapacity == 0 {
-		return 0
-	}
-
-	if c.DriveTypesRatio == nil {
-		return c.ContainerCapacity
-	}
-
-	totalParts := c.DriveTypesRatio.Tlc + c.DriveTypesRatio.Qlc
-	tlcCapacity := (c.ContainerCapacity * c.DriveTypesRatio.Tlc) / totalParts
-
-	return tlcCapacity
-}
-
-func (c *WekaContainerSpec) GetQlcContainerCapacity() int {
-	if c.ContainerCapacity == 0 {
-		return 0
-	}
-
-	if c.DriveTypesRatio == nil {
-		return 0
-	}
-
-	totalParts := c.DriveTypesRatio.Tlc + c.DriveTypesRatio.Qlc
-	qlcCapacity := (c.ContainerCapacity * c.DriveTypesRatio.Qlc) / totalParts
-
-	return qlcCapacity
-}

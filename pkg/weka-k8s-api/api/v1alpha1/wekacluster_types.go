@@ -233,6 +233,19 @@ type DriveTypesRatio struct {
 	Qlc int `json:"qlc"`
 }
 
+// GetTlcQlcCapacity splits total capacity into TLC and QLC based on the ratio.
+// Remainder goes to QLC to avoid rounding loss.
+// Returns all capacity as TLC if ratio is nil or both values are zero.
+func GetTlcQlcCapacity(totalCapacity int, ratio *DriveTypesRatio) (tlc, qlc int) {
+	if ratio == nil || ratio.Tlc+ratio.Qlc == 0 {
+		return totalCapacity, 0 // All TLC by default
+	}
+	totalParts := ratio.Tlc + ratio.Qlc
+	tlc = (totalCapacity * ratio.Tlc) / totalParts
+	qlc = totalCapacity - tlc // Remainder goes to QLC to avoid rounding loss
+	return
+}
+
 type WekaHomeConfig struct {
 	Endpoint      string `json:"endpoint,omitempty"`
 	AllowInsecure bool   `json:"allowInsecure,omitempty"`
