@@ -16,12 +16,13 @@ func (e *InsufficientDrivesError) Error() string {
 // InsufficientDriveCapacityError is returned when there is not enough drive capacity available
 type InsufficientDriveCapacityError struct {
 	NeededGiB    int
-	AvailableGiB int
+	UsableGiB    int // Only drives with available >= MinChunkSizeGiB
+	AvailableGiB int // Total available (for context)
 	Type         string
 }
 
 func (e *InsufficientDriveCapacityError) Error() string {
-	s := fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB", e.NeededGiB, e.AvailableGiB)
+	s := fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB usable (%d GiB total)", e.NeededGiB, e.UsableGiB, e.AvailableGiB)
 	if e.Type != "" {
 		s += fmt.Sprintf(" for drive type %s", e.Type)
 	}

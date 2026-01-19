@@ -925,11 +925,16 @@ func allocateSingleDriveType(ctx context.Context,
 
 	// Allocation failed - calculate available capacity for error
 	totalAvailable := 0
+	usableAvailable := 0
 	for _, dc := range driveCapacities {
 		totalAvailable += dc.availableCapacity
+		if dc.availableCapacity >= MinChunkSizeGiB {
+			usableAvailable += dc.availableCapacity
+		}
 	}
 	return nil, &InsufficientDriveCapacityError{
 		NeededGiB:    capacityNeeded,
+		UsableGiB:    usableAvailable,
 		AvailableGiB: totalAvailable,
 		Type:         driveType,
 	}
