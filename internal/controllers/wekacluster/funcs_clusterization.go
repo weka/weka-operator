@@ -241,15 +241,19 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 
 	// if not provided, derive it from the template
 	if minDrivesNum == 0 {
-		template, ok := allocator.GetTemplateByName(r.cluster.Spec.Template, *r.cluster)
-		if !ok {
-			return errors.New("Failed to get template")
+		containersAllocatedDrivesNum := 0
+		for _, container := range r.containers {
+			if !container.IsDriveContainer() {
+				continue
+			}
+			if container.UsesDriveSharing() {
+				containersAllocatedDrivesNum += len(container.Status.Allocations.VirtualDrives)
+			} else {
+				containersAllocatedDrivesNum += len(container.Status.Allocations.Drives)
+			}
 		}
-		if template.ContainerCapacity > 0 {
-			minDrivesNum = template.DriveCores * template.DriveContainers
-		} else {
-			minDrivesNum = template.NumDrives * template.DriveContainers
-		}
+		// set minDrivesNum to the total number of drives allocated to containers
+		minDrivesNum = containersAllocatedDrivesNum
 	}
 
 	// get the number of drives added to the cluster from weka status
