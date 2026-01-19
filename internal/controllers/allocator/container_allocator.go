@@ -551,17 +551,6 @@ func filterAndSortUsableDrives(driveCapacities map[string]*physicalDriveCapacity
 	return usableDrives
 }
 
-// splitCapacityByRatio splits total capacity into TLC and QLC based on the drive types ratio
-func splitCapacityByRatio(totalCapacity int, ratio *weka.DriveTypesRatio) (tlc, qlc int) {
-	if ratio == nil || ratio.Tlc+ratio.Qlc == 0 {
-		return totalCapacity, 0 // All TLC by default
-	}
-	totalParts := ratio.Tlc + ratio.Qlc
-	tlc = (totalCapacity * ratio.Tlc) / totalParts
-	qlc = totalCapacity - tlc // Remainder goes to QLC to avoid rounding loss
-	return
-}
-
 // countDrivesByType counts virtual drives by type (TLC/QLC)
 func countDrivesByType(virtualDrives []weka.VirtualDrive) (tlc, qlc int) {
 	for _, vd := range virtualDrives {
@@ -584,9 +573,9 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 	hasExistingAllocations := req.Container.Status.Allocations != nil && len(req.Container.Status.Allocations.VirtualDrives) > 0
 	isReallocation := hasExistingAllocations && req.CapacityGiB > 0
 
-	// Calculate TLC and QLC capacities using splitCapacityByRatio to avoid rounding loss
+	// Calculate TLC and QLC capacities using GetTlcQlcCapacity to avoid rounding loss
 	// req.CapacityGiB contains the full capacity for initial allocation, or missing capacity for reallocation
-	tlcCapacityNeeded, qlcCapacityNeeded := splitCapacityByRatio(req.CapacityGiB, req.Container.Spec.DriveTypesRatio)
+	tlcCapacityNeeded, qlcCapacityNeeded := weka.GetTlcQlcCapacity(req.CapacityGiB, req.Container.Spec.DriveTypesRatio)
 
 	// Validate minimum drive count constraint based on configuration
 	// Each drive must be at least MinChunkSizeGiB (384 GiB)
