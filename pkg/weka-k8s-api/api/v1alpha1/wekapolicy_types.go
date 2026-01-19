@@ -91,6 +91,11 @@ type DriverDistPayload struct {
 	// ArchitectureLabelKey is the custom label key to use for storing the node's architecture.
 	// If not specified, "weka.io/architecture" will be used.
 	ArchitectureLabelKey *string `json:"architectureLabelKey,omitempty"`
+	// OsLabelKey is the custom label key to use for storing the node's os.
+	// If not specified, "weka.io/os" will be used.
+	OsLabelKey *string `json:"osLabelKey,omitempty"`
+	// BuilderImageOverride is an optional image that you can specify for the builder
+	BuilderImageOverride string `json:"builderImageOverride,omitempty"`
 	// BuilderPreRunScript is an optional script to run on builder containers after kernel validation.
 	BuilderPreRunScript *string `json:"builderPreRunScript,omitempty"`
 	// DistNodeSelector is the node selector for the drivers distribution (dist) container.

@@ -594,6 +594,11 @@ func (in *DriverDistPayload) DeepCopyInto(out *DriverDistPayload) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.OsLabelKey != nil {
+		in, out := &in.OsLabelKey, &out.OsLabelKey
+		*out = new(string)
+		**out = **in
+	}
 	if in.BuilderPreRunScript != nil {
 		in, out := &in.BuilderPreRunScript, &out.BuilderPreRunScript
 		*out = new(string)
