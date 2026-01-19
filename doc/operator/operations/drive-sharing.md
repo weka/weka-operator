@@ -564,9 +564,10 @@ The operator supports global defaults for drive sharing configuration via Helm v
 **Helm values.yaml:**
 
 ```yaml
-driveTypesRatio:
-  tlc: 1   # ~9% TLC (high-performance)
-  qlc: 10  # ~91% QLC (cost-optimized)
+driveSharing:
+  driveTypesRatio:
+    tlc: 1   # ~9% TLC (high-performance)
+    qlc: 10  # ~91% QLC (cost-optimized)
 ```
 
 **Behavior:**
@@ -579,7 +580,8 @@ driveTypesRatio:
 **Helm values.yaml:**
 
 ```yaml
-maxVirtualDrivesPerCore: 8  # Default value
+driveSharing:
+  maxVirtualDrivesPerCore: 8  # Default value
 ```
 
 **Behavior:**
@@ -591,7 +593,8 @@ Formula: `Total Virtual Drives <= driveCores * maxVirtualDrivesPerCore`
 **Helm values.yaml:**
 
 ```yaml
-enforceMinDrivesPerTypePerCore: true  # Default value
+driveSharing:
+  enforceMinDrivesPerTypePerCore: true  # Default value
 ```
 
 **Behavior:**
@@ -608,7 +611,8 @@ Controls the minimum drive count constraint when using mixed TLC/QLC configurati
 **Helm values.yaml:**
 
 ```yaml
-enableDynamicDriveScalingForSharedDrives: false  # Default value
+driveSharing:
+  enableDynamicDriveScalingForSharedDrives: false  # Default value
 ```
 
 **Behavior:**

@@ -359,17 +359,17 @@ spec:
             - name: NFS_NOTIFY_PORT
               value: "{{ .Values.nfs.notifyPort }}"
             - name: DRIVE_TYPES_RATIO_TLC
-              value: "{{ .Values.driveTypesRatio.tlc }}"
+              value: "{{ .Values.driveSharing.driveTypesRatio.tlc }}"
             - name: DRIVE_TYPES_RATIO_QLC
-              value: "{{ .Values.driveTypesRatio.qlc }}"
+              value: "{{ .Values.driveSharing.driveTypesRatio.qlc }}"
             - name: MAX_VIRTUAL_DRIVES_PER_CORE
-              value: "{{ .Values.maxVirtualDrivesPerCore }}"
+              value: "{{ .Values.driveSharing.maxVirtualDrivesPerCore }}"
             - name: ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE
-              value: "{{ .Values.enforceMinDrivesPerTypePerCore }}"
+              value: "{{ .Values.driveSharing.enforceMinDrivesPerTypePerCore }}"
             - name: ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES
-              value: "{{ .Values.enableDynamicDriveScalingForSharedDrives }}"
+              value: "{{ .Values.driveSharing.enableDynamicDriveScalingForSharedDrives }}"
             - name: SSD_PROXY_HUGEPAGES_OFFSET_MB
-              value: "{{ .Values.ssdProxy.hugepagesOffsetMB }}"
+              value: "{{ .Values.driveSharing.ssdProxy.hugepagesOffsetMB }}"
             - name: PORT_ALLOCATION_STARTING_PORT
               value: "{{ .Values.portAllocation.startingPort }}"
             - name: LOG_FORMAT

@@ -149,14 +149,11 @@ type DriveSharingConfig struct {
 	MaxVirtualDrivesPerCore        int
 	EnforceMinDrivesPerTypePerCore bool
 	EnableDynamicDriveScaling      bool
+	SsdProxyHugepagesOffsetMB      int
 }
 
 type PortAllocationConfig struct {
 	StartingPort int
-}
-
-type SsdProxyConfig struct {
-	HugepagesOffsetMB int
 }
 
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
@@ -228,7 +225,6 @@ var Config struct {
 	Nfs             NfsConfig
 	DriveSharing    DriveSharingConfig
 	PortAllocation  PortAllocationConfig
-	SsdProxy        SsdProxyConfig
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -435,12 +431,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.MaxVirtualDrivesPerCore = getIntEnvOrDefault("MAX_VIRTUAL_DRIVES_PER_CORE", 8)
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
 	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
+	Config.DriveSharing.SsdProxyHugepagesOffsetMB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MB", 1536)
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
-
-	// SSD proxy configuration
-	Config.SsdProxy.HugepagesOffsetMB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MB", 1536)
 }
 
 func getEnvOrFail(envKey string) string {

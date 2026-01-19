@@ -139,7 +139,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			Tolerations:        cluster.Spec.RawTolerations,
 			HostPID:            true, // Needed for drive access
-			Hugepages:          hugepagesMB + config.Config.SsdProxy.HugepagesOffsetMB,
+			Hugepages:          hugepagesMB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMB,
 			HugepagesSize:      "2Mi",
 		},
 	}

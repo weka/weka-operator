@@ -226,45 +226,46 @@ nfs:
   # Port for notify service
   notifyPort: 18002
 
-# Drive types configuration
-# driveTypesRatio specifies the global default ratio of drive types (TLC vs QLC) when using drive sharing.
-# Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
-# This value is used as a default when spec.dynamicTemplate.driveTypesRatio is not explicitly specified.
-#
-# Ratio is specified as integer parts representing relative proportions:
-#   tlc: 1, qlc: 0 = 100% TLC (all high-performance) - DEFAULT
-#   tlc: 4, qlc: 1 = 80% TLC, 20% QLC (recommended balance for cost/performance)
-#   tlc: 1, qlc: 1 = 50% TLC, 50% QLC
-#   tlc: 0, qlc: 1 = 100% QLC (all cost-optimized)
-#
-# Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
-driveTypesRatio:
-  tlc: 1
-  qlc: 10
+# Drive sharing configuration
+driveSharing:
+  # driveTypesRatio specifies the global default ratio of drive types (TLC vs QLC) when using drive sharing.
+  # Drive sharing is enabled by setting containerCapacity in spec.dynamicTemplate of WekaCluster.
+  # This value is used as a default when spec.dynamicTemplate.driveTypesRatio is not explicitly specified.
+  #
+  # Ratio is specified as integer parts representing relative proportions:
+  #   tlc: 1, qlc: 0 = 100% TLC (all high-performance) - DEFAULT
+  #   tlc: 4, qlc: 1 = 80% TLC, 20% QLC (recommended balance for cost/performance)
+  #   tlc: 1, qlc: 1 = 50% TLC, 50% QLC
+  #   tlc: 0, qlc: 1 = 100% QLC (all cost-optimized)
+  #
+  # Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
+  driveTypesRatio:
+    tlc: 1
+    qlc: 10
 
-# Maximum number of virtual drives per CPU core when using drive sharing.
-# Default: 8
-maxVirtualDrivesPerCore: 8
+  # Maximum number of virtual drives per CPU core when using drive sharing.
+  # Default: 8
+  maxVirtualDrivesPerCore: 8
 
-# Enforce minimum drives per type per core when using drive sharing with mixed TLC/QLC.
-# When true (default): per-type constraints - cores <= tlcDrives AND cores <= qlcDrives
-# When false: combined constraint - cores <= tlcDrives + qlcDrives <= maxDrives
-# Note: Only affects mixed TLC/QLC configurations. Single-type allocations behave the same either way.
-enforceMinDrivesPerTypePerCore: true
+  # Enforce minimum drives per type per core when using drive sharing with mixed TLC/QLC.
+  # When true (default): per-type constraints - cores <= tlcDrives AND cores <= qlcDrives
+  # When false: combined constraint - cores <= tlcDrives + qlcDrives <= maxDrives
+  # Note: Only affects mixed TLC/QLC configurations. Single-type allocations behave the same either way.
+  enforceMinDrivesPerTypePerCore: true
 
-# Enable dynamic drive scaling for shared drives mode.
-# When false (default): containers won't automatically allocate additional drives when
-# containerCapacity increases or driveTypesRatio changes. Initial allocation still works.
-# When true: containers will automatically allocate additional drives to match new capacity/ratio.
-# Note: This only affects shared drives mode (containerCapacity or driveCapacity configured).
-# Traditional mode (numDrives only) is not affected.
-enableDynamicDriveScalingForSharedDrives: false
+  # Enable dynamic drive scaling for shared drives mode.
+  # When false (default): containers won't automatically allocate additional drives when
+  # containerCapacity increases or driveTypesRatio changes. Initial allocation still works.
+  # When true: containers will automatically allocate additional drives to match new capacity/ratio.
+  # Note: This only affects shared drives mode (containerCapacity or driveCapacity configured).
+  # Traditional mode (numDrives only) is not affected.
+  enableDynamicDriveScalingForSharedDrives: false
 
-# SSD Proxy configuration (used in drive sharing mode)
-ssdProxy:
-  # Hugepages offset in MB added to calculated hugepages for SSD proxy containers.
-  # Default: 1536 (1.5GB)
-  hugepagesOffsetMB: 1536
+  # SSD Proxy configuration (used in drive sharing mode)
+  ssdProxy:
+    # Hugepages offset in MB added to calculated hugepages for SSD proxy containers.
+    # Default: 1536 (1.5GB)
+    hugepagesOffsetMB: 1536
 
 # Port allocation configuration
 portAllocation:

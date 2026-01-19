@@ -84,9 +84,10 @@ Set a global default TLC/QLC ratio in Helm values:
 
 ```yaml
 # values.yaml
-driveTypesRatio:
-  tlc: 4  # 80% TLC
-  qlc: 1  # 20% QLC
+driveSharing:
+  driveTypesRatio:
+    tlc: 4  # 80% TLC
+    qlc: 1  # 20% QLC
 ```
 
 When `containerCapacity` is set without per-cluster `driveTypesRatio`, this global default applies automatically.

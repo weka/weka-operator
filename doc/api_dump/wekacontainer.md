@@ -9,6 +9,7 @@
 - [FailureDomain](#failuredomain)
 - [PortRange](#portrange)
 - [Network](#network)
+- [WekaContainerBuilder](#wekacontainerbuilder)
 - [TracesConfiguration](#tracesconfiguration)
 - [Instructions](#instructions)
 - [DriveTypesRatio](#drivetypesratio)
@@ -68,6 +69,7 @@
 | driversDistService | string |  |
 | driversLoaderImage | string |  |
 | driversBuildId | *string |  |
+| builder | *WekaContainerBuilder |  |
 | wekaSecretRef | v1.EnvVarSource |  |
 | joinIpPorts | []string |  |
 | tracesConfiguration | *TracesConfiguration |  |
@@ -162,6 +164,14 @@
 
 ---
 
+## WekaContainerBuilder
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| weka_version | string |  |
+
+---
+
 ## TracesConfiguration
 
 | JSON Field | Type | Description |
@@ -233,8 +243,6 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | drives | []string |  |
-| ethSlots | []string |  |
-| lbPort | int |  |
 | wekaPort | int |  |
 | agentPort | int |  |
 | failureDomain | *string | value of the failure domain label of the node where the container is running |
