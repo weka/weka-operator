@@ -119,7 +119,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 	)
 
 	// Calculate hugepages based on shared drives on the node
-	hugepagesMB, err := r.calculateProxyHugepages(ctx, nodeName)
+	hugepagesMiB, err := r.calculateProxyHugepages(ctx, nodeName)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calculate hugepages for proxy container")
 	}
@@ -139,7 +139,7 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			Tolerations:        cluster.Spec.RawTolerations,
 			HostPID:            true, // Needed for drive access
-			Hugepages:          hugepagesMB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMB,
+			Hugepages:          hugepagesMiB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB,
 			HugepagesSize:      "2Mi",
 		},
 	}
@@ -186,19 +186,19 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 	// Convert GiB to TiB (round up to be safe)
 	expectedMaxDriveTiB := (maxCapacityGiB + 1023) / 1024
 
-	// Calculate hugepages in kB using the formula
-	hugepagesKB := resources.GetSsdProxyHugeTLBKB(maxDrives, expectedMaxDriveTiB)
+	// Calculate hugepages in KiB using the formula
+	hugepagesKiB := resources.GetSsdProxyHugeTLBKiB(maxDrives, expectedMaxDriveTiB)
 
-	// Convert kB to MB (round up)
-	hugepagesMB := int((hugepagesKB + 1023) / 1024)
+	// Convert KiB to MiB (round up)
+	hugepagesMiB := int((hugepagesKiB + 1023) / 1024)
 
 	logger.Info("Calculated hugepages for ssd_proxy",
 		"maxDrives", maxDrives,
 		"expectedMaxDriveTiB", expectedMaxDriveTiB,
-		"hugepagesMB", hugepagesMB,
+		"hugepagesMiB", hugepagesMiB,
 	)
 
-	return hugepagesMB, nil
+	return hugepagesMiB, nil
 }
 
 // findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container

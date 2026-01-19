@@ -702,7 +702,7 @@ async def get_proxy_drive_info(device_path: str):
             except Exception as e:
                 logging.warning(f"Failed to get capacity from lsblk for {device_path}: {e}")
 
-        capacity_gib = int(capacity_bytes / (1024 ** 3)) if capacity_bytes > 0 else 0
+        capacity_gib = capacity_bytes // (1024 ** 3) if capacity_bytes > 0 else 0
 
         logging.info(f"Drive info extracted: UUID={physical_uuid}, Serial={serial or 'UNKNOWN'}, Capacity={capacity_gib} GiB, IU Size={iu_size}")
 

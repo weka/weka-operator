@@ -81,7 +81,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 			config.DriveHugepages = 1400*config.DriveCores + 200*config.NumDrives
 		} else {
 			// for container capacity based allocation
-			// NOTE: weka needs ~ 800 MB per drive core + 105 MB overhead
+			// NOTE: weka needs ~ 800 MiB per drive core + 105 MiB overhead
 			// For example, for the 4 cores case - "nodes need a minimum of 3355443200":
 			// root@h6-8-a:/# weka local ps
 			// CONTAINER                                   CONTAINER ID  STATE    STATUS        UPTIME   PID   PORT  VERSION                                       VALID LEASE  LAST FAILURE
@@ -93,7 +93,7 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 			// PID 1802     HugeTLB   925696 kB  /weka/wekanode --slot 4 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
 			// PID 1807     HugeTLB   925696 kB  /weka/wekanode --slot 1 --container-name drivexd4df0b26x315ex4e21x8b78xd44f47cf23c2
 			// ---
-			// TOTAL: 3704832 kB = 3618 MB = 3.53 GB (~ 904 MB per core)
+			// TOTAL: 3704832 KiB = 3618 MiB = 3.53 GiB (~ 904 MiB per core)
 			config.DriveHugepages = 1000 * config.DriveCores
 		}
 	}

@@ -263,9 +263,9 @@ driveSharing:
 
   # SSD Proxy configuration (used in drive sharing mode)
   ssdProxy:
-    # Hugepages offset in MB added to calculated hugepages for SSD proxy containers.
-    # Default: 1536 (1.5GB)
-    hugepagesOffsetMB: 1536
+    # Hugepages offset in MiB added to calculated hugepages for SSD proxy containers.
+    # Default: 2048 (2 GiB)
+    hugepagesOffsetMiB: 2048
 
 # Port allocation configuration
 portAllocation:

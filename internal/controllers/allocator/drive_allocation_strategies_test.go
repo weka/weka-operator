@@ -397,7 +397,7 @@ func TestAllocationStrategyGenerator_AsymmetricTlcQlc(t *testing.T) {
 // which is generated AFTER even distribution strategies as a last-resort option
 func TestAllocationStrategyGenerator_FitToPhysicalFallback(t *testing.T) {
 	t.Run("Heterogeneous drives - fit-to-physical is generated as fallback", func(t *testing.T) {
-		// Physical drives: 20000, 500, 500 GB
+		// Physical drives: 20000, 500, 500 GiB
 		// Even distribution [7000, 7000, 7000] will be generated first, but would fail at allocation time
 		// Fit-to-physical [20000, 500, 500] is generated as fallback
 		driveCapacities := map[string]*physicalDriveCapacity{
