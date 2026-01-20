@@ -176,6 +176,7 @@ var Config struct {
 	Otel                           Otel
 	WekaHome                       WekaHome
 	DebugSleep                     int
+	DefaultCliContainer            string
 	MaintenanceSaName              string
 	MaintenanceImage               string
 	MaintenanceImagePullSecret     string
@@ -335,6 +336,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.WekaHome.CacertSecret = os.Getenv("WEKA_OPERATOR_WEKA_HOME_CACERT_SECRET")
 	Config.WekaHome.EnableStats = getBoolEnvOrDefault("WEKA_OPERATOR_WEKA_HOME_ENABLE_STATS", true)
 	Config.DebugSleep = getIntEnvOrDefault("WEKA_OPERATOR_DEBUG_SLEEP", 3)
+	Config.DefaultCliContainer = getEnvOrDefault("DEFAULT_CLI_CONTAINER", "quay.io/weka.io/weka-in-container:5.1.0.8-8.1")
 	Config.MaintenanceImage = getEnvOrDefault("WEKA_MAINTENANCE_IMAGE", "quay.io/weka.io/busybox")
 	Config.Upgrade.ComputeThresholdPercent = getIntEnvOrDefault("UPGRADE_COMPUTE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.DriveThresholdPercent = getIntEnvOrDefault("UPGRADE_DRIVE_THRESHOLD_PERCENT", 90)
