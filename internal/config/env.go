@@ -193,29 +193,30 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes                    bool
-	CleanupBackendsOnNodeSelectorMismatch  bool
-	CleanupClientsOnNodeSelectorMismatch   bool
-	CleanupContainersOnTolerationsMismatch bool
-	EvictContainerOnDeletion               bool
-	RemovalThrottlingEnabled               bool
-	SkipClientsTolerationValidation        bool
-	TolerationsMismatchSettings            TolerationsMismatchSettings
+	CleanupRemovedNodes                          bool
+	CleanupBackendsOnNodeSelectorMismatch        bool
+	CleanupClientsOnNodeSelectorMismatch         bool
+	CleanupContainersOnTolerationsMismatch       bool
+	EvictContainerOnDeletion                     bool
+	RemovalThrottlingEnabled                     bool
+	SkipClientsTolerationValidation              bool
+	TolerationsMismatchSettings                  TolerationsMismatchSettings
 	DeleteEnvoyWithoutS3NeighborTimeout          time.Duration
 	DeleteTelemetryWithoutComputeNeighborTimeout time.Duration
 	DeleteUnschedulablePodsAfter                 time.Duration
-	RemoveFailedDrivesFromWeka             bool
-	AllowMultipleProtocolsPerNode          bool
-	ManagementProxyHostNetwork             bool
-	ManagementProxyIngressBaseDomain       string
-	ManagementProxyIngressClass            string
+	RemoveFailedDrivesFromWeka                   bool
+	AllowMultipleProtocolsPerNode                bool
+	ManagementProxyHostNetwork                   bool
+	ManagementProxyIngressBaseDomain             string
+	ManagementProxyIngressClass                  string
 
-	Csi             EmbeddedCsiSettings
-	SyslogPackage   string
-	Proxy           string
-	PriorityClasses PriorityClasses
-	Nfs             NfsConfig
-	DriveTypes      DriveTypesConfig
+	Csi                 EmbeddedCsiSettings
+	SyslogPackage       string
+	Proxy               string
+	PriorityClasses     PriorityClasses
+	Nfs                 NfsConfig
+	DriveTypes          DriveTypesConfig
+	DefaultCliContainer string
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -419,6 +420,8 @@ func ConfigureEnv(ctx context.Context) {
 	// Drive types configuration
 	Config.DriveTypes.DefaultRatio.Tlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_TLC", 1)
 	Config.DriveTypes.DefaultRatio.Qlc = getIntEnvOrDefault("DRIVE_TYPES_RATIO_QLC", 0)
+
+	Config.DefaultCliContainer = getEnvOrDefault("DEFAULT_CLI_CONTAINER", "quay.io/weka.io/weka-in-container:5.1.0.8-8.1")
 }
 
 func getEnvOrFail(envKey string) string {

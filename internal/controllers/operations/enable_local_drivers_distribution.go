@@ -13,6 +13,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/drivers"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,7 +44,7 @@ const (
 // sanitizeForLabel converts a string to a valid Kubernetes label value
 // by replacing spaces with dashes and removing invalid characters.
 func sanitizeForLabel(s string) string {
-	return strings.ReplaceAll(s, " ", "-")
+	return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
 }
 
 type nodeAttributes struct {
@@ -536,7 +537,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			builderName := o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)
+			builderName := o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture, ka.osImage)
 			namespace := o.policy.GetNamespace()
 
 			wc := &weka.WekaContainer{
@@ -554,10 +555,10 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 			_, err = controllerutil.CreateOrUpdate(ctx, o.client, wc, func() error {
 
-				//builderImage := determineBuilderImage(ka)
 				originalWekaImage := image // Save the original Weka image for which we're building drivers
 
 				wc.Spec = weka.WekaContainerSpec{
+					Overrides:         &weka.WekaContainerSpecOverrides{DebugSleepOnTerminate: 3600},
 					Image:             image,                              // Use the builder image
 					ImagePullSecret:   o.containerDetails.ImagePullSecret, // Assuming same pull secret for all
 					Mode:              weka.WekaContainerModeDriversBuilder,
@@ -609,6 +610,10 @@ fi
 
 cp -r /shared-weka-version-data/* /opt/weka
 cp /opt/weka/dist/cli/current /usr/bin/weka
+if [ -f /shared-weka-cli/weka ]; then
+    cp /shared-weka-cli/weka /usr/bin/weka
+fi
+
 `, ka.kernelVersion)
 
 				finalPreRunScript := kernelValidationScript
@@ -679,7 +684,7 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 	activeBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			activeBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
+			activeBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
 		}
 	}
 
@@ -735,7 +740,7 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 	currentBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			currentBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
+			currentBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
 		}
 	}
 
@@ -790,7 +795,7 @@ func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, ar
 	return labels
 }
 
-func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch string) string {
+func (o *EnsureDistServiceOperation) getOldBuilderContainerName(image, kernel, arch string) string {
 	// Name must be DNS-1123 compliant
 	imgHash := hashFNV(image)
 	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
@@ -807,6 +812,61 @@ func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch
 	}
 
 	name := fmt.Sprintf("%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgHash, arch, kernelNorm)
+
+	// Truncate if the name is too long.
+	if len(name) > 63 {
+		name = name[:63]
+	}
+
+	// After potential truncation or if the original construction ended with a hyphen,
+	// ensure the name does not end with a hyphen.
+	// DriverBuilderPrefix ensures the name won't be empty or start with a hyphen.
+	name = strings.TrimRight(name, "-")
+
+	return name
+}
+
+func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch, osImage string) string {
+	oldBuilderName := o.getOldBuilderContainerName(image, kernel, arch)
+	namespace := o.policy.GetNamespace()
+
+	wc := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      oldBuilderName,
+			Namespace: namespace,
+			Labels:    o.getBuilderContainerLabels(image, kernel, arch),
+		},
+	}
+
+	err := o.client.Get(
+		context.Background(),
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      oldBuilderName,
+		},
+		wc,
+	)
+
+	if err == nil {
+		return oldBuilderName
+	}
+	// Name must be DNS-1123 compliant
+	imgHash := hashFNV(image)
+	normalizedOs := drivers.NormalizeOSImageName(osImage)
+	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
+	kernelNorm = strings.ReplaceAll(kernelNorm, "_", "-") // Further sanitize kernel
+
+	// Remove any leading or trailing hyphens from kernelNorm itself.
+	// This prevents kernelNorm from causing the full name to end with a hyphen.
+	kernelNorm = strings.Trim(kernelNorm, "-")
+
+	// If kernelNorm became empty (e.g., kernel was originally "-" or ".-."),
+	// use a placeholder to ensure the final segment of the name is valid.
+	if kernelNorm == "" {
+		kernelNorm = "unknownkernel"
+	}
+
+	name := fmt.Sprintf("%s-%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgHash, normalizedOs, arch, kernelNorm)
 
 	// Truncate if the name is too long.
 	if len(name) > 63 {

@@ -362,6 +362,8 @@ spec:
               value: "{{ .Values.driveTypesRatio.tlc }}"
             - name: DRIVE_TYPES_RATIO_QLC
               value: "{{ .Values.driveTypesRatio.qlc }}"
+            - name: DEFAULT_CLI_CONTAINER
+              value: "{{ .Values.defaultCliContainer }}"
             - name: LOG_FORMAT
               value: "{{ .Values.manager.loggerSettings.format }}"
             - name: LOG_CALLER_DIR_LVL

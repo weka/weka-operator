@@ -17,6 +17,7 @@ from functools import lru_cache, partial
 from os.path import exists
 from textwrap import dedent
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -116,6 +117,7 @@ MAX_PORT = 65535
 # Define global variables
 exiting = 0
 
+UBUNTU24_BUILD_ID = "ubuntu24.04"
 
 def setup_otel_logging():
     """Setup OpenTelemetry logging with OTLP exporter."""
@@ -1227,9 +1229,18 @@ def is_ubuntu_24():
     """Check if running Ubuntu 24.x"""
     return get_ubuntu_major_version() == 24
 
-def external_dist_service():
-    """Check if DIST_SERVICE is external (starts with https)"""
-    return DIST_SERVICE == 'https://drivers.weka.io'
+
+def is_k8s_service_url(url: str) -> bool:
+    p = urlparse(url)
+    return (
+            p.scheme in ("http", "https")
+            and p.hostname is not None
+            and p.hostname.endswith(".svc.cluster.local")
+    )
+
+# weka_dist_service - any distribution service weka owns (not client maintained)
+def weka_dist_service():
+    return DIST_SERVICE == 'https://drivers.weka.io' or is_k8s_service_url(DIST_SERVICE)
 
 async def ensure_drivers():
     logging.info("waiting for drivers")
@@ -1500,8 +1511,8 @@ async def load_drivers():
             version = cluster_image_name.split(':')[-1]
             logging.info(f"Should get version: {version}")
             version_get_cmds = [
-                (f"cp /usr/bin/weka /usr/bin/weka-save && unlink /usr/bin/weka && mv /usr/bin/weka-save /usr/bin/weka", "Use image weka cli"),
-                (f"rm -rf /opt/weka/dist && ln -s /shared-weka-version-data/dist /opt/weka/dist", "Use cluster dist files"),
+                # (f"cp /usr/bin/weka /usr/bin/weka-save && unlink /usr/bin/weka && mv /usr/bin/weka-save /usr/bin/weka", "Use image weka cli"),
+                # (f"rm -rf /opt/weka/dist && ln -s /shared-weka-version-data/dist /opt/weka/dist", "Use cluster dist files"),
             ]
             for cmd, desc in version_get_cmds:
                 logging.info(f"Driver get step: {desc}")
@@ -1515,8 +1526,8 @@ async def load_drivers():
             kernelBuildIdArg = f"--kernel-build-id {DRIVERS_BUILD_ID}"
         elif is_google_cos():
             kernelBuildIdArg = f"--kernel-build-id {OS_BUILD_ID}"
-        elif is_ubuntu_24() and external_dist_service():
-            kernelBuildIdArg = f"--kernel-build-id ubuntu24.04"
+        elif is_ubuntu_24() and weka_dist_service():
+            kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
 
         download_cmds = [
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version} {kernelBuildIdArg}", "Downloading drivers")
@@ -3902,23 +3913,28 @@ async def main():
 
     if MODE in ["drivers-builder"]:
         await run_prerun_script()
+        # Default version from IMAGE_NAME
+        version = IMAGE_NAME.split(':')[-1]
         cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
         if cluster_image_name is not None and cluster_image_name != IMAGE_NAME:
             # when driversLoaderImage is set, we need to detect the cluster version
             # and to get the driver files for that version
             version = cluster_image_name.split(':')[-1]
-        logging.info(f"Should get version: {version}")
         logging.info(f"Building drivers for version: {version}")
         stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar {version}")
         if ec != 0:
-            logging.error(f"Failed to get weka version {BUILDER_WEKA_VERSION}: {stderr}")
-            raise Exception(f"Failed to get weka version {BUILDER_WEKA_VERSION}: {stderr}")
-        logging.info(f"Successfully got weka version {BUILDER_WEKA_VERSION}")
-        stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {BUILDER_WEKA_VERSION}")
+            logging.error(f"Failed to get weka version {version}: {stderr}")
+            raise Exception(f"Failed to get weka version {version}: {stderr}")
+        logging.info(f"Successfully got weka version {version}")
+
+        kernel_build_id = ""
+        if is_ubuntu_24():
+            kernel_build_id = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
+        stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version} {kernel_build_id}")
         if ec != 0:
-            logging.error(f"Failed to build weka version {BUILDER_WEKA_VERSION}: {stderr}")
-            raise Exception(f"Failed to build weka version {BUILDER_WEKA_VERSION}: {stderr}")
-        logging.info(f"Successfully built weka version {BUILDER_WEKA_VERSION}")
+            logging.error(f"Failed to build weka version {version}: {stderr}")
+            raise Exception(f"Failed to build weka version {version}: {stderr}")
+        logging.info(f"Successfully built weka version {version}")
 
         # Create symlink so /dist/v1/drivers/ URLs work
         stdout, stderr, ec = await run_command("mkdir -p /opt/weka/dist && ln -sf /opt/weka/dist /opt/weka/dist/v1")
@@ -3929,12 +3945,13 @@ async def main():
         write_results({
             "driver_built": True,
             "err": "",
-            "weka_version": BUILDER_WEKA_VERSION,
+            "weka_version": version,
+            "build_id": "ubuntu24.04",
             "kernel_signature": "auto",  # Will be determined by the operator from node info
             "weka_pack_not_supported": False,
             "no_weka_drivers_handling": True,
         })
-        logging.info(f"Build results written for version {BUILDER_WEKA_VERSION}")
+        logging.info(f"Build results written for version {version}")
 
         # Start HTTP server to serve built drivers for operator to download
         import http.server

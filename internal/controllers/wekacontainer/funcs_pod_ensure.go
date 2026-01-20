@@ -2,12 +2,14 @@ package wekacontainer
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/config"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,10 +50,11 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
+	var nodeAffinity weka.NodeName
 
 	if !container.IsDiscoveryContainer() {
 		// nodeName can be already set in the spec
-		nodeAffinity := container.GetNodeAffinity()
+		nodeAffinity = container.GetNodeAffinity()
 
 		if nodeAffinity == "" {
 			node, err := r.pickMatchingNode(ctx)
@@ -97,6 +100,16 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
 
+	// For drivers-builder containers, determine the builder image based on the target node's OS
+	if container.IsDriversBuilder() {
+		err = r.adjustPodBeforeCreate(ctx, desiredPod, nodeAffinity)
+		if err != nil {
+			return err
+		}
+		//BuilderPodAdjustments(desiredPod, node.Status.NodeInfo.OSImage)
+		//logger.Info("Determined builder image for drivers-builder", "osImage", node.Status.NodeInfo.OSImage, "builderImage", image)
+	}
+
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		return errors.Wrapf(err, "Error setting controller reference")
 	}
@@ -111,4 +124,87 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+//// DetermineBuilderImage returns the appropriate builder image based on the node's OS.
+//func BuilderPodAdjustments(pod *v1.Pod, osImage string) {
+//	switch {
+//	case strings.Contains(osImage, "Ubuntu 24.04"):
+//		pod.Spec.Containers
+//		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+//	case strings.Contains(osImage, "Ubuntu 22.04"):
+//		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+//	default:
+//		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+//	}
+//}
+
+// addInitContainer adds an init container to the given pod.
+func addInitContainer(pod *v1.Pod, name, image string, command []string) {
+	initContainer := v1.Container{
+		Name:    name,
+		Image:   image,
+		Command: command,
+	}
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, initContainer)
+}
+
+// adjustPodBeforeCreate modifies the pod spec before creation (e.g., image overrides, init containers).
+func (r *containerReconcilerLoop) adjustPodBeforeCreate(ctx context.Context, pod *v1.Pod,
+	nodeAffinity weka.NodeName) error {
+	node := &v1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
+		return errors.Wrap(err, "failed to get target node for drivers-builder")
+	}
+	osImage := node.Status.NodeInfo.OSImage
+
+	switch {
+	case strings.Contains(osImage, "Ubuntu 24.04"):
+		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+		CopyWekaCliToMainContainer(pod)
+		//addInitContainer(pod, "copy-cli", config.Config.DefaultCliContainer, []string{})
+	case strings.Contains(osImage, "Ubuntu 22.04"):
+		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+	default:
+	}
+
+	return nil
+}
+
+// copy weka dist files if drivers-loader image is
+// different from cluster image
+func CopyWekaCliToMainContainer(pod *v1.Pod) {
+
+	sharedVolumeName := "shared-weka-cli"
+	sharedVolumeMountPath := "/shared-weka-cli"
+
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
+		Name:    "init-copy-cli",
+		Image:   config.Config.DefaultCliContainer,
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			`
+					cp /usr/bin/weka /shared-weka-cli/
+					echo "Init container copy cli completed successfully"
+					`,
+		},
+		VolumeMounts: []v1.VolumeMount{
+			{
+				Name:      sharedVolumeName,
+				MountPath: sharedVolumeMountPath,
+			},
+		},
+	})
+
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
+		Name:      sharedVolumeName,
+		MountPath: sharedVolumeMountPath,
+	})
+	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{
+
+		Name: sharedVolumeName,
+		VolumeSource: v1.VolumeSource{
+			EmptyDir: &v1.EmptyDirVolumeSource{},
+		},
+	})
 }

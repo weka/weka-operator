@@ -128,6 +128,7 @@ func (r *containerReconcilerLoop) driversLoaded(ctx context.Context) (bool, erro
 
 type BuiltDriversResult struct {
 	WekaVersion           string `json:"weka_version"`
+	BuildId               string `json:"build_id"`
 	KernelSignature       string `json:"kernel_signature"`
 	WekaPackNotSupported  bool   `json:"weka_pack_not_supported"`
 	NoWekaDriversHandling bool   `json:"no_weka_drivers_handling"`
@@ -276,7 +277,7 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 
 	// assuming `weka driver pack` is supported
 	downloadCmd := fmt.Sprintf(
-		"weka driver download --without-agent --version %s --kernel-signature %s",
+		"weka driver download --without-agent --version %s --kernel-signature %s --kernel-build-id ubuntu24.04",
 		results.WekaVersion, results.KernelSignature,
 	)
 
