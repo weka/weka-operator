@@ -11,6 +11,7 @@ image:
   # Override only, default equals to the chart version
   tag: ""
 kubeProxyImage: "gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1"
+defaultCliContainer: "quay.io/weka.io/weka-in-container:5.1.0.8-8.1"
 
 imagePullSecret: quay-io-robot-secret
 deployController: true
