@@ -253,6 +253,12 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 
 	cluster := r.cluster
 
+	// Validate driveTypesRatio before creating containers
+	if err := r.ValidateDriveTypesRatio(ctx); err != nil {
+		logger.Error(err, "Invalid driveTypesRatio configuration")
+		return err
+	}
+
 	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
 	if !ok {
 		keys := make([]string, 0, len(allocator.WekaClusterTemplates))

@@ -96,3 +96,23 @@ func (r *wekaClusterReconcilerLoop) SelectNfsContainers(containers []*weka.WekaC
 
 	return nfsContainers
 }
+
+// ValidateDriveTypesRatio validates that driveTypesRatio.tlc > 0 when driveTypesRatio is specified.
+// This prevents QLC-only configurations which are not supported.
+func (r *wekaClusterReconcilerLoop) ValidateDriveTypesRatio(ctx context.Context) error {
+	cluster := r.cluster
+	if cluster.Spec.Dynamic == nil {
+		return nil
+	}
+
+	driveTypesRatio := cluster.Spec.Dynamic.DriveTypesRatio
+	if driveTypesRatio == nil {
+		return nil
+	}
+
+	if driveTypesRatio.Tlc == 0 {
+		return fmt.Errorf("driveTypesRatio.tlc must be greater than 0; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed")
+	}
+
+	return nil
+}
