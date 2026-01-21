@@ -12,7 +12,7 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		weka.InstructionCopyWekaFilesToDriverLoader {
 		f.copyWekaVersionToDriverLoader(pod)
 	}
-	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader {
+	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader || f.container.Spec.Mode == weka.WekaContainerModeDriversBuilder {
 		CopyWekaCliToMainContainer(pod)
 	}
 	if f.nodeInfo.IsCos() {
