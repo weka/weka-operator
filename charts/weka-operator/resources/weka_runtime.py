@@ -3944,8 +3944,9 @@ async def main():
 
         kernel_build_id = ""
         if is_ubuntu_24():
-            kernel_build_id = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
-        stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version} {kernel_build_id}")
+            kernel_build_id = UBUNTU24_BUILD_ID
+            kernel_arg = f"--kernel-build-id {kernel_build_id}"
+        stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version} {kernel_arg}")
         if ec != 0:
             logging.error(f"Failed to build weka version {version}: {stderr}")
             raise Exception(f"Failed to build weka version {version}: {stderr}")
@@ -3961,6 +3962,7 @@ async def main():
             "driver_built": True,
             "err": "",
             "weka_version": version,
+            "kernel_build_id": kernel_build_id,
             "kernel_signature": "auto",  # Will be determined by the operator from node info
             "weka_pack_not_supported": False,
             "no_weka_drivers_handling": True,
