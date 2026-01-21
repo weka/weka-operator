@@ -80,26 +80,24 @@ func (f *PodFactory) copyWekaVersionToDriverLoader(pod *v1.Pod) {
 	sharedVolumeName := "shared-weka-version-data"
 	sharedVolumeMountPath := "/shared-weka-version-data"
 
-	pod.Spec.InitContainers = []v1.Container{
-		{
-			Name:    "init-setup",
-			Image:   originalImage,
-			Command: []string{"sh", "-c"},
-			Args: []string{
-				`
-						mkdir -p /shared-weka-version-data/dist &&
-						cp -r /opt/weka/dist/* /shared-weka-version-data/dist/ && 
-						echo "Init container completed successfully"
-						`,
-			},
-			VolumeMounts: []v1.VolumeMount{
-				{
-					Name:      sharedVolumeName,
-					MountPath: sharedVolumeMountPath,
-				},
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
+		Name:    "init-setup",
+		Image:   originalImage,
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			`
+					mkdir -p /shared-weka-version-data &&
+					cp -r /opt/weka/* /shared-weka-version-data/ &&
+					echo "Init container completed successfully"
+					`,
+		},
+		VolumeMounts: []v1.VolumeMount{
+			{
+				Name:      sharedVolumeName,
+				MountPath: sharedVolumeMountPath,
 			},
 		},
-	}
+	})
 
 	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
 		Name:      sharedVolumeName,
