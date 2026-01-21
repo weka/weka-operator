@@ -135,6 +135,13 @@ func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
 
 		if activeDrives == len(r.container.Status.AddedDrives) &&
 			activeDrives == expectedNumDrives {
+			// Check that individual drives in AddedDrives also show ACTIVE status
+			// (not just relying on aggregate count from stats)
+			for _, drive := range r.container.Status.AddedDrives {
+				if drive.Status != "ACTIVE" {
+					return false
+				}
+			}
 			// all drives are added and active
 			return true
 		}
