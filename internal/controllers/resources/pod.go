@@ -1334,12 +1334,15 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 				f.container.Spec.ContainerCapacity,
 				f.container.Spec.DriveTypesRatio,
 			)
-			tlcCapacityStr := strconv.Itoa(tlcCapacity)
 
-			pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
-			pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
+			if tlcCapacity > 0 {
+				tlcCapacityStr := strconv.Itoa(tlcCapacity)
 
-			if f.container.TlcToQlcRatioEnabled() {
+				pod.Spec.Containers[0].Resources.Requests[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
+				pod.Spec.Containers[0].Resources.Limits[consts.ResourceSharedDrivesCapacity] = resource.MustParse(tlcCapacityStr)
+			}
+
+			if qlcCapacity > 0 {
 				qlcCapacityStr := strconv.Itoa(qlcCapacity)
 
 				pod.Spec.Containers[0].Resources.Requests[consts.ResourcesSharedDrivesCapacityQLC] = resource.MustParse(qlcCapacityStr)
