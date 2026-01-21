@@ -89,6 +89,10 @@ spec:
                           ArchitectureLabelKey is the custom label key to use for storing the node's architecture.
                           If not specified, "weka.io/architecture" will be used.
                         type: string
+                      builderImageOverride:
+                        description: BuilderImageOverride is an optional image that
+                          you can specify for the builder
+                        type: string
                       builderPreRunScript:
                         description: BuilderPreRunScript is an optional script to
                           run on builder containers after kernel validation.
@@ -120,6 +124,11 @@ spec:
                             type: string
                           type: object
                         type: array
+                      osLabelKey:
+                        description: |-
+                          OsLabelKey is the custom label key to use for storing the node's os.
+                          If not specified, "weka.io/os" will be used.
+                        type: string
                     type: object
                   ensureNICsPayload:
                     properties:
