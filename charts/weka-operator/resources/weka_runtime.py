@@ -3968,6 +3968,75 @@ async def main():
         await discovery()
         return
 
+    if MODE in ["drivers-builder"]:
+        await run_prerun_script()
+        # Default version from IMAGE_NAME
+        version = IMAGE_NAME.split(':')[-1]
+        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
+        if cluster_image_name is not None and cluster_image_name != IMAGE_NAME:
+            # when driversLoaderImage is set, we need to detect the cluster version
+            # and to get the driver files for that version
+            version = cluster_image_name.split(':')[-1]
+        logging.info(f"Building drivers for version: {version}")
+        stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar {version}")
+        if ec != 0:
+            logging.error(f"Failed to get weka version {version}: {stderr}")
+            raise Exception(f"Failed to get weka version {version}: {stderr}")
+        logging.info(f"Successfully got weka version {version}")
+
+        stdout, stderr, ec = await run_command(f"weka driver pack --without-agent --version {version}")
+        if ec != 0:
+            logging.error(f"Failed to build weka version {version}: {stderr}")
+            raise Exception(f"Failed to build weka version {version}: {stderr}")
+        logging.info(f"Successfully built weka version {version}")
+
+        # Create symlink so /dist/v1/drivers/ URLs work
+        stdout, stderr, ec = await run_command("mkdir -p /opt/weka/dist && ln -sf /opt/weka/dist /opt/weka/dist/v1")
+        if ec != 0:
+            logging.error(f"Failed to create symlink: {stderr}")
+            raise Exception(f"Failed to create symlink: {stderr}")
+        # Write results so operator knows build is complete
+        write_results({
+            "driver_built": True,
+            "err": "",
+            "weka_version": version,
+            "kernel_signature": "auto",  # Will be determined by the operator from node info
+            "weka_pack_not_supported": False,
+            "no_weka_drivers_handling": True,
+        })
+        logging.info(f"Build results written for version {version}")
+
+        # Start HTTP server to serve built drivers for operator to download
+        import http.server
+        import socketserver
+        import threading
+
+        serve_dir = "/opt/weka"  # Serves from /opt/weka so requests to /dist/v1/drivers/ work
+        serve_port = int(PORT) if PORT else 60002
+
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=serve_dir, **kwargs)
+
+            def log_message(self, format, *args):
+                logging.info(f"HTTP: {format % args}")
+
+        def run_http_server():
+            with socketserver.TCPServer(("", serve_port), Handler) as httpd:
+                logging.info(f"Serving drivers from {serve_dir} on port {serve_port}")
+                httpd.serve_forever()
+
+        # Start server in background thread
+        server_thread = threading.Thread(target=run_http_server, daemon=True)
+        server_thread.start()
+        logging.info(f"HTTP server started on port {serve_port}, serving /opt/weka/dist/")
+
+        # Keep the container running to serve files
+        while not exiting:
+            await asyncio.sleep(10)
+        return
+
+
     if MODE == "drivers-loader":
         # self signal to exit
         await override_dependencies_flag()
