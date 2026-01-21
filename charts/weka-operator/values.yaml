@@ -236,7 +236,7 @@ driveSharing:
   #   tlc: 1, qlc: 0 = 100% TLC (all high-performance) - DEFAULT
   #   tlc: 4, qlc: 1 = 80% TLC, 20% QLC (recommended balance for cost/performance)
   #   tlc: 1, qlc: 1 = 50% TLC, 50% QLC
-  #   tlc: 0, qlc: 1 = 100% QLC (all cost-optimized)
+  # NOTE: tlc must be > 0. QLC-only configurations (tlc: 0) are not supported.
   #
   # Can be overridden per cluster via spec.dynamicTemplate.driveTypesRatio.
   driveTypesRatio:
