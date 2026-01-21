@@ -136,8 +136,6 @@ func (r *containerReconcilerLoop) adjustBuilderPod(ctx context.Context, pod *v1.
 	switch {
 	case strings.Contains(osImage, "Ubuntu 24.04"):
 		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
-		resources.CopyWekaCliToMainContainer(pod)
-		//addInitContainer(pod, "copy-cli", config.Config.DefaultCliContainer, []string{})
 	case strings.Contains(osImage, "Ubuntu 22.04"):
 		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
 	default:
