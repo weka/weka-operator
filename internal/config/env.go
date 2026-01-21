@@ -269,6 +269,10 @@ var Consts struct {
 	FormClusterMaxDriveContainers int
 	// Max containers number that will be part of initial s3 cluster
 	FormS3ClusterMaxContainerCount int
+	// Min containers number required to form an SMB-W cluster
+	FormSmbwClusterMinContainerCount int
+	// Max containers number that will be part of initial SMB-W cluster
+	FormSmbwClusterMaxContainerCount int
 	// Interval at which CSI secret with container ips will be updated
 	CsiLoginCredentialsUpdateInterval time.Duration
 	// Filesystem name for CSI storage class
@@ -299,6 +303,8 @@ func init() {
 	Consts.FormClusterMaxComputeContainers = 10
 	Consts.FormClusterMaxDriveContainers = 10
 	Consts.FormS3ClusterMaxContainerCount = 3
+	Consts.FormSmbwClusterMinContainerCount = 3
+	Consts.FormSmbwClusterMaxContainerCount = 8
 	Consts.CsiLoginCredentialsUpdateInterval = 1 * time.Minute
 	Consts.CsiFileSystemName = "default"
 	Consts.CsiLegacyDriverName = "csi.weka.io"

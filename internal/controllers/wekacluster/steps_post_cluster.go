@@ -146,6 +146,38 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run:             loop.EnsureNfsIpRanges,
 		},
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.ShouldDestroySmbwCluster,
+			},
+			Run: loop.DestroySmbwCluster,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasSmbwContainers,
+			},
+			State: &lifecycle.State{
+				Name: condition.CondSmbwClusterCreated,
+			},
+			Run: loop.EnsureSmbwCluster,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasSmbwContainers,
+				loop.ShouldJoinSmbwDomain,
+			},
+			State: &lifecycle.State{
+				Name: condition.CondSmbwDomainJoined,
+			},
+			Run: loop.JoinSmbwDomain,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasSmbwContainers,
+				loop.ShouldConfigureSmbwIpRanges,
+			},
+			Run: loop.EnsureSmbwIpRanges,
+		},
+		&lifecycle.SimpleStep{
 			ContinueOnError: true,
 			Run:             loop.EnsureTelemetry,
 			Throttling: &throttling.ThrottlingSettings{
