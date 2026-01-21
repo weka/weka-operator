@@ -57,6 +57,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
 		numCores = template.Cores.Nfs
 		extraCores = template.ExtraCores.Nfs
+	case "smbw":
+		additionalMemory = cluster.Spec.AdditionalMemory.Smbw
+		numCores = template.Cores.Smbw
+		extraCores = template.ExtraCores.Smbw
 	case "data-services":
 		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
 		numCores = template.Cores.DataServices

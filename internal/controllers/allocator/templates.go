@@ -17,6 +17,7 @@ type IntPerWekaRole struct {
 	S3           int
 	Envoy        int
 	Nfs          int
+	Smbw         int
 	DataServices int
 }
 
@@ -47,6 +48,7 @@ func GetWekaContainerNumbers(config *weka.WekaClusterTemplate) IntPerWekaRole {
 		Drive:        config.DriveContainers,
 		S3:           config.S3Containers,
 		Nfs:          config.NfsContainers,
+		Smbw:		  config.SmbwContainers,
 		DataServices: config.DataServicesContainers,
 	}
 
@@ -71,6 +73,7 @@ func GetWekaContainerCores(config *weka.WekaClusterTemplate) IntPerWekaRole {
 		Drive:        util.GetNonZeroOrDefault(config.DriveCores, 1),
 		S3:           util.GetNonZeroOrDefault(config.S3Cores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsCores, 1),
+		Smbw:		  util.GetNonZeroOrDefault(config.SmbwCores, 1),
 		DataServices: util.GetNonZeroOrDefault(config.DataServicesCores, 1),
 		Envoy:        util.GetNonZeroOrDefault(config.EnvoyCores, 1),
 	}
@@ -86,6 +89,7 @@ func GetWekaContainerExtraCores(config *weka.WekaClusterTemplate) IntPerWekaRole
 		Drive:        config.DriveExtraCores,
 		S3:           util.GetNonZeroOrDefault(config.S3ExtraCores, 1),
 		Nfs:          util.GetNonZeroOrDefault(config.NfsExtraCores, 1),
+		Smbw:		  util.GetNonZeroOrDefault(config.SmbwExtraCores, 1),
 		DataServices: config.DataServicesExtraCores,
 	}
 }
@@ -175,6 +179,15 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 		)
 		hp.HugepagesOffset = util.GetNonZeroOrDefault(
 			dynamicTemplate.NfsFrontendHugepagesOffset,
+			200,
+		)
+	case "smbw":
+		hp.Hugepages = util.GetNonZeroOrDefault(
+			dynamicTemplate.SmbwFrontendHugepages,
+			1400*template.Cores.Smbw,
+		)
+		hp.HugepagesOffset = util.GetNonZeroOrDefault(
+			dynamicTemplate.SmbwFrontendHugepagesOffset,
 			200,
 		)
 	case "data-services":

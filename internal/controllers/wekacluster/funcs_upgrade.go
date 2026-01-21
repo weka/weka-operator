@@ -651,6 +651,33 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return err
 		}
 
+	smbwContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeSmbw)
+	if err != nil {
+		return err
+	}
+
+	if len(smbwContainers) > 0 {
+		prepareForUpgrade = true
+		// if any smbw container changed version - do not prepare for smbw
+		for _, container := range smbwContainers {
+			if container.Status.LastAppliedImage == cluster.Spec.Image && container.Status.ClusterContainerID != nil {
+				prepareForUpgrade = false
+			}
+		}
+		if prepareForUpgrade {
+			err := r.prepareForUpgradeS3(ctx, smbwContainers, targetVersion)
+			if err != nil {
+				return err
+			}
+		}
+
+		uController = upgrade.NewUpgradeController(r.getClient(), smbwContainers, cluster.Spec.Image)
+		err = uController.RollingUpgrade(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 		err = r.finalizeUpgrade(ctx, driveContainers)
 		if err != nil {
 			return err

@@ -205,6 +205,36 @@ type NFSParams struct {
 	NotifyPort        int
 }
 
+type SmbwParams struct {
+	ClusterName  string
+	DomainName   string
+	ContainerIds []int
+
+	// Creation-time configuration flags
+	Symlink                    *bool
+	DomainNetbiosName          string
+	IdmapBackend               string
+	DefaultDomainMappingFromId *int
+	DefaultDomainMappingToId   *int
+	JoinedDomainMappingFromId  *int
+	JoinedDomainMappingToId    *int
+	Encryption                 string
+	ScaleOutMode               string
+	SmbConfExtra               string
+	IpPools                    []string
+	IpRanges                   []string
+}
+
+type SmbwUpdateParams struct {
+	Encryption string
+	IpPools    []string
+	IpRanges   []string
+}
+
+type SmbwCluster struct {
+	Active bool `json:"active"`
+}
+
 type NfsInterfaceGroupPort struct {
 	HostId  string `json:"host_id"`
 	HostUid string `json:"host_uid"`
@@ -331,6 +361,13 @@ type WekaService interface {
 	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
 	RemoveFromS3Cluster(ctx context.Context, containerId int) error
+	GetSmbwCluster(ctx context.Context) (*SmbwCluster, error)
+	CreateSmbwCluster(ctx context.Context, params SmbwParams) error
+	UpdateSmbwCluster(ctx context.Context, params SmbwUpdateParams) error
+	ListSmbwClusterContainers(ctx context.Context) ([]int, error)
+	DeleteSmbwCluster(ctx context.Context) error
+	JoinSmbwCluster(ctx context.Context, containerId int) error
+	RemoveFromSmbwCluster(ctx context.Context, containerId int) error
 	EnsureNfsInterfaceGroupPorts(ctx context.Context, interfaceGroupName string, containerId int, targetInterfaces []string) error
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
@@ -379,6 +416,10 @@ type FilesystemExists struct {
 }
 
 type S3ClusterExists struct {
+	error
+}
+
+type SmbwClusterExists struct {
 	error
 }
 
@@ -679,6 +720,248 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 		}
 		logger.Error(err, "Failed to remove from S3 cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) GetSmbwCluster(ctx context.Context) (*SmbwCluster, error) {
+	// weka smb cluster --json
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "--json",
+	}
+
+	var smbwCluster SmbwCluster
+	err := c.RunJsonCmd(ctx, cmd, "GetSmbwCluster", &smbwCluster)
+	if err != nil {
+		return nil, err
+	}
+	return &smbwCluster, nil
+}
+
+func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params SmbwParams) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	clusterName := params.ClusterName
+	if clusterName == "" {
+		clusterName = "default"
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "create",
+		clusterName,
+		params.DomainName,
+		".config_fs",
+		"--container-ids", commaSeparatedInts(params.ContainerIds),
+	}
+
+	// Add optional creation-time flags
+	if params.Symlink != nil {
+		cmd = append(cmd, "--symlink", boolToOnOff(*params.Symlink))
+	}
+	if params.DomainNetbiosName != "" {
+		cmd = append(cmd, "--domain-netbios-name", params.DomainNetbiosName)
+	}
+	if params.IdmapBackend != "" {
+		cmd = append(cmd, "--idmap-backend", params.IdmapBackend)
+	}
+	if params.DefaultDomainMappingFromId != nil {
+		cmd = append(cmd, "--default-domain-mapping-from-id", strconv.Itoa(*params.DefaultDomainMappingFromId))
+	}
+	if params.DefaultDomainMappingToId != nil {
+		cmd = append(cmd, "--default-domain-mapping-to-id", strconv.Itoa(*params.DefaultDomainMappingToId))
+	}
+	if params.JoinedDomainMappingFromId != nil {
+		cmd = append(cmd, "--joined-domain-mapping-from-id", strconv.Itoa(*params.JoinedDomainMappingFromId))
+	}
+	if params.JoinedDomainMappingToId != nil {
+		cmd = append(cmd, "--joined-domain-mapping-to-id", strconv.Itoa(*params.JoinedDomainMappingToId))
+	}
+	if params.Encryption != "" {
+		cmd = append(cmd, "--encryption", params.Encryption)
+	}
+	if params.ScaleOutMode != "" {
+		cmd = append(cmd, "--scale-out-mode", params.ScaleOutMode)
+	}
+	if params.SmbConfExtra != "" {
+		cmd = append(cmd, "--smb-conf-extra", params.SmbConfExtra)
+	}
+
+	// IP pools and ranges
+	for _, pool := range params.IpPools {
+		cmd = append(cmd, "--smb-ips-pool", pool)
+	}
+	for _, ipRange := range params.IpRanges {
+		cmd = append(cmd, "--smb-ips-range", ipRange)
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "CreateSmbwCluster", cmd)
+	if err != nil {
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "already configured") {
+			return &SmbwClusterExists{err}
+		}
+		logger.SetError(err, "Failed to create SMB-W cluster", "stderr", stderrStr)
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) UpdateSmbwCluster(ctx context.Context, params SmbwUpdateParams) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"weka", "smb", "cluster", "update",
+	}
+
+	// Add optional updateable flags
+	if params.Encryption != "" {
+		cmd = append(cmd, "--encryption", params.Encryption)
+	}
+
+	// IP pools and ranges
+	for _, pool := range params.IpPools {
+		cmd = append(cmd, "--smb-ips-pool", pool)
+	}
+	for _, ipRange := range params.IpRanges {
+		cmd = append(cmd, "--smb-ips-range", ipRange)
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "UpdateSmbwCluster", cmd)
+	if err != nil {
+		stderrStr := stderr.String()
+		logger.SetError(err, "Failed to update SMB-W cluster", "stderr", stderrStr)
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) ListSmbwClusterContainers(ctx context.Context) ([]int, error) {
+	// weka smb cluster --json
+	// Parse sambaHosts field from cluster info (containers list command removed in 5.1.x)
+	type smbClusterInfo struct {
+		SambaHosts []string `json:"sambaHosts"`
+	}
+	var clusterInfo smbClusterInfo
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "--json",
+	}
+	err := c.RunJsonCmd(ctx, cmd, "ListSmbwClusterContainers", &clusterInfo)
+	if err != nil {
+		err = fmt.Errorf("failed to list SMB-W cluster containers: %w", err)
+		return nil, err
+	}
+
+	containerIds := make([]int, 0, len(clusterInfo.SambaHosts))
+	for _, hostIdStr := range clusterInfo.SambaHosts {
+		id, err := resources.HostIdToContainerId(hostIdStr)
+		if err != nil {
+			return nil, err
+		}
+		containerIds = append(containerIds, id)
+	}
+	return containerIds, nil
+}
+
+func (c *CliWekaService) DeleteSmbwCluster(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "destroy", "-f",
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "DeleteSmbwCluster", cmd)
+	if err != nil {
+		logger.Error(err, "Failed to delete SMB-W cluster", "stderr", stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (c *CliWekaService) JoinSmbwCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "container", "add", "-f", "--container-ids", strconv.Itoa(containerId),
+	}
+
+	logger.SetValues("containerId", containerId)
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "JoinSmbwCluster", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "already part of the cluster") {
+			logger.Info("host already part of SMB-W cluster, skipping join")
+			return nil
+		}
+	}
+	if err != nil {
+		logger.SetError(err, "Failed to join SMB-W cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return fmt.Errorf("failed to join SMB-W cluster: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
+	}
+
+	logger.Info("Successfully joined SMB-W cluster")
+
+	return nil
+}
+
+func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	logger.SetValues("container_id", containerId)
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "container", "remove", "-f", "--container-ids", strconv.Itoa(containerId),
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "RemoveFromSmbwCluster", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "is not part of the cluster") {
+			logger.Warn("Container is not part of the SMB-W cluster", "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), fmt.Sprintf("error: Unrecognized host ID HostId<%d>", containerId)) {
+			logger.Warn("Container is not recognized by the SMB-W cluster", "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), "SMB cluster is not configured") {
+			logger.Error(err, "SMB-W cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
+			return fmt.Errorf("SMB-W cluster is not configured")
+		}
+		logger.Error(err, "Failed to remove from SMB-W cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return fmt.Errorf("failed to remove from SMB-W cluster: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
 	}
 
 	return nil
@@ -1071,6 +1354,14 @@ func commaSeparatedInts(ids []int) string {
 		strIds = append(strIds, strconv.Itoa(id))
 	}
 	return strings.Join(strIds, ",")
+}
+
+// boolToOnOff converts a boolean to "on" or "off" string for CLI commands
+func boolToOnOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // diffStringSlices returns elements in 'a' that are not in 'b'

@@ -72,6 +72,11 @@ func (r *wekaClusterReconcilerLoop) HandleGracefulDeletion(ctx context.Context) 
 		return err
 	}
 
+	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeSmbw)
+	if err != nil {
+		return err
+	}
+
 	err = r.ensureContainersPaused(ctx, "")
 	if err != nil {
 		return err
@@ -250,6 +255,14 @@ func (r *wekaClusterReconcilerLoop) finalizeWekaCluster(ctx context.Context) err
 	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeNfs)
 	if err != nil {
 		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeNfs)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
+
+		return err
+	}
+
+	err = clusterService.EnsureNoContainers(ctx, weka.WekaContainerModeSmbw)
+	if err != nil {
+		reason := fmt.Sprintf("EnsureNo%sContainersError", weka.WekaContainerModeSmbw)
 		_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Second*30)
 
 		return err

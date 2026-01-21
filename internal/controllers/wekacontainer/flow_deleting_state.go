@@ -119,6 +119,17 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsNfsContainer,
 			},
 		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name:   condition.CondRemovedFromSmbw,
+				Reason: "Deletion",
+			},
+			Run: r.RemoveFromSmbwCluster,
+			Predicates: lifecycle.Predicates{
+				r.ShouldDeactivate,
+				r.container.IsSmbwContainer,
+			},
+		},
 		//{
 		//  Condition:  condition.CondContainerDrivesDeactivated,
 		//  CondReason: "Deletion",
@@ -287,24 +298,29 @@ func (r *containerReconcilerLoop) RemoveFromS3Cluster(ctx context.Context) error
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	err := r.stopAndEnsureNoPod(ctx)
-	if err != nil {
-		return err
-	}
-
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
 		return nil
 	}
 
-	containers, err := r.getClusterContainers(ctx)
-	if err != nil {
-		return err
+	executeInContainer := r.container
+
+	if !NodeIsReady(r.node) || !CanExecInPod(r.pod) {
+		containers, err := r.getClusterContainers(ctx)
+		if err != nil {
+			return err
+		}
+		executeInContainer = discovery.SelectActiveContainer(containers)
 	}
-	executeInContainer := discovery.SelectActiveContainer(containers)
+
+	if executeInContainer == nil {
+		return errors.New("No active container found")
+	}
+
+	logger.Info("Removing container from S3 cluster", "container_id", *containerId)
 
 	wekaService := services.NewWekaService(r.ExecService, executeInContainer)
-	err = wekaService.RemoveFromS3Cluster(ctx, *containerId)
+	err := wekaService.RemoveFromS3Cluster(ctx, *containerId)
 	if err != nil {
 		// Don't fail if S3 cluster doesn't exist
 		if err.Error() == "s3 cluster is not configured" {
