@@ -205,6 +205,16 @@ type NFSParams struct {
 	NotifyPort        int
 }
 
+type SmbwParams struct {
+	ClusterName  string
+	DomainName   string
+	ContainerIds []int
+}
+
+type SmbwCluster struct {
+	Active bool `json:"active"`
+}
+
 type NfsInterfaceGroupPort struct {
 	HostId  string `json:"host_id"`
 	HostUid string `json:"host_uid"`
@@ -331,6 +341,13 @@ type WekaService interface {
 	DeleteS3Cluster(ctx context.Context) error
 	JoinS3Cluster(ctx context.Context, containerId int) error
 	RemoveFromS3Cluster(ctx context.Context, containerId int) error
+	GetSmbwCluster(ctx context.Context) (*SmbwCluster, error)
+	CreateSmbwCluster(ctx context.Context, params SmbwParams) error
+	ListSmbwClusterContainers(ctx context.Context) ([]int, error)
+	DeleteSmbwCluster(ctx context.Context) error
+	JoinSmbwCluster(ctx context.Context, containerId int) error
+	RemoveFromSmbwCluster(ctx context.Context, containerId int) error
+	EnsureSmbwIpRanges(ctx context.Context, targetIpRanges []string) error
 	EnsureNfsInterfaceGroupPorts(ctx context.Context, interfaceGroupName string, containerId int, targetInterfaces []string) error
 	GenerateJoinSecret(ctx context.Context) (string, error)
 	GetUsers(ctx context.Context) ([]WekaUserResponse, error)
@@ -378,6 +395,10 @@ type FilesystemExists struct {
 }
 
 type S3ClusterExists struct {
+	error
+}
+
+type SmbwClusterExists struct {
 	error
 }
 
@@ -680,6 +701,193 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 		return err
 	}
 
+	return nil
+}
+
+func (c *CliWekaService) GetSmbwCluster(ctx context.Context) (*SmbwCluster, error) {
+	// weka smb cluster --json
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "--json",
+	}
+
+	var smbwCluster SmbwCluster
+	err := c.RunJsonCmd(ctx, cmd, "GetSmbwCluster", &smbwCluster)
+	if err != nil {
+		return nil, err
+	}
+	return &smbwCluster, nil
+}
+
+func (c *CliWekaService) CreateSmbwCluster(ctx context.Context, params SmbwParams) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	clusterName := params.ClusterName
+	if clusterName == "" {
+		clusterName = "default"
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "create",
+		clusterName,
+		params.DomainName,
+		".config_fs",
+		"--container-ids", commaSeparatedInts(params.ContainerIds),
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "CreateSmbwCluster", cmd)
+	if err != nil {
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "already configured") {
+			return &SmbwClusterExists{err}
+		}
+		logger.SetError(err, "Failed to create SMB-W cluster", "stderr", stderrStr)
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) ListSmbwClusterContainers(ctx context.Context) ([]int, error) {
+	// weka smb cluster --json
+	// Parse sambaHosts field from cluster info (containers list command removed in 5.1.x)
+	type smbClusterInfo struct {
+		SambaHosts []string `json:"sambaHosts"`
+	}
+	var clusterInfo smbClusterInfo
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "--json",
+	}
+	err := c.RunJsonCmd(ctx, cmd, "ListSmbwClusterContainers", &clusterInfo)
+	if err != nil {
+		err = fmt.Errorf("failed to list SMB-W cluster containers: %w", err)
+		return nil, err
+	}
+
+	containerIds := make([]int, 0, len(clusterInfo.SambaHosts))
+	for _, hostIdStr := range clusterInfo.SambaHosts {
+		id, err := resources.HostIdToContainerId(hostIdStr)
+		if err != nil {
+			return nil, err
+		}
+		containerIds = append(containerIds, id)
+	}
+	return containerIds, nil
+}
+
+func (c *CliWekaService) DeleteSmbwCluster(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DeleteSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "destroy", "-f",
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "DeleteSmbwCluster", cmd)
+	if err != nil {
+		logger.Error(err, "Failed to delete SMB-W cluster", "stderr", stderr.String())
+		return err
+	}
+	return nil
+}
+
+func (c *CliWekaService) JoinSmbwCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "container", "add", "-f", "--container-ids", strconv.Itoa(containerId),
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "JoinSmbwCluster", cmd)
+	// Handle case where container is already part of the cluster
+	if err != nil && strings.Contains(stderr.String(), "already part of the SMB cluster") {
+		return nil
+	}
+	if err != nil {
+		logger.SetError(err, "Failed to join SMB-W cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return fmt.Errorf("failed to join SMB-W cluster: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) RemoveFromSmbwCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromSmbwCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "smb", "cluster", "container", "remove", "-f", "--container-ids", strconv.Itoa(containerId),
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "RemoveFromSmbwCluster", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "is not part of the SMB cluster") {
+			logger.Warn("Container is not part of the SMB-W cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), fmt.Sprintf("error: Unrecognized host ID HostId<%d>", containerId)) {
+			logger.Warn("Container is not recognized by the SMB-W cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), "SMB cluster is not configured") {
+			logger.Error(err, "SMB-W cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
+			return fmt.Errorf("SMB-W cluster is not configured")
+		}
+		logger.Error(err, "Failed to remove from SMB-W cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return fmt.Errorf("failed to remove from SMB-W cluster: %w, stderr: %s, stdout: %s", err, stderr.String(), stdout.String())
+	}
+
+	return nil
+}
+
+// EnsureSmbwIpRanges ensures the SMB-W cluster has the correct floating IP ranges configured.
+// It uses `weka smb cluster update --smb-ips-range` to set the IP ranges.
+func (c *CliWekaService) EnsureSmbwIpRanges(ctx context.Context, targetIpRanges []string) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureSmbwIpRanges")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	// Build the command with IP ranges
+	// weka smb cluster update --smb-ips-range <range1> --smb-ips-range <range2> ...
+	cmd := []string{"weka", "smb", "cluster", "update"}
+	for _, ipRange := range targetIpRanges {
+		cmd = append(cmd, "--smb-ips-range", ipRange)
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "UpdateSmbwIpRanges", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to update SMB-W IP ranges", "ipRanges", targetIpRanges, "stderr", stderr.String())
+		return errors.Wrapf(err, "failed to update SMB-W IP ranges: %s", stderr.String())
+	}
+
+	logger.Info("SMB-W IP ranges configured successfully", "ipRanges", targetIpRanges)
 	return nil
 }
 

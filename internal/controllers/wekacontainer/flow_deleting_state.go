@@ -119,6 +119,17 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsNfsContainer,
 			},
 		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name:   condition.CondRemovedFromSmbw,
+				Reason: "Deletion",
+			},
+			Run: r.RemoveFromSmbwCluster,
+			Predicates: lifecycle.Predicates{
+				r.ShouldDeactivate,
+				r.container.IsSmbwContainer,
+			},
+		},
 		//{
 		//  Condition:  condition.CondContainerDrivesDeactivated,
 		//  CondReason: "Deletion",

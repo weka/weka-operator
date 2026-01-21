@@ -348,7 +348,7 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 	// Check if telemetry exports are configured
 	hasTelemetryExports := cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0
 
-	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services"} {
+	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "smbw", "telemetry", "data-services"} {
 		var numContainers int
 
 		if clusterReady {
@@ -363,6 +363,8 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 				numContainers = template.S3Containers
 			case "nfs":
 				numContainers = template.NfsContainers
+			case "smbw":
+				numContainers = template.SmbwContainers
 			case "telemetry":
 				// Telemetry containers are created 1-per-compute container when telemetry exports are configured
 				if hasTelemetryExports {

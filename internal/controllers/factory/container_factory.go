@@ -49,6 +49,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.NfsCores
 		hugePagesNum = template.NfsFrontendHugepages
 		hugePagesOffset = template.NfsFrontendHugepagesOffset
+	case "smbw":
+		numCores = template.SmbwCores
+		hugePagesNum = template.SmbwFrontendHugepages
+		hugePagesOffset = template.SmbwFrontendHugepagesOffset
 	case "telemetry":
 		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
 		numCores = 0
@@ -89,6 +93,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "data-services":
 		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
 		extraCores = template.DataServicesExtraCores
+	case "smbw":
+		additionalMemory = cluster.Spec.AdditionalMemory.Smbw
+		extraCores = template.SmbwExtraCores
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 	}
