@@ -13,6 +13,7 @@ import (
 
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/drivers"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,15 +34,23 @@ import (
 const (
 	DefaultKernelLabelKey       = "weka.io/kernel"
 	DefaultArchitectureLabelKey = "weka.io/architecture"
+	DefaultOsLabelKey           = "weka.io/os"
 	PolicyNameLabelKey          = "weka.io/policy-name"
 	DriverDistServiceSuffix     = "-dist"
 	DriverDistContainerSuffix   = "-dist"
 	DriversBuilderSuffix        = "builder"
 )
 
+// sanitizeOsImageForLabel converts a string to a valid Kubernetes label value
+// by replacing spaces with dashes and removing invalid characters.
+func sanitizeOsImageForLabel(s string) string {
+	return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
+}
+
 type nodeAttributes struct {
 	kernelVersion string
 	architecture  string
+	osImage       string
 	nodeSelector  map[string]string // Stores the first nodeSelector from payload that matched this node's attributes
 }
 
@@ -63,7 +72,8 @@ func (na nodeAttributes) StringKey() string {
 	selectorStr := strings.Join(selectorParts, ",")
 
 	// Use a distinct separator for the main parts of the key
-	return fmt.Sprintf("kernel=%s|arch=%s|selector=%s", na.kernelVersion, na.architecture, selectorStr)
+	return fmt.Sprintf("kernel=%s|arch=%s|osImage=%s|selector=%s", na.kernelVersion, na.architecture,
+		sanitizeOsImageForLabel(na.osImage), selectorStr)
 }
 
 type EnsureDistServiceOperation struct {
@@ -150,6 +160,13 @@ func (o *EnsureDistServiceOperation) getArchLabelKey() string {
 	return DefaultArchitectureLabelKey
 }
 
+func (o *EnsureDistServiceOperation) getOsLabelKey() string {
+	if o.payload.OsLabelKey != nil && *o.payload.OsLabelKey != "" {
+		return *o.payload.OsLabelKey
+	}
+	return DefaultOsLabelKey
+}
+
 func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "DiscoverNodesAndLabel")
 	defer end()
@@ -158,6 +175,7 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 
 	kernelLabelKey := o.getKernelLabelKey()
 	archLabelKey := o.getArchLabelKey()
+	osLabelKey := o.getOsLabelKey()
 
 	type nodeProcessingInfo struct {
 		node         corev1.Node
@@ -208,6 +226,7 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 		attrs := nodeAttributes{
 			kernelVersion: node.Status.NodeInfo.KernelVersion,
 			architecture:  node.Status.NodeInfo.Architecture,
+			osImage:       node.Status.NodeInfo.OSImage,
 			nodeSelector:  item.nodeSelector, // Store the captured nodeSelector (could be nil)
 		}
 		o.mutex.Lock()
@@ -237,9 +256,18 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 			nodeToUpdate.Labels[archLabelKey] = attrs.architecture
 			updateNeeded = true
 		}
+		sanitizedOsImage := sanitizeOsImageForLabel(attrs.osImage)
+		if val, ok := nodeToUpdate.Labels[osLabelKey]; !ok || val != sanitizedOsImage {
+			if nodeToUpdate.Labels == nil {
+				nodeToUpdate.Labels = make(map[string]string)
+			}
+			nodeToUpdate.Labels[osLabelKey] = sanitizedOsImage
+			updateNeeded = true
+		}
 
 		if updateNeeded {
-			logger.Info("Updating labels on node", "node", node.Name, kernelLabelKey, attrs.kernelVersion, archLabelKey, attrs.architecture)
+			logger.Info("Updating labels on node", "node", node.Name, kernelLabelKey, attrs.kernelVersion,
+				archLabelKey, attrs.architecture, osLabelKey, attrs.osImage)
 			if err := o.client.Update(ctx, nodeToUpdate); err != nil {
 				logger.Error(err, "Failed to update labels on node", "node", node.Name)
 				return err
@@ -507,17 +535,18 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 
 	kernelLabelKey := o.getKernelLabelKey()
 	archLabelKey := o.getArchLabelKey()
+	osLabelKey := o.getOsLabelKey()
 
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			builderName := o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)
+			builderName := o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)
 			namespace := o.policy.GetNamespace()
 
 			wc := &weka.WekaContainer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      builderName,
 					Namespace: namespace,
-					Labels:    o.getBuilderContainerLabels(image, ka.kernelVersion, ka.architecture),
+					Labels:    o.getBuilderContainerLabels(image, ka.kernelVersion, ka.architecture, ka.osImage),
 				},
 			}
 
@@ -551,6 +580,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
 						builderNodeSelector[archLabelKey] = ka.architecture
 						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
+						builderNodeSelector[osLabelKey] = sanitizeOsImageForLabel(ka.osImage)
 						// 3. Ensure it runs on amd64 (overrides if kubernetes.io/arch was in ka.nodeSelector)
 						builderNodeSelector["kubernetes.io/arch"] = "amd64"
 						return builderNodeSelector
@@ -558,7 +588,7 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					// Instructions to tell the builder what kernel/arch to build for
 					Instructions: &weka.Instructions{
 						Type:    "build-drivers",
-						Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s"}`, ka.kernelVersion, ka.architecture),
+						Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
 					},
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
@@ -646,7 +676,7 @@ func (o *EnsureDistServiceOperation) PollBuilderContainersStatus(ctx context.Con
 	activeBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			activeBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
+			activeBuilders[o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
 		}
 	}
 
@@ -702,7 +732,7 @@ func (o *EnsureDistServiceOperation) CleanupOldBuilderContainers(ctx context.Con
 	currentBuilders := make(map[string]bool)
 	for image := range o.discoveredImages {
 		for _, ka := range o.targetKernelArchs {
-			currentBuilders[o.getBuilderContainerName(image, ka.kernelVersion, ka.architecture)] = true
+			currentBuilders[o.getBuilderContainerName(ctx, image, ka.kernelVersion, ka.architecture, ka.osImage)] = true
 		}
 	}
 
@@ -748,16 +778,17 @@ func (o *EnsureDistServiceOperation) getDistContainerLabels() map[string]string 
 	return labels
 }
 
-func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, arch string) map[string]string {
+func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, arch, osImage string) map[string]string {
 	labels := o.getCommonLabels()
 	labels["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
 	labels["weka.io/target-image-hash"] = hashFNV(image) // To avoid overly long label values
 	labels["weka.io/target-kernel"] = strings.ReplaceAll(kernel, ".", "-")
 	labels["weka.io/target-arch"] = arch
+	labels["weka.io/target-os"] = sanitizeOsImageForLabel(osImage)
 	return labels
 }
 
-func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch string) string {
+func (o *EnsureDistServiceOperation) getOldBuilderContainerName(image, kernel, arch string) string {
 	// Name must be DNS-1123 compliant
 	imgHash := hashFNV(image)
 	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
@@ -774,6 +805,61 @@ func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch
 	}
 
 	name := fmt.Sprintf("%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgHash, arch, kernelNorm)
+
+	// Truncate if the name is too long.
+	if len(name) > 63 {
+		name = name[:63]
+	}
+
+	// After potential truncation or if the original construction ended with a hyphen,
+	// ensure the name does not end with a hyphen.
+	// DriverBuilderPrefix ensures the name won't be empty or start with a hyphen.
+	name = strings.TrimRight(name, "-")
+
+	return name
+}
+
+func (o *EnsureDistServiceOperation) getBuilderContainerName(ctx context.Context, image, kernel, arch,
+	osImage string) string {
+	oldBuilderName := o.getOldBuilderContainerName(image, kernel, arch)
+	namespace := o.policy.GetNamespace()
+
+	wc := &weka.WekaContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      oldBuilderName,
+			Namespace: namespace,
+		},
+	}
+
+	err := o.client.Get(
+		ctx,
+		client.ObjectKey{
+			Namespace: namespace,
+			Name:      oldBuilderName,
+		},
+		wc,
+	)
+
+	if err == nil {
+		return oldBuilderName
+	}
+	// Name must be DNS-1123 compliant
+	imgArchHash := hashFNV(image + arch)
+	normalizedOs := drivers.NormalizeOSImageName(osImage)
+	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
+	kernelNorm = strings.ReplaceAll(kernelNorm, "_", "-") // Further sanitize kernel
+
+	// Remove any leading or trailing hyphens from kernelNorm itself.
+	// This prevents kernelNorm from causing the full name to end with a hyphen.
+	kernelNorm = strings.Trim(kernelNorm, "-")
+
+	// If kernelNorm became empty (e.g., kernel was originally "-" or ".-."),
+	// use a placeholder to ensure the final segment of the name is valid.
+	if kernelNorm == "" {
+		kernelNorm = "unknownkernel"
+	}
+
+	name := fmt.Sprintf("%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgArchHash, normalizedOs, kernelNorm)
 
 	// Truncate if the name is too long.
 	if len(name) > 63 {
