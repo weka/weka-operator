@@ -137,11 +137,17 @@ func (r *wekaClusterReconcilerLoop) ensureManagementProxyPortAllocated(ctx conte
 		return nil
 	}
 
+	// Get feature flags for port configuration
+	featureFlags, err := r.GetFeatureFlags(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get feature flags: %w", err)
+	}
+
 	// Use the allocator interface which handles concurrency safely with optimistic locking
 	resourcesAllocator := allocator.GetAllocator(r.getClient())
 
 	// Allocate the port using the allocator interface
-	err := resourcesAllocator.EnsureManagementProxyPort(ctx, r.cluster)
+	err = resourcesAllocator.EnsureManagementProxyPort(ctx, r.cluster, featureFlags)
 	if err != nil {
 		return err
 	}

@@ -68,10 +68,9 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	}
 
 	// Aggregate existing allocations from all containers on this node
-	allocatedDrives, allocatedPorts, err := a.aggregateNodeAllocations(ctx, containers)
-	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate node allocations: %w", err)
-	}
+	allocatedDrives := a.aggregateNodeDrivesAllocations(ctx, containers)
+	// Use feature flags to determine ports-per-container for correct aggregation
+	allocatedPortRanges := a.aggregateNodePortsAllocations(ctx, containers, req.FeatureFlags)
 
 	result := &AllocationResult{}
 
@@ -100,7 +99,7 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	}
 
 	// Allocate port ranges based on request flags and feature flags
-	wekaPort, agentPort, err := a.allocatePortRangesFromStatus(ctx, req.Cluster, req.FeatureFlags, allocatedPorts, req.AllocateWeka, req.AllocateAgent)
+	wekaPort, agentPort, err := a.allocatePortRangesFromStatus(ctx, req.Cluster, req.FeatureFlags, allocatedPortRanges, req.AllocateWeka, req.AllocateAgent)
 	if err != nil {
 		return nil, &PortAllocationError{Cause: err}
 	}
@@ -116,17 +115,15 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	return result, nil
 }
 
-// aggregateNodeAllocations reads all WekaContainer Status objects on a node
-// and returns maps of allocated drives and ports across all namespaces
-// (drives and ports are node-level resources, not namespace-level)
-func (a *ContainerResourceAllocator) aggregateNodeAllocations(ctx context.Context, containers []weka.WekaContainer) (map[string]bool, map[int]bool, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodeAllocations")
+// aggregateNodeDrivesAllocations reads all WekaContainer Status objects on a node
+// and returns a map of allocated drives across all namespaces.
+// Drives are node-level resources, not namespace-level.
+func (a *ContainerResourceAllocator) aggregateNodeDrivesAllocations(ctx context.Context, containers []weka.WekaContainer) map[string]bool {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodeDrivesAllocations")
 	defer end()
 
 	allocatedDrives := make(map[string]bool)
-	allocatedPorts := make(map[int]bool)
 
-	// Aggregate allocations from all containers
 	for _, container := range containers {
 		if container.Status.Allocations == nil {
 			continue
@@ -141,28 +138,34 @@ func (a *ContainerResourceAllocator) aggregateNodeAllocations(ctx context.Contex
 		for _, vd := range container.Status.Allocations.VirtualDrives {
 			allocatedDrives[vd.PhysicalUUID] = true
 		}
-
-		// Aggregate port allocations
-		if container.Status.Allocations.WekaPort > 0 {
-			// WekaPort uses 100 consecutive ports
-			for i := 0; i < WekaPortRangeSize; i++ {
-				port := container.Status.Allocations.WekaPort + i
-				allocatedPorts[port] = true
-			}
-		}
-
-		if container.Status.Allocations.AgentPort > 0 {
-			allocatedPorts[container.Status.Allocations.AgentPort] = true
-		}
 	}
 
-	logger.Info("Aggregated allocations from container status",
+	logger.Info("Aggregated drive allocations from container status",
 		"containers", len(containers),
 		"allocatedDrives", len(allocatedDrives),
-		"allocatedPorts", len(allocatedPorts),
 	)
 
-	return allocatedDrives, allocatedPorts, nil
+	return allocatedDrives
+}
+
+// aggregateNodePortsAllocations reads all WekaContainer Status objects on a node
+// and returns allocated port ranges across all namespaces.
+// Ports are node-level resources, not namespace-level.
+// flags is used to determine the correct ports-per-container (60 for reduced mode, 100 otherwise).
+func (a *ContainerResourceAllocator) aggregateNodePortsAllocations(ctx context.Context, containers []weka.WekaContainer, flags *domain.FeatureFlags) []Range {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "aggregateNodePortsAllocations")
+	defer end()
+
+	portsPerContainer := GetPortsPerContainerFromFlags(flags)
+	allocatedRanges := AggregatePortRangesFromContainers(containers, portsPerContainer)
+
+	logger.Info("Aggregated port allocations from container status",
+		"containers", len(containers),
+		"allocatedRanges", len(allocatedRanges),
+		"portsPerContainer", portsPerContainer,
+	)
+
+	return allocatedRanges
 }
 
 // getAvailableDrivesFromStatus returns drives that are available for allocation on a node
@@ -196,9 +199,10 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 // allocatePortRangesFromStatus allocates weka and agent port ranges from the cluster's port range
 // using aggregated allocations from container Status
 // featureFlags: feature flags for the container's image (determines ports per container)
+// allocatedRanges: pre-aggregated port ranges from other containers on this node
 // allocateWeka: if true, allocate weka port (60 or 100 ports based on feature flags)
 // allocateAgent: if true, allocate agent port (1 port)
-func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedPorts map[int]bool, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
+func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedRanges []Range, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
 	defer end()
 
@@ -214,35 +218,12 @@ func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Co
 
 	logger.Debug("Cluster port range", "base", clusterRange.Base, "size", clusterRange.Size)
 
-	// Build list of allocated ranges from allocatedPorts map and singleton ports from cluster Status
-	// This prevents container ports from conflicting with LB/S3/LbAdmin/ManagementProxy ports
-	allocatedRanges := []Range{}
-
-	// Convert allocated ports map to ranges (group consecutive ports)
-	portList := make([]int, 0, len(allocatedPorts))
-	for port := range allocatedPorts {
-		portList = append(portList, port)
-	}
-	slices.Sort(portList)
-
-	// Group consecutive ports into ranges
-	for i := 0; i < len(portList); {
-		start := portList[i]
-		end := start
-		// Find consecutive sequence
-		for i+1 < len(portList) && portList[i+1] == portList[i]+1 {
-			i++
-			end = portList[i]
-		}
-		allocatedRanges = append(allocatedRanges, Range{Base: start, Size: end - start + 1})
-		i++
-	}
-
 	// Add global singleton ports (LB, S3, LbAdmin, ManagementProxy) to exclusion list
+	// This prevents container ports from conflicting with cluster-level ports
 	allocatedRanges = append(allocatedRanges, GetClusterGlobalAllocatedRanges(cluster)...)
 
 	// Get port configuration from feature flags for the container's image
-	portsPerContainer := getPortsPerContainerFromFlags(featureFlags)
+	portsPerContainer := GetPortsPerContainerFromFlags(featureFlags)
 	singlePortsOffset := getSinglePortsOffsetFromFlags(featureFlags)
 
 	// Allocate weka port if requested (portsPerContainer ports from cluster base)
@@ -333,11 +314,8 @@ func (a *ContainerResourceAllocator) reallocateRegularDrives(ctx context.Context
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "reallocateRegularDrives")
 	defer end()
 
-	// Aggregate existing allocations from all containers on this node
-	allocatedDrives, _, err := a.aggregateNodeAllocations(ctx, containers)
-	if err != nil {
-		return nil, fmt.Errorf("failed to aggregate node allocations: %w", err)
-	}
+	// Aggregate existing drive allocations from all containers on this node
+	allocatedDrives := a.aggregateNodeDrivesAllocations(ctx, containers)
 
 	// Remove this container's current drives from allocated set (they will be freed)
 	for _, drive := range req.Container.Status.Allocations.Drives {
