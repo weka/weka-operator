@@ -2,6 +2,7 @@ package wekacontainer
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -48,10 +49,11 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	nodeInfo := &discovery.DiscoveryNodeInfo{}
 	var err error
+	var nodeAffinity weka.NodeName
 
 	if !container.IsDiscoveryContainer() {
 		// nodeName can be already set in the spec
-		nodeAffinity := container.GetNodeAffinity()
+		nodeAffinity = container.GetNodeAffinity()
 
 		if nodeAffinity == "" {
 			node, err := r.pickMatchingNode(ctx)
@@ -97,6 +99,15 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}
 
+	// For drivers-builder containers, determine the builder image based on the target node's OS
+	if container.IsDriversBuilder() {
+		err = r.adjustBuilderPod(ctx, desiredPod, nodeAffinity)
+		if err != nil {
+			return err
+		}
+		//logger.Info("Determined builder image for drivers-builder", "osImage", node.Status.NodeInfo.OSImage, "builderImage", image)
+	}
+
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
 		return errors.Wrapf(err, "Error setting controller reference")
 	}
@@ -108,6 +119,28 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	err = r.refreshPod(ctx)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// adjustBuilderPod modifies the pod spec before creation (e.g., image overrides, init containers).
+func (r *containerReconcilerLoop) adjustBuilderPod(ctx context.Context, pod *v1.Pod,
+	nodeAffinity weka.NodeName) error {
+	node := &v1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
+		return errors.Wrap(err, "failed to get target node for drivers-builder")
+	}
+	osImage := node.Status.NodeInfo.OSImage
+
+	switch {
+	case strings.Contains(osImage, "Ubuntu 24.04"):
+		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+		resources.CopyWekaCliToMainContainer(pod)
+		//addInitContainer(pod, "copy-cli", config.Config.DefaultCliContainer, []string{})
+	case strings.Contains(osImage, "Ubuntu 22.04"):
+		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+	default:
 	}
 
 	return nil

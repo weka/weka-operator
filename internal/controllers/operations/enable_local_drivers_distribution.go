@@ -586,9 +586,16 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 						return builderNodeSelector
 					}(),
 					// Instructions to tell the builder what kernel/arch to build for
+					//Instructions: &weka.Instructions{
+					//	Type:    "build-drivers",
+					//	Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
+					//},
+					Overrides: &weka.WekaContainerSpecOverrides{
+						DebugSleepOnTerminate: 3600,
+					},
 					Instructions: &weka.Instructions{
-						Type:    "build-drivers",
-						Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
+						Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+						Payload: image,
 					},
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
@@ -606,6 +613,9 @@ else
     echo "Kernel version mismatch: Expected $TARGET_KERNEL_VERSION_FROM_PAYLOAD, got $ACTUAL_KERNEL_VERSION" >&2
     exit 1
 fi
+
+cp -r /shared-weka-version-data/* /opt/weka
+cp /opt/weka/dist/cli/current /usr/bin/weka
 `, ka.kernelVersion)
 
 				finalPreRunScript := kernelValidationScript
