@@ -17,7 +17,6 @@ import (
 const (
 	DefaultPortsPerContainer = 100
 	ReducedPortsPerContainer = 60
-	WekaPortRangeSize        = 100 // Used for aggregating container port claims
 	// Cluster port range: container ports + headroom for single-port allocations
 	DefaultClusterPortRange = 500 // 100 * 5 containers
 	ReducedClusterPortRange = 260 // 60 * 4 containers + 20 for single-port allocations
@@ -26,9 +25,9 @@ const (
 	ReducedSinglePortsOffset = 240 // After 4 containers worth of ports (60*4), leaving 20 for single ports
 )
 
-// getPortsPerContainerFromFlags returns the number of ports per container based on feature flags.
+// GetPortsPerContainerFromFlags returns the number of ports per container based on feature flags.
 // Returns 60 if agent_validate_60_ports_per_container is set, otherwise returns 100.
-func getPortsPerContainerFromFlags(flags *domain.FeatureFlags) int {
+func GetPortsPerContainerFromFlags(flags *domain.FeatureFlags) int {
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
 		return ReducedPortsPerContainer
 	}
@@ -54,14 +53,44 @@ func getSinglePortsOffsetFromFlags(flags *domain.FeatureFlags) int {
 	return DefaultSinglePortsOffset
 }
 
-// derivePortConfigFromClusterRange derives port configuration from the cluster's
-// already-allocated port range size. This ensures container allocation is consistent
-// with the cluster's allocation decision, without needing to re-fetch feature flags.
-func derivePortConfigFromClusterRange(clusterPortRange int) (portsPerContainer int, singlePortsOffset int) {
-	if clusterPortRange == ReducedClusterPortRange {
+// getPortConfigFromFlags returns port configuration based on feature flags.
+// Returns (60, 240) if agent_validate_60_ports_per_container is set, otherwise (100, 300).
+func getPortConfigFromFlags(flags *domain.FeatureFlags) (portsPerContainer int, singlePortsOffset int) {
+	if flags != nil && flags.AgentValidate60PortsPerContainer {
 		return ReducedPortsPerContainer, ReducedSinglePortsOffset
 	}
 	return DefaultPortsPerContainer, DefaultSinglePortsOffset
+}
+
+// AggregatePortRangesFromContainers extracts port allocations from a list of containers.
+// Returns a slice of Range representing WekaPort ranges and AgentPorts.
+// portsPerContainer determines the size of each WekaPort range (60 or 100).
+func AggregatePortRangesFromContainers(containers []weka.WekaContainer, portsPerContainer int) []Range {
+	var ranges []Range
+
+	for _, container := range containers {
+		if container.Status.Allocations == nil {
+			continue
+		}
+
+		// Add WekaPort range (portsPerContainer consecutive ports)
+		if container.Status.Allocations.WekaPort > 0 {
+			ranges = append(ranges, Range{
+				Base: container.Status.Allocations.WekaPort,
+				Size: portsPerContainer,
+			})
+		}
+
+		// Add AgentPort (single port)
+		if container.Status.Allocations.AgentPort > 0 {
+			ranges = append(ranges, Range{
+				Base: container.Status.Allocations.AgentPort,
+				Size: 1,
+			})
+		}
+	}
+
+	return ranges
 }
 
 type AllocateClusterRangeError struct {
@@ -76,7 +105,9 @@ type Allocator interface {
 	// AllocateClusterRange allocates cluster-level port ranges.
 	// featureFlags is used to determine default port range size if not specified in cluster spec.
 	AllocateClusterRange(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags) error
-	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error
+	// EnsureManagementProxyPort allocates the management proxy port for the cluster.
+	// featureFlags is used to determine the single ports offset.
+	EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags) error
 }
 
 type AllocatorNodeInfo struct {
@@ -90,15 +121,15 @@ type ResourcesAllocator struct {
 	client client.Client
 }
 
-func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster) error {
+func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags) error {
 	// Aggregate container port allocations to avoid conflicts
-	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx)
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, featureFlags)
 	if err != nil {
 		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}
 
-	// Derive offset from cluster's already-allocated port range
-	_, singlePortsOffset := derivePortConfigFromClusterRange(cluster.Status.Ports.PortRange)
+	// Get offset from feature flags
+	_, singlePortsOffset := getPortConfigFromFlags(featureFlags)
 
 	// Allocate management proxy port (EnsureGlobalRangeWithOffset handles idempotency)
 	managementProxyPortRange, err := EnsureGlobalRangeWithOffset(cluster, "managementProxy", 1, singlePortsOffset, nodePortClaims)
@@ -115,7 +146,8 @@ func (t *ResourcesAllocator) EnsureManagementProxyPort(ctx context.Context, clus
 // AggregateContainerPortAllocations aggregates all per-container port allocations from WekaContainer Status
 // across all nodes. This is used to ensure port allocations don't conflict with existing
 // container allocations.
-func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Context) ([]Range, error) {
+// featureFlags is used to determine the correct ports-per-container (60 or 100).
+func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Context, featureFlags *domain.FeatureFlags) ([]Range, error) {
 	// List all nodes
 	nodeList := &v1.NodeList{}
 	err := t.client.List(ctx, nodeList)
@@ -123,8 +155,10 @@ func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Conte
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
-	aggregatedRanges := []Range{}
 	kubeService := kubernetes.NewKubeService(t.client)
+	portsPerContainer := GetPortsPerContainerFromFlags(featureFlags)
+
+	var aggregatedRanges []Range
 
 	// Aggregate port allocations from all containers on each node
 	for _, node := range nodeList.Items {
@@ -133,27 +167,7 @@ func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Conte
 			continue
 		}
 
-		for _, container := range containers {
-			if container.Status.Allocations == nil {
-				continue
-			}
-
-			// Add WekaPort range (100 consecutive ports)
-			if container.Status.Allocations.WekaPort > 0 {
-				aggregatedRanges = append(aggregatedRanges, Range{
-					Base: container.Status.Allocations.WekaPort,
-					Size: WekaPortRangeSize,
-				})
-			}
-
-			// Add AgentPort (single port)
-			if container.Status.Allocations.AgentPort > 0 {
-				aggregatedRanges = append(aggregatedRanges, Range{
-					Base: container.Status.Allocations.AgentPort,
-					Size: 1,
-				})
-			}
-		}
+		aggregatedRanges = append(aggregatedRanges, AggregatePortRangesFromContainers(containers, portsPerContainer)...)
 	}
 
 	return aggregatedRanges, nil
@@ -230,7 +244,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	cluster.Status.Ports.PortRange = targetSize
 
 	// Aggregate per-container port claims to prevent conflicts with singleton ports
-	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx)
+	nodePortClaims, err := t.AggregateContainerPortAllocations(ctx, featureFlags)
 	if err != nil {
 		return fmt.Errorf("failed to aggregate container port allocations: %w", err)
 	}

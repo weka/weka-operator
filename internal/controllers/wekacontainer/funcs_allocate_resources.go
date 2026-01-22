@@ -189,10 +189,11 @@ func (r *containerReconcilerLoop) doAllocateResourcesWithLease(ctx context.Conte
 		driveCount = len(allocatedVirtualDrives)
 	}
 
+	portsPerContainer := allocator.GetPortsPerContainerFromFlags(featureFlags)
 	if wekaPort > 0 && agentPort > 0 {
-		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d, agent port %d", driveCount, wekaPort, wekaPort+allocator.WekaPortRangeSize-1, agentPort)
+		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d, agent port %d", driveCount, wekaPort, wekaPort+portsPerContainer-1, agentPort)
 	} else if wekaPort > 0 {
-		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d", driveCount, wekaPort, wekaPort+allocator.WekaPortRangeSize-1)
+		allocMsg = fmt.Sprintf("Allocated %d drives, weka ports %d-%d", driveCount, wekaPort, wekaPort+portsPerContainer-1)
 	} else if agentPort > 0 {
 		allocMsg = fmt.Sprintf("Allocated %d drives, agent port %d", driveCount, agentPort)
 	} else {
