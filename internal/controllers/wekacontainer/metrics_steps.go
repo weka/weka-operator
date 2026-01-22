@@ -161,7 +161,9 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	r.container.Status.Stats.Processes.Desired = weka.IntMetric(int64(r.container.Spec.NumCores) + 1)
 	if r.container.IsDriveContainer() {
 		if r.container.HasContainerCapacity() {
-			r.container.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(int64(r.container.Spec.NumCores))
+			if r.container.Status.Allocations != nil {
+				r.container.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(len(r.container.Status.Allocations.VirtualDrives))
+			}
 		} else {
 			r.container.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(int64(r.container.Spec.NumDrives))
 		}
