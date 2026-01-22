@@ -212,7 +212,15 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	}
 
 	if template.ContainerCapacity > 0 {
-		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.DriveCores)
+		desiredDrives := 0
+		for i := range containers {
+			container := containers[i]
+			if container.Spec.Mode == weka.WekaContainerModeDrive && container.Status.Allocations != nil {
+				desiredDrives += len(container.Status.Allocations.VirtualDrives)
+			}
+		}
+
+		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
 	} else {
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.NumDrives)
 	}
