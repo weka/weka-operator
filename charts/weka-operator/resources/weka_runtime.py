@@ -2348,7 +2348,7 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs"]:
+    if MODE not in ["compute", "drive", "client", "s3", "nfs", "smbw"]:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -2362,6 +2362,8 @@ async def create_container():
     elif MODE == "s3":
         mode_part = "--only-frontend-cores"
     elif MODE == "nfs":
+        mode_part = "--only-frontend-cores"
+    elif MODE == "smbw":
         mode_part = "--only-frontend-cores"
 
     core_str = ",".join(map(str, full_cores))
@@ -2656,7 +2658,7 @@ async def ensure_weka_container():
     # TODO: unite with above block as single getter
     resources = await get_weka_local_resources()
 
-    if MODE in ["s3", "nfs"]:
+    if MODE in ["s3", "nfs", "smbw"]:
         resources['allow_protocols'] = True
     resources['reserve_1g_hugepages'] = False
     resources['excluded_drivers'] = ["igb_uio"]
@@ -3525,7 +3527,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'smbw', 'envoy', 'client', 'telemetry']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -3717,7 +3719,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client']:
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'smbw', 'client']:
         return
 
     ipAddresses = []
@@ -4381,7 +4383,7 @@ async def shutdown():
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
     if MODE not in ["drivers-loader", "discovery", "ensure-nics"]:
-        if MODE in ["client", "s3", "nfs", "drive", "compute"]:
+        if MODE in ["client", "s3", "nfs", "smbw", "drive", "compute"]:
             await wait_for_shutdown_instruction()
 
         force_stop = False
@@ -4389,7 +4391,7 @@ async def shutdown():
             force_stop = True
         if is_wrong_generation():
             force_stop = True
-        if MODE not in ["s3", "drive", "compute", "nfs"]:
+        if MODE not in ["s3", "drive", "compute", "nfs", "smbw"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
 
