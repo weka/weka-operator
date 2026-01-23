@@ -15,17 +15,39 @@ func (e *InsufficientDrivesError) Error() string {
 
 // InsufficientDriveCapacityError is returned when there is not enough drive capacity available
 type InsufficientDriveCapacityError struct {
-	NeededGiB    int
-	UsableGiB    int // Only drives with available >= MinChunkSizeGiB
-	AvailableGiB int // Total available (for context)
-	Type         string
+	NeededGiB                  int
+	UsableGiB                  int   // Only drives with available >= MinChunkSizeGiB
+	AvailableGiB               int   // Total available (for context)
+	PhysicalDriveCapacitiesGiB []int // Available capacity on each physical drive
+	MaxVirtualDrives           int   // Maximum number of virtual drives allowed
+	Type                       string
 }
 
 func (e *InsufficientDriveCapacityError) Error() string {
-	s := fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB usable (%d GiB total)", e.NeededGiB, e.UsableGiB, e.AvailableGiB)
+	var s string
+
+	if e.UsableGiB >= e.NeededGiB {
+		// Enough total capacity, but fragmented across drives
+		s = fmt.Sprintf("Cannot allocate %d GiB: each virtual drive must fit entirely on a single physical drive", e.NeededGiB)
+	} else {
+		// Truly insufficient capacity
+		s = fmt.Sprintf("not enough drive capacity available: need %d GiB, have %d GiB usable (%d GiB total)", e.NeededGiB, e.UsableGiB, e.AvailableGiB)
+	}
+
 	if e.Type != "" {
 		s += fmt.Sprintf(" for drive type %s", e.Type)
 	}
+
+	// Show physical drive capacities
+	if len(e.PhysicalDriveCapacitiesGiB) > 0 {
+		s += fmt.Sprintf(". Physical drives available: %v GiB", e.PhysicalDriveCapacitiesGiB)
+	}
+
+	// Show constraint
+	if e.MaxVirtualDrives > 0 {
+		s += fmt.Sprintf(". Max virtual drives allowed: %d", e.MaxVirtualDrives)
+	}
+
 	return s
 }
 
