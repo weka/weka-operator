@@ -1,0 +1,19 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: "{{ .Values.prefix }}-webhook-certgen"
+  labels:
+    app.kubernetes.io/component: webhook-certgen
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/part-of: weka-operator
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - get
+      - update
+      - patch
+{{- end }}

@@ -1,0 +1,39 @@
+{{- if .Values.webhook.enabled }}
+{{- $serviceName := printf "%s-webhook-service" .Values.prefix }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: "{{ .Values.prefix }}-validating-webhook-configuration"
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/part-of: weka-operator
+webhooks:
+  - name: vwekacluster.weka.io
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: "{{ $serviceName }}"
+        namespace: {{ .Release.Namespace }}
+        path: /validate-weka-weka-io-v1alpha1-wekacluster
+        port: 443
+      # caBundle is injected by the webhook-certgen patch job
+      caBundle: ""
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    rules:
+      - apiGroups:
+          - weka.weka.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - wekaclusters
+        scope: Namespaced
+    sideEffects: None
+    timeoutSeconds: 10
+{{- end }}

@@ -62,3 +62,4 @@ test_artifacts/
 .env*
 manager
 .temp
+versions

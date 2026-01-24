@@ -305,6 +305,51 @@ priorityClasses:
     initial: 900000000
     targeted: 1000000000
 
+# Admission webhook configuration for validating WekaCluster resources
+webhook:
+  # Enable admission webhook for WekaCluster validation
+  enabled: true
+  # Port for the webhook server
+  port: 9443
+  # Directory where webhook certificates are mounted
+  certDir: "/tmp/k8s-webhook-server/serving-certs"
+  # Certificate generation using kube-webhook-certgen jobs
+  # The operator creates and manages the certgen jobs at startup
+  certgen:
+    # Timeout for certgen jobs to complete
+    jobTimeout: "2m"
+    image:
+      registry: registry.k8s.io
+      repository: ingress-nginx/kube-webhook-certgen
+      tag: v1.6.5
+      pullPolicy: IfNotPresent
+    # Security context for the certgen container
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      seccompProfile:
+        type: RuntimeDefault
+    # Pod security context for the certgen job pods
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      fsGroup: 65534
+    # Resources for the certgen jobs
+    resources: {}
+    # Node selector for certgen jobs
+    nodeSelector: {}
+    # Tolerations for certgen jobs
+    tolerations: []
+    # Affinity for certgen jobs
+    affinity: {}
+    # TTL for completed jobs (optional, in seconds)
+    # ttlSecondsAfterFinished: 60
+
 csi:
   installationEnabled: false
   storageClassCreationDisabled: false

@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers"
@@ -52,6 +53,8 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/wekacluster"
 	"github.com/weka/weka-operator/internal/controllers/wekacontainer"
 	"github.com/weka/weka-operator/internal/node_agent"
+	"github.com/weka/weka-operator/internal/webhookcertgen"
+	"github.com/weka/weka-operator/internal/webhooks"
 )
 
 var scheme = runtime.NewScheme()
@@ -152,7 +155,19 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 	probeAddr := config.Config.BindAddress.HealthProbe
 	enableLeaderElection := config.Config.EnableLeaderElection
 	enableClusterApi := config.Config.EnableClusterApi
-	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi)
+	webhookEnabled := config.Config.Webhook.Enabled
+	logger.Info("flags", "metricsAddr", metricsAddr, "probeAddr", probeAddr, "enableLeaderElection", enableLeaderElection, "enableClusterApi", enableClusterApi, "webhookEnabled", webhookEnabled)
+
+	// Configure webhook server options
+	var webhookServer webhook.Server
+	if webhookEnabled {
+		webhookServer = webhook.NewServer(webhook.Options{
+			Port:     config.Config.Webhook.Port,
+			CertDir:  config.Config.Webhook.CertDir,
+			CertName: config.Config.Webhook.CertName,
+			KeyName:  config.Config.Webhook.KeyName,
+		})
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -165,6 +180,7 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 			KeyName:        "",
 			TLSOpts:        nil,
 		},
+		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ad0b5146.weka.io",
@@ -249,6 +265,39 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		}
 	}()
 
+	// Ensure webhook certificates exist before starting the webhook server
+	// This creates certs via jobs (if needed) and writes them to the local filesystem
+	if webhookEnabled {
+		jobTimeout, err := time.ParseDuration(config.Config.WebhookCertgen.JobTimeout)
+		if err != nil {
+			jobTimeout = 2 * time.Minute
+		}
+
+		prefix := config.Config.OperatorDeploymentName[:len(config.Config.OperatorDeploymentName)-len("-controller-manager")]
+		certgenConfig := webhookcertgen.CertgenConfig{
+			Prefix:             prefix,
+			Namespace:          config.Config.OperatorPodNamespace,
+			ServiceAccountName: prefix + "-webhook-certgen",
+			Image:              config.Config.WebhookCertgen.Image,
+			ImagePullPolicy:    corev1.PullPolicy(config.Config.WebhookCertgen.ImagePullPolicy),
+			JobTimeout:         jobTimeout,
+			CertDir:            config.Config.Webhook.CertDir,
+		}
+
+		// Create a non-cached client for certgen since the manager cache hasn't started yet
+		certgenClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: scheme})
+		if err != nil {
+			logger.Error(err, "Failed to create client for webhook certgen")
+			os.Exit(1)
+		}
+
+		certgenManager := webhookcertgen.NewCertgenManager(certgenClient, certgenConfig, logger)
+		if err := certgenManager.EnsureWebhookCertificates(ctx); err != nil {
+			logger.Error(err, "Failed to ensure webhook certificates")
+			os.Exit(1)
+		}
+	}
+
 	// Cluster API only enabled explicitly by setting `--enable-cluster-api=true`
 	if enableClusterApi {
 		if err = (controllers.NewClusterApiController(ctx, mgr, restClient)).SetupWithManager(mgr); err != nil {
@@ -257,6 +306,16 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		}
 	} else {
 		logger.Info("Cluster API controllers are disabled by default. Enable them by setting `--enable-cluster-api=true`")
+	}
+
+	// Setup webhook if enabled
+	if webhookEnabled {
+		if err = webhooks.SetupWekaClusterWebhookWithManager(mgr); err != nil {
+			logger.Error(err, "unable to create webhook", "webhook", "WekaCluster")
+			os.Exit(1)
+		}
+		logger.Info("WekaCluster validating webhook enabled",
+			"enforceMinDrivesPerTypePerCore", config.Config.DriveSharing.EnforceMinDrivesPerTypePerCore)
 	}
 
 	//+kubebuilder:scaffold:builder

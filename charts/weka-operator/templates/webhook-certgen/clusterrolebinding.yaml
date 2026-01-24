@@ -1,0 +1,18 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: "{{ .Values.prefix }}-webhook-certgen"
+  labels:
+    app.kubernetes.io/component: webhook-certgen
+    app.kubernetes.io/created-by: weka-operator
+    app.kubernetes.io/part-of: weka-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "{{ .Values.prefix }}-webhook-certgen"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ .Values.prefix }}-webhook-certgen"
+    namespace: {{ .Release.Namespace }}
+{{- end }}

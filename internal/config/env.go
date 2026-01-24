@@ -133,6 +133,20 @@ type EmbeddedCsiSettings struct {
 	NodeResources                                 CsiNodeResources
 }
 
+type WebhookSettings struct {
+	Enabled  bool
+	Port     int
+	CertDir  string
+	CertName string
+	KeyName  string
+}
+
+type WebhookCertgenSettings struct {
+	Image           string
+	ImagePullPolicy string
+	JobTimeout      string
+}
+
 type PriorityClasses struct {
 	Initial  string
 	Targeted string
@@ -223,8 +237,10 @@ var Config struct {
 	Proxy           string
 	PriorityClasses PriorityClasses
 	Nfs             NfsConfig
-	DriveSharing    DriveSharingConfig
-	PortAllocation  PortAllocationConfig
+	DriveSharing     DriveSharingConfig
+	PortAllocation   PortAllocationConfig
+	Webhook          WebhookSettings
+	WebhookCertgen   WebhookCertgenSettings
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -435,6 +451,18 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
+
+	// Webhook configuration
+	Config.Webhook.Enabled = getBoolEnvOrDefault("WEBHOOK_ENABLED", false)
+	Config.Webhook.Port = getIntEnvOrDefault("WEBHOOK_PORT", 9443)
+	Config.Webhook.CertDir = getEnvOrDefault("WEBHOOK_CERT_DIR", "/tmp/k8s-webhook-server/serving-certs")
+	Config.Webhook.CertName = getEnvOrDefault("WEBHOOK_CERT_NAME", "tls.crt")
+	Config.Webhook.KeyName = getEnvOrDefault("WEBHOOK_KEY_NAME", "tls.key")
+
+	// Webhook certgen configuration
+	Config.WebhookCertgen.Image = getEnvOrDefault("WEBHOOK_CERTGEN_IMAGE", "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.6.5")
+	Config.WebhookCertgen.ImagePullPolicy = getEnvOrDefault("WEBHOOK_CERTGEN_IMAGE_PULL_POLICY", "IfNotPresent")
+	Config.WebhookCertgen.JobTimeout = getEnvOrDefault("WEBHOOK_CERTGEN_JOB_TIMEOUT", "2m")
 }
 
 func getEnvOrFail(envKey string) string {

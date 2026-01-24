@@ -93,7 +93,26 @@ spec:
             - containerPort: 8080
               name: metrics
               protocol: TCP
+            {{- if .Values.webhook.enabled }}
+            - containerPort: {{ .Values.webhook.port }}
+              name: webhook-server
+              protocol: TCP
+            {{- end }}
           env:
+            - name: WEBHOOK_ENABLED
+              value: "{{ .Values.webhook.enabled }}"
+            {{- if .Values.webhook.enabled }}
+            - name: WEBHOOK_PORT
+              value: "{{ .Values.webhook.port }}"
+            - name: WEBHOOK_CERT_DIR
+              value: "{{ .Values.webhook.certDir }}"
+            - name: WEBHOOK_CERTGEN_IMAGE
+              value: "{{ .Values.webhook.certgen.image.registry }}/{{ .Values.webhook.certgen.image.repository }}:{{ .Values.webhook.certgen.image.tag }}"
+            - name: WEBHOOK_CERTGEN_IMAGE_PULL_POLICY
+              value: "{{ .Values.webhook.certgen.image.pullPolicy }}"
+            - name: WEBHOOK_CERTGEN_JOB_TIMEOUT
+              value: "{{ .Values.webhook.certgen.jobTimeout }}"
+            {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
