@@ -4121,6 +4121,7 @@ async def main():
 
     if MODE == "ssdproxy":
         await ensure_ssdproxy_container()
+        await configure_traces() # TODO: fragile code, we are entering configure_traces into multiple places, re-write in go and using our API will be more suitable
         return
 
     if MODE == "telemetry":
