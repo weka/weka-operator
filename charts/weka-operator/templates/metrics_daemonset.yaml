@@ -14,8 +14,9 @@ spec:
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 100%
-      maxUnavailable: 0
+      # "maxSurge" & "maxUnavailable" can't be non-zero at the same time while it's supported in Deployment.
+      maxSurge: 0
+      maxUnavailable: 100%
   selector:
     matchLabels:
       control-plane: weka-node-agent
