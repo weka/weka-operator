@@ -28,7 +28,9 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -277,6 +279,29 @@ func startAsManager(ctx context.Context, logger logr.Logger) {
 		os.Exit(1)
 	}
 
+	// Start background goroutine for evicted pod cleanup
+	if config.Config.EvictedPodCleanupEnabled {
+		go func() {
+			ticker := time.NewTicker(config.Config.EvictedPodCleanupInterval)
+			defer ticker.Stop()
+
+			logger.Info("Starting evicted pod cleanup goroutine",
+				"interval", config.Config.EvictedPodCleanupInterval)
+
+			for {
+				select {
+				case <-ctx.Done():
+					logger.Info("Stopping evicted pod cleanup goroutine")
+					return
+				case <-ticker.C:
+					cleanupEvictedPods(ctx, mgr.GetClient())
+				}
+			}
+		}()
+	} else {
+		logger.Info("Evicted pod cleanup is disabled")
+	}
+
 	logger.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
 		logger.Error(err, "problem running manager")
@@ -318,4 +343,48 @@ func setupContainerIndexes(ctx context.Context, mgr manager.Manager) error {
 	}
 
 	return nil
+}
+
+func cleanupEvictedPods(ctx context.Context, k8sClient client.Client) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "cleanupEvictedPods")
+	defer end()
+
+	podList := &corev1.PodList{}
+
+	// Filter to only operator-managed pods using label selector
+	// All operator-related pods should have this label: app.kubernetes.io/created-by=weka-operator
+	labelSelector := labels.SelectorFromSet(labels.Set{
+		"app.kubernetes.io/created-by": "weka-operator",
+	})
+
+	err := k8sClient.List(ctx, podList,
+		client.MatchingLabelsSelector{Selector: labelSelector},
+		// Search across all namespaces
+	)
+	if err != nil {
+		logger.Error(err, "Failed to list pods for eviction cleanup")
+		return
+	}
+
+	deletedCount := 0
+	for _, pod := range podList.Items {
+		// Check if pod is evicted
+		if pod.Status.Phase == corev1.PodFailed && pod.Status.Reason == "Evicted" {
+			logger.Info("Deleting evicted weka-operator pod",
+				"pod", pod.Name,
+				"namespace", pod.Namespace,
+				"reason", pod.Status.Reason,
+				"message", pod.Status.Message)
+
+			err := k8sClient.Delete(ctx, &pod, client.PropagationPolicy(metav1.DeletePropagationBackground))
+			if err != nil && !errors.IsNotFound(err) {
+				logger.Error(err, "Failed to delete evicted pod",
+					"pod", pod.Name,
+					"namespace", pod.Namespace)
+			}
+			deletedCount++
+		}
+	}
+
+	logger.Info("Evicted pod cleanup completed", "deletedCount", deletedCount)
 }

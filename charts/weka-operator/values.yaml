@@ -140,6 +140,12 @@ cleanupOnNodeSelectorMismatch: false
 cleanupClientsOnNodeSelectorMismatch: false
 # -- if true, the operator will delete any wekacontainers from the nodes that do not tolerate taints
 cleanupContainersOnTolerationsMismatch: false
+# -- evicted pod cleanup configuration
+evictedPodCleanup:
+  # -- if true, the operator will automatically clean up evicted operator-managed pods
+  enabled: true
+  # -- interval at which the operator checks for and deletes evicted pods
+  interval: 2m
 # -- if true, the operator will enforce deactivation on pod removal
 evictContainerOnDeletion: false
 # -- if true, container removal from weka will be throttled
@@ -170,9 +176,11 @@ nodeAgent:
     limits:
       cpu: 1000m
       memory: 1024Mi
+      ephemeral-storage: 500Mi
     requests:
       cpu: 50m
       memory: 64Mi
+      ephemeral-storage: 100Mi
   tolerations:
     - operator: Exists
   nodeSelector: {}

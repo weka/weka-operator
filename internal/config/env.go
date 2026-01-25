@@ -217,6 +217,8 @@ var Config struct {
 	ManagementProxyHostNetwork                   bool
 	ManagementProxyIngressBaseDomain             string
 	ManagementProxyIngressClass                  string
+	EvictedPodCleanupEnabled                     bool
+	EvictedPodCleanupInterval                    time.Duration
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
@@ -435,6 +437,10 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
+
+	// Evicted pod cleanup configuration
+	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)
+	Config.EvictedPodCleanupInterval = getDurationEnvOrDefault("EVICTED_POD_CLEANUP_INTERVAL", 2*time.Minute)
 }
 
 func getEnvOrFail(envKey string) string {
