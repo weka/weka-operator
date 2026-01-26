@@ -8,6 +8,14 @@ func (e *NoWekaFsDriverFound) Error() string {
 	return "No wekafs driver found"
 }
 
+type NodeAgentPodNotFound struct {
+	NodeName string
+}
+
+func (e *NodeAgentPodNotFound) Error() string {
+	return fmt.Sprintf("no node agent pod found on node %s", e.NodeName)
+}
+
 type NodeAgentPodNotRunning struct{}
 
 func (e *NodeAgentPodNotRunning) Error() string {
