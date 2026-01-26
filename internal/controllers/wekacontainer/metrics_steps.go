@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -151,11 +150,16 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 		r.container.Status.PrinterColumns = &weka.ContainerPrinterColumns{}
 	}
 
-	activeMounts, _ := r.getCachedActiveMounts(ctx)
-
-	if r.container.HasFrontend() && activeMounts != nil {
-		r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *activeMounts))
-		r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*activeMounts))
+	if r.container.HasFrontend() {
+		activeMounts, err := r.getCachedActiveMounts(ctx)
+		if err != nil {
+			logger.Error(err, "Error getting active mounts")
+			return err
+		}
+		if activeMounts != nil {
+			r.container.Status.PrinterColumns.ActiveMounts = weka.StringMetric(fmt.Sprintf("%d", *activeMounts))
+			r.container.Status.Stats.ActiveMounts = weka.IntMetric(int64(*activeMounts))
+		}
 	}
 
 	r.container.Status.Stats.Processes.Desired = weka.IntMetric(int64(r.container.Spec.NumCores) + 1)
@@ -417,7 +421,8 @@ func (r *containerReconcilerLoop) DeregisterContainerFromMetrics(ctx context.Con
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		// If node agent pod not found, the container is already cleaned up
-		if strings.Contains(err.Error(), "not found") {
+		var notFoundErr *NodeAgentPodNotFound
+		if errors.As(err, &notFoundErr) {
 			logger.Info("Node agent pod not found, container already cleaned up")
 			return nil
 		}

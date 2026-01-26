@@ -219,25 +219,19 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 	// Find SSDProxy container on this node
 	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
 	if err != nil {
-		logger.Warn("Failed to find SSDProxy container, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't find SSDProxy
-		return nil
+		return fmt.Errorf("failed to find SSDProxy container for virtual drive removal: %w", err)
 	}
 
 	// Get node agent pod
 	agentPod, err := r.GetNodeAgentPod(ctx, nodeAffinity)
 	if err != nil {
-		logger.Warn("Failed to find node agent pod, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't find agent
-		return nil
+		return fmt.Errorf("failed to get node agent pod for virtual drive removal: %w", err)
 	}
 
 	// Get auth token
 	token, err := r.getNodeAgentToken(ctx)
 	if err != nil {
-		logger.Warn("Failed to get node agent token, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't get token
-		return nil
+		return fmt.Errorf("failed to get node agent token for virtual drive removal: %w", err)
 	}
 
 	var errs []error
@@ -285,25 +279,19 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 	// Find SSDProxy container on this node
 	ssdproxyContainer, err := r.findSSDProxyOnNode(ctx)
 	if err != nil {
-		logger.Warn("Failed to find SSDProxy container, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't find SSDProxy
-		return nil
+		return fmt.Errorf("failed to find SSDProxy container for virtual drive cleanup: %w", err)
 	}
 
 	// Get node agent pod
 	agentPod, err := r.GetNodeAgentPod(ctx, nodeAffinity)
 	if err != nil {
-		logger.Warn("Failed to find node agent pod, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't find agent
-		return nil
+		return fmt.Errorf("failed to get node agent pod for virtual drive cleanup: %w", err)
 	}
 
 	// Get auth token
 	token, err := r.getNodeAgentToken(ctx)
 	if err != nil {
-		logger.Warn("Failed to get node agent token, cannot remove virtual drives via JSONRPC", "error", err)
-		// Don't block deletion if we can't get token
-		return nil
+		return fmt.Errorf("failed to get node agent token for virtual drive cleanup: %w", err)
 	}
 
 	err = r.removeVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, virtualDriveUuid)

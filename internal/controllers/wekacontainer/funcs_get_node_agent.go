@@ -59,7 +59,7 @@ func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName 
 	}
 
 	if len(pods) == 0 {
-		return nil, errors.Errorf("no node agent pod found on node %s", nodeName)
+		return nil, &NodeAgentPodNotFound{NodeName: string(nodeName)}
 	}
 
 	for i := range pods {

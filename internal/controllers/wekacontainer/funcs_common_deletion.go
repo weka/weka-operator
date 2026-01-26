@@ -161,7 +161,13 @@ func (r *containerReconcilerLoop) writeAllowForceStopInstruction(ctx context.Con
 	// since we can't execute directly on pod if it is in terminating state
 	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: false, AllowForceStop: true})
 	if err != nil {
-		logger.Error(err, "Error writing force-stop instructions via node-agent")
+		var notRunningErr *NodeAgentPodNotRunning
+		var notFoundErr *NodeAgentPodNotFound
+		if errors.As(err, &notRunningErr) || errors.As(err, &notFoundErr) {
+			logger.Info("Node agent pod not available, will use fallback method for force-stop")
+		} else {
+			logger.Error(err, "Error writing force-stop instructions via node-agent")
+		}
 	}
 	if skipExec {
 		return err
@@ -267,11 +273,15 @@ func (r *containerReconcilerLoop) stopForceAndEnsureNoPod(ctx context.Context) e
 	// setting for forceful termination, as we are in container delete flow
 	// a lot of assumptions here that absolutely all versions will shut down on force-stop + delete
 	err = r.writeAllowForceStopInstruction(ctx, pod, skipExec)
-	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
-		logger.Info("Node agent pod not running, skipping force stop")
-	} else if err != nil {
-		// do not return error, as we are deleting pod anyway
-		logger.Error(err, "Error writing allow force stop instruction")
+	if err != nil {
+		var notRunningErr *NodeAgentPodNotRunning
+		var notFoundErr *NodeAgentPodNotFound
+		if errors.As(err, &notRunningErr) || errors.As(err, &notFoundErr) {
+			logger.Info("Node agent pod not available, skipping force stop via agent")
+		} else {
+			// do not return error, as we are deleting pod anyway
+			logger.Error(err, "Error writing allow force stop instruction")
+		}
 	}
 
 	if NodeIsReady(r.node) && !skipExec {
@@ -322,11 +332,15 @@ func (r *containerReconcilerLoop) stopAndEnsureNoPod(ctx context.Context) error 
 	logger.AddEvent("Pod deleted")
 
 	err = r.writeAllowStopInstruction(ctx, pod, skipExec)
-	if err != nil && errors.Is(err, &NodeAgentPodNotRunning{}) {
-		logger.Info("Node agent pod not running, skipping weka local stop")
-	} else if err != nil {
-		// do not return error, as we are deleting pod anyway
-		logger.Error(err, "Error writing allow stop instruction")
+	if err != nil {
+		var notRunningErr *NodeAgentPodNotRunning
+		var notFoundErr *NodeAgentPodNotFound
+		if errors.As(err, &notRunningErr) || errors.As(err, &notFoundErr) {
+			logger.Info("Node agent pod not available, skipping weka local stop via agent")
+		} else {
+			// do not return error, as we are deleting pod anyway
+			logger.Error(err, "Error writing allow stop instruction")
+		}
 	}
 
 	if NodeIsReady(r.node) && !skipExec {
@@ -410,7 +424,13 @@ func (r *containerReconcilerLoop) writeAllowStopInstruction(ctx context.Context,
 	// since we can't execute directly on pod if it is in terminating state
 	err := r.sendStopInstructionsViaAgent(ctx, pod, resources.ShutdownInstructions{AllowStop: true, AllowForceStop: false})
 	if err != nil {
-		logger.Error(err, "Error writing stop instructions via node-agent")
+		var notRunningErr *NodeAgentPodNotRunning
+		var notFoundErr *NodeAgentPodNotFound
+		if errors.As(err, &notRunningErr) || errors.As(err, &notFoundErr) {
+			logger.Info("Node agent pod not available, will use fallback method for stop")
+		} else {
+			logger.Error(err, "Error writing stop instructions via node-agent")
+		}
 		// NOTE: No error on purpose, as it's only one of method we attempt to start stopping
 	}
 	if skipExec {
