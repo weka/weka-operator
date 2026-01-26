@@ -23,12 +23,12 @@
         <summary>Comprehensive guide for provisioning Weka clusters in Kubernetes, covering basic configuration, graceful termination settings, redundancy options, raft configuration, hot spare capacity, and IO conditions for optimal cluster performance.</summary>
     </file>
     <file relpath="operator/deployment/cluster-aws-eks.md">
-        <tags>AWS, EKS, bliss, provisioning, IAM role, subnet, security groups, region, key pair, kubeconfig, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, cleanup, pre-requisites, ensure nics, sign drives, instance types</tags>
-        <summary>Guide on provisioning Weka clusters in AWS EKS using the bliss tool. Covers EKS setup requirements, bliss commands, template files for node groups, required IAM roles, secrets management, port configuration, cleanup, and pre-requisite policies like ensure-nics and sign-drives.</summary>
+        <tags>AWS, EKS, provisioning, IAM role, subnet, security groups, node group, instance type, converged, separate, dataNICsNumber, quay.io secret, wekacluster ports, basePort, pre-requisites, ensure nics, sign drives, instance types</tags>
+        <summary>Guide on provisioning Weka clusters in AWS EKS. Covers EKS setup requirements, IAM roles, node group configuration, secrets management, port configuration, and pre-requisite policies like ensure-nics and sign-drives.</summary>
     </file>
     <file relpath="operator/deployment/cluster-oci-oke.md">
-        <tags>OCI, OKE, bliss, provisioning, subnet, security groups, compartment, availability domain, image, SSH key, template, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, cleanup, ensure nics, sign drives</tags>
-        <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE) and the bliss tool. Covers OKE setup requirements, bliss commands, template files for node groups, VNIC configuration, required secrets management, port configuration, and cleanup procedures.</summary>
+        <tags>OCI, OKE, provisioning, subnet, security groups, instance type, converged, VNICs, data NICs, hugepages, quay.io secret, ports, basePort, ensure nics, sign drives</tags>
+        <summary>Guide for provisioning Weka clusters in Oracle Cloud Infrastructure (OCI) using Oracle Kubernetes Engine (OKE). Covers OKE setup requirements, node pool configuration, VNIC configuration, secrets management, and port configuration.</summary>
     </file>
     <file relpath="operator/deployment/driver-distribution.md">
         <tags>driver distribution, drivers-dist, drivers-builder, wekacontainer, service, helm install, quay.io, imagePullSecret, mode, numCores, port, uploadResultsTo, preRunScript, nodeAffinity, nodeSelector</tags>

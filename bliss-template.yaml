@@ -1,8 +1,0 @@
-nodes:
-    - name: WekaConvergedNodes
-      instanceType: i3en.6xlarge
-      initialSize: 6
-      labels:
-        weka.io/dedicated: converged # Label to target Weka pods
-      hugepages: 17000 # User specified machine hugepages
-cloud: aws

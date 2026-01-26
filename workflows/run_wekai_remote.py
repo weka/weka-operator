@@ -50,21 +50,43 @@ def run_wekai_with_json_output(
     docs_dir: str,
     params: List[str],
     execution_tmp_dir: Optional[str] = None,
+    remote_bot_endpoint: Optional[str] = None,
+    remote_bot_worker: str = "operator-ci",
 ) -> Dict:
     """
     Run wekai in remote-bot mode with JSON output enabled.
-    
+
+    Args:
+        wekai_path: Path to wekai executable
+        request_file: Path to request file
+        execution_id: Unique execution ID
+        docs_dir: Path to documentation directory
+        params: Parameters to pass to wekai
+        execution_tmp_dir: Optional temporary directory
+        remote_bot_endpoint: Remote bot API endpoint (required, set via WEKAI_ENDPOINT env var)
+        remote_bot_worker: Remote bot worker name (default: operator-ci)
+
     Returns:
         Parsed JSON result from wekai
     """
+    # Get endpoint from environment or parameter
+    endpoint = remote_bot_endpoint or os.environ.get('WEKAI_ENDPOINT')
+    if not endpoint:
+        print("❌ WEKAI_ENDPOINT environment variable or --remote-bot-endpoint is required")
+        return {
+            "success": False,
+            "status": "error",
+            "error_details": "WEKAI_ENDPOINT not configured"
+        }
+
     cmd = [
         wekai_path,
         '--mode', 'remote-bot',
         '--json-output',
         '--stderr-logs',
         '--docs-dir', docs_dir,
-        '--remote-bot-endpoint', 'https://wekai.scalar.dev.weka.io/api',
-        '--remote-bot-worker', 'operator-ci',
+        '--remote-bot-endpoint', endpoint,
+        '--remote-bot-worker', remote_bot_worker,
         '--execution-id', execution_id,
         '--plan-tags', 'operator-ci',
         '--request-file', request_file
@@ -276,7 +298,9 @@ def main():
     parser.add_argument('--params', action='append', default=[], help='Parameters to pass to wekai')
     parser.add_argument('--pr-number', type=int, help='GitHub PR number for comments')
     parser.add_argument('--gh-token', help='GitHub token (fallback - prefer GITHUB_TOKEN env var)')
-    
+    parser.add_argument('--remote-bot-endpoint', help='Wekai remote bot endpoint (fallback - prefer WEKAI_ENDPOINT env var)')
+    parser.add_argument('--remote-bot-worker', default='operator-ci', help='Wekai remote bot worker name')
+
     args = parser.parse_args()
     
     # Validate inputs
@@ -308,7 +332,9 @@ def main():
         execution_id=args.execution_id,
         execution_tmp_dir=args.execution_tmp_dir,
         docs_dir=args.docs_dir,
-        params=args.params
+        params=args.params,
+        remote_bot_endpoint=args.remote_bot_endpoint,
+        remote_bot_worker=args.remote_bot_worker,
     )
     
     # Display key results

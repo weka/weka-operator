@@ -1,3 +1,5 @@
+# NOTE: This workflow is for WEKA internal CI/CD and requires access to internal infrastructure.
+# External contributors: Your PRs will be tested by WEKA maintainers using internal CI.
 name: dagger_ci_on_merge_queue_plan
 on:
   pull_request:
@@ -54,6 +56,14 @@ jobs:
         run: |
           docker version
           docker info
+
+      - name: Validate required variables
+        run: |
+          if [ -z "${{ vars.CI_REGISTRY }}" ]; then
+            echo "::error::CI_REGISTRY repository variable is not set. Please set it in Settings → Secrets and variables → Actions → Variables"
+            exit 1
+          fi
+          echo "CI_REGISTRY is set to: ${{ vars.CI_REGISTRY }}"
 
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -124,10 +134,11 @@ jobs:
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
-            publish-operator-and-get-versions 
+            publish-operator-and-get-versions
             --operator=${{ github.workspace }}/operator
             --gh-token="env://GH_TOKEN"
             --sock=/var/run/docker.sock
+            --registry=${{ vars.CI_REGISTRY }}
             --output ${{ github.workspace }}/versions
       
       - name: Set Operator Versions (to output and environment variables)
@@ -183,6 +194,7 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
+            --registry=${{ vars.CI_REGISTRY }}
 
       - name: Upload Wekai execution files
         uses: actions/upload-artifact@v4
@@ -198,6 +210,13 @@ jobs:
     if: needs.run_condition_check.result == 'success' && needs.upgrade_extended_test.result == 'success'
     runs-on: scalar-runners
     steps:
+      - name: Validate required variables
+        run: |
+          if [ -z "${{ vars.CI_REGISTRY }}" ]; then
+            echo "::error::CI_REGISTRY repository variable is not set"
+            exit 1
+          fi
+
       - uses: actions/create-github-app-token@v2
         id: app-token
         with:
@@ -245,6 +264,7 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ needs.upgrade_extended_test.outputs.operator_image }}
             --operator-helm-image=${{ needs.upgrade_extended_test.outputs.operator_helm_image }}
+            --registry=${{ vars.CI_REGISTRY }}
 
   ci_on_merge_queue_required_status:
     needs: [run_condition_check, upgrade_extended_test, clients_only_test]

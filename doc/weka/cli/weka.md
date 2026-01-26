@@ -77,7 +77,7 @@ Below is a complete example of the `weka status --json` command output with all 
         "enabled": true,
         "healthy": true,
         "proxy": "",
-        "url": "https://api.home.rnd.weka.io"
+        "url": ""
     },
     "compute_upgrade": {
         "source_version_sig": "0xffffffffffffffff"
