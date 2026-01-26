@@ -65,6 +65,10 @@ func (r *containerReconcilerLoop) GetNodeAgentPod(ctx context.Context, nodeName 
 	for i := range pods {
 		pod := &pods[i]
 		if pod.Status.Phase == v1.PodRunning {
+			err := r.validateNodeAgentImage(pod)
+			if err != nil {
+				return nil, err
+			}
 			return pod, nil
 		}
 	}
@@ -108,4 +112,30 @@ func (r *containerReconcilerLoop) getNodeAgentToken(ctx context.Context) (string
 	nodeAgentLastPull = time.Now()
 
 	return token, nil
+}
+
+func getNodeAgentContainerImage(pod *v1.Pod) (string, error) {
+	for _, container := range pod.Spec.Containers {
+		if container.Name == "node-agent" {
+			return container.Image, nil
+		}
+	}
+	return "", fmt.Errorf("node-agent container not found in pod %s", pod.Name)
+}
+
+func (r *containerReconcilerLoop) validateNodeAgentImage(nodeAgentPod *v1.Pod) error {
+	nodeAgentImage, err := getNodeAgentContainerImage(nodeAgentPod)
+	if err != nil {
+		return errors.Wrap(err, "failed to get node-agent container image")
+	}
+
+	operatorImage := config.Config.OperatorImage
+	if operatorImage != nodeAgentImage {
+		return &NodeAgentImageMismatch{
+			NodeAgentImage: nodeAgentImage,
+			OperatorImage:  operatorImage,
+		}
+	}
+
+	return nil
 }
