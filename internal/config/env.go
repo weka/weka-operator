@@ -169,6 +169,7 @@ var Config struct {
 	OperatorPodName                string
 	OperatorPodNamespace           string
 	OperatorDeploymentName         string
+	OperatorImage                  string
 	BindAddress                    BindAddress
 	EnableLeaderElection           bool
 	EnableClusterApi               bool
@@ -318,6 +319,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.OperatorPodName = os.Getenv("POD_NAME")
 	Config.OperatorPodNamespace = os.Getenv("POD_NAMESPACE")
 	Config.OperatorDeploymentName = os.Getenv("OPERATOR_DEPLOYMENT_NAME")
+	Config.OperatorImage = os.Getenv("OPERATOR_IMAGE")
 	if Config.Mode == OperatorModeManager {
 		Config.BindAddress.Metrics = getEnvOrFail("OPERATOR_METRICS_BIND_ADDRESS")
 		Config.BindAddress.HealthProbe = getEnvOrFail("HEALTH_PROBE_BIND_ADDRESS")

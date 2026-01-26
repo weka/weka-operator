@@ -1351,7 +1351,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		memLimit = memRequest
 	}
 
-	requestedEphemeralStorage := "8M"
+	requestedEphemeralStorage := "100Mi"
 	if f.container.HasAgent() && !f.container.HasPersistentStorage() {
 		// only /opt/weka/data/logs.loop takes 2G
 		requestedEphemeralStorage = "2Gi"
