@@ -71,6 +71,7 @@ make test-e2e
 ## Code Style
 
 - Go code follows standard Go conventions
+- Never swallow errors unless explicitly asked for
 - Controllers use `go-steps-engine` for step-based reconciliation
 - Kubernetes resources use controller-runtime patterns
 - Python code (in charts/resources) uses standard Python style
