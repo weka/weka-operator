@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -79,20 +78,10 @@ func (r *containerReconcilerLoop) ensureProxyContainer(ctx context.Context) erro
 		return errors.Wrap(err, "failed to get owner cluster")
 	}
 
-	operatorDeployment, err := util.GetOperatorDeployment(ctx, r.Client)
-	if err != nil {
-		return errors.Wrap(err, "failed to get operator deployment")
-	}
-
 	// Create the proxy container spec
 	proxyContainer, err := r.buildProxyContainerSpec(ctx, cluster, nodeName, proxyName, operatorNamespace)
 	if err != nil {
 		return errors.Wrap(err, "failed to build proxy container spec")
-	}
-
-	// Set owner reference to the operator deployment
-	if err := ctrl.SetControllerReference(operatorDeployment, proxyContainer, r.Scheme); err != nil {
-		return errors.Wrap(err, "failed to set controller reference for proxy")
 	}
 
 	// Create the proxy container
