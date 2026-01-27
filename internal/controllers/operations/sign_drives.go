@@ -33,7 +33,8 @@ import (
 
 type SignedDrivesExtendedPayload struct {
 	weka.SignDrivesPayload
-	ExcludedSerialIds []string `json:"excludedSerialIds,omitempty"`
+	ExcludedSerialIds     []string `json:"excludedSerialIds,omitempty"`
+	SsdProxyContainerUuid string   `json:"ssd_proxy_container_uuid,omitempty"`
 }
 
 type SignDrivesOperation struct {
@@ -127,9 +128,9 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 
-	instructions, err := o.createInstructions(nil)
-	if err != nil {
-		return err
+	// Create a copy of the original payload to avoid modifying it
+	extendedPayload := SignedDrivesExtendedPayload{
+		SignDrivesPayload: *o.payload,
 	}
 
 	matchingNodes, err := o.kubeService.GetNodes(ctx, o.payload.NodeSelector)
@@ -181,13 +182,27 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 		// read signed drives from weka.io/weka-drives node annotation and add to exclusions
 		alreadySignedDrives := getAlreadySignedDrives(&node)
 		if len(alreadySignedDrives) > 0 {
-			// re-create instructions with updated exclusions
-			instructions, err = o.createInstructions(alreadySignedDrives)
-			if err != nil {
-				return err
-			}
+			extendedPayload.ExcludedSerialIds = alreadySignedDrives
 
 			logger.Info("Updating exclusions with previously signed drives to avoid re-signing", "node", node.Name, "excludedDrives", alreadySignedDrives)
+		}
+
+		if o.payload.Shared {
+			// in drive sharing mode, set the ssd proxy socket path in the instructions payload
+			ssdProxyUuid, err := o.GetSsdProxyContainerUuid(ctx, node.Name)
+			if err != nil {
+				return errors.Wrap(err, "failed to get ssdproxy container uuid")
+			}
+			if ssdProxyUuid != nil {
+				extendedPayload.SsdProxyContainerUuid = *ssdProxyUuid
+
+				logger.Info("Setting ssdproxy container uuid in sign-drives payload", "node", node.Name, "ssdProxyContainerUuid", *ssdProxyUuid)
+			}
+		}
+
+		instructions, err := o.createInstructions(extendedPayload)
+		if err != nil {
+			return err
 		}
 
 		labels := util.MergeMaps(o.ownerRef.GetLabels(), factory.RequiredAnyWekaContainerLabels(weka.WekaContainerModeAdhocOp))
@@ -396,16 +411,7 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 	return alreadySignedDrives
 }
 
-func (o *SignDrivesOperation) createInstructions(alreadySignedDrives []string) (*weka.Instructions, error) {
-	// Create a copy of the original payload to avoid modifying it
-	extendedPayload := SignedDrivesExtendedPayload{
-		SignDrivesPayload: *o.payload,
-	}
-
-	if len(alreadySignedDrives) > 0 {
-		extendedPayload.ExcludedSerialIds = alreadySignedDrives
-	}
-
+func (o *SignDrivesOperation) createInstructions(extendedPayload SignedDrivesExtendedPayload) (*weka.Instructions, error) {
 	// Marshal the extended payload
 	payloadBytes, err := json.Marshal(extendedPayload)
 	if err != nil {
@@ -418,4 +424,21 @@ func (o *SignDrivesOperation) createInstructions(alreadySignedDrives []string) (
 	}
 
 	return instructions, nil
+}
+
+func (o *SignDrivesOperation) GetSsdProxyContainerUuid(ctx context.Context, nodeName string) (*string, error) {
+	// Get the operator namespace where ssdproxy containers are deployed
+	ssdProxy, err := discovery.GetSsdProxyOnNode(ctx, o.client, weka.NodeName(nodeName))
+	var notFoundErr *discovery.SsdProxyNotFoundError
+	if errors.As(err, &notFoundErr) {
+		// No ssdproxy found on the node, return nil
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get ssdproxy container on node")
+	}
+
+	uuid := string(ssdProxy.GetUID())
+	return &uuid, nil
 }

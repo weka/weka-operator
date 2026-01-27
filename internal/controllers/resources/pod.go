@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/config"
@@ -647,33 +648,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 		})
 	}
 
-	// SSDProxy container needs access to its socket directory for container.sock (sign-drives communication)
-	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
-		hostsideGlobalSharedData := f.nodeInfo.GetHostsideSharedData()
-		volumeName := "weka-ssdproxy-local-socket"
-		pathType := corev1.HostPathDirectoryOrCreate
-
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: inPodHostBinds + "/ssdproxy-local-socket",
-		})
-
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideGlobalSharedData + "/local-sockets/ssdproxy",
-					Type: &pathType,
-				},
-			},
-		})
-	}
-
+	ssdProxyUuid := f.getSsdUidForAdhocOp()
 	// Sign-drives adhoc operations with shared=true need access to ssdproxy socket
-	if f.needsLocalSocketsForAdhocOp() {
-		hostsideGlobalSharedData := f.nodeInfo.GetHostsideSharedData()
+	if ssdProxyUuid != nil {
 		volumeName := "weka-ssdproxy-local-socket"
 		pathType := corev1.HostPathDirectoryOrCreate
+		socketPath := path.Join(f.nodeInfo.GetContainerSharedDataPath(types.UID(*ssdProxyUuid)), "local-sockets/ssdproxy")
 
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      volumeName,
@@ -684,7 +664,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: hostsideGlobalSharedData + "/local-sockets/ssdproxy",
+					Path: socketPath,
 					Type: &pathType,
 				},
 			},
@@ -1052,26 +1032,26 @@ func GetWekaPodTolerations(container *weka.WekaContainer) []corev1.Toleration {
 	return tolerations
 }
 
-// needsLocalSocketsForAdhocOp returns true if the container is an adhoc operation
+// getSsdUidForAdhocOp returns true if this is an adhoc operation
 // that needs access to the ssdproxy socket directory (sign-drives with shared=true)
-func (f *PodFactory) needsLocalSocketsForAdhocOp() bool {
+func (f *PodFactory) getSsdUidForAdhocOp() *string {
 	if !f.container.IsAdhocOpContainer() {
-		return false
+		return nil
 	}
 	if f.container.Spec.Instructions == nil {
-		return false
+		return nil
 	}
 	if f.container.Spec.Instructions.Type != "sign-drives" {
-		return false
+		return nil
 	}
-	// Parse payload to check if shared=true
+
 	var payload struct {
-		Shared bool `json:"shared"`
+		SsdProxyContainerUuid string `json:"ssd_proxy_container_uuid,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(f.container.Spec.Instructions.Payload), &payload); err != nil {
-		return false
+		return nil
 	}
-	return payload.Shared
+	return &payload.SsdProxyContainerUuid
 }
 
 type HugePagesDetails struct {

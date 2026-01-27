@@ -2832,14 +2832,6 @@ async def configure_persistency():
             mount -o bind /host-binds/shared/local-sockets /opt/weka/external-mounts/local-sockets
         fi
 
-        # ssdproxy local-socket mount for ssdproxy to create container.sock (sign-drives communication)
-        # This runs when the volume is mounted (ssdproxy mode or sign-drives adhoc with shared=true)
-        # Must be AFTER the shared/local-sockets mount to overlay the ssdproxy subdirectory
-        if [ -d /host-binds/ssdproxy-local-socket ]; then
-            mkdir -p /opt/weka/external-mounts/local-sockets/ssdproxy
-            mount -o bind /host-binds/ssdproxy-local-socket /opt/weka/external-mounts/local-sockets/ssdproxy
-        fi
-
         if [ -f /var/run/secrets/weka-operator/wekahome-cacert/cert.pem ]; then
             rm -rf /opt/weka/k8s-runtime/vars/wh-cacert
             mkdir -p /opt/weka/k8s-runtime/vars/wh-cacert/
