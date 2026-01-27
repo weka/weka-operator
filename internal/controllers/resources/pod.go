@@ -819,50 +819,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
 		f.setDriverDependencies(pod)
 	}
-
-	// for Dist container, if running on OCP / COS / other containerized OS
-	if f.container.IsDriversBuilder() && f.nodeInfo.IsRhCos() {
-		if f.nodeInfo.InitContainerImage == "" {
-			return nil, errors.New("cannot create build container for OCP without Toolkit image")
-		}
-		ocpPullSecret := config.Config.OcpCompatibility.DriverToolkitSecretName
-		if ocpPullSecret != "" {
-			// we need to add the buildkit image pull secret
-			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-				Name: ocpPullSecret,
-			})
-		}
-		// add ephemeral volume to share the buildkit container
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{Name: "driver-toolkit-shared", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
-
-		ContainerMountProp := corev1.MountPropagationHostToContainer
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "driver-toolkit-shared", MountPath: "/driver-toolkit-shared", ReadOnly: false, MountPropagation: &ContainerMountProp})
-
-		initContainerCmds := make(map[string][]string)
-		initContainerCmds[weka.OsNameOpenshift] = []string{"/bin/sh", "-c",
-			"mkdir -p /driver-toolkit-shared/lib; " +
-				"mkdir -p /driver-toolkit-shared/usr; " +
-				"cp -RLrf /usr/src /driver-toolkit-shared/usr; " +
-				"cp -RLrf /lib/modules /driver-toolkit-shared/lib"}
-
-		cmd := initContainerCmds[weka.OsNameOpenshift]
-		mountProp := corev1.MountPropagationBidirectional
-		buildkitContainer := corev1.Container{
-			Name:          "driver-toolkit-init",
-			Image:         f.nodeInfo.InitContainerImage,
-			Command:       cmd,
-			Env:           pod.Spec.Containers[0].Env,
-			Resources:     corev1.ResourceRequirements{},
-			ResizePolicy:  nil,
-			RestartPolicy: nil,
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "driver-toolkit-shared", MountPath: "/driver-toolkit-shared", ReadOnly: false, MountPropagation: &mountProp},
-			},
-			SecurityContext: pod.Spec.Containers[0].SecurityContext,
-		}
-		pod.Spec.InitContainers = append(pod.Spec.InitContainers, buildkitContainer)
-	}
-
+	
 	// Add OTEL packages installation init container only if explicitly configured
 	if config.Config.Otel.PythonPackagesInstallerImage != "" {
 		otelInitContainer := corev1.Container{
