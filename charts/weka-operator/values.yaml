@@ -211,6 +211,12 @@ upgrade:
   computeThresholdPercent: 90
   driveThresholdPercent: 90
   maxDeactivatingContainersPercent: 10
+  # Image pre-pull settings for upgrades
+  imagePrePull:
+    # Enable/disable pre-pulling images before upgrade
+    enabled: true
+    # Max time to wait for all nodes to pull the image
+    timeout: 20m
 podMonitor:
   enabled: true
 

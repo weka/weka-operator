@@ -201,6 +201,8 @@ var Config struct {
 		ComputeThresholdPercent          int
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
+		ImagePrePullEnabled              bool
+		ImagePrePullTimeout              time.Duration
 	}
 	CleanupRemovedNodes                          bool
 	CleanupBackendsOnNodeSelectorMismatch        bool
@@ -343,6 +345,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Upgrade.ComputeThresholdPercent = getIntEnvOrDefault("UPGRADE_COMPUTE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.DriveThresholdPercent = getIntEnvOrDefault("UPGRADE_DRIVE_THRESHOLD_PERCENT", 90)
 	Config.Upgrade.MaxDeactivatingContainersPercent = getIntEnvOrDefault("UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT", 10)
+	Config.Upgrade.ImagePrePullEnabled = getBoolEnvOrDefault("UPGRADE_IMAGE_PRE_PULL_ENABLED", true)
+	Config.Upgrade.ImagePrePullTimeout = getDurationEnvOrDefault("UPGRADE_IMAGE_PRE_PULL_TIMEOUT", 20*time.Minute)
 	Config.MaintenanceImagePullSecret = os.Getenv("WEKA_MAINTENANCE_IMAGE_PULL_SECRET")
 	Config.Otel.PythonPackagesInstallerImage = os.Getenv("WEKA_OTEL_PACKAGES_INSTALLER_IMAGE") // No default - opt-in only
 	Config.OcpCompatibility.DriverToolkitImageBaseUrl = getEnvOrDefault("WEKA_OCP_TOOLKIT_IMAGE_BASE_URL", "quay.io/openshift-release-dev/ocp-v4.0-art-dev")

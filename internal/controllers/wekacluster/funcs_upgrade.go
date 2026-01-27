@@ -93,7 +93,7 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		DriversDistService:        spec.DriversDistService,
 		ImagePullSecret:           spec.ImagePullSecret,
 		Labels:                    util.NewHashableMap(meta.Labels),
-		Annotations:               util.NewHashableMap(meta.Annotations),
+		Annotations:               util.NewHashableMap(util.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
 		NodeSelector:              util.NewHashableMap(spec.NodeSelector),
 		S3NodeSelector:            safeHashableMap(spec.RoleNodeSelector.S3),
 		NfsNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Nfs),
@@ -392,6 +392,13 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.New("Upgrade is paused"))
 		}
 
+		if config.Config.Upgrade.ImagePrePullEnabled {
+			err := r.handleImagePrePull(ctx)
+			if err != nil {
+				return err
+			}
+		}
+
 		if cluster.Spec.GetOverrides().UpgradeAllAtOnce {
 			// containers will self-upgrade
 			return workers.ProcessConcurrently(ctx, r.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
@@ -549,6 +556,13 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		cluster.Status.LastAppliedImage = cluster.Spec.Image
 		if err := r.getClient().Status().Update(ctx, cluster); err != nil {
 			return err
+		}
+
+		// Clear pre-pull annotations after successful upgrade
+		err = r.clearAllPrePullAnnotations(ctx)
+		if err != nil {
+			logger.Warn("Failed to clear pre-pull annotations", "error", err)
+			// Don't fail upgrade on annotation cleanup failure
 		}
 	}
 

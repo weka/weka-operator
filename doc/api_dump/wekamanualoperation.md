@@ -13,6 +13,7 @@
 - [EnsureNICsPayload](#ensurenicspayload)
 - [ForceResignDrivesPayload](#forceresigndrivespayload)
 - [RemoteTracesSessionConfig](#remotetracessessionconfig)
+- [PrePullImagePayload](#prepullimagepayload)
 - [PCIDevices](#pcidevices)
 - [SignOptions](#signoptions)
 - [ObjectReference](#objectreference)
@@ -70,6 +71,7 @@
 | ensureNICsPayload | *EnsureNICsPayload |  |
 | forceResignDrivesPayload | *ForceResignDrivesPayload |  |
 | remoteTracesSessionPayload | *RemoteTracesSessionConfig |  |
+| prePullImagePayload | *PrePullImagePayload |  |
 
 ---
 
@@ -136,6 +138,20 @@
 | allowHttpWekahomeEndpoint | bool |  |
 | allowInsecureWekahomeEndpoint | bool |  |
 | wekahomeCaSecret | string |  |
+
+---
+
+## PrePullImagePayload
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| targetImage | string | TargetImage is the container image to pre-pull on nodes |
+| nodeSelector | map[string]string | NodeSelector filters which nodes to pre-pull on (applied with OR logic if multiple selectors) |
+| tolerations | []v1.Toleration | Tolerations for the pre-pull pods |
+| imagePullSecret | string | ImagePullSecret for private registries |
+| timeout | *metav1.Duration | Timeout for the pre-pull operation (defaults to 10m) |
+| clusterRef | *ObjectReference | ClusterRef references a WekaCluster to inherit nodeSelector/tolerations (optional) |
+| clientRef | *ObjectReference | ClientRef references a WekaClient to inherit nodeSelector/tolerations (optional) |
 
 ---
 
