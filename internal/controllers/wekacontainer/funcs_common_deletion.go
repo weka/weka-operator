@@ -467,7 +467,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 	// meanwhile we are working around on operator side
 	// if container is being deleted and pos is still alive - we should ensnure no mounts, and drain if drain flag is set to true
 
-	mounts, err := r.getCachedActiveMounts(ctx)
+	mounts, err := r.GetActiveMounts(ctx)
 	if err != nil {
 		return err
 	}

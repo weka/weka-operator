@@ -245,7 +245,7 @@ func (r *containerReconcilerLoop) handleStateDeleting(ctx context.Context) error
 	statusUpdated := false
 
 	if r.container.IsClientContainer() {
-		activeMounts, err := r.getCachedActiveMounts(ctx)
+		activeMounts, err := r.GetActiveMounts(ctx)
 		if err != nil {
 			// Must be able to check active mounts before proceeding with deletion
 			return err

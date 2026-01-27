@@ -151,7 +151,7 @@ func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	}
 
 	if r.container.HasFrontend() {
-		activeMounts, err := r.getCachedActiveMounts(ctx)
+		activeMounts, err := r.GetActiveMounts(ctx)
 		if err != nil {
 			logger.Error(err, "Error getting active mounts")
 			return err
