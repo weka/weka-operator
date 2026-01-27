@@ -395,8 +395,14 @@ type VaultConfig struct {
 	KeyName string `json:"keyName,omitempty"`
 }
 
+type InternalEncryptionConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 type EncryptionConfig struct {
 	VaultConfig *VaultConfig `json:"vault,omitempty"`
+	// InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems
+	InternalConfig *InternalEncryptionConfig `json:"internal,omitempty"`
 }
 
 type NfsConfig struct {
