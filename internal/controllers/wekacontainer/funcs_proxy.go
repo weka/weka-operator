@@ -19,7 +19,7 @@ import (
 	"github.com/weka/weka-operator/internal/controllers/factory"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
@@ -203,42 +203,11 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 
 // findSSDProxyOnNode finds the ssdproxy container on the same node as the current drive container
 func (r *containerReconcilerLoop) findSSDProxyOnNode(ctx context.Context) (*weka.WekaContainer, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "findSSDProxyOnNode")
-	defer end()
-
 	container := r.container
 	nodeName := container.GetNodeAffinity()
 	if nodeName == "" {
 		return nil, errors.New("container has no node affinity")
 	}
 
-	// Get the operator namespace where ssdproxy containers are deployed
-	operatorNamespace, err := util.GetPodNamespace()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get operator namespace: %w", err)
-	}
-
-	// List all ssdproxy containers in the operator namespace
-	// Note: We don't filter by cluster because ssdproxy containers are shared across clusters on the same node
-	kubeService := kubernetes.NewKubeService(r.Client)
-	containers, err := kubeService.GetWekaContainersSimple(ctx, operatorNamespace, string(nodeName), map[string]string{
-		"weka.io/mode": weka.WekaContainerModeSSDProxy,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list ssdpoxy containers on node %s: %w", nodeName, err)
-	}
-
-	if len(containers) == 0 {
-		return nil, fmt.Errorf("no ssdproxy container found on node %s", nodeName)
-	}
-
-	proxy := containers[0]
-
-	logger.Debug("Found ssdproxy container on node",
-		"ssdproxy_name", proxy.Name,
-		"ssdproxy_uid", proxy.UID,
-		"node", nodeName,
-	)
-
-	return &proxy, nil
+	return discovery.GetSsdProxyOnNode(ctx, r.Client, nodeName)
 }
