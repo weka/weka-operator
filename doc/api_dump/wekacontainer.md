@@ -206,6 +206,7 @@
 |------------|------|-------------|
 | skipDeactivate | bool | skips deactivation of container, this is unsafe operation that should be used only when this container will never be back into cluster |
 | skipDrivesForceResign | bool | skips resign of drives, if we did not resign drives on removal of drive container we will not be able to reuse them, and manual operation with force resign will be required |
+| skipVirtualDrivesRemoval | bool | skips removal of virtual drives from ssdproxy - unsafe operation that can lead to virtual drives leftovers<br>should not be used unless instructed explicitly by weka personnel |
 | skipCleanupPersistentDir | bool | skips cleanup of persistent directory, if this operation was omit local data of container will remain in persistent location(/opt/k8s-weka on vanilla OS/k8s distributions) |
 | upgradeForceReplace | bool | unsafe operation, skips graceful stop of weka container for a quick replacement to a new image, should not be used unless instructed explicitly by weka personnel |
 | upgradePreventEviction | bool |  |
