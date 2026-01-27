@@ -27,8 +27,9 @@ REGISTRY_ENDPOINT ?= quay.io/weka.io
 VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
 WH_ENABLE_INSECURE ?= false
-WH_ENDPOINT ?= "https://api.home.rnd.weka.io"
-WH_CACERT_SECRET ?= ""
+WH_ENDPOINT ?= https://api.home.weka.io
+WH_CACERT_SECRET ?=
+OTEL_EXPORTER_OTLP_ENDPOINT ?=
 ENABLE_CLUSTER_API ?= false
 SKIP_CRD_INSTALL ?= false
 RECONCILE_TIMEOUT ?= 10m
@@ -187,7 +188,7 @@ runcontroller: ## Run a controller from your host.
 	WEKA_COS_GLOBAL_HUGEPAGE_SIZE=2M \
 	WEKA_COS_GLOBAL_HUGEPAGE_COUNT=2000 \
 	OPERATOR_DEV_MODE=true \
-	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
+	OTEL_EXPORTER_OTLP_ENDPOINT="$(OTEL_EXPORTER_OTLP_ENDPOINT)" \
 	VERSION=${VERSION} \
 	LOG_LEVEL=0 \
 	LOG_TIME_ONLY=true \
@@ -220,7 +221,7 @@ debugcontroller: ## Run a controller from your host.
 	ENABLE_CLUSTER_API=$(ENABLE_CLUSTER_API) \
 	SIGN_DRIVES_IMAGE=${SIGN_DRIVES_IMAGE} \
 	OPERATOR_DEV_MODE=true \
-	OTEL_EXPORTER_OTLP_ENDPOINT="https://otelcollector.rnd.weka.io:4317" \
+	OTEL_EXPORTER_OTLP_ENDPOINT="$(OTEL_EXPORTER_OTLP_ENDPOINT)" \
 	dlv debug \
 	--headless \
 	--listen=:2345 \
@@ -261,7 +262,7 @@ deploy: generate install ## Deploy controller to the K8s cluster specified in ~/
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
-		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
+		--set otelExporterOtlpEndpoint="$(OTEL_EXPORTER_OTLP_ENDPOINT)" \
 		--set wekahome.endpoint="${WH_ENDPOINT}" \
 		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
 		--set wekahome.cacertSecret="${WH_CACERT_SECRET}" \
@@ -284,7 +285,7 @@ deployocp: generate install ## Deploy controller to the K8s cluster specified in
 		--create-namespace \
 		--set $(VALUES) \
 		--set deployController=${DEPLOY_CONTROLLER} \
-		--set otelExporterOtlpEndpoint="https://otelcollector.rnd.weka.io:4317" \
+		--set otelExporterOtlpEndpoint="$(OTEL_EXPORTER_OTLP_ENDPOINT)" \
 		--set wekahome.endpoint="${WH_ENDPOINT}" \
 		--set wekahome.allowInsecureTLS=${WH_ENABLE_INSECURE} \
 		--set wekahome.cacertSecret="${WH_CACERT_SECRET}" \

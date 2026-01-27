@@ -1,3 +1,5 @@
+# NOTE: This workflow is for WEKA internal CI/CD and requires access to internal infrastructure.
+# External contributors: Your PRs will be tested by WEKA maintainers using internal CI.
 name: Run Upgrade Test
 run-name: ${{ github.actor }} is running the upgrade test
 
