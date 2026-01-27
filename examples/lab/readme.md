@@ -1,1 +1,0 @@
-- all examples here use local cache, images uploaded to local cache manually, at this point to not expect arbitrary image to work
