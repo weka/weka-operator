@@ -46,32 +46,52 @@ class OperatorFlows:
         """
 
     @function
-    async def build_scalar(self,
+    async def build_to_registry(self,
                            operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                            sock: dagger.Socket,
+                           registry: str,
                            ) -> str:
+        """
+        Build and push operator to a custom registry.
+
+        Args:
+            operator: Operator source directory
+            sock: Docker socket
+            registry: Container registry to push to
+        """
         from apps.operator import publish_operator, publish_operator_helm_chart
         _ = await publish_operator(operator, sock,
-                                   repository="images.scalar.dev.weka.io:5002/weka-operator",
+                                   repository=f"{registry}/weka-operator",
                                    )
         operator_helm = await publish_operator_helm_chart(operator, sock,
-                                                          repository="images.scalar.dev.weka.io:5002/helm",
+                                                          repository=f"{registry}/helm",
                                                           )
         return operator_helm
 
     @function
-    async def deploy_scalar(self,
+    async def deploy(self,
                             operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                             sock: dagger.Socket,
                             kubeconfig: dagger.Secret,
+                            registry: str,
                             operator_values: Optional[dagger.File]=None,
                             ) -> str:
+        """
+        Build operator, push to registry, and deploy via Helm.
+
+        Args:
+            operator: Operator source directory
+            sock: Docker socket
+            kubeconfig: Kubernetes config for deployment
+            registry: Container registry to push to
+            operator_values: Optional custom values file
+        """
         from apps.operator import install_helm_chart
-        operator_helm = await self.build_scalar(operator, sock)
+        operator_helm = await self.build_to_registry(operator, sock, registry)
         install = await install_helm_chart(
             image=operator_helm,
             kubeconfig=kubeconfig,
-            operator_repo="images.scalar.dev.weka.io:5002/weka-operator",
+            operator_repo=f"{registry}/weka-operator",
             values_file=operator_values,
         )
         return install
@@ -82,24 +102,32 @@ class OperatorFlows:
         self,
         operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
         sock: dagger.Socket,
+        registry: str,
         gh_token: Optional[dagger.Secret] = None,
     ) -> List[str]:
         """
-        Returns the operator image and helm chart versions.
+        Build, publish operator and return image versions.
+
+        Args:
+            operator: Operator source directory
+            sock: Docker socket
+            registry: Container registry to push to
+            gh_token: Optional GitHub token for private dependencies
+
+        Returns:
+            Tuple of (operator_image, operator_helm_image)
         """
         from apps.operator import publish_operator, publish_operator_helm_chart
 
-        # images.scalar.dev.weka.io:5002/weka-operator:v1.5.1-kristina-test@sha256:ed47ec60b6d635f3a03022a1f7c82f2db7203c4ba2a7b13ef22545c3dec6b799
         operator_image_with_hash = await publish_operator(
             operator, sock,
-            repository="images.scalar.dev.weka.io:5002/weka-operator",
+            repository=f"{registry}/weka-operator",
             gh_token=gh_token,
         )
-              
-        # images.scalar.dev.weka.io:5002/helm/weka-operator:v1.5.1-kristina-test
+
         operator_helm_image = await publish_operator_helm_chart(
             operator, sock,
-            repository="images.scalar.dev.weka.io:5002/helm",
+            repository=f"{registry}/helm",
             gh_token=gh_token,
         )
 
@@ -235,6 +263,7 @@ class OperatorFlows:
         openai_api_key: dagger.Secret,
         gemini_api_key: dagger.Secret,
         kubeconfig_path: dagger.Secret,
+        registry: str,
         initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
         new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.129-k8s",
         test_artifacts_dir: Optional[dagger.Directory] = None,
@@ -249,8 +278,11 @@ class OperatorFlows:
         execution_id: Optional[str] = None,
         execution_temp_dir: Optional[str] = None,
     ) -> dagger.Directory:
-        """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them."""
+        """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them.
 
+        Args:
+            registry: Container registry to use for operator images
+        """
         current_gh_token = None
         if use_gh_token_for_go_deps:
             if gh_token is None:
@@ -320,7 +352,7 @@ class OperatorFlows:
 
         if not operator_image or not operator_helm_image:
             operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
-                operator, sock, gh_token=current_gh_token
+                operator, sock, gh_token=current_gh_token, registry=registry
             )
 
         operator_version = operator_helm_image.split(":")[-1]
@@ -652,6 +684,7 @@ EOF
         gh_token: Optional[dagger.Secret],
         source_kubeconfig: dagger.Secret,
         target_kubeconfig: dagger.Secret,
+        registry: str,
         weka_image: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
         use_gh_token_for_go_deps: bool = False,
         cluster_name: str = "upgrade-extended",
@@ -660,8 +693,11 @@ EOF
         operator_image: Optional[str] = None,
         operator_helm_image: Optional[str] = None,
     ) -> None:
-        """Runs the OpenShift clients-only test flow independently."""
-        
+        """Runs the OpenShift clients-only test flow independently.
+
+        Args:
+            registry: Container registry to use for operator images
+        """
         logger.info("Starting OCP clients-only test flow.")
         
         current_gh_token = None
@@ -682,7 +718,7 @@ EOF
 
         if not operator_image or not operator_helm_image:
             operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
-                operator, sock, gh_token=current_gh_token
+                operator, sock, gh_token=current_gh_token, registry=registry
             )
 
         operator_version = operator_helm_image.split(":")[-1]

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# NOTE: This script is used by the WEKA team for internal CI/CD pipelines.
+# External users should use the standard 'dagger' script instead.
+
+# supressing ugly logs/unsetting OTEL
+unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
+export DAGGER_NO_NAG=1
+
+# Use DAGGER_RUNNER_POD environment variable if set, otherwise fail with helpful message
+if [[ -z "${DAGGER_RUNNER_POD:-}" ]]; then
+    echo "Error: DAGGER_RUNNER_POD environment variable is not set."
+    echo "This script requires a remote Dagger runner. Set DAGGER_RUNNER_POD to the pod name."
+    echo "Example: export DAGGER_RUNNER_POD='dagger-engine-pod-name'"
+    exit 1
+fi
+
+export _EXPERIMENTAL_DAGGER_RUNNER_HOST="kube-pod://${DAGGER_RUNNER_POD}?namespace=${DAGGER_RUNNER_NAMESPACE:-infra}"
+
+# Build additional args from environment variables
+additional_args=()
+
+# Add --registry if DAGGER_REGISTRY is set
+if [[ -n "${DAGGER_REGISTRY:-}" ]]; then
+    additional_args+=("--registry=${DAGGER_REGISTRY}")
+fi
+
+exec dagger "$@" "${additional_args[@]}"
+

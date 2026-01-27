@@ -1,144 +1,34 @@
 # weka-operator
 
-_Caution_ This is still a prototype/demonstration
+Kubernetes operator for managing WEKA clusters on Kubernetes.
 
-## Description
+## Overview
 
-## Getting Started
+The weka-operator automates the deployment and management of WEKA distributed storage clusters on Kubernetes. It provides:
 
-### Building
+- Automated WEKA cluster provisioning and lifecycle management
+- Node discovery and container orchestration
+- Drive management and cluster scaling
+- CSI driver integration for persistent volumes
 
-Build the operator:
+## Prerequisites
 
-```sh
-make
-```
+- Kubernetes cluster (v1.26+)
+- Helm 3.x
+- Container registry access (Quay.io or your own registry)
+- WEKA license and credentials
 
-#### Trouble Shooting
+## Installation
 
-##### `docker build failed: docker buildx is not set to default context - please switch with 'docker context use default'`
+### Quick Start (From Quay.io)
 
-This error occurs when the Docker build context is not set to the default context.
-
-```sh
-docker context use default
-```
-
-##### `docker build failed: failed to build quay.io/weka.io/weka-operator:latest: exit status 1: ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?`
-
-In this case, the Docker daemon is running, but the docker socket is on the wrong page.
-This occurs in some versions of Docker Desktop for MacOS because the Docker socket is under `$HOME`.
-
-To fix this, create a symlink from the default location to the actual location:
+1. Create the operator namespace:
 
 ```sh
-sudo ln -s -f /Users/$USER/.docker/run/docker.sock /var/run/docker.sock
+kubectl create namespace weka-operator-system
 ```
 
-### Creating a Development Cluster
-
-Create a cluster in OCI:
-
-```sh
-./teka lab provision --size 5 SYSNAME --os ubuntu22 --env oci --oci-cpus 4 --oci-mem 30 --force && ./teka install SYSNAME --dont-clusterize
-```
-
-And setup Kubernetes:
-
-```sh
-./teka kube explore SYSNAME
-cmd('weka local stop; systemctl disable weka-agent').L
-setup_k3s_cluster()
-```
-
-SCP the kubeconfig to your local machine:
-
-```sh
-scp root@SYSTEMNAME: /tmp/kube-SYSTEMNAME ~/.kube/config-SYSTEMNAME
-export KUBECONFIG=~/.kube/config-SYSTEMNAME
-```
-
-### Running on the cluster in development mode
-
-Build and run the operator:
-
-```sh
-make run DEPLOY_CONTROLLER=false
-```
-
-Deploy the cluster CRD:
-
-```sh
-kubectl apply -f examples/oci_cluster.yaml
-```
-
-### End-to-End Testing
-
-There is a basic end-to-end test suite written in Python using pytest.
-This suite is provided at `test/e2e`.
-See the [README](test/e2e/README.md) for more information.
-
-## Releasing
-
-### Overview
-
-This project uses semantic release and GitHub Actions to automate releases.
-
-### Beta Releases
-
-Definition: Beta releases are releases stable enough for QA but not yet ready for customers.
-
-Beta releases are created by merging changes to the `release/v1-beta` branch.
-
-### Creating a Release
-
-To create a new release, simply merge your changes to the `release/v0` branch.
-Once the actions workflows complete, a new release will be created under the releases tab in GitHub.
-The Helm chart and Docker image will be published to Quay.io.
-See the [Helm Repository](https://quay.io/repository/weka.io/helm/weka-operator) and the [Docker Image](https://quay.io/repository/weka.io/weka-operator).
-
-### Development Releases
-
-Development releases are not possible until we reach a minumum version of `v1`.
-This is due to limitations of the pre-release feature of semantic release.
-Development or "next release" changes should still be merged into `main`.
-
-## Deployment
-
-### Prerequisites
-
-#### Operator Namespace
-
-The operator should be deployed in the `weka-operator-system` namespace.
-
-```yaml
----
-apiVersion: v1
-kind: namespace
-metadata:
-  name: weka-operator-system
-```
-
-#### Image Pull Secret
-
-Create a secret with the Quay.io credentials.
-These credentials are used to pull the operator image.
-
-Using YAML:
-
-```yaml
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: quay-cred
-  namespace: weka-operator-system
-type: kubernetes.io/dockerconfigjson
-data:
-  .dockerconfigjson: ${BASE64_ENCODED_DOCKER_CONFIG_JSON}
-```
-
-Using `kubectl`:
+2. Create image pull secret (if using private registry):
 
 ```sh
 kubectl -n weka-operator-system create secret docker-registry quay-cred \
@@ -147,48 +37,154 @@ kubectl -n weka-operator-system create secret docker-registry quay-cred \
   --docker-password=${QUAY_PASSWORD}
 ```
 
-#### Weka CLI Credentials
+3. Create WEKA CLI credentials secret:
 
-Create a secret with the Weka CLI credentials.
-These are used by operator containers that invoke the Weka CLI.
-The credentials must match the credentials set on the Weka cluster.
-
-Using YAML:
-
-```yaml
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: weka-cli
-  namespace: weka-operator-system
-type: kubernetes.io/basic-auth
-stringData:
-  username: ${WEKA_CLI_USERNAME}
-  password: ${WEKA_CLI_PASSWORD}
+```sh
+kubectl -n weka-operator-system create secret generic weka-cli \
+  --from-literal=username=${WEKA_CLI_USERNAME} \
+  --from-literal=password=${WEKA_CLI_PASSWORD}
 ```
 
-### Installing
-
-#### Install from Helm Repository (quay.io)
+4. Install the operator:
 
 ```sh
 helm upgrade --create-namespace \
     --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
+    --namespace weka-operator-system \
     --version ${VERSION}
 ```
 
-#### Local Installation
+### Installation from Source
 
-Install using Helm:
+Build and deploy from source code:
 
 ```sh
-helm upgrade --install weka-operator charts/weka-operator \
-    --namespace $(NAMESPACE) \
-    --values charts/weka-operator/values.yaml \
-    --create-namespace \
-    --set "prefix=weka-operator,image.repository=quay.io/weka.io/weka-operator,image.tag=$(VERSION)" \
-    --set deployController=true
+# Build the operator
+make build
+
+# Deploy to your cluster
+make deploy VERSION=dev-$(git rev-parse --short HEAD) REGISTRY_ENDPOINT=your-registry.io/your-namespace
 ```
 
-Deploy a Weka cluster using the CRD in the same manner as the example above.
+## Configuration
+
+### Helm Values
+
+Key configuration options in `charts/weka-operator/values.yaml`:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `image.repository` | Operator image repository | `quay.io/weka.io/weka-operator` |
+| `image.tag` | Operator image tag | Chart version |
+| `imagePullSecret` | Image pull secret name | `quay-io-robot-secret` |
+| `deployController` | Deploy the controller | `true` |
+| `csi.installationEnabled` | Enable CSI driver | `false` |
+| `wekahome.endpoint` | WEKA Home telemetry endpoint | `""` |
+
+See `charts/weka-operator/values.yaml` for all configuration options.
+
+## Development
+
+### Building
+
+```sh
+# Build operator binary
+make build
+
+# Run tests
+make test
+
+# Generate CRDs and manifests
+make manifests
+```
+
+### Local Development
+
+Run the operator locally against a Kubernetes cluster:
+
+```sh
+make run DEPLOY_CONTROLLER=false
+```
+
+### Using Dagger
+
+For CI/CD pipelines, the operator includes Dagger modules:
+
+```sh
+# Build operator using Dagger
+./dagger call --mod .dagger/src/operator_flows build --operator . --sock "$SSH_AUTH_SOCK"
+```
+
+See `.dagger/README.md` for more details.
+
+### Docker Socket Issues (macOS)
+
+If you encounter Docker socket errors:
+
+```sh
+# Create symlink for Docker socket
+sudo ln -s -f /Users/$USER/.docker/run/docker.sock /var/run/docker.sock
+```
+
+## Testing
+
+### Unit Tests
+
+```sh
+go test ./...
+```
+
+### End-to-End Tests
+
+```sh
+# Requires a Kubernetes cluster with WEKA environment
+go test -v ./test -run TestHappyPath -weka-image "${WEKA_IMAGE}" -cluster-name ${CLUSTER_NAME} -timeout 30m
+```
+
+See `test/e2e/README.md` for detailed E2E testing instructions.
+
+## Deploying a WEKA Cluster
+
+After installing the operator, deploy a WEKA cluster using a custom resource:
+
+```yaml
+apiVersion: weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: my-weka-cluster
+  namespace: weka-operator-system
+spec:
+  # Cluster configuration
+  # See examples/ directory for sample configurations
+```
+
+Check the `examples/` directory for sample cluster configurations.
+
+## Releasing
+
+This project uses semantic release and GitHub Actions:
+
+- **Beta Releases**: Merge to `release/v1-beta` branch
+- **Production Releases**: Merge to `release/v1` branch
+
+Helm charts and Docker images are published to Quay.io:
+- [Helm Repository](https://quay.io/repository/weka.io/helm/weka-operator)
+- [Docker Image](https://quay.io/repository/weka.io/weka-operator)
+
+## Documentation
+
+- API Reference: `doc/api_dump/`
+- Operator Deployment: `doc/operator/deployment/`
+- Architecture: `doc/weka/architecture/`
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests (`make test`)
+5. Submit a pull request
+
+## License
+
+See [LICENSE](LICENSE) for details.
