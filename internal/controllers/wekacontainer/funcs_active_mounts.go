@@ -13,12 +13,14 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*int, error) {
+// GetActiveMounts returns the number of active mounts for this container.
+// Results are cached for the duration of the reconciliation loop.
+func (r *containerReconcilerLoop) GetActiveMounts(ctx context.Context) (*int, error) {
 	if r.activeMounts != nil {
 		return r.activeMounts, nil
 	}
 
-	activeMounts, err := r.getActiveMounts(ctx)
+	activeMounts, err := r.fetchActiveMounts(ctx)
 	if err != nil && errors.Is(err, &NoWekaFsDriverFound{}) {
 		// if no weka fs driver found, we can assume that there are no active mounts
 		val := 0
@@ -32,7 +34,7 @@ func (r *containerReconcilerLoop) getCachedActiveMounts(ctx context.Context) (*i
 	return r.activeMounts, nil
 }
 
-func (r *containerReconcilerLoop) getActiveMounts(ctx context.Context) (*int, error) {
+func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, error) {
 	agentPod, err := r.GetNodeAgentPod(ctx, r.container.GetNodeAffinity())
 	if err != nil {
 		return nil, err
@@ -97,7 +99,7 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 		return true, nil
 	}
 
-	activeMounts, err := r.getCachedActiveMounts(ctx)
+	activeMounts, err := r.GetActiveMounts(ctx)
 	if err != nil {
 		return false, err
 	}
