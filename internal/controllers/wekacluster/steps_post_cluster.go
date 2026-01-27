@@ -257,6 +257,23 @@ func (r *wekaClusterReconcilerLoop) ShouldConfigureKms() bool {
 	return true
 }
 
+func (r *wekaClusterReconcilerLoop) ShouldEncryptFs() bool {
+	if r.ShouldConfigureKms() {
+		return true
+	}
+	if r.IsInternalEncryptionEnabled() {
+		return true
+	}
+	return false
+}
+
+func (r *wekaClusterReconcilerLoop) IsInternalEncryptionEnabled() bool {
+	if r.cluster.Spec.Encryption != nil && r.cluster.Spec.Encryption.InternalConfig != nil && r.cluster.Spec.Encryption.InternalConfig.Enabled {
+		return true
+	}
+	return false
+}
+
 func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
@@ -295,13 +312,14 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		thinProvisionedLimitsDefault = defaultFsSize
 	}
 
-	isEncrypted := r.ShouldConfigureKms()
+	isEncrypted := r.ShouldEncryptFs()
 
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
 		ThickProvisioningCapacity: strconv.FormatInt(configFsSize, 10),
 		ThinProvisioningEnabled:   true,
 		IsEncrypted:               isEncrypted,
+		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
 	})
 
 	if err != nil {
@@ -316,6 +334,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		ThickProvisioningCapacity: strconv.FormatInt(fsReservedCapacity, 10),
 		ThinProvisioningEnabled:   true,
 		IsEncrypted:               isEncrypted,
+		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
 	})
 	if err != nil {
 		var fsExists *services.FilesystemExists
