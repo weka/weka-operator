@@ -175,9 +175,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	hostsideContainerPersistence := f.nodeInfo.GetContainerPersistencePath(f.container.GetUID())
 	hostsideSharedData := f.nodeInfo.GetContainerSharedDataPath(f.container.GetUID())
 	hostsideClusterPersistence := fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), "cluster-less")
-	if len(f.container.GetOwnerReferences()) > 0 {
-		clusterId := f.container.GetOwnerReferences()[0].UID
-		hostsideClusterPersistence = fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), clusterId)
+	for _, ownerRef := range f.container.GetOwnerReferences() {
+		if ownerRef.Kind == "WekaCluster" {
+			clusterId := ownerRef.UID
+			hostsideClusterPersistence = fmt.Sprintf("%s/%s", f.nodeInfo.GetHostsideClusterPersistence(), clusterId)
+			break
+		}
 	}
 	wekaPort := strconv.Itoa(f.container.GetPort())
 
