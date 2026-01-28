@@ -99,7 +99,10 @@ jobs:
         with:
           version: v3.16.3
       - name: Login to Registry
-        run: helm registry login quay.io/weka.io --username ${{ secrets.QuayUsername }} --password ${{ secrets.QuayPassword }}
+        env:
+          QUAY_USERNAME: ${{ secrets.QuayUsername }}
+          QUAY_PASSWORD: ${{ secrets.QuayPassword }}
+        run: helm registry login quay.io/weka.io --username "$QUAY_USERNAME" --password "$QUAY_PASSWORD"
       - name: Configure git
         run: |
           git config user.name "$GITHUB_ACTOR"
@@ -115,14 +118,18 @@ jobs:
       - name: Read VERSION from inputs
         id: version_input
         if: github.event_name == 'workflow_dispatch'
-        run: echo "VERSION=${{ github.event.inputs.version-name }}" >> $GITHUB_ENV
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version-name }}
+        run: echo "VERSION=$VERSION_INPUT" >> $GITHUB_ENV
       - name: Read VERSION file
         id: version
         if: github.event_name != 'workflow_dispatch'
         run: echo "VERSION=$(cat .VERSION)" >> $GITHUB_ENV
       - name: build version
         if: ${{ env.VERSION != '' }}
-        run: VERSION=${{ env.VERSION }} ./build-release.sh
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: ./build-release.sh
       - name: Create release
         if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
         env:
@@ -130,7 +137,7 @@ jobs:
         run: npm run release
       - name: Add operator version as artifact
         if: ${{ env.VERSION != '' }}
-        run: echo "${{ env.VERSION }}" > operator-version.txt
+        run: echo "$VERSION" > operator-version.txt
       - name: Upload artifact
         if: ${{ env.VERSION != '' }}
         uses: actions/upload-artifact@v4
