@@ -1,35 +1,56 @@
 {
-  "devDependencies": {
-    "@commitlint/cli": "^18.4.4",
-    "@commitlint/config-conventional": "^18.4.4",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/commit-analyzer": "^13.0.0",
-    "@semantic-release/exec": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^10.1.7",
-    "@semantic-release/release-notes-generator": "^14.0.1",
-    "semantic-release": "^24.1.0"
-  },
   "name": "weka-operator",
   "version": "1.0.0",
-  "description": "_Caution_ This is still a prototype/demonstration",
-  "main": "commitlint.config.js",
+  "description": "A Kubernetes Operator for Weka",
+  "license": "Apache-2.0",
+  "author": "Weka",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weka/weka-operator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/weka/weka-operator/issues"
+  },
+  "keywords": [
+    "kubernetes",
+    "operator",
+    "weka",
+    "k8s"
+  ],
   "directories": {
     "doc": "doc",
-    "example": "examples",
-    "test": "test"
+    "example": "examples"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "release": "semantic-release"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "conventional-changelog-writer": "^8.0.0"
+    "conventional-changelog-writer": "^8.2.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.3.1",
+    "@commitlint/config-conventional": "^20.3.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.2",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "semantic-release": "^25.0.2"
   },
   "overrides": {
-    "conventional-changelog-conventionalcommits": ">= 8.0.0"
+    "conventional-changelog-conventionalcommits": ">= 8.0.0",
+    "tar": "7.5.7",
+    "lodash": ">=4.17.23",
+    "lodash-es": ">=4.17.23",
+    "glob": ">=10.5.0",
+    "js-yaml": ">=4.1.1",
+    "cross-spawn": ">=7.0.5",
+    "diff": ">=5.2.2",
+    "micromatch": ">=4.0.8",
+    "npm": "$npm"
+  },
+  "resolutions": {
+    "tar": "7.5.7"
   }
 }
