@@ -1,0 +1,16 @@
+# WekaPolicy to enable remote traces session
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: remote-traces
+  namespace: weka-operator-system
+spec:
+  type: "remote-traces-session"
+  payload:
+    remoteTracesSessionPayload:
+      cluster:
+        name: my-cluster
+        namespace: default
+      nodeSelector:
+        weka.io/role: backend
+      duration: "168h"  # 1 week

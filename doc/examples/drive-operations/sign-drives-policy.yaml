@@ -1,0 +1,14 @@
+# WekaPolicy to auto-sign drives (runs periodically)
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: sign-drives
+  namespace: weka-operator-system
+spec:
+  type: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: all-not-root
+      nodeSelector:
+        weka.io/role: backend
+    interval: 10m

@@ -71,6 +71,10 @@ See [dagger](.dagger/README.md) for deploying the operator with Dagger.
 go test ./...
 ```
 
+## Examples
+
+See [doc/examples](doc/examples) for YAML configurations including clusters, clients, drive sharing, and policies.
+
 ## API
 
 The operator api is defined in a separate [api](https://github.com/weka/weka-k8s-api) repository.<br>
