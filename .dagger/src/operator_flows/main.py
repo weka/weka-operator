@@ -491,7 +491,6 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
             target_secret_name: Name of the secret to create in the target cluster
             target_namespace: Namespace where to create the secret in the target cluster
         """
-        # lgtm[py/clear-text-logging-sensitive-data]
         logger.info(f"Copying secret {source_secret_name} from {source_namespace} to {target_secret_name} in {target_namespace}")
         
         # Prepare container with kubectl and both kubeconfigs
@@ -504,7 +503,6 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
         )
         
         # Get the secret data and type from source cluster
-        # lgtm[py/clear-text-logging-sensitive-data]
         # Only logs secret name (metadata), not the actual secret content
         logger.info(f"Extracting secret data from {source_secret_name} in source cluster")
         
@@ -529,7 +527,6 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
         ]).stdout()
         
         # Create the secret directly using kubectl create secret generic with the data
-        # lgtm[py/clear-text-logging-sensitive-data]
         # Only logs secret name (metadata), not the actual secret content
         logger.info(f"Creating secret {target_secret_name} in target cluster")
 
@@ -562,9 +559,8 @@ EOF
 
         # Verify the secret was created and get the verification output
         # Only logs secret name (metadata), not the actual secret content
-        # lgtm[py/clear-text-logging-sensitive-data]
         logger.info(f"Verifying secret {target_secret_name} was created in target cluster")
-        # lgtm[py/clear-text-logging-sensitive-data]
+        
         verification_result = await container.with_exec([
             "kubectl", "--kubeconfig=/.kube/target/config", "get", "secret",
             target_secret_name, "-n", target_namespace, "--no-headers", "-o", "name"
@@ -573,7 +569,6 @@ EOF
         if not verification_result.strip():
             raise ValueError(f"Failed to create secret {target_secret_name} in namespace {target_namespace}. Verification output was empty.")
 
-        # lgtm[py/clear-text-logging-sensitive-data]
         # Verification output is just "secret/name" format from kubectl, not the actual secret content
         logger.info(
             f"Successfully copied secret {source_secret_name} from {source_namespace} to {target_secret_name} in {target_namespace}."
@@ -745,7 +740,6 @@ EOF
 
         secrets_to_copy = [client_secret_name, csi_secret_name, "quay-io-robot-secret"]
         for secret_name in secrets_to_copy:
-            # lgtm[py/clear-text-logging-sensitive-data]
             # Only logs secret name (metadata), not the actual secret content
             logger.info(f"Copying secret {secret_name} from source cluster to target cluster.")
 

@@ -2202,7 +2202,6 @@ async def run_command(command, capture_stdout=True, log_execution=True, env: dic
     # Logging is controlled by log_execution and log_output parameters
     # Callers can disable logging for sensitive commands
     if log_execution:
-        # lgtm[py/clear-text-logging-sensitive-data]
         logging.info("Running command: " + command)
     if capture_stdout:
         pipe = asyncio.subprocess.PIPE
@@ -2213,13 +2212,10 @@ async def run_command(command, capture_stdout=True, log_execution=True, env: dic
                                                     stderr=pipe, env=env)
     stdout, stderr = await process.communicate()
     if log_execution:
-        # lgtm[py/clear-text-logging-sensitive-data]
         logging.info(f"Command {command} finished with code {process.returncode}")
     if stdout and log_output:
-        # lgtm[py/clear-text-logging-sensitive-data]
         logging.info(f"Command {command} stdout: {stdout.decode('utf-8')}")
     if stderr and log_output:
-        # lgtm[py/clear-text-logging-sensitive-data]
         logging.info(f"Command {command} stderr: {stderr.decode('utf-8')}")
     return stdout, stderr, process.returncode
 
