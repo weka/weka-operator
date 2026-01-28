@@ -2,7 +2,7 @@
 name = "operator-flows"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["dagger-io ==0.19.10", "h11>=0.16.0", "protobuf>=5.29.3", "requests>=2.32.4"]
+dependencies = ["dagger-io ==0.19.10", "h11>=0.16.0", "protobuf>=5.29.5", "requests>=2.32.4"]
 
 [build-system]
 requires = ["hatchling==1.25.0"]
