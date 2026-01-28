@@ -192,8 +192,10 @@ func (o *CleanupPersistentDirOperation) EnsureJob(ctx context.Context) error {
 	}
 
 	if o.payload.RunPrivileged {
+		runAsUser := int64(0)
 		job.Spec.Template.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{
 			Privileged: &[]bool{true}[0],
+			RunAsUser:  &runAsUser,
 		}
 	}
 
