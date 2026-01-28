@@ -527,14 +527,16 @@ unset OTEL_EXPORTER_OTLP_ENDPOINT
         
         # Create the secret directly using kubectl create secret generic with the data
         logger.info(f"Creating secret {target_secret_name} in target cluster")
-        
+
+        # SECURITY NOTE: secret_data is base64-encoded (Kubernetes default) and embedded in heredoc.
+        # Heredoc prevents shell injection, but avoid logging this command to prevent secret exposure.
         # Use kubectl to create the secret from the extracted data
         create_secret_cmd = [
-            "sh", "-c", 
+            "sh", "-c",
             f"""
             # Delete the secret if it already exists (ignore errors)
             kubectl --kubeconfig=/.kube/target/config delete secret {target_secret_name} -n {target_namespace} || true
-            
+
             # Create a temporary YAML file with the secret
             cat <<EOF > /tmp/secret.yaml
 apiVersion: v1
