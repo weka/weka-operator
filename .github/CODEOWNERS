@@ -1,0 +1,17 @@
+# CODEOWNERS - Require review from maintainers for sensitive files
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+* @weka/operator-maintainers
+
+# Protect workflow files - changes require maintainer approval
+/.github/workflows/ @weka/operator-maintainers
+
+# Protect CODEOWNERS itself
+/.github/CODEOWNERS @weka/operator-maintainers
+
+# Protect security-sensitive configurations
+/.github/ @weka/operator-maintainers
+
+# Protect Dagger CI/CD pipelines
+/.dagger/ @weka/operator-maintainers
