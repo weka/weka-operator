@@ -151,7 +151,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          version: "latest"
+          version: "0.19.10"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
@@ -175,7 +175,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          version: "latest"
+          version: "0.19.10"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
@@ -216,7 +216,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          version: "latest"
+          version: "0.19.10"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
@@ -299,7 +299,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          version: "latest"
+          version: "0.19.10"
           workdir: operator/.dagger/src
           module: operator_flows
           args: >-
