@@ -1,0 +1,19 @@
+# Minimal WekaCluster
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaCluster
+metadata:
+  name: my-cluster
+spec:
+  template: "dynamic"
+  image: "quay.io/weka.io/weka-in-container:<weka-version>"
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://drivers.weka.io"
+  dynamicTemplate:
+    computeContainers: 6
+    driveContainers: 6
+    numDrives: 1
+  nodeSelector:
+    weka.io/role: backend
+  network:
+    deviceSubnets:
+      - "10.0.0.0/16"  # adjust to your network

@@ -1,0 +1,15 @@
+# WekaPolicy to sign drives for sharing (proxy mode)
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaPolicy
+metadata:
+  name: sign-shared-drives
+  namespace: weka-operator-system
+spec:
+  type: "sign-drives"
+  payload:
+    signDrivesPayload:
+      type: all-not-root
+      nodeSelector:
+        weka.io/role: backend
+      shared: true  # enables proxy mode, stores in weka.io/shared-drives annotation
+    interval: 10m

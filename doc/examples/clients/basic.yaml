@@ -1,0 +1,17 @@
+# Basic WekaClient
+apiVersion: weka.weka.io/v1alpha1
+kind: WekaClient
+metadata:
+  name: my-cluster-clients
+spec:
+  image: "quay.io/weka.io/weka-in-container:<weka-version>"
+  imagePullSecret: "quay-io-robot-secret"
+  driversDistService: "https://drivers.weka.io"
+  targetCluster:
+    name: my-cluster
+    namespace: default
+  nodeSelector:
+    weka.io/role: client
+  network:
+    deviceSubnets:
+      - "10.0.0.0/16"  # should match cluster network
