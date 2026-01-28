@@ -3,6 +3,9 @@ name: Build
 on:
   push:
 
+permissions:
+  contents: read
+
 jobs:
   optimize_ci:
     runs-on: ubuntu-latest
@@ -11,7 +14,7 @@ jobs:
     steps:
       - name: Optimize CI
         id: check_skip
-        uses: withgraphite/graphite-ci-action@main
+        uses: withgraphite/graphite-ci-action@v0.0.9
         with:
           graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
   build:
