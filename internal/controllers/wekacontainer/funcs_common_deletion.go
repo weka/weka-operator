@@ -3,6 +3,7 @@ package wekacontainer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -232,7 +233,9 @@ func (r *containerReconcilerLoop) sendStopInstructionsViaAgent(ctx context.Conte
 	instructionsBasePath := path.Join(resources.GetPodShutdownInstructionPathOnAgent(nodeInfo.BootID, pod))
 	instructionsPath := path.Join(instructionsBasePath, "shutdown_instructions.json")
 
-	_, _, err = executor.ExecNamed(ctx, "StopInstructionsViaAgent", []string{"bash", "-ce", fmt.Sprintf("mkdir -p '%s' && echo '%s' > '%s'", instructionsBasePath, instructionsJson, instructionsPath)})
+	// Use base64 encoding to safely pass JSON through shell
+	instructionsB64 := base64.StdEncoding.EncodeToString(instructionsJson)
+	_, _, err = executor.ExecNamed(ctx, "StopInstructionsViaAgent", []string{"bash", "-ce", fmt.Sprintf("mkdir -p '%s' && echo '%s' | base64 -d > '%s'", instructionsBasePath, instructionsB64, instructionsPath)})
 	if err != nil {
 		logger.Error(err, "Error writing stop instructions via node-agent")
 		return err

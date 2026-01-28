@@ -146,7 +146,7 @@ jobs:
           chmod 600 ${{ github.workspace }}/.kube/config
 
       - name: Call Generate Test Artifacts
-        uses: dagger/dagger-for-github@8.0.0
+        uses: dagger/dagger-for-github@v8.2.0
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -171,7 +171,7 @@ jobs:
           retention-days: 1
 
       - name: Publish Operator
-        uses: dagger/dagger-for-github@8.0.0
+        uses: dagger/dagger-for-github@v8.2.0
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
@@ -210,7 +210,7 @@ jobs:
           find ${{ github.workspace }}/test-artifacts -type f -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
 
       - name: Run Upgrade-extended Test
-        uses: dagger/dagger-for-github@8.0.0
+        uses: dagger/dagger-for-github@v8.2.0
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -295,7 +295,7 @@ jobs:
           chmod 600 ${{ github.workspace }}/.kube/ocp-cluster-config
 
       - name: Run OCP Clients-Only Test
-        uses: dagger/dagger-for-github@8.0.0
+        uses: dagger/dagger-for-github@v8.2.0
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:

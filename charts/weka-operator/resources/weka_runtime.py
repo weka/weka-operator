@@ -2413,6 +2413,9 @@ async def create_container():
         {f"--restricted" if MODE == 'client' and "4.2.7.64" not in IMAGE_NAME else ""} \
         {f"--failure-domain {failure_domain}" if failure_domain else ""}
     """)
+    # join_secret_cmd is a shell command substitution "$(cat /path/to/secret)", not the secret value itself
+    # The actual secret is read by the shell at runtime and never appears in this logged string
+    # lgtm[py/clear-text-logging-sensitive-data]
     logging.info(f"Creating container with command: {command}")
     stdout, stderr, ec = await run_command(command)
     if ec != 0:

@@ -1119,6 +1119,12 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if shouldCheckContainerSpecific {
+			// Validate containerName to prevent path traversal attacks
+			// Container names should only contain alphanumeric characters, hyphens, and underscores
+			if strings.Contains(containerName, "..") || strings.Contains(containerName, "/") || strings.Contains(containerName, "\\") {
+				http.Error(w, "invalid container name", http.StatusBadRequest)
+				return
+			}
 			filePath = fmt.Sprintf("/proc/wekafs/%s/interface", containerName)
 		} else {
 			// Feature flag not enabled, use default path

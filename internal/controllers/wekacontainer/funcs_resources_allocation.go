@@ -4,6 +4,7 @@ package wekacontainer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"go/types"
@@ -174,14 +175,17 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		return err
 	}
 
-	// Use base64 encoding for safe file writing - prevents bash injection issues
+	// Use base64 encoding to safely pass JSON through shell
+	// JSON can contain single quotes in string values,
+	// which would break echo 'JSON' shell command and allow potential code injection
 	resourcesStr := string(resourcesJson)
 	logger.Info("writing resources", "json", resourcesStr)
+	resourcesB64 := base64.StdEncoding.EncodeToString(resourcesJson)
 	stdout, stderr, err := executor.ExecNamed(ctx, "WriteResources", []string{"bash", "-ce", fmt.Sprintf(`
 mkdir -p /opt/weka/k8s-runtime/tmp
-echo '%s' > /opt/weka/k8s-runtime/tmp/resources.json
+echo '%s' | base64 -d > /opt/weka/k8s-runtime/tmp/resources.json
 mv /opt/weka/k8s-runtime/tmp/resources.json /opt/weka/k8s-runtime/resources.json
-`, resourcesStr)})
+`, resourcesB64)})
 	if err != nil {
 		logger.Error(err, "Error writing resources", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
