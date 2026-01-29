@@ -369,6 +369,12 @@ func (r *containerReconcilerLoop) DeactivateWekaContainer(ctx context.Context) e
 
 	wekaContainer, err := wekaService.GetWekaContainer(ctx, *containerId)
 	if err != nil {
+		containerNotFound := &services.WekaContainerNotFound{}
+		if errors.As(err, &containerNotFound) {
+			// Container successfully removed
+			logger.Info("Container not found in cluster, considering a deactivation success", "container_id", containerId)
+			return nil
+		}
 		return err
 	}
 
