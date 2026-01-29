@@ -180,10 +180,11 @@ type FSParams struct {
 }
 
 type S3Params struct {
-	EnvoyPort      int
-	EnvoyAdminPort int
-	S3Port         int
-	ContainerIds   []int
+	EnvoyPort         int
+	EnvoyAdminPort    int
+	S3Port            int
+	ContainerIds      []int
+	ClusterCreateArgs []string
 }
 
 type S3Cluster struct {
@@ -787,6 +788,9 @@ func (c *CliWekaService) CreateS3Cluster(ctx context.Context, s3Params S3Params)
 		//"--container-name", s3Params.MinioContainerName,
 		//"--envoy-container-name", s3Params.EnvoyContainerName,
 	}
+
+	// Append additional cluster create args from S3Config
+	cmd = append(cmd, s3Params.ClusterCreateArgs...)
 
 	_, stderr, err := executor.ExecNamed(ctx, "CreateS3Cluster", cmd)
 	if err != nil {
