@@ -247,6 +247,7 @@ jobs:
             --operator-helm-image=${{ env.operator_helm_image }}
             --operator-repo=${{ vars.CI_OPERATOR_REPO }}
             --helm-repo=${{ vars.CI_HELM_REPO }}
+            --wekai-endpoint=${{ vars.WEKAI_ENDPOINT}}
 
       - name: Upload Wekai execution files
         uses: actions/upload-artifact@v4
