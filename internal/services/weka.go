@@ -666,7 +666,10 @@ func (c *CliWekaService) RemoveFromS3Cluster(ctx context.Context, containerId in
 		if strings.Contains(stderr.String(), fmt.Sprintf("error: Unrecognized host ID HostId<%d>", containerId)) {
 			logger.Warn("Container is not recognized by the S3 cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
 			return nil
-
+		}
+		if strings.Contains(stderr.String(), fmt.Sprintf("error: Unrecognized host ID %d", containerId)) {
+			logger.Warn("Container is not recognized by the S3 cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
 		}
 		if strings.Contains(stderr.String(), "S3 cluster is not configured") {
 			logger.Error(err, "S3 cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
