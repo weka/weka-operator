@@ -21,3 +21,14 @@ spec:
   network:
     deviceSubnets:
       - "10.0.0.0/16"
+  # s3:
+  #   # Additional arguments to pass to the S3 cluster create command
+  #   # These are appended as-is to the weka s3 cluster create command
+  #   # Useful for settings such as envoy limits
+  #   clusterCreateArgs:
+  #     - "--envoy-max-requests"
+  #     - "1150"
+  #     - "--envoy-max-connections"
+  #     - "1300"
+  #     - "--envoy-max-pending-requests"
+  #     - "1450"
