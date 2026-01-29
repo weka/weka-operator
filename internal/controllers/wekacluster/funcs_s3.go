@@ -63,11 +63,17 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 
 	logger.Debug("Creating S3 cluster", "containers", containerIds)
 
+	var clusterCreateArgs []string
+	if cluster.Spec.S3Config != nil {
+		clusterCreateArgs = cluster.Spec.S3Config.ClusterCreateArgs
+	}
+
 	err = wekaService.CreateS3Cluster(ctx, services.S3Params{
-		EnvoyPort:      cluster.Status.Ports.LbPort,
-		EnvoyAdminPort: cluster.Status.Ports.LbAdminPort,
-		S3Port:         cluster.Status.Ports.S3Port,
-		ContainerIds:   containerIds,
+		EnvoyPort:         cluster.Status.Ports.LbPort,
+		EnvoyAdminPort:    cluster.Status.Ports.LbAdminPort,
+		S3Port:            cluster.Status.Ports.S3Port,
+		ContainerIds:      containerIds,
+		ClusterCreateArgs: clusterCreateArgs,
 	})
 	if err != nil {
 		var s3ClusterExists *services.S3ClusterExists
