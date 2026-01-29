@@ -2875,8 +2875,11 @@ async def configure_persistency():
     logging.info("Persistency configured successfully")
 
 
-async def ensure_weka_version():
-    cmd = "weka version | grep '*' || weka version set $(weka version)"
+async def ensure_weka_version(force_set=False):
+    if force_set:
+        cmd = "weka version set $(weka version -J | jq -r '.[0]')"
+    else:
+        cmd = "weka version | grep '*' || weka version set $(weka version)"
     stdout, stderr, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to set weka version: {stderr}")
@@ -3367,7 +3370,10 @@ async def ensure_ssdproxy_container():
     _, _, ec = await run_command(cmd)
     if ec != 0:
         raise Exception(f"Failed to ensure ssdproxy container")
-    pass
+    
+    if not os.path.exists("/usr/bin/weka-sign-drive"):
+        os.symlink("/opt/weka/dist/extracted/weka-sign-drive", "/usr/bin/weka-sign-drive")
+        logging.info("Created symlink /usr/bin/weka-sign-drive -> /opt/weka/dist/extracted/weka-sign-drive")
 
 
 def write_file(path, content):
@@ -4119,6 +4125,7 @@ async def main():
 
     if MODE == "ssdproxy":
         await ensure_ssdproxy_container()
+        await ensure_weka_version(force_set=True)
         await configure_traces() # TODO: fragile code, we are entering configure_traces into multiple places, re-write in go and using our API will be more suitable
         return
 
