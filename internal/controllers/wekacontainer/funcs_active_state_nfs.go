@@ -8,10 +8,11 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-weka-observability/instrumentation"
+	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"github.com/weka/weka-operator/internal/services"
 )
 
@@ -26,10 +27,15 @@ const nfsInterfaceGroupName = "MgmtInterfaceGroup"
 // Note: DeviceSubnets/Selectors are used for data interface auto-discovery, but NFS requires
 // explicit interface names. If only auto-discovery is configured without explicit interfaces,
 // an error is returned.
-func (r *containerReconcilerLoop) getTargetNfsInterfaces() ([]string, error) {
+func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([]string, error) {
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Priority 1: Use cluster-level NFS interfaces if specified
-	if r.cluster != nil && r.cluster.Spec.NFSConfig != nil && len(r.cluster.Spec.NFSConfig.Interfaces) > 0 {
-		return r.cluster.Spec.NFSConfig.Interfaces, nil
+	if cluster != nil && cluster.Spec.NFSConfig != nil && len(cluster.Spec.NFSConfig.Interfaces) > 0 {
+		return cluster.Spec.NFSConfig.Interfaces, nil
 	}
 
 	// Priority 2: Use EthDevice if set (single interface)
@@ -72,13 +78,7 @@ func calculateInterfacesHash(interfaces []string) string {
 
 // ShouldEnsureNfsInterfaceGroupPorts returns true if NFS interface group ports need to be configured.
 // It checks the condition hash against the current target interfaces hash.
-func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts() bool {
-	targetInterfaces, err := r.getTargetNfsInterfaces()
-	if err != nil {
-		// If we can't determine interfaces, we should try to run (and fail with proper error)
-		return true
-	}
-
+func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces []string) bool {
 	currentHash := calculateInterfacesHash(targetInterfaces)
 
 	// Check if condition exists and hash matches
@@ -91,12 +91,19 @@ func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts() bool {
 }
 
 func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Context) error {
-	targetInterfaces, err := r.getTargetNfsInterfaces()
+	targetInterfaces, err := r.getTargetNfsInterfaces(ctx)
 	if err != nil {
 		return err
 	}
 
+	if !r.ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces) {
+		return nil // Already configured
+	}
+
 	currentHash := calculateInterfacesHash(targetInterfaces)
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureNfsInterfaceGroupPorts", "hash", currentHash)
+	defer end()
 
 	wekaService := services.NewWekaService(r.ExecService, r.container)
 	err = wekaService.EnsureNfsInterfaceGroupPorts(ctx, nfsInterfaceGroupName, *r.container.Status.ClusterContainerID, targetInterfaces)
@@ -111,6 +118,11 @@ func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Conte
 		Reason:  "Configured",
 		Message: currentHash,
 	})
+
+	if updateErr := r.Client.Status().Update(ctx, r.container); updateErr != nil {
+		logger.Error(updateErr, "Failed to update container status with NFS interface group condition")
+		return updateErr
+	}
 
 	return nil
 }

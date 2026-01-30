@@ -283,12 +283,12 @@ func (r *containerReconcilerLoop) FetchTargetCluster(ctx context.Context) error 
 }
 
 func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaCluster, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getClusterContainers")
-	defer end()
-
-	if r.cluster != nil {
-		return r.cluster, nil
+	if r._cluster != nil {
+		return r._cluster, nil
 	}
+
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getCluster")
+	defer end()
 
 	ownerRefs := r.container.GetOwnerReferences()
 	if len(ownerRefs) == 0 {
@@ -304,9 +304,9 @@ func (r *containerReconcilerLoop) getCluster(ctx context.Context) (*weka.WekaClu
 	if err != nil {
 		return nil, err
 	}
-	r.cluster = cluster
+	r._cluster = cluster
 
-	return r.cluster, nil
+	return r._cluster, nil
 }
 
 func (r *containerReconcilerLoop) getClusterContainers(ctx context.Context) ([]*weka.WekaContainer, error) {

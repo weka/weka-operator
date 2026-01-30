@@ -74,7 +74,8 @@ type containerReconcilerLoop struct {
 	// values shared between steps
 	activeMounts  *int
 	ThrottlingMap throttling.Throttler
-	cluster       *weka.WekaCluster
+	// NOTE: always use getCluster() to access this field
+	_cluster *weka.WekaCluster
 }
 
 func (r *containerReconcilerLoop) FetchContainer(ctx context.Context, req ctrl.Request) error {

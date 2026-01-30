@@ -553,15 +553,10 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			State: &lifecycle.State{
-				Name:    condition.CondNfsInterfaceGroupsConfigured,
-				Message: "NFS interface groups configured",
-			},
 			Run: r.EnsureNfsInterfaceGroupPorts,
 			Predicates: lifecycle.Predicates{
 				r.container.IsNfsContainer,
 				r.container.HasJoinIps,
-				r.ShouldEnsureNfsInterfaceGroupPorts,
 			},
 		},
 	}
