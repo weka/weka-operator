@@ -87,6 +87,14 @@ func DestroyingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.ensureProxyContainer,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDriveContainer,
+				r.container.UsesDriveSharing,
+				r.HasNodeAffinity,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.RemoveVirtualDrives,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
