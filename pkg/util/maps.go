@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"iter"
 	"slices"
+	"strings"
 	"sync"
 
 	"golang.org/x/exp/maps"
@@ -82,4 +83,15 @@ func AreMapsEqual[K comparable, V comparable](a, b map[K]V) bool {
 	}
 
 	return true
+}
+
+func RemoveKeysStartingWithPrefix(originalMap map[string]string, prefix string) map[string]string {
+	retMap := make(map[string]string)
+	for k, v := range originalMap {
+		if !strings.HasPrefix(k, prefix) {
+			retMap[k] = v
+		}
+	}
+
+	return retMap
 }
