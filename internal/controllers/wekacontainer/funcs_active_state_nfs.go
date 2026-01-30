@@ -20,31 +20,24 @@ import (
 const nfsInterfaceGroupName = "MgmtInterfaceGroup"
 
 // getTargetNfsInterfaces determines which interfaces should be used for NFS.
+// The container spec is the source of truth - cluster-level NFSConfig.Interfaces
+// are propagated to the container spec during container creation.
+//
 // Priority order:
-//  1. NFSConfig.Interfaces from WekaCluster spec (explicit cluster-level config)
-//  2. EthDevice from container spec (single interface)
-//  3. EthDevices from container spec (multiple interfaces)
+//  1. EthDevice from container spec (single interface)
+//  2. EthDevices from container spec (should have exactly 1 interface for NFS)
 //
 // Note: DeviceSubnets/Selectors are used for data interface auto-discovery, but NFS requires
 // explicit interface names. If only auto-discovery is configured without explicit interfaces,
 // an error is returned.
-func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([]string, error) {
-	cluster, err := r.getCluster(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Priority 1: Use cluster-level NFS interfaces if specified
-	if cluster != nil && cluster.Spec.NFSConfig != nil && len(cluster.Spec.NFSConfig.Interfaces) > 0 {
-		return cluster.Spec.NFSConfig.Interfaces, nil
-	}
-
-	// Priority 2: Use EthDevice if set (single interface)
+func (r *containerReconcilerLoop) getTargetNfsInterfaces() ([]string, error) {
+	// Priority 1: Use EthDevice if set (single interface)
 	if r.container.Spec.Network.EthDevice != "" {
 		return []string{r.container.Spec.Network.EthDevice}, nil
 	}
 
-	// Priority 3: Use EthDevices if set (multiple interfaces)
+	// Priority 2: Use EthDevices if set (should have exactly 1 interface for NFS)
+	// NOTE: this will change in future when multi-interface NFS is supported by Weka
 	if len(r.container.Spec.Network.EthDevices) > 0 {
 		targetInterfaces := r.container.Spec.Network.EthDevices
 
@@ -65,13 +58,13 @@ func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([
 	// No explicit interfaces available - check if auto-discovery is configured
 	// (which doesn't work for NFS)
 	if len(r.container.Spec.Network.DeviceSubnets) > 0 {
-		return nil, errors.New("NFS interface group configuration with DeviceSubnets is not supported; use EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces instead")
+		return nil, errors.New("NFS interface group configuration with DeviceSubnets is not supported; use EthDevice or EthDevices")
 	}
 	if len(r.container.Spec.Network.Selectors) > 0 {
-		return nil, errors.New("NFS interface group configuration with network Selectors is not supported; use EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces instead")
+		return nil, errors.New("NFS interface group configuration with network Selectors is not supported; use EthDevice or EthDevices")
 	}
 
-	return nil, errors.New("no network interfaces configured for NFS; configure EthDevice, EthDevices, or cluster-level NFSConfig.Interfaces")
+	return nil, errors.New("no network interfaces configured for NFS; configure EthDevice or EthDevices in container spec")
 }
 
 // calculateInterfacesHash creates a deterministic hash of interfaces for change detection
@@ -92,7 +85,12 @@ func calculateInterfacesHash(interfaces []string) string {
 
 // ShouldEnsureNfsInterfaceGroupPorts returns true if NFS interface group ports need to be configured.
 // It checks the condition hash against the current target interfaces hash.
-func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces []string) bool {
+func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts() bool {
+	targetInterfaces, err := r.getTargetNfsInterfaces()
+	if err != nil {
+		return true // Cannot determine interfaces, assume need to configure
+	}
+
 	currentHash := calculateInterfacesHash(targetInterfaces)
 
 	// Check if condition exists and hash matches
@@ -136,13 +134,9 @@ func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Conte
 		return err
 	}
 
-	targetInterfaces, err := r.getTargetNfsInterfaces(ctx)
+	targetInterfaces, err := r.getTargetNfsInterfaces()
 	if err != nil {
 		return err
-	}
-
-	if !r.ShouldEnsureNfsInterfaceGroupPorts(targetInterfaces) {
-		return nil // Already configured
 	}
 
 	currentHash := calculateInterfacesHash(targetInterfaces)

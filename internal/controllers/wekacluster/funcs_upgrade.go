@@ -251,6 +251,14 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		targetNetwork := cluster.GetNetworkForRole(role)
 
+		// For NFS containers, if NFSConfig.Interfaces is specified, use it to override network interfaces
+		// This ensures NFS containers respect the single-interface-per-host constraint
+		if role == "nfs" && cluster.Spec.NFSConfig != nil && len(cluster.Spec.NFSConfig.Interfaces) > 0 {
+			// Override network config with NFS-specific interfaces
+			targetNetwork.EthDevice = ""
+			targetNetwork.EthDevices = cluster.Spec.NFSConfig.Interfaces
+		}
+
 		oldNetworkHash, err := util.HashStruct(container.Spec.Network)
 		if err != nil {
 			return err

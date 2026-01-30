@@ -56,6 +56,14 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 
 	network := cluster.GetNetworkForRole(role)
 
+	// For NFS containers, if NFSConfig.Interfaces is specified, use it to override network interfaces
+	// This ensures NFS containers respect the single-interface-per-host constraint
+	if role == "nfs" && cluster.Spec.NFSConfig != nil && len(cluster.Spec.NFSConfig.Interfaces) > 0 {
+		// Override network config with NFS-specific interfaces
+		network.EthDevice = ""
+		network.EthDevices = cluster.Spec.NFSConfig.Interfaces
+	}
+
 	secretKey := cluster.GetOperatorSecretName()
 
 	additionalMemory := 0
