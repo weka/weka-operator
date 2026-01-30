@@ -405,6 +405,7 @@ type EncryptionConfig struct {
 	InternalConfig *InternalEncryptionConfig `json:"internal,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.interfaces) || self.interfaces.size() <= 1",message="NFS allows only 1 interface per host"
 type NfsConfig struct {
 	Interfaces []string `json:"interfaces,omitempty"`
 	IpRanges   []string `json:"ipRanges,omitempty"`
