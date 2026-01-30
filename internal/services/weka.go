@@ -744,11 +744,35 @@ func (c *CliWekaService) EnsureNfsInterfaceGroupPorts(ctx context.Context, inter
 		}
 		_, stderr, err := executor.ExecNamed(ctx, "AddNfsInterfaceGroupPort", cmd)
 		if err != nil {
-			if strings.Contains(stderr.String(), "is already part of group") {
-				logger.Info("Interface already part of NFS group", "interface", interfaceName)
+			stderrStr := stderr.String()
+			// Handle two distinct error cases from Weka:
+			//
+			// 1. CONSTRAINT VIOLATION (FATAL):
+			//    error: A host can't be added more than once to the same interface group. The host 13 is already part of group MgmtInterfaceGroup, but with port enp99s0f0np0.
+			//
+			// 2. IDEMPOTENT CASE (OK):
+			//    error: The host 13 with port enp99s0f0np0 is already part of group MgmtInterfaceGroup.
+			if strings.Contains(stderrStr, "host can't be added more than once to the same interface group") {
+				logger.SetError(err, "Cannot add multiple interfaces per host to NFS interface group",
+					"interface", interfaceName,
+					"containerId", containerId,
+					"interfaceGroup", interfaceGroupName,
+					"stderr", stderrStr)
+				return errors.Wrapf(err,
+					"NFS interface group constraint violation: host %d already has a different interface in group %s. "+
+						"Weka only allows one interface per host in an NFS interface group. Error: %s",
+					containerId, interfaceGroupName, stderrStr)
+			}
+
+			if strings.Contains(stderrStr, fmt.Sprintf("port %s is already part of group", interfaceName)) {
+				// Idempotent case: same host + same interface already configured
+				logger.Info("Interface already part of NFS group (idempotent)",
+					"interface", interfaceName,
+					"containerId", containerId)
 				continue
 			}
-			logger.SetError(err, "Failed to add NFS interface group port", "interface", interfaceName, "stderr", stderr.String())
+
+			logger.SetError(err, "Failed to add NFS interface group port", "interface", interfaceName, "stderr", stderrStr)
 			return err
 		}
 		logger.Info("Added interface to NFS group", "interface", interfaceName)
