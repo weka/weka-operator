@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,9 +20,34 @@ import (
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
+// validateNfsConfig validates NFS configuration to ensure Weka constraints are met.
+// Weka only allows one NFS interface per host in an interface group.
+func validateNfsConfig(cluster *weka.WekaCluster) error {
+	if cluster.Spec.NFSConfig == nil {
+		return nil
+	}
+
+	if len(cluster.Spec.NFSConfig.Interfaces) > 1 {
+		return fmt.Errorf(
+			"NFSConfig.interfaces must contain at most 1 interface; got %d interfaces: %v. "+
+				"NFS interface groups in Weka only support a single interface per host",
+			len(cluster.Spec.NFSConfig.Interfaces),
+			cluster.Spec.NFSConfig.Interfaces,
+		)
+	}
+
+	return nil
+}
+
 func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureNfs")
 	defer end()
+
+	// Validate NFS configuration before proceeding
+	if err := validateNfsConfig(r.cluster); err != nil {
+		logger.SetError(err, "NFS configuration validation failed")
+		return err
+	}
 
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
