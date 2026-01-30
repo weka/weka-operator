@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -45,7 +46,20 @@ func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([
 
 	// Priority 3: Use EthDevices if set (multiple interfaces)
 	if len(r.container.Spec.Network.EthDevices) > 0 {
-		return r.container.Spec.Network.EthDevices, nil
+		targetInterfaces := r.container.Spec.Network.EthDevices
+
+		// Validate single interface constraint for NFS
+		if len(targetInterfaces) > 1 {
+			return nil, fmt.Errorf(
+				"NFS configuration validation failed: multiple interfaces specified (%d). "+
+					"NFS supports only a single interface per host. "+
+					"Interfaces: %v",
+				len(targetInterfaces),
+				targetInterfaces,
+			)
+		}
+
+		return targetInterfaces, nil
 	}
 
 	// No explicit interfaces available - check if auto-discovery is configured
