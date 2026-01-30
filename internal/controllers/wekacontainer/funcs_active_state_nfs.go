@@ -17,6 +17,13 @@ import (
 
 const nfsInterfaceGroupName = "MgmtInterfaceGroup"
 
+// FetchClusterForNfs fetches the cluster and caches it for NFS configuration.
+// This step must run before ShouldEnsureNfsInterfaceGroupPorts predicate is evaluated.
+func (r *containerReconcilerLoop) FetchClusterForNfs(ctx context.Context) error {
+	_, _ = r.getCluster(ctx)
+	return nil
+}
+
 // getTargetNfsInterfaces determines which interfaces should be used for NFS.
 // Priority order:
 //  1. NFSConfig.Interfaces from WekaCluster spec (explicit cluster-level config)
@@ -26,6 +33,7 @@ const nfsInterfaceGroupName = "MgmtInterfaceGroup"
 // Note: DeviceSubnets/Selectors are used for data interface auto-discovery, but NFS requires
 // explicit interface names. If only auto-discovery is configured without explicit interfaces,
 // an error is returned.
+// Note: r.cluster must be populated before calling this (via FetchClusterForNfs step).
 func (r *containerReconcilerLoop) getTargetNfsInterfaces() ([]string, error) {
 	// Priority 1: Use cluster-level NFS interfaces if specified
 	if r.cluster != nil && r.cluster.Spec.NFSConfig != nil && len(r.cluster.Spec.NFSConfig.Interfaces) > 0 {
@@ -72,6 +80,7 @@ func calculateInterfacesHash(interfaces []string) string {
 
 // ShouldEnsureNfsInterfaceGroupPorts returns true if NFS interface group ports need to be configured.
 // It checks the condition hash against the current target interfaces hash.
+// Note: FetchClusterForNfs must run before this predicate is evaluated.
 func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts() bool {
 	targetInterfaces, err := r.getTargetNfsInterfaces()
 	if err != nil {

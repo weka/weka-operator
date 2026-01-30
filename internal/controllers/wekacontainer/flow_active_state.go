@@ -469,6 +469,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			// Fetch cluster config for NFS interface configuration
+			Run: r.FetchClusterForNfs,
+			Predicates: lifecycle.Predicates{
+				r.container.IsNfsContainer,
+				r.container.HasJoinIps,
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondNfsInterfaceGroupsConfigured,
 				Message: "NFS interface groups configured",
