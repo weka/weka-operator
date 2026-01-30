@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -45,7 +46,20 @@ func (r *containerReconcilerLoop) getTargetNfsInterfaces(ctx context.Context) ([
 
 	// Priority 3: Use EthDevices if set (multiple interfaces)
 	if len(r.container.Spec.Network.EthDevices) > 0 {
-		return r.container.Spec.Network.EthDevices, nil
+		targetInterfaces := r.container.Spec.Network.EthDevices
+
+		// Validate single interface constraint for NFS
+		if len(targetInterfaces) > 1 {
+			return nil, fmt.Errorf(
+				"NFS configuration validation failed: multiple interfaces specified (%d). "+
+					"NFS supports only a single interface per host. "+
+					"Interfaces: %v",
+				len(targetInterfaces),
+				targetInterfaces,
+			)
+		}
+
+		return targetInterfaces, nil
 	}
 
 	// No explicit interfaces available - check if auto-discovery is configured
@@ -90,7 +104,38 @@ func (r *containerReconcilerLoop) ShouldEnsureNfsInterfaceGroupPorts(targetInter
 	return true // Needs configuration
 }
 
+// validateNfsNetworkConfiguration validates that NFS containers have at most one network interface configured.
+func (r *containerReconcilerLoop) validateNfsNetworkConfiguration() error {
+	if !r.container.IsNfsContainer() {
+		return nil
+	}
+
+	ethDeviceCount := 0
+	if r.container.Spec.Network.EthDevice != "" {
+		ethDeviceCount = 1
+	}
+	ethDeviceCount += len(r.container.Spec.Network.EthDevices)
+
+	if ethDeviceCount > 1 {
+		return fmt.Errorf(
+			"NFS container mode only supports a single network interface per host; "+
+				"container %s has %d interfaces configured (ethDevice: %q, ethDevices: %v)",
+			r.container.Name,
+			ethDeviceCount,
+			r.container.Spec.Network.EthDevice,
+			r.container.Spec.Network.EthDevices,
+		)
+	}
+
+	return nil
+}
+
 func (r *containerReconcilerLoop) EnsureNfsInterfaceGroupPorts(ctx context.Context) error {
+	// Validate NFS network configuration before proceeding
+	if err := r.validateNfsNetworkConfiguration(); err != nil {
+		return err
+	}
+
 	targetInterfaces, err := r.getTargetNfsInterfaces(ctx)
 	if err != nil {
 		return err
