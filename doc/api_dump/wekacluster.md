@@ -24,6 +24,7 @@
 - [RoleCoreIds](#rolecoreids)
 - [EncryptionConfig](#encryptionconfig)
 - [NfsConfig](#nfsconfig)
+- [S3Config](#s3config)
 - [TelemetryConfig](#telemetryconfig)
 - [ClusterMetrics](#clustermetrics)
 - [ClusterPrinterColumns](#clusterprintercolumns)
@@ -33,6 +34,7 @@
 - [NetworkSelector](#networkselector)
 - [AdvancedCsiConfig](#advancedcsiconfig)
 - [VaultConfig](#vaultconfig)
+- [InternalEncryptionConfig](#internalencryptionconfig)
 - [TelemetryExport](#telemetryexport)
 - [ContainersMetrics](#containersmetrics)
 - [IoStats](#iostats)
@@ -97,6 +99,7 @@
 | roleCoreIds | RoleCoreIds | RoleCoreIds defines a list of CPU core IDs (as seen by the host) that should<br>be assigned to containers of the specific role when CpuPolicy is set to<br>"manual". If the slice for the given role is empty, core ids will not be<br>set for that role, and the manual policy will fail validation on pod start.<br>NOTE: The semantics are the same as for NodeSelector/Annotations structures –<br>a single list per role which will be copied to every container of that role.<br>Users are responsible to provide a set that makes sense for their topology.<br>Example:<br>roleCoreIds:<br>compute: [0,1,2,3]<br>drive:   [4,5,6,7]<br>will result in every compute container getting coreIds [0,1,2,3] and every<br>drive container getting [4,5,6,7]. |
 | encryption | *EncryptionConfig |  |
 | nfs | *NfsConfig |  |
+| s3 | *S3Config |  |
 | telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
 
 ---
@@ -338,6 +341,7 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | vault | *VaultConfig |  |
+| internal | *InternalEncryptionConfig | InternalConfig defines internal encryption settings, encryption key stored in weka configuration, for production systems use real KMS, however this mode can be useful to evaluate performance of encrypted filesystems |
 
 ---
 
@@ -347,6 +351,14 @@
 |------------|------|-------------|
 | interfaces | []string |  |
 | ipRanges | []string |  |
+
+---
+
+## S3Config
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| clusterCreateArgs | []string | No overlap validation, only appended to the cluster create command as-is<br>Useful for settings such as: `--envoy-max-requests 1150 --envoy-max-connections 1300 --envoy-max-pending-requests 1450`<br>Not propagated to already created cluster, and direct weka control should be used for that |
 
 ---
 
@@ -452,6 +464,14 @@
 | transitPath | string | Transit engine mount path, defaults "transit". |
 | method | string | Vault Auth method (only “kubernetes” is supported  on operator side.) |
 | keyName | string | Name of the transit key. defaults to "weka-key" |
+
+---
+
+## InternalEncryptionConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| enabled | bool |  |
 
 ---
 
