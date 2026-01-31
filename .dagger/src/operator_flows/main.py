@@ -277,6 +277,7 @@ class OperatorFlows:
         gh_sha: Optional[str] = None,
         execution_id: Optional[str] = None,
         execution_temp_dir: Optional[str] = None,
+        wekai_endpoint: Optional[str] = None,
     ) -> dagger.Directory:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them.
 
@@ -332,6 +333,9 @@ class OperatorFlows:
             wekai_call += f" --execution-id {execution_id}"
         if execution_temp_dir:
             wekai_call += f" --execution-tmp-dir {execution_temp_dir}"
+
+        if wekai_endpoint:
+            wekai_call += f" --remote-bot-endpoint {wekai_endpoint}"
 
         # Add wekai to the PATH and set environment variables similar to GitHub workflow
         upgrade_test_container = (
