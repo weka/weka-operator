@@ -223,11 +223,12 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 		// Ensure labels on the node
 		nodeToUpdate := node.DeepCopy()
 		updateNeeded := false
-		if val, ok := nodeToUpdate.Labels[kernelLabelKey]; !ok || val != attrs.kernelVersion {
+		sanitizedKernelVersion := sanitizeKernelVersionForLabel(attrs.kernelVersion)
+		if val, ok := nodeToUpdate.Labels[kernelLabelKey]; !ok || val != sanitizedKernelVersion {
 			if nodeToUpdate.Labels == nil {
 				nodeToUpdate.Labels = make(map[string]string)
 			}
-			nodeToUpdate.Labels[kernelLabelKey] = attrs.kernelVersion
+			nodeToUpdate.Labels[kernelLabelKey] = sanitizedKernelVersion
 			updateNeeded = true
 		}
 		if val, ok := nodeToUpdate.Labels[archLabelKey]; !ok || val != attrs.architecture {
@@ -549,13 +550,15 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 							}
 						}
 						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
+						// IMPORTANT: Use sanitized kernel version to match the sanitized label on nodes
 						builderNodeSelector[archLabelKey] = ka.architecture
-						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
+						builderNodeSelector[kernelLabelKey] = sanitizeKernelVersionForLabel(ka.kernelVersion)
 						// 3. Ensure it runs on amd64 (overrides if kubernetes.io/arch was in ka.nodeSelector)
 						builderNodeSelector["kubernetes.io/arch"] = "amd64"
 						return builderNodeSelector
 					}(),
 					// Instructions to tell the builder what kernel/arch to build for
+					// NOTE: Keep the original kernel version in payload as it's validated against uname -r in PreRunScript
 					Instructions: &weka.Instructions{
 						Type:    "build-drivers",
 						Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s"}`, ka.kernelVersion, ka.architecture),
@@ -752,7 +755,7 @@ func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, ar
 	labels := o.getCommonLabels()
 	labels["weka.io/mode"] = weka.WekaContainerModeDriversBuilder
 	labels["weka.io/target-image-hash"] = hashFNV(image) // To avoid overly long label values
-	labels["weka.io/target-kernel"] = strings.ReplaceAll(kernel, ".", "-")
+	labels["weka.io/target-kernel"] = sanitizeKernelVersionForLabel(kernel)
 	labels["weka.io/target-arch"] = arch
 	return labels
 }
@@ -760,18 +763,7 @@ func (o *EnsureDistServiceOperation) getBuilderContainerLabels(image, kernel, ar
 func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch string) string {
 	// Name must be DNS-1123 compliant
 	imgHash := hashFNV(image)
-	kernelNorm := strings.ReplaceAll(kernel, ".", "-")
-	kernelNorm = strings.ReplaceAll(kernelNorm, "_", "-") // Further sanitize kernel
-
-	// Remove any leading or trailing hyphens from kernelNorm itself.
-	// This prevents kernelNorm from causing the full name to end with a hyphen.
-	kernelNorm = strings.Trim(kernelNorm, "-")
-
-	// If kernelNorm became empty (e.g., kernel was originally "-" or ".-."),
-	// use a placeholder to ensure the final segment of the name is valid.
-	if kernelNorm == "" {
-		kernelNorm = "unknownkernel"
-	}
+	kernelNorm := sanitizeForDNS1123(kernel)
 
 	name := fmt.Sprintf("%s-%s-%s-%s-%s", o.policy.GetName(), DriversBuilderSuffix, imgHash, arch, kernelNorm)
 
@@ -780,9 +772,7 @@ func (o *EnsureDistServiceOperation) getBuilderContainerName(image, kernel, arch
 		name = name[:63]
 	}
 
-	// After potential truncation or if the original construction ended with a hyphen,
-	// ensure the name does not end with a hyphen.
-	// DriverBuilderPrefix ensures the name won't be empty or start with a hyphen.
+	// After potential truncation, ensure the name does not end with a hyphen.
 	name = strings.TrimRight(name, "-")
 
 	return name
@@ -792,6 +782,57 @@ func hashFNV(s string) string {
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	return strconv.FormatUint(uint64(h.Sum32()), 10)
+}
+
+// sanitizeKernelVersionForLabel sanitizes a kernel version string to make it valid for Kubernetes labels.
+// Kubernetes labels must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character.
+// Invalid characters like '+' are replaced with '-'.
+func sanitizeKernelVersionForLabel(kernelVersion string) string {
+	return sanitizeString(kernelVersion, false, "unknown")
+}
+
+// sanitizeForDNS1123 sanitizes a string to make it valid for DNS-1123 names.
+// DNS-1123 names must consist of lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.
+func sanitizeForDNS1123(s string) string {
+	return sanitizeString(s, true, "unknown")
+}
+
+// sanitizeString is a helper function to sanitize strings for Kubernetes labels or DNS-1123 names.
+// If dns1123 is true, only lowercase alphanumeric and '-' are allowed.
+// If dns1123 is false, alphanumeric, '-', '_', and '.' are allowed (for labels).
+func sanitizeString(s string, dns1123 bool, fallback string) string {
+	sanitized := strings.Map(func(r rune) rune {
+		// Check if character is alphanumeric
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			if dns1123 {
+				// Convert to lowercase for DNS-1123
+				if r >= 'A' && r <= 'Z' {
+					return r + 32 // Convert to lowercase
+				}
+			}
+			return r
+		}
+		// For labels (not DNS-1123), also allow '_' and '.'
+		if !dns1123 && (r == '_' || r == '.') {
+			return r
+		}
+		// Replace all other characters with '-'
+		return '-'
+	}, s)
+
+	// Trim non-alphanumeric characters from start and end
+	if dns1123 {
+		sanitized = strings.Trim(sanitized, "-")
+	} else {
+		sanitized = strings.Trim(sanitized, "-_.")
+	}
+
+	// If the result is empty, return the fallback
+	if sanitized == "" {
+		return fallback
+	}
+
+	return sanitized
 }
 
 func (o *EnsureDistServiceOperation) AsStep() lifecycle.Step {
