@@ -156,6 +156,8 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 		return err
 	}
 
+	// Early check: fail fast if persistency not configured yet
+	// This avoids wasting CPU on marshaling/encoding if container isn't ready
 	_, _, err = executor.ExecNamed(ctx, "CheckPersistencyConfigured", []string{"bash", "-ce", "test -f /opt/weka/k8s-runtime/persistency-configured"})
 	if err != nil {
 		err = errors.New("Persistency is not yet configured")
@@ -177,11 +179,17 @@ func (r *containerReconcilerLoop) WriteResources(ctx context.Context) error {
 	resourcesStr := string(resourcesJson)
 	logger.Info("writing resources", "json", resourcesStr)
 	stdout, stderr, err := executor.ExecNamed(ctx, "WriteResources", []string{"bash", "-ce", fmt.Sprintf(`
+test -f /opt/weka/k8s-runtime/persistency-configured || exit 1
 mkdir -p /opt/weka/k8s-runtime/tmp
 echo '%s' > /opt/weka/k8s-runtime/tmp/resources.json
 mv /opt/weka/k8s-runtime/tmp/resources.json /opt/weka/k8s-runtime/resources.json
 `, resourcesStr)})
 	if err != nil {
+		// Check if error is due to persistency not being configured
+		if strings.Contains(stderr.String(), "test") || strings.Contains(err.Error(), "exit status 1") {
+			err = errors.New("Persistency is not yet configured")
+			return lifecycle.NewWaitError(err)
+		}
 		logger.Error(err, "Error writing resources", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
