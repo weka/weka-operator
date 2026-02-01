@@ -1235,6 +1235,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	if f.container.Spec.Mode == weka.WekaContainerModeSSDProxy {
 		cpuRequestStr = "500m"
 		memRequest = "2500M"
+		memLimit = "7500M"
 		cpuLimitStr = "2000m"
 	}
 
