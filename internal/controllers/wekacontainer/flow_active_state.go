@@ -430,6 +430,18 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			OnFail: r.setErrorStatus,
 		},
 		&lifecycle.SimpleStep{
+			Name: "DeleteEnvoyIfProcessNotExists",
+			Run:  r.deleteEnvoyIfProcessNotExists,
+			Predicates: lifecycle.Predicates{
+				r.container.IsEnvoy,
+				r.PodIsSet,
+				func() bool {
+					return r.container.Status.Status == weka.Error
+				},
+			},
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
 			Run: r.applyCurrentImage,
 			Predicates: lifecycle.Predicates{
 				r.IsNotAlignedImage,
