@@ -160,6 +160,7 @@ type AdditionalMemory struct {
 	S3      int `json:"s3,omitempty"`
 	Nfs     int `json:"nfs,omitempty"`
 	Envoy   int `json:"envoy,omitempty"`
+	Smbw    int `json:"smbw,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -175,6 +176,8 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.Nfs
 	case WekaContainerModeEnvoy:
 		additionalMemory = a.Envoy
+	case WekaContainerModeSmbw:
+		additionalMemory = a.Smbw
 	}
 	return additionalMemory
 }
@@ -214,6 +217,16 @@ type WekaConfig struct {
 	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
+	SmbwContainers int `json:"smbwContainers,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container
+	SmbwCores int `json:"smbwCores,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container
+	SmbwExtraCores int `json:"smbwExtraCores,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend
+	SmbwFrontendHugepages int `json:"smbwFrontendHugepages,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend
+	SmbwFrontendHugepagesOffset int `json:"smbwFrontendHugepagesOffset,omitempty"`
 	// DriveCapacity is the capacity in GiB to allocate per single virtual drive.
 	// NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.
 	// This value determines how much capacity each container receives from shared drives.
@@ -263,6 +276,8 @@ type RoleNodeSelector struct {
 	S3 *map[string]string `json:"s3,omitempty"`
 	// nodeSelector for nfs weka containers
 	Nfs *map[string]string `json:"nfs,omitempty"`
+	// nodeSelector for smbw weka containers
+	Smbw *map[string]string `json:"smbw,omitempty"`
 }
 
 type RoleAnnotations struct {
@@ -274,6 +289,8 @@ type RoleAnnotations struct {
 	S3 *map[string]string `json:"s3,omitempty"`
 	// annotations for nfs weka containers
 	Nfs *map[string]string `json:"nfs,omitempty"`
+	// annotations for smbw weka containers
+	Smbw *map[string]string `json:"smbw,omitempty"`
 }
 
 type RoleNetworkSelector struct {
@@ -285,6 +302,8 @@ type RoleNetworkSelector struct {
 	S3 *Network `json:"s3,omitempty"`
 	// network selector for nfs weka containers
 	Nfs *Network `json:"nfs,omitempty"`
+	// network selector for smbw weka containers
+	Smbw *Network `json:"smbw,omitempty"`
 }
 
 // RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.
@@ -302,6 +321,8 @@ type RoleCoreIds struct {
 	S3 []int `json:"s3,omitempty"`
 	// +kubebuilder:validation:Optional
 	Nfs []int `json:"nfs,omitempty"`
+	// +kubebuilder:validation:Optional
+	Smbw []int `json:"smbw,omitempty"`
 }
 
 type RoleTopologySpreadConstraints struct {
@@ -309,6 +330,7 @@ type RoleTopologySpreadConstraints struct {
 	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
 	S3      []v1.TopologySpreadConstraint `json:"s3,omitempty"`
 	Nfs     []v1.TopologySpreadConstraint `json:"nfs,omitempty"`
+	Smbw    []v1.TopologySpreadConstraint `json:"smbw,omitempty"`
 }
 
 func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpreadConstraint {
@@ -321,6 +343,8 @@ func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpread
 		return c.S3
 	case "nfs":
 		return c.Nfs
+	case "smbw":
+		return c.Smbw
 	default:
 		return nil
 	}
@@ -331,6 +355,7 @@ type RoleAffinity struct {
 	Drive   *v1.Affinity `json:"drive,omitempty"`
 	S3      *v1.Affinity `json:"s3,omitempty"`
 	Nfs     *v1.Affinity `json:"nfs,omitempty"`
+	Smbw    *v1.Affinity `json:"smbw,omitempty"`
 }
 
 type PodConfiguration struct {
@@ -416,6 +441,17 @@ type S3Config struct {
 	// Useful for settings such as: `--envoy-max-requests 1150 --envoy-max-connections 1300 --envoy-max-pending-requests 1450`
 	// Not propagated to already created cluster, and direct weka control should be used for that
 	ClusterCreateArgs []string `json:"clusterCreateArgs,omitempty"`
+}
+
+type SmbwConfig struct {
+	// ClusterName is the SMB-W cluster name, defaults to "default"
+	ClusterName string `json:"clusterName,omitempty"`
+	// DomainName is the domain name for SMB-W, required for SMB-W cluster creation
+	DomainName       string `json:"domainName"`
+	DomainJoinSecret string `json:"domainJoinSecret"`
+	UserName         string `json:"userName,omitempty"`
+	// IpRanges specifies floating IP ranges for SMB-W high availability
+	IpRanges []string `json:"ipRanges,omitempty"`
 }
 
 // TelemetryConfig defines the telemetry export configuration for the Weka cluster
@@ -559,6 +595,7 @@ type WekaClusterSpec struct {
 	Encryption  *EncryptionConfig `json:"encryption,omitempty"`
 	NFSConfig   *NfsConfig        `json:"nfs,omitempty"`
 	S3Config    *S3Config         `json:"s3,omitempty"`
+	SmbwConfig  *SmbwConfig       `json:"smbw,omitempty"`
 	// Telemetry configuration for exporting audit logs and other telemetry data
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 }
@@ -585,7 +622,8 @@ type PVCConfig struct {
 }
 
 type WekaClusterSpecOverrides struct {
-	AllowS3ClusterDestroy bool `json:"allowS3ClusterDestroy,omitempty"`
+	AllowS3ClusterDestroy   bool `json:"allowS3ClusterDestroy,omitempty"`
+	AllowSmbwClusterDestroy bool `json:"allowSmbwClusterDestroy,omitempty"`
 	// disregard redundancy constraints, useful for testing, should not be used in production as misaligns failure domains
 	DisregardRedundancy bool `json:"disregardRedundancy,omitempty"`
 	// can be used to specify a build_id for a driver in the distributor service, keep empty for auto detection default
@@ -775,6 +813,8 @@ func (c *WekaCluster) GetNodeSelectorForRole(role string) map[string]string {
 		roleNodeSelector = c.Spec.RoleNodeSelector.S3
 	case "nfs":
 		roleNodeSelector = c.Spec.RoleNodeSelector.Nfs
+	case "smbw":
+		roleNodeSelector = c.Spec.RoleNodeSelector.Smbw
 	}
 
 	if roleNodeSelector != nil {
@@ -797,6 +837,8 @@ func (c *WekaCluster) GetAnnotationsForRole(role string) map[string]string {
 		roleAnnotations = c.Spec.RoleAnnotations.S3
 	case "nfs":
 		roleAnnotations = c.Spec.RoleAnnotations.Nfs
+	case "smbw":
+		roleAnnotations = c.Spec.RoleAnnotations.Smbw
 	}
 
 	if roleAnnotations != nil {
@@ -819,6 +861,8 @@ func (c *WekaCluster) GetNetworkForRole(role string) Network {
 		roleNetworkSelector = c.Spec.RoleNetworkSelector.S3
 	case "nfs":
 		roleNetworkSelector = c.Spec.RoleNetworkSelector.Nfs
+	case "smbw":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.Smbw
 	}
 
 	if roleNetworkSelector != nil {
@@ -839,6 +883,8 @@ func (c *WekaCluster) GetCoreIdsForRole(role string) []int {
 		return c.Spec.RoleCoreIds.S3
 	case "nfs":
 		return c.Spec.RoleCoreIds.Nfs
+	case "smbw":
+		return c.Spec.RoleCoreIds.Smbw
 	default:
 		return nil
 	}
@@ -865,6 +911,8 @@ func (c *WekaCluster) GetAffinityForRole(role string) *v1.Affinity {
 		affinity = c.Spec.PodConfig.RoleAffinity.S3
 	case "nfs":
 		affinity = c.Spec.PodConfig.RoleAffinity.Nfs
+	case "smbw":
+		affinity = c.Spec.PodConfig.RoleAffinity.Smbw
 	}
 
 	if affinity != nil {

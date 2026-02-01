@@ -91,6 +91,7 @@ const (
 	WekaContainerModeDiscovery      = "discovery"
 	WekaContainerModeS3             = "s3"
 	WekaContainerModeNfs            = "nfs"
+	WekaContainerModeSmbw           = "smbw"
 	WekaContainerModeEnvoy          = "envoy"
 	WekaContainerModeSSDProxy       = "ssdproxy"
 	WekaContainerModeTelemetry      = "telemetry"
@@ -207,7 +208,7 @@ type WekaContainerSpec struct {
 	Image             string             `json:"image"`
 	ImagePullSecret   string             `json:"imagePullSecret,omitempty"`
 	WekaContainerName string             `json:"name"`
-	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;telemetry;ssdproxy
+	// +kubebuilder:validation:Enum=drive;compute;client;dist;drivers-dist;drivers-loader;drivers-builder;discovery;s3;adhoc-op-with-container;adhoc-op;envoy;nfs;smbw;telemetry;ssdproxy
 	Mode       string `json:"mode"`
 	NumCores   int    `json:"numCores"`             //numCores is weka-specific cores
 	ExtraCores int    `json:"extraCores,omitempty"` //extraCores is temporary solution for S3 containers, cores allocation on top of weka cores
@@ -581,7 +582,7 @@ func (w *WekaContainer) IsDriversBuilder() bool {
 }
 
 func (w *WekaContainer) IsBackend() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfs}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsDiscoveryContainer() bool {
@@ -602,13 +603,14 @@ func (w *WekaContainer) HasPersistentStorage() bool {
 		WekaContainerModeDist,
 		WekaContainerModeDriversDist,
 		WekaContainerModeNfs,
+		WekaContainerModeSmbw,
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) HasFrontend() bool {
-	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeS3, WekaContainerModeClient, WekaContainerModeNfs, WekaContainerModeSmbw}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsS3Container() bool {
@@ -642,13 +644,14 @@ func (w *WekaContainer) IsWekaContainer() bool {
 		WekaContainerModeDriversDist,
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeNfs,
+		WekaContainerModeSmbw,
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsAllocatable() bool {
-	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeTelemetry}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeDrive, WekaContainerModeCompute, WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) MustHaveNodeAffinity() bool {
@@ -666,13 +669,14 @@ func (w *WekaContainer) HasAgent() bool {
 		WekaContainerModeDriversBuilder,
 		WekaContainerModeAdhocOpWC,
 		WekaContainerModeNfs,
+		WekaContainerModeSmbw,
 		WekaContainerModeSSDProxy,
 		WekaContainerModeTelemetry,
 	}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsHostWideSingleton() bool {
-	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeTelemetry}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeEnvoy, WekaContainerModeS3, WekaContainerModeNfs, WekaContainerModeSmbw, WekaContainerModeTelemetry}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) GetNodeAffinity() NodeName {
@@ -706,7 +710,11 @@ func (w *WekaContainer) IsClientContainer() bool {
 }
 
 func (w *WekaContainer) IsProtocolContainer() bool {
-	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3, WekaContainerModeSmbw}, w.Spec.Mode)
+}
+
+func (w *WekaContainer) IsSmbwContainer() bool {
+	return w.Spec.Mode == WekaContainerModeSmbw
 }
 
 func (w *WekaContainer) IsSSDProxyContainer() bool {
