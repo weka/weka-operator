@@ -127,7 +127,6 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			ImagePullSecret:    cluster.Spec.ImagePullSecret,
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
 			Tolerations:        cluster.Spec.RawTolerations,
-			HostPID:            true, // Needed for drive access
 			Hugepages:          hugepagesMiB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB,
 			HugepagesSize:      "2Mi",
 		},
@@ -175,11 +174,8 @@ func (r *containerReconcilerLoop) calculateProxyHugepages(ctx context.Context, n
 	// Convert GiB to TiB (round up to be safe)
 	expectedMaxDriveTiB := (maxCapacityGiB + 1023) / 1024
 
-	// Calculate hugepages in KiB using the formula
-	hugepagesKiB := resources.GetSsdProxyHugeTLBKiB(maxDrives, expectedMaxDriveTiB)
-
-	// Convert KiB to MiB (round up)
-	hugepagesMiB := int((hugepagesKiB + 1023) / 1024)
+	// Calculate hugepages in MiB using the formula
+	hugepagesMiB := int(resources.GetSsdProxyHugepagesMiB(maxDrives, expectedMaxDriveTiB))
 
 	logger.Info("Calculated hugepages for ssd_proxy",
 		"maxDrives", maxDrives,
