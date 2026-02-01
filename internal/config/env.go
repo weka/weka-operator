@@ -188,21 +188,22 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes                    bool
-	CleanupBackendsOnNodeSelectorMismatch  bool
-	CleanupClientsOnNodeSelectorMismatch   bool
-	CleanupContainersOnTolerationsMismatch bool
-	EvictContainerOnDeletion               bool
-	RemovalThrottlingEnabled               bool
-	SkipClientsTolerationValidation        bool
-	TolerationsMismatchSettings            TolerationsMismatchSettings
-	DeleteEnvoyWithoutS3NeighborTimeout    time.Duration
-	DeleteUnschedulablePodsAfter           time.Duration
-	RemoveFailedDrivesFromWeka             bool
-	AllowMultipleProtocolsPerNode          bool
-	ManagementProxyHostNetwork             bool
-	ManagementProxyIngressBaseDomain       string
-	ManagementProxyIngressClass            string
+	CleanupRemovedNodes                     bool
+	CleanupBackendsOnNodeSelectorMismatch   bool
+	CleanupClientsOnNodeSelectorMismatch    bool
+	CleanupContainersOnTolerationsMismatch  bool
+	EvictContainerOnDeletion                bool
+	RemovalThrottlingEnabled                bool
+	RecreateUnhealthyEnvoyThrottlingEnabled bool
+	SkipClientsTolerationValidation         bool
+	TolerationsMismatchSettings             TolerationsMismatchSettings
+	DeleteEnvoyWithoutS3NeighborTimeout     time.Duration
+	DeleteUnschedulablePodsAfter            time.Duration
+	RemoveFailedDrivesFromWeka              bool
+	AllowMultipleProtocolsPerNode           bool
+	ManagementProxyHostNetwork              bool
+	ManagementProxyIngressBaseDomain        string
+	ManagementProxyIngressClass             string
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
@@ -363,6 +364,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.CleanupContainersOnTolerationsMismatch = getBoolEnvOrDefault("CLEANUP_CONTAINERS_ON_TOLERATIONS_MISMATCH", false)
 	Config.EvictContainerOnDeletion = getBoolEnvOrDefault("EVICT_CONTAINER_ON_DELETION", false)
 	Config.RemovalThrottlingEnabled = getBoolEnvOrDefault("REMOVAL_THROTTLING_ENABLED", false)
+	Config.RecreateUnhealthyEnvoyThrottlingEnabled = getBoolEnvOrDefault("RECREATE_UNHEALTHY_ENVOY_THROTTLING_ENABLED", true)
 	Config.SkipClientsTolerationValidation = getBoolEnvOrDefault("SKIP_CLIENTS_TOLERATION_VALIDATION", false)
 	Config.TolerationsMismatchSettings.EnableIgnoredTaints = getBoolEnvOrDefault("TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS", true)
 	Config.TolerationsMismatchSettings.IgnoredTaints = getStringSlice("TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS")

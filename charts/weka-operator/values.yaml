@@ -144,6 +144,8 @@ cleanupContainersOnTolerationsMismatch: false
 evictContainerOnDeletion: false
 # -- if true, container removal from weka will be throttled
 removalThrottlingEnabled: true
+# -- if true, unhealthy envoy container recreation will be throttled (one per cluster per minute)
+recreateUnhealthyEnvoyThrottlingEnabled: true
 # -- this validation is only relevant for new client containers creation
 skipClientsTolerationValidation: true
 

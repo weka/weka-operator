@@ -230,6 +230,8 @@ spec:
               value: "{{ .Values.evictContainerOnDeletion }}"
             - name: REMOVAL_THROTTLING_ENABLED
               value: "{{ .Values.removalThrottlingEnabled }}"
+            - name: RECREATE_UNHEALTHY_ENVOY_THROTTLING_ENABLED
+              value: "{{ .Values.recreateUnhealthyEnvoyThrottlingEnabled }}"
             - name: SKIP_CLIENTS_TOLERATION_VALIDATION
               value: "{{ .Values.skipClientsTolerationValidation }}"
             - name: TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS
