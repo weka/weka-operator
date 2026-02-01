@@ -79,8 +79,7 @@ async def install_helm_chart(image: str, kubeconfig: dagger.Secret, operator_rep
                   # helm pull to install crds from crd directory
                   .with_env_variable("KUBECONFIG", "/kubeconfig")
                   .with_exec(["sh", "-ec", f"""
-        helm pull oci://{repo} --version {version} --untar
-        kubectl apply -f weka-operator/crds
+        helm show crds oci://{repo} --version {version} | kubectl apply --server-side -f -
         """
                               ])
                   .with_exec(["sh", "-ec", f"""

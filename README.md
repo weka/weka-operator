@@ -40,12 +40,14 @@ kubectl create secret docker-registry quay-io-robot-secret \
   --namespace=default # wekacluster/wekaclient namespaces, that can be different from operator itself, each namespace needs a copy of secret
 ```
 ```shell
-helm pull oci://quay.io/weka.io/helm/weka-operator --untar --version v1.9.1
-kubectl apply -f weka-operator/crds
-helm upgrade \
---install weka-operator oci://quay.io/weka.io/helm/weka-operator \
---namespace weka-operator-system \
---create-namespace --version v1.9.1
+# Install CRDs using server-side apply
+helm show crds oci://quay.io/weka.io/helm/weka-operator --version v1.9.1 | \
+  kubectl apply --server-side -f -
+
+# Install operator
+helm upgrade --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
+  --namespace weka-operator-system \
+  --create-namespace --version v1.9.1
 ```
 
 ## Configuration

@@ -1,16 +1,16 @@
 Installed with command as
 ```bash
-cd /tmp
-helm pull oci://quay.io/weka.io/helm/weka-operator --version v1.5.0 --untar 
-cd weka-operator
-kubectl apply -f ./crds
+# Install CRDs using server-side apply
+helm show crds oci://quay.io/weka.io/helm/weka-operator --version v1.5.0 | \
+  kubectl apply --server-side -f -
 
+# Install operator
 helm upgrade --create-namespace \
     --install weka-operator oci://quay.io/weka.io/helm/weka-operator \
     --namespace weka-operator-system \
     --version v1.5.0 --values operator_values.yaml
 ```
-Always make sure to update CRDs before upgrading helm
+Always make sure to update CRDs before upgrading helm using server-side apply to handle large CRD definitions.
 
 Operator pod can be found with label `app=weka-operator` after installation
 
