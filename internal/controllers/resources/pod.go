@@ -1275,19 +1275,22 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 
 	if f.container.Spec.Mode == weka.WekaContainerModeS3 {
 		s3Memory := 16000
-		managementMemory := 1965 + s3Memory // 8000 per S3
-		perFrontendMemory := 2050
+		managementMemory := 2450
+		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendBuffer := 200
 		buffer := 450
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+		total := buffer + managementMemory + s3Memory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
+		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeNfs {
 		nfsMemory := 16000
-		managementMemory := 1965 + nfsMemory // 8000 per NFS
-		perFrontendMemory := 2050
+		managementMemory := 2450
+		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendBuffer := 200
 		buffer := 450
-		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
-
+		total := buffer + managementMemory + nfsMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
+		memRequest = fmt.Sprintf("%dMi", total)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
