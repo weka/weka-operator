@@ -228,6 +228,10 @@ spec:
               value: "{{ .Values.upgrade.driveThresholdPercent }}"
             - name: UPGRADE_MAX_DEACTIVATING_CONTAINERS_PERCENT
               value: "{{ .Values.upgrade.maxDeactivatingContainersPercent }}"
+            - name: UPGRADE_IMAGE_PRE_PULL_ENABLED
+              value: "{{ .Values.upgrade.imagePrePull.enabled }}"
+            - name: UPGRADE_IMAGE_PRE_PULL_TIMEOUT
+              value: "{{ .Values.upgrade.imagePrePull.timeout }}"
             - name: SKIP_CLIENT_NO_SCHEDULE_TOLERATION
               value: "{{ .Values.skipClientNoScheduleToleration }}"
             - name: SKIP_AUX_NO_SCHEDULE_TOLERATION

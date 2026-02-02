@@ -41,6 +41,8 @@ import (
 
 const defaultPortRangeBase = 45000
 
+const AnnotationPrePullClient = "weka.io/prepull-client"
+
 func NewClientReconcileLoop(r *ClientController) *clientReconcilerLoop {
 	mgr := r.Manager
 	kClient := mgr.GetClient()
@@ -814,10 +816,73 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 	}
 }
 
+func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleImagePrePull")
+	defer end()
+
+	wekaClient := c.wekaClient
+
+	// Check if pre-pull needed
+	if !c.needsPrePullForClient() {
+		logger.Info("Pre-pull already completed for client, skipping",
+			"targetImage", wekaClient.Spec.Image,
+		)
+		return nil
+	}
+
+	logger.Info("Starting image pre-pull before upgrade",
+		"targetImage", wekaClient.Spec.Image,
+	)
+
+	tolerations := util.ExpandTolerations([]v1.Toleration{}, wekaClient.Spec.Tolerations, wekaClient.Spec.RawTolerations)
+
+	payload := &operations.PrePullImagePayload{
+		TargetImage:     wekaClient.Spec.Image,
+		NodeSelector:    wekaClient.Spec.NodeSelector,
+		Tolerations:     tolerations,
+		ImagePullSecret: wekaClient.Spec.ImagePullSecret,
+		OwnerKind:       wekaClient.Kind,
+		OwnerMeta:       wekaClient,
+		Role:            "client",
+	}
+	// Create and execute the pre-pull operation
+	prePullOp := operations.NewPrePullImageOperation(c.Manager, payload)
+	err := operations.ExecuteOperation(ctx, prePullOp)
+	if err != nil {
+		return errors.Wrap(err, "failed to pre-pull image before upgrade")
+	}
+
+	logger.Info("Image pre-pull operation completed", "result", prePullOp.GetJsonResult())
+
+	// Set annotation
+	err = c.setPrePullAnnotationForClient(ctx)
+	if err != nil {
+		logger.Error(err, "Failed to set pre-pull annotation, will retry pre-pull on next reconciliation")
+		// Don't return error - pre-pull succeeded
+	}
+
+	return nil
+}
+
 func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleUpgrade")
+	defer end()
+
 	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image)
 	if uController.AreUpgraded() {
+		// Clear pre-pull annotation after successful upgrade
+		err := c.clearPrePullAnnotationForClient(ctx)
+		if err != nil {
+			logger.Warn("Failed to clear pre-pull annotation", "error", err)
+		}
 		return nil
+	}
+
+	if config.Config.Upgrade.ImagePrePullEnabled {
+		err := c.handleImagePrePull(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	if c.targetCluster != nil {
@@ -959,22 +1024,22 @@ func getDefaultedWekaSecretRef(wekaSecretRef string, targetClusterName string) s
 }
 
 type UpdatableClientSpec struct {
-	DriversDistService      string
-	DriversBuildId          *string
-	ImagePullSecret         string
-	WekaSecretRef           string
-	AdditionalMemory        int
-	UpgradePolicy           weka.UpgradePolicy
-	AllowHotUpgrade         bool
-	DriversLoaderImage      string
-	Port                    int
-	AgentPort               int
-	PortRange               *weka.PortRange
-	CoresNumber             int
-	Tolerations             []string
-	RawTolerations          []v1.Toleration
-	Labels                  *util2.HashableMap
-	Annotations             *util2.HashableMap
+	DriversDistService string
+	DriversBuildId     *string
+	ImagePullSecret    string
+	WekaSecretRef      string
+	AdditionalMemory   int
+	UpgradePolicy      weka.UpgradePolicy
+	AllowHotUpgrade    bool
+	DriversLoaderImage string
+	Port               int
+	AgentPort          int
+	PortRange          *weka.PortRange
+	CoresNumber        int
+	Tolerations        []string
+	RawTolerations     []v1.Toleration
+	Labels             *util2.HashableMap
+	Annotations        *util2.HashableMap
 	// NodeSelector is propagated to client containers for container-level node selector
 	// mismatch validation. Not used for scheduling (clients use NodeAffinity).
 	NodeSelector            *util2.HashableMap
@@ -1010,7 +1075,7 @@ func NewUpdatableClientSpec(client *weka.WekaClient) *UpdatableClientSpec {
 		Tolerations:             spec.Tolerations,
 		RawTolerations:          spec.RawTolerations,
 		Labels:                  labels,
-		Annotations:             util2.NewHashableMap(meta.Annotations),
+		Annotations:             util2.NewHashableMap(util2.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
 		NodeSelector:            util2.NewHashableMap(spec.NodeSelector),
 		AutoRemoveTimeout:       spec.AutoRemoveTimeout,
 		ForceDrain:              spec.GetOverrides().ForceDrain,
@@ -1332,4 +1397,74 @@ func (c *clientReconcilerLoop) getExistingCsiNodeDaemonSet(ctx context.Context) 
 	}
 
 	return daemonSet, nil
+}
+
+// needsPrePullForClient checks if pre-pull is needed
+func (c *clientReconcilerLoop) needsPrePullForClient() bool {
+	wekaClient := c.wekaClient
+
+	annotations := wekaClient.GetAnnotations()
+	if annotations == nil {
+		return true
+	}
+
+	prePulledImage, exists := annotations[AnnotationPrePullClient]
+	if !exists {
+		return true
+	}
+
+	return prePulledImage != wekaClient.Spec.Image
+}
+
+// setPrePullAnnotationForClient sets annotation after successful pre-pull
+func (c *clientReconcilerLoop) setPrePullAnnotationForClient(ctx context.Context) error {
+	// Get fresh copy
+	wekaClient := &weka.WekaClient{}
+	err := c.Get(ctx, client.ObjectKey{
+		Namespace: c.wekaClient.Namespace,
+		Name:      c.wekaClient.Name,
+	}, wekaClient)
+	if err != nil {
+		return errors.Wrap(err, "failed to get client")
+	}
+
+	patch := client.MergeFrom(wekaClient.DeepCopy())
+
+	if wekaClient.Annotations == nil {
+		wekaClient.Annotations = make(map[string]string)
+	}
+	wekaClient.Annotations[AnnotationPrePullClient] = wekaClient.Spec.Image
+
+	return c.Patch(ctx, wekaClient, patch)
+}
+
+// clearPrePullAnnotationForClient removes annotation after successful upgrade
+func (c *clientReconcilerLoop) clearPrePullAnnotationForClient(ctx context.Context) error {
+	// Check local object first to avoid unnecessary API calls
+	if c.wekaClient.Annotations == nil {
+		return nil
+	}
+	if _, exists := c.wekaClient.Annotations[AnnotationPrePullClient]; !exists {
+		return nil
+	}
+
+	// Annotation exists locally, fetch fresh copy to clear it
+	wekaClient := &weka.WekaClient{}
+	err := c.Get(ctx, client.ObjectKey{
+		Namespace: c.wekaClient.Namespace,
+		Name:      c.wekaClient.Name,
+	}, wekaClient)
+	if err != nil {
+		return errors.Wrap(err, "failed to get client")
+	}
+
+	// Double-check annotation still exists (might have been cleared by another reconciliation)
+	if wekaClient.Annotations == nil || wekaClient.Annotations[AnnotationPrePullClient] == "" {
+		return nil
+	}
+
+	patch := client.MergeFrom(wekaClient.DeepCopy())
+	delete(wekaClient.Annotations, AnnotationPrePullClient)
+
+	return c.Patch(ctx, wekaClient, patch)
 }
