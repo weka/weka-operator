@@ -70,25 +70,21 @@ echo "UIO module loaded successfully"
 
 // copy weka dist files if drivers-loader image is
 // different from cluster image
-func (f *PodFactory) copyWekaVersionToDriverLoader(pod *v1.Pod) {
+func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 	originalImage := f.container.Spec.Instructions.Payload
-	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, v1.EnvVar{
-		Name:  "CLUSTER_IMAGE_NAME",
-		Value: originalImage,
-	})
 
-	sharedVolumeName := "shared-weka-version-data"
-	sharedVolumeMountPath := "/shared-weka-version-data"
+	sharedVolumeName := "shared-weka-version"
+	sharedVolumeMountPath := "/shared-weka-version"
 
 	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
-		Name:    "init-setup",
+		Name:    "copy-weka-version",
 		Image:   originalImage,
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			`
-					mkdir -p /shared-weka-version-data &&
-					cp -r /opt/weka/* /shared-weka-version-data/ &&
-					echo "Init container completed successfully"
+					mkdir -p /shared-weka-version &&
+					cp -r /opt/weka/* /shared-weka-version/ &&
+					echo "shared weka version copied successfully"
 					`,
 		},
 		VolumeMounts: []v1.VolumeMount{
