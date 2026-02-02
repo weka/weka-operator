@@ -155,12 +155,13 @@ func (n *Network) Equal(o *Network) bool {
 }
 
 type AdditionalMemory struct {
-	Compute int `json:"compute,omitempty"`
-	Drive   int `json:"drive,omitempty"`
-	S3      int `json:"s3,omitempty"`
-	Nfs     int `json:"nfs,omitempty"`
-	Envoy   int `json:"envoy,omitempty"`
-	Smbw    int `json:"smbw,omitempty"`
+	Compute      int `json:"compute,omitempty"`
+	Drive        int `json:"drive,omitempty"`
+	S3           int `json:"s3,omitempty"`
+	Nfs          int `json:"nfs,omitempty"`
+	Envoy        int `json:"envoy,omitempty"`
+	Smbw         int `json:"smbw,omitempty"`
+	DataServices int `json:"dataServices,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -174,6 +175,8 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.S3
 	case WekaContainerModeNfs:
 		additionalMemory = a.Nfs
+	case WekaContainerModeDataServices:
+		additionalMemory = a.DataServices
 	case WekaContainerModeEnvoy:
 		additionalMemory = a.Envoy
 	case WekaContainerModeSmbw:
@@ -236,6 +239,16 @@ type WekaConfig struct {
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
 	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.
 	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services containers
+	DataServicesContainers int `json:"dataServicesContainers,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services cores per container
+	DataServicesCores int `json:"dataServicesCores,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container
+	DataServicesExtraCores int `json:"dataServicesExtraCores,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend
+	DataServicesHugepages int `json:"dataServicesHugepages,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend
+	DataServicesHugepagesOffset int `json:"dataServicesHugepagesOffset,omitempty"`
 }
 
 type DriveTypesRatio struct {
@@ -278,6 +291,8 @@ type RoleNodeSelector struct {
 	Nfs *map[string]string `json:"nfs,omitempty"`
 	// nodeSelector for smbw weka containers
 	Smbw *map[string]string `json:"smbw,omitempty"`
+	// nodeSelector for data services weka containers
+	DataServices *map[string]string `json:"dataServices,omitempty"`
 }
 
 type RoleAnnotations struct {
@@ -291,6 +306,8 @@ type RoleAnnotations struct {
 	Nfs *map[string]string `json:"nfs,omitempty"`
 	// annotations for smbw weka containers
 	Smbw *map[string]string `json:"smbw,omitempty"`
+	// annotations for data services weka containers
+	DataServices *map[string]string `json:"dataServices,omitempty"`
 }
 
 type RoleNetworkSelector struct {
@@ -304,6 +321,8 @@ type RoleNetworkSelector struct {
 	Nfs *Network `json:"nfs,omitempty"`
 	// network selector for smbw weka containers
 	Smbw *Network `json:"smbw,omitempty"`
+	// network selector for data services weka containers
+	DataServices *Network `json:"dataServices,omitempty"`
 }
 
 // RoleCoreIds defines CPU core id lists per container role for Manual CPU policy.
@@ -323,6 +342,8 @@ type RoleCoreIds struct {
 	Nfs []int `json:"nfs,omitempty"`
 	// +kubebuilder:validation:Optional
 	Smbw []int `json:"smbw,omitempty"`
+	// +kubebuilder:validation:Optional
+	DataServices []int `json:"dataServices,omitempty"`
 }
 
 type RoleTopologySpreadConstraints struct {
@@ -815,6 +836,8 @@ func (c *WekaCluster) GetNodeSelectorForRole(role string) map[string]string {
 		roleNodeSelector = c.Spec.RoleNodeSelector.Nfs
 	case "smbw":
 		roleNodeSelector = c.Spec.RoleNodeSelector.Smbw
+	case "data-services":
+		roleNodeSelector = c.Spec.RoleNodeSelector.DataServices
 	}
 
 	if roleNodeSelector != nil {
@@ -839,6 +862,8 @@ func (c *WekaCluster) GetAnnotationsForRole(role string) map[string]string {
 		roleAnnotations = c.Spec.RoleAnnotations.Nfs
 	case "smbw":
 		roleAnnotations = c.Spec.RoleAnnotations.Smbw
+	case "data-services":
+		roleAnnotations = c.Spec.RoleAnnotations.DataServices
 	}
 
 	if roleAnnotations != nil {
@@ -863,6 +888,8 @@ func (c *WekaCluster) GetNetworkForRole(role string) Network {
 		roleNetworkSelector = c.Spec.RoleNetworkSelector.Nfs
 	case "smbw":
 		roleNetworkSelector = c.Spec.RoleNetworkSelector.Smbw
+	case "data-services":
+		roleNetworkSelector = c.Spec.RoleNetworkSelector.DataServices
 	}
 
 	if roleNetworkSelector != nil {
@@ -885,6 +912,8 @@ func (c *WekaCluster) GetCoreIdsForRole(role string) []int {
 		return c.Spec.RoleCoreIds.Nfs
 	case "smbw":
 		return c.Spec.RoleCoreIds.Smbw
+	case "data-services":
+		return c.Spec.RoleCoreIds.DataServices
 	default:
 		return nil
 	}

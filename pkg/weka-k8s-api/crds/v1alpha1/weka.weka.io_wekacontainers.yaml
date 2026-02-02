@@ -1195,6 +1195,7 @@ spec:
                 - smbw
                 - telemetry
                 - ssdproxy
+                - data-services
                 type: string
               name:
                 type: string

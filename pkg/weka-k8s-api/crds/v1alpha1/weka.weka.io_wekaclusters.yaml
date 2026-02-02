@@ -79,6 +79,8 @@ spec:
                 properties:
                   compute:
                     type: integer
+                  dataServices:
+                    type: integer
                   drive:
                     type: integer
                   envoy:
@@ -228,6 +230,26 @@ spec:
                     description: |-
                       ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
                       This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+                    type: integer
+                  dataServicesContainers:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of data services containers'
+                    type: integer
+                  dataServicesCores:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of data services cores per container'
+                    type: integer
+                  dataServicesExtraCores:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of data services extra cores per container'
+                    type: integer
+                  dataServicesHugepages:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage allocation for data services frontend'
+                    type: integer
+                  dataServicesHugepagesOffset:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage offset for data services frontend'
                     type: integer
                   driveCapacity:
                     description: |-
@@ -7347,6 +7369,11 @@ spec:
                       type: string
                     description: annotations for compute weka containers
                     type: object
+                  dataServices:
+                    additionalProperties:
+                      type: string
+                    description: annotations for data services weka containers
+                    type: object
                   drive:
                     additionalProperties:
                       type: string
@@ -7390,6 +7417,10 @@ spec:
                     items:
                       type: integer
                     type: array
+                  dataServices:
+                    items:
+                      type: integer
+                    type: array
                   drive:
                     items:
                       type: integer
@@ -7413,6 +7444,86 @@ spec:
                 properties:
                   compute:
                     description: network selector for compute weka containers
+                    properties:
+                      bindManagementAll:
+                        description: |-
+                          BindManagementAll controls whether Weka containers bind to all network interfaces or only to specific management interfaces.
+                          When set to false (default), containers will only listen on the management ips interfaces (restrict_listen mode).
+                          When set to true, containers will listen on all ips (0.0.0.0) instead of specific IP addresses.
+                        type: boolean
+                      deviceSubnets:
+                        description: |-
+                          A list of backend subnets in CIDR notation (for example, 192.168.10.0/24).
+                          The operator assigns IP addresses from these subnets to the backend containers for their data path network
+                        items:
+                          pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$
+                          type: string
+                        type: array
+                      ethDevice:
+                        description: |-
+                          The name of a single network interface (for example, eth1) to be used by every backend container.
+                          This is for clusters that use only one dedicated NIC for the data path.
+                          You cannot use this field with ethDevices.
+                          If you leave this empty, the system automatically uses the node’s interface associated with the first subnet defined in deviceSubnets.
+                        type: string
+                      ethDevices:
+                        description: |-
+                          A list of network interface names to be used by backend containers when you have multiple dedicated NICs.
+                          The order of interfaces in this list is important, as it maps directly to the ethSlots index (the first interface maps to slot-0, the second to slot-1, and so on).
+                          You cannot use this field with ethDevice. Ensure that every interface listed here exists on all nodes that are part of the cluster.
+                        items:
+                          type: string
+                        type: array
+                      gateway:
+                        description: |-
+                          The default gateway IPv4 address for the backend containers’ data-path network.
+                          This is only necessary if backend subnets need to communicate with destinations outside of their local network (L2 segment).
+                          If you have a flat, non-routed backend network, you can leave this field empty.
+                        type: string
+                      managementIpsSelectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      nvidiaVfSingleIp:
+                        description: |-
+                          NvidiaVfSingleIp indicates whether NVIDIA virtual functions (VFs) should be configured to use a single-ip weka mode, where multiple weka processes can share same VF
+                          When not set defaults to false, in future releases, when auto-discovery of capabilities will be implemented not set might translate to true on supported setups
+                        type: boolean
+                      selectors:
+                        items:
+                          properties:
+                            deviceNames:
+                              items:
+                                type: string
+                              type: array
+                            max:
+                              type: integer
+                            min:
+                              type: integer
+                            subnet:
+                              type: string
+                          type: object
+                        type: array
+                      udpMode:
+                        description: |-
+                          A setting that enables or disables UDP encapsulation for backend traffic.
+                          - false (default): Uses standard raw Ethernet frames. true: Wraps data-path traffic in UDP packets.
+                          This is required if your network infrastructure or CNI (Container Network Interface) blocks traffic that isn’t IP-based.
+                        type: boolean
+                    type: object
+                  dataServices:
+                    description: network selector for data services weka containers
                     properties:
                       bindManagementAll:
                         description: |-
@@ -7820,6 +7931,11 @@ spec:
                     additionalProperties:
                       type: string
                     description: nodeSelector for compute weka containers
+                    type: object
+                  dataServices:
+                    additionalProperties:
+                      type: string
+                    description: nodeSelector for data services weka containers
                     type: object
                   drive:
                     additionalProperties:
