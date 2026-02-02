@@ -614,8 +614,6 @@ else
     exit 1
 fi
 
-cp -r /shared-weka-version-data/* /opt/weka
-cp /opt/weka/dist/cli/current /usr/bin/weka
 `, ka.kernelVersion)
 
 				finalPreRunScript := kernelValidationScript

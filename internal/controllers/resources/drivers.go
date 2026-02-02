@@ -7,14 +7,19 @@ import (
 )
 
 func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
-	// todo InstructionCopyWekaFilesToDriverLoader can be removed once weka cli is copied
-	if f.container.Spec.Instructions != nil && f.container.Spec.Instructions.Type ==
-		weka.InstructionCopyWekaFilesToDriverLoader {
-		f.copyWekaVersionToDriverLoader(pod)
+	// Copy weka files from cluster image when using a different image (builder image)
+	// This applies to both drivers-builder and drivers-loader when Instructions is set
+	if f.container.Spec.Instructions != nil &&
+		f.container.Spec.Instructions.Type == weka.InstructionCopyWekaFilesToDriverLoader {
+		f.copyWekaVersionToContainer(pod)
 	}
-	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader || f.container.Spec.Mode == weka.WekaContainerModeDriversBuilder {
-		CopyWekaCliToMainContainer(pod)
-	}
+
+	// Set the cluster image so the container knows which version to use
+	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
+		Name:  "CLUSTER_IMAGE_NAME",
+		Value: f.container.Spec.Image,
+	})
+
 	if f.nodeInfo.IsCos() {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override
 		addUIOLoaderInitContainer(pod)
