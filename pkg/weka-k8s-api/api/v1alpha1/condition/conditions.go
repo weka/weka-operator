@@ -13,6 +13,7 @@ const (
 	CondDefaultFsCreated             = "CondDefaultFsCreated"
 	CondS3ClusterCreated             = "CondS3ClusterCreated" // not pre-set on purpose, as optional
 	ConfNfsConfigured                = "NfsConfigured"
+	CondDataServicesConfigured       = "DataServicesGlobalConfigured"
 	CondNfsInterfaceGroupsConfigured = "NfsInterfaceGroupsConfigured"
 	CondNfsIpRangesConfigured        = "NfsIpRangesConfigured"
 	CondPodsReady                    = "PodsReady"

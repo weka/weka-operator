@@ -718,7 +718,7 @@ func (w *WekaContainer) IsClientContainer() bool {
 }
 
 func (w *WekaContainer) IsProtocolContainer() bool {
-	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3, WekaContainerModeSmbw}, w.Spec.Mode)
+	return slices.Contains([]string{WekaContainerModeNfs, WekaContainerModeS3, WekaContainerModeSmbw, WekaContainerModeDataServices}, w.Spec.Mode)
 }
 
 func (w *WekaContainer) IsSmbwContainer() bool {
