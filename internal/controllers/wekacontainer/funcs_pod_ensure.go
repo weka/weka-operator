@@ -2,13 +2,13 @@ package wekacontainer
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -71,6 +71,13 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 
 	image := container.Spec.Image
 
+	// For drivers-loader with DriversLoaderImage set, use it as the pod image
+	// This sets both the container image and IMAGE_NAME env var correctly
+	if container.Spec.Mode == weka.WekaContainerModeDriversLoader &&
+		container.Spec.DriversLoaderImage != "" {
+		image = container.Spec.DriversLoaderImage
+	}
+
 	if r.IsNotAlignedImage() && !container.Spec.GetOverrides().UpgradeForceReplace {
 		// do not create pod with spec image if we know in advance that we cannot upgrade
 		canUpgrade, err := r.upgradeConditionsPass(ctx)
@@ -131,15 +138,6 @@ func (r *containerReconcilerLoop) adjustBuilderPod(ctx context.Context, pod *v1.
 	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
 		return errors.Wrap(err, "failed to get target node for drivers-builder")
 	}
-	osImage := node.Status.NodeInfo.OSImage
-
-	switch {
-	case strings.Contains(osImage, "Ubuntu 24.04"):
-		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
-	case strings.Contains(osImage, "Ubuntu 22.04"):
-		pod.Spec.Containers[0].Image = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
-	default:
-	}
-
+	pod.Spec.Containers[0].Image = drivers.GetBuilderImageForNode(node)
 	return nil
 }

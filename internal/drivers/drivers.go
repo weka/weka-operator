@@ -1,9 +1,13 @@
 package drivers
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/weka/weka-operator/internal/services"
+	v1 "k8s.io/api/core/v1"
 )
 
 var (
@@ -46,4 +50,28 @@ func NormalizeOSImageName(input string) string {
 	}
 
 	return "unknown-os"
+}
+
+func GetBuilderImageForNode(node *v1.Node) string {
+	osImage := node.Status.NodeInfo.OSImage
+	switch {
+	case strings.Contains(osImage, "Ubuntu 24.04"):
+		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+	default:
+		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+
+	}
+}
+
+func GetLoaderImageForNode(ctx context.Context, node *v1.Node, image string) string {
+	flags, err := services.GetFeatureFlags(ctx, image)
+	if err == nil && flags != nil {
+		// innovation cli --kernel-build-id etc.
+		if flags.WekaGetCopyLocalDriverFiles {
+			return image
+		}
+	}
+
+	// else - can use the builder image that has "innovation" cli
+	return GetBuilderImageForNode(node)
 }
