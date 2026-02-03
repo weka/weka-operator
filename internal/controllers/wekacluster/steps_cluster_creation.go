@@ -348,7 +348,7 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 	// Check if telemetry exports are configured
 	hasTelemetryExports := cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0
 
-	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services"} {
+	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services", "data-services-fe"} {
 		var numContainers int
 
 		if clusterReady {
@@ -372,6 +372,8 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 				}
 			case "data-services":
 				numContainers = template.DataServicesContainers
+			case "data-services-fe":
+				numContainers = template.DataServicesContainers // 1:1 with data-services
 			}
 		} else {
 			switch role {
@@ -401,6 +403,9 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 		}
 		if role == "telemetry" && hasTelemetryExports {
 			numContainers = totalByrole["compute"]
+		}
+		if role == "data-services-fe" {
+			numContainers = totalByrole["data-services"]
 		}
 
 		for i := currentCount; i < numContainers; i++ {
