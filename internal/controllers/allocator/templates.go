@@ -6,35 +6,38 @@ import (
 )
 
 type ClusterTemplate struct {
-	DriveCores                  int
-	DriveExtraCores             int
-	ComputeCores                int
-	ComputeExtraCores           int
-	EnvoyCores                  int
-	S3Cores                     int
-	S3ExtraCores                int
-	NfsCores                    int
-	NfsExtraCores               int
-	ComputeContainers           int
-	DriveContainers             int
-	S3Containers                int
-	NfsContainers               int
-	NumDrives                   int
-	DriveHugepages              int
-	DriveHugepagesOffset        int
-	ComputeHugepages            int
-	ComputeHugepagesOffset      int
-	HugePageSize                string
-	HugePagesOverride           string
-	S3FrontendHugepages         int
-	S3FrontendHugepagesOffset   int
-	NfsFrontendHugepages        int
-	NfsFrontendHugepagesOffset  int
-	DataServicesCores           int
-	DataServicesExtraCores      int
-	DataServicesContainers      int
-	DataServicesHugepages       int
-	DataServicesHugepagesOffset int
+	DriveCores                    int
+	DriveExtraCores               int
+	ComputeCores                  int
+	ComputeExtraCores             int
+	EnvoyCores                    int
+	S3Cores                       int
+	S3ExtraCores                  int
+	NfsCores                      int
+	NfsExtraCores                 int
+	ComputeContainers             int
+	DriveContainers               int
+	S3Containers                  int
+	NfsContainers                 int
+	NumDrives                     int
+	DriveHugepages                int
+	DriveHugepagesOffset          int
+	ComputeHugepages              int
+	ComputeHugepagesOffset        int
+	HugePageSize                  string
+	HugePagesOverride             string
+	S3FrontendHugepages           int
+	S3FrontendHugepagesOffset     int
+	NfsFrontendHugepages          int
+	NfsFrontendHugepagesOffset    int
+	DataServicesCores             int
+	DataServicesExtraCores        int
+	DataServicesContainers        int
+	DataServicesHugepages         int
+	DataServicesHugepagesOffset   int
+	DataServicesFeCores           int
+	DataServicesFeHugepages       int
+	DataServicesFeHugepagesOffset int
 }
 
 func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
@@ -120,39 +123,55 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		config.DataServicesHugepagesOffset = 200
 	}
 
+	// Data-services-fe defaults (client-like: 1 core default, hugepages = cores * 1500)
+	if config.DataServicesFeCores == 0 {
+		config.DataServicesFeCores = 1
+	}
+
+	if config.DataServicesFeHugepages == 0 {
+		config.DataServicesFeHugepages = config.DataServicesFeCores * 1500 // Client-like formula
+	}
+
+	if config.DataServicesFeHugepagesOffset == 0 {
+		config.DataServicesFeHugepagesOffset = 200
+	}
+
 	if config.EnvoyCores == 0 {
 		config.EnvoyCores = 1
 	}
 
 	return ClusterTemplate{
-		DriveCores:                  config.DriveCores,
-		DriveExtraCores:             config.DriveExtraCores,
-		ComputeCores:                config.ComputeCores,
-		ComputeExtraCores:           config.ComputeExtraCores,
-		ComputeContainers:           *config.ComputeContainers,
-		DriveContainers:             *config.DriveContainers,
-		S3Containers:                config.S3Containers,
-		S3Cores:                     config.S3Cores,
-		S3ExtraCores:                config.S3ExtraCores,
-		NfsContainers:               config.NfsContainers,
-		NumDrives:                   config.NumDrives,
-		DriveHugepages:              config.DriveHugepages,
-		DriveHugepagesOffset:        config.DriveHugepagesOffset,
-		ComputeHugepages:            config.ComputeHugepages,
-		ComputeHugepagesOffset:      config.ComputeHugepagesOffset,
-		S3FrontendHugepages:         config.S3FrontendHugepages,
-		S3FrontendHugepagesOffset:   config.S3FrontendHugepagesOffset,
-		HugePageSize:                hgSize,
-		EnvoyCores:                  config.EnvoyCores,
-		NfsCores:                    config.NfsCores,
-		NfsExtraCores:               config.NfsExtraCores,
-		NfsFrontendHugepages:        config.NfsFrontendHugepages,
-		NfsFrontendHugepagesOffset:  config.NfsFrontendHugepagesOffset,
-		DataServicesContainers:      config.DataServicesContainers,
-		DataServicesCores:           config.DataServicesCores,
-		DataServicesExtraCores:      config.DataServicesExtraCores,
-		DataServicesHugepages:       config.DataServicesHugepages,
-		DataServicesHugepagesOffset: config.DataServicesHugepagesOffset,
+		DriveCores:                    config.DriveCores,
+		DriveExtraCores:               config.DriveExtraCores,
+		ComputeCores:                  config.ComputeCores,
+		ComputeExtraCores:             config.ComputeExtraCores,
+		ComputeContainers:             *config.ComputeContainers,
+		DriveContainers:               *config.DriveContainers,
+		S3Containers:                  config.S3Containers,
+		S3Cores:                       config.S3Cores,
+		S3ExtraCores:                  config.S3ExtraCores,
+		NfsContainers:                 config.NfsContainers,
+		NumDrives:                     config.NumDrives,
+		DriveHugepages:                config.DriveHugepages,
+		DriveHugepagesOffset:          config.DriveHugepagesOffset,
+		ComputeHugepages:              config.ComputeHugepages,
+		ComputeHugepagesOffset:        config.ComputeHugepagesOffset,
+		S3FrontendHugepages:           config.S3FrontendHugepages,
+		S3FrontendHugepagesOffset:     config.S3FrontendHugepagesOffset,
+		HugePageSize:                  hgSize,
+		EnvoyCores:                    config.EnvoyCores,
+		NfsCores:                      config.NfsCores,
+		NfsExtraCores:                 config.NfsExtraCores,
+		NfsFrontendHugepages:          config.NfsFrontendHugepages,
+		NfsFrontendHugepagesOffset:    config.NfsFrontendHugepagesOffset,
+		DataServicesContainers:        config.DataServicesContainers,
+		DataServicesCores:             config.DataServicesCores,
+		DataServicesExtraCores:        config.DataServicesExtraCores,
+		DataServicesHugepages:         config.DataServicesHugepages,
+		DataServicesHugepagesOffset:   config.DataServicesHugepagesOffset,
+		DataServicesFeCores:           config.DataServicesFeCores,
+		DataServicesFeHugepages:       config.DataServicesFeHugepages,
+		DataServicesFeHugepagesOffset: config.DataServicesFeHugepagesOffset,
 	}
 
 }

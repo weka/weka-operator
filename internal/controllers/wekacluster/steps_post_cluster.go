@@ -155,6 +155,26 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.EnsureDataServicesGlobalConfig,
 		},
 		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasDataServicesContainers,
+			},
+			State: &lifecycle.State{
+				Name: condition.CondCatalogClusterCreated,
+			},
+			Run:             loop.EnsureCatalogCluster,
+			ContinueOnError: true,
+		},
+		&lifecycle.SimpleStep{
+			Predicates: lifecycle.Predicates{
+				loop.HasDataServicesContainers,
+				loop.ShouldConfigureCatalog,
+			},
+			State: &lifecycle.State{
+				Name: condition.CondCatalogConfigured,
+			},
+			Run: loop.EnsureCatalogConfig,
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.WekaHomeConfigured,
 			},
@@ -322,6 +342,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	}
 
 	isEncrypted := r.ShouldEncryptFs()
+	hasDataServices := r.HasDataServicesContainers()
 
 	err = wekaService.CreateFilesystem(ctx, ".config_fs", "default", services.FSParams{
 		TotalCapacity:             strconv.FormatInt(thinProvisionedLimitsConfigFS, 10),
@@ -344,12 +365,34 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 		ThinProvisioningEnabled:   true,
 		IsEncrypted:               isEncrypted,
 		NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
+		IndexEnabled:              hasDataServices,
 	})
 	if err != nil {
 		var fsExists *services.FilesystemExists
 		if !errors.As(err, &fsExists) {
 			return err
 		}
+	}
+
+	// Create .indexfs for catalog when data services are present
+	if hasDataServices {
+		var indexFsThickCapacity int64 = 10 * 1024 * 1024 * 1024  // 10GB
+		var indexFsThinCapacity int64 = 100 * 1024 * 1024 * 1024  // 100GB
+
+		err = wekaService.CreateFilesystem(ctx, ".indexfs", "default", services.FSParams{
+			TotalCapacity:             strconv.FormatInt(indexFsThinCapacity, 10),
+			ThickProvisioningCapacity: strconv.FormatInt(indexFsThickCapacity, 10),
+			ThinProvisioningEnabled:   true,
+			IsEncrypted:               isEncrypted,
+			NoKmsEncryption:           r.IsInternalEncryptionEnabled(),
+		})
+		if err != nil {
+			var fsExists *services.FilesystemExists
+			if !errors.As(err, &fsExists) {
+				return err
+			}
+		}
+		logger.Info(".indexfs filesystem ensured for data services")
 	}
 
 	logger.SetStatus(codes.Ok, "default filesystem ensured")

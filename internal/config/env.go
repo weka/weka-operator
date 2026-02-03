@@ -188,22 +188,23 @@ var Config struct {
 		DriveThresholdPercent            int
 		MaxDeactivatingContainersPercent int
 	}
-	CleanupRemovedNodes                     bool
-	CleanupBackendsOnNodeSelectorMismatch   bool
-	CleanupClientsOnNodeSelectorMismatch    bool
-	CleanupContainersOnTolerationsMismatch  bool
-	EvictContainerOnDeletion                bool
-	RemovalThrottlingEnabled                bool
-	RecreateUnhealthyEnvoyThrottlingEnabled bool
-	SkipClientsTolerationValidation         bool
-	TolerationsMismatchSettings             TolerationsMismatchSettings
-	DeleteEnvoyWithoutS3NeighborTimeout     time.Duration
-	DeleteUnschedulablePodsAfter            time.Duration
-	RemoveFailedDrivesFromWeka              bool
-	AllowMultipleProtocolsPerNode           bool
-	ManagementProxyHostNetwork              bool
-	ManagementProxyIngressBaseDomain        string
-	ManagementProxyIngressClass             string
+	CleanupRemovedNodes                                    bool
+	CleanupBackendsOnNodeSelectorMismatch                  bool
+	CleanupClientsOnNodeSelectorMismatch                   bool
+	CleanupContainersOnTolerationsMismatch                 bool
+	EvictContainerOnDeletion                               bool
+	RemovalThrottlingEnabled                               bool
+	SkipClientsTolerationValidation                        bool
+	TolerationsMismatchSettings                            TolerationsMismatchSettings
+	DeleteEnvoyWithoutS3NeighborTimeout                    time.Duration
+	RecreateUnhealthyEnvoyThrottlingEnabled                bool
+	DeleteDataServicesFEWithoutDataServicesNeighborTimeout time.Duration
+	DeleteUnschedulablePodsAfter                           time.Duration
+	RemoveFailedDrivesFromWeka                             bool
+	AllowMultipleProtocolsPerNode                          bool
+	ManagementProxyHostNetwork                             bool
+	ManagementProxyIngressBaseDomain                       string
+	ManagementProxyIngressClass                            string
 
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
@@ -369,6 +370,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.TolerationsMismatchSettings.EnableIgnoredTaints = getBoolEnvOrDefault("TOLERATIONS_MISMATCH_SETTINGS_ENABLE_IGNORED_TAINTS", true)
 	Config.TolerationsMismatchSettings.IgnoredTaints = getStringSlice("TOLERATIONS_MISMATCH_SETTINGS_IGNORED_TAINTS")
 	Config.DeleteEnvoyWithoutS3NeighborTimeout = getDurationEnvOrDefault("DELETE_ENVOY_WITHOUT_S3_NEIGHBOR_TIMEOUT", 5*time.Minute)
+	Config.DeleteDataServicesFEWithoutDataServicesNeighborTimeout = getDurationEnvOrDefault("DELETE_DATA_SERVICES_FE_WITHOUT_DATA_SERVICES_NEIGHBOR_TIMEOUT", 1*time.Minute)
 	Config.DeleteUnschedulablePodsAfter = getDurationEnvOrDefault("DELETE_UNSCHEDULABLE_PODS_AFTER", 1*time.Minute)
 	Config.RemoveFailedDrivesFromWeka = getBoolEnvOrDefault("REMOVE_FAILED_DRIVES_FROM_WEKA", false)
 	Config.AllowMultipleProtocolsPerNode = getBoolEnvOrDefault("ALLOW_MULTIPLE_PROTOCOLS_PER_NODE", false)

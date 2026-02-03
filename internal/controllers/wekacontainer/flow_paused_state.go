@@ -21,6 +21,12 @@ func PausedStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deleteDataServicesFEIfNoDataServicesNeighbor,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDataServicesFEContainer,
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.handleStatePaused,
 		},
 	}

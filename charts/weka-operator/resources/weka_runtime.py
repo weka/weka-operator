@@ -1908,7 +1908,7 @@ def is_managed_k8s(network_device=None):
 
 
 async def create_container():
-    if MODE not in ["compute", "drive", "client", "s3", "nfs", "data-services"]:
+    if MODE not in ["compute", "drive", "client", "s3", "nfs", "data-services", "data-services-fe"]:
         raise NotImplementedError(f"Unsupported mode: {MODE}")
 
     full_cores = find_full_cores(NUM_CORES)
@@ -1925,6 +1925,8 @@ async def create_container():
         mode_part = "--only-frontend-cores"
     elif MODE == "data-services":
         mode_part = "--only-dataserv-cores"
+    elif MODE == "data-services-fe":
+        mode_part = "--only-frontend-cores"
 
     core_str = ",".join(map(str, full_cores))
     logging.info(f"Creating container with cores: {core_str}")
@@ -2814,6 +2816,22 @@ async def ensure_envoy_container():
         raise Exception(f"Failed to ensure envoy container")
     pass
 
+async def ensure_ssdproxy_container():
+    logging.info("ensuring ssdproxy container")
+    proxy_memory = os.getenv("MEMORY")
+    if not proxy_memory:
+        raise Exception("MEMORY environment variable must be set for ssdproxy")
+    cmd = dedent(f"""
+        weka local ps | grep ssdproxy || weka local setup ssdproxy --memory={proxy_memory} --base-port 13000 --enable-ssdproxy-nginx
+    """)
+    _, _, ec = await run_command(cmd)
+    if ec != 0:
+        raise Exception(f"Failed to ensure ssdproxy container")
+
+    if not os.path.exists("/usr/bin/weka-sign-drive"):
+        os.symlink("/opt/weka/dist/extracted/weka-sign-drive", "/usr/bin/weka-sign-drive")
+        logging.info("Created symlink /usr/bin/weka-sign-drive -> /opt/weka/dist/extracted/weka-sign-drive")
+
 
 def write_file(path, content):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -2968,7 +2986,7 @@ async def wait_for_resources():
     if MODE == 'client':
         await ensure_client_ports()
 
-    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry', 'data-services']:
+    if MODE not in ['drive', 's3', 'compute', 'nfs', 'envoy', 'client', 'telemetry', 'data-services', 'data-services-fe']:
         return
 
     logging.info("waiting for controller to set resources")
@@ -3160,7 +3178,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
 
 async def write_management_ips():
     """Auto-discover management IPs and write them to a file"""
-    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client', 'data-services']:
+    if MODE not in ['drive', 'compute', 's3', 'nfs', 'client', 'data-services', 'data-services-fe']:
         return
 
     ipAddresses = []
@@ -3819,7 +3837,7 @@ async def shutdown():
             force_stop = True
         if is_wrong_generation():
             force_stop = True
-        if MODE not in ["s3", "drive", "compute", "nfs", "data-services"]:
+        if MODE not in ["s3", "drive", "compute", "nfs", "data-services", "data-services-fe"]:
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
 

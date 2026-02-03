@@ -329,7 +329,7 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 		existingByRole[container.Spec.Mode]++
 	}
 
-	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services"} {
+	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services", "data-services-fe"} {
 		var numContainers int
 
 		if clusterReady {
@@ -346,6 +346,8 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 				numContainers = template.NfsContainers
 			case "data-services":
 				numContainers = template.DataServicesContainers
+			case "data-services-fe":
+				numContainers = template.DataServicesContainers // 1:1 with data-services
 			}
 		} else {
 			switch role {
@@ -372,6 +374,9 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 		totalByrole[role] = existingByRole[role] + toCreateNum
 		if role == "envoy" {
 			numContainers = totalByrole["s3"]
+		}
+		if role == "data-services-fe" {
+			numContainers = totalByrole["data-services"]
 		}
 
 		for i := currentCount; i < numContainers; i++ {

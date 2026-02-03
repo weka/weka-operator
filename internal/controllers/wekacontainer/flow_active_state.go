@@ -134,6 +134,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deleteDataServicesFEIfNoDataServicesNeighbor,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDataServicesFEContainer,
+			},
+		},
+		&lifecycle.SimpleStep{
 			// let drivers being re-built if node with drivers container is not found
 			Run: r.clearStatusOnNodeNotFound,
 			Predicates: lifecycle.Predicates{
@@ -490,6 +496,21 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsNfsContainer,
 				r.container.HasJoinIps,
 				r.ShouldEnsureNfsInterfaceGroupPorts,
+			},
+		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name:    condition.CondJoinedCatalogCluster,
+				Message: "Joined catalog cluster",
+			},
+			Run: r.JoinCatalogCluster,
+			Predicates: lifecycle.Predicates{
+				func() bool {
+					return r.container.IsDataServicesContainer() || r.container.IsDataServicesFEContainer()
+				},
+				func() bool {
+					return r.container.Status.ClusterContainerID != nil
+				},
 			},
 		},
 	}

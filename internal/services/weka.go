@@ -177,6 +177,7 @@ type FSParams struct {
 	ThickProvisioningCapacity string
 	IsEncrypted               bool
 	NoKmsEncryption           bool
+	IndexEnabled              bool
 }
 
 type S3Params struct {
@@ -194,6 +195,18 @@ type S3Cluster struct {
 	Port         string   `json:"port"`
 	InternalPort string   `json:"internal_port"`
 	Filesystem   string   `json:"filesystem_name"`
+}
+
+// CatalogCluster represents the catalog cluster status
+type CatalogCluster struct {
+	Active     bool   `json:"active"`
+	Filesystem string `json:"filesystem_name"`
+}
+
+// CatalogConfigParams holds parameters for catalog configuration
+type CatalogConfigParams struct {
+	IndexInterval   string
+	RetentionPeriod string
 }
 
 type NFSParams struct {
@@ -351,6 +364,12 @@ type WekaService interface {
 	GetWekaContainer(ctx context.Context, containerId int) (*WekaClusterContainer, error)
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
+	GetCatalogCluster(ctx context.Context) (*CatalogCluster, error)
+	CreateCatalogCluster(ctx context.Context, containerIds []int) error
+	JoinCatalogCluster(ctx context.Context, containerId int) error
+	RemoveFromCatalogCluster(ctx context.Context, containerId int) error
+	ListCatalogClusterContainers(ctx context.Context) ([]int, error)
+	UpdateCatalogConfig(ctx context.Context, params CatalogConfigParams) error
 	//GetFilesystemByName(ctx context.Context, name string) (WekaFilesystem, error)
 }
 
@@ -1107,6 +1126,10 @@ func (c *CliWekaService) CreateFilesystem(ctx context.Context, name, group strin
 		}
 	}
 
+	if params.IndexEnabled {
+		cmd = append(cmd, "--index-enabled", "true")
+	}
+
 	_, stderr, err := executor.ExecNamed(ctx, "CreateFilesystem", cmd)
 	if err != nil {
 		if strings.Contains(stderr.String(), "already exists") {
@@ -1390,4 +1413,162 @@ func (c *CliWekaService) GetCapacity(ctx context.Context) (WekaCapacityInfo, err
 	capacity.TotalAvailableCapacity = capacity.TotalProvisionedCapacity - capacity.TotalUsedCapacity
 
 	return capacity, nil
+}
+
+func (c *CliWekaService) GetCatalogCluster(ctx context.Context) (*CatalogCluster, error) {
+	cmd := []string{
+		"wekaauthcli", "catalog", "cluster", "--json",
+	}
+
+	var catalogCluster CatalogCluster
+	err := c.RunJsonCmd(ctx, cmd, "GetCatalogCluster", &catalogCluster)
+	if err != nil {
+		return nil, err
+	}
+	return &catalogCluster, nil
+}
+
+func (c *CliWekaService) CreateCatalogCluster(ctx context.Context, containerIds []int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "CreateCatalogCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "catalog", "cluster", "add", ".indexfs",
+		"--containers", commaSeparatedInts(containerIds),
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "CreateCatalogCluster", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "already exists") {
+			logger.Info("Catalog cluster already exists")
+			return nil
+		}
+		logger.SetError(err, "Failed to create catalog cluster", "stderr", stderr.String())
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) JoinCatalogCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "JoinCatalogCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.SetError(err, "Failed to get executor")
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "catalog", "cluster", "update", "--add-containers", strconv.Itoa(containerId),
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "JoinCatalogCluster", cmd)
+	if err != nil && strings.Contains(stderr.String(), "already part of the catalog cluster") {
+		return nil
+	}
+	if err != nil {
+		logger.SetError(err, "Failed to join catalog cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) RemoveFromCatalogCluster(ctx context.Context, containerId int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveFromCatalogCluster")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "catalog", "cluster", "update", "--remove-containers", strconv.Itoa(containerId),
+	}
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "RemoveFromCatalogCluster", cmd)
+	if err != nil {
+		if strings.Contains(stderr.String(), "is not part of the catalog cluster") {
+			logger.Warn("Container is not part of the catalog cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), fmt.Sprintf("Unrecognized host ID HostId<%d>", containerId)) {
+			logger.Warn("Container is not recognized by the catalog cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), fmt.Sprintf("Unrecognized host ID %d", containerId)) {
+			logger.Warn("Container is not recognized by the catalog cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		if strings.Contains(stderr.String(), "Catalog cluster is not configured") {
+			logger.Warn("Catalog cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
+		logger.Error(err, "Failed to remove from catalog cluster", "stderr", stderr.String(), "stdout", stdout.String())
+		return err
+	}
+
+	return nil
+}
+
+func (c *CliWekaService) ListCatalogClusterContainers(ctx context.Context) ([]int, error) {
+	// weka catalog cluster containers list --json
+	// Returns array of "HostId<N>" strings
+	var hostIdStrings []string
+
+	cmd := []string{
+		"wekaauthcli", "catalog", "cluster", "containers", "list", "--json",
+	}
+	err := c.RunJsonCmd(ctx, cmd, "ListCatalogClusterContainers", &hostIdStrings)
+	if err != nil {
+		err = fmt.Errorf("failed to list catalog cluster containers: %w", err)
+		return nil, err
+	}
+
+	containerIds := make([]int, 0, len(hostIdStrings))
+	for _, hostIdStr := range hostIdStrings {
+		id, err := resources.HostIdToContainerId(hostIdStr)
+		if err != nil {
+			return nil, err
+		}
+		containerIds = append(containerIds, id)
+	}
+	return containerIds, nil
+}
+
+func (c *CliWekaService) UpdateCatalogConfig(ctx context.Context, params CatalogConfigParams) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateCatalogConfig")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"wekaauthcli", "catalog", "config", "update",
+	}
+
+	if params.IndexInterval != "" {
+		cmd = append(cmd, "--index-interval", params.IndexInterval)
+	}
+	if params.RetentionPeriod != "" {
+		cmd = append(cmd, "--retention-period", params.RetentionPeriod)
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "UpdateCatalogConfig", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to update catalog config", "stderr", stderr.String())
+		return err
+	}
+
+	return nil
 }

@@ -54,6 +54,10 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 		numCores = template.DataServicesCores
 		hugePagesNum = template.DataServicesHugepages
 		hugePagesOffset = template.DataServicesHugepagesOffset
+	case "data-services-fe":
+		numCores = template.DataServicesFeCores
+		hugePagesNum = template.DataServicesFeHugepages
+		hugePagesOffset = template.DataServicesFeHugepagesOffset
 	default:
 		return nil, fmt.Errorf("unsupported role %s", role)
 	}
@@ -83,6 +87,8 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	case "data-services":
 		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
 		extraCores = template.DataServicesExtraCores
+	case "data-services-fe":
+		additionalMemory = cluster.Spec.AdditionalMemory.DataServicesFe
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
 	}
@@ -90,6 +96,12 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	containerGroup := ""
 	if slices.Contains([]string{"s3", "envoy"}, role) {
 		containerGroup = "s3"
+	}
+	if slices.Contains([]string{"compute", "telemetry"}, role) {
+		containerGroup = "compute"
+	}
+	if slices.Contains([]string{"data-services", "data-services-fe"}, role) {
+		containerGroup = "data-services"
 	}
 
 	wekahomeConfig, err := domain.GetWekahomeConfig(cluster)
@@ -107,6 +119,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 
 	nodeSelector := cluster.GetNodeSelectorForRole(role)
 	if role == wekav1alpha1.WekaContainerModeEnvoy { // envoy sticks to s3, so does not need explicit node selector
+		nodeSelector = map[string]string{}
+	}
+	if role == wekav1alpha1.WekaContainerModeDataServicesFe { // data-services-fe sticks to data-services, so does not need explicit node selector
 		nodeSelector = map[string]string{}
 	}
 
