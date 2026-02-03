@@ -139,6 +139,13 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				return nil
 			}
 
+			// For data-services containers, ensure sibling FE is upgraded first
+			if container.IsDataServicesContainer() {
+				if err := r.ensureSiblingFEUpgraded(ctx); err != nil {
+					return err
+				}
+			}
+
 			logger.Info("Deleting pod to apply new image")
 			// delete pod
 			err = r.deletePod(ctx, pod)

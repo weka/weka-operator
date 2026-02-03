@@ -119,6 +119,19 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.IsNfsContainer,
 			},
 		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name:   condition.CondRemovedFromCatalogCluster,
+				Reason: "Deletion",
+			},
+			Run: r.RemoveFromCatalogCluster,
+			Predicates: lifecycle.Predicates{
+				r.ShouldDeactivate,
+				func() bool {
+					return r.container.IsDataServicesContainer() || r.container.IsDataServicesFEContainer()
+				},
+			},
+		},
 		//{
 		//  Condition:  condition.CondContainerDrivesDeactivated,
 		//  CondReason: "Deletion",
