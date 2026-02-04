@@ -1496,7 +1496,8 @@ func (c *CliWekaService) JoinCatalogCluster(ctx context.Context, containerId int
 	}
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "JoinCatalogCluster", cmd)
-	if err != nil && strings.Contains(stderr.String(), "already part of the catalog cluster") {
+	if err != nil && strings.Contains(stderr.String(), "already part of") {
+		logger.Info("Container already part of catalog cluster", "containerId", containerId)
 		return nil
 	}
 	if err != nil {

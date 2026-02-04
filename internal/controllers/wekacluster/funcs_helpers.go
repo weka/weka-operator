@@ -111,3 +111,14 @@ func (r *wekaClusterReconcilerLoop) SelectDataServicesContainers(containers []*w
 
 	return dataServicesContainers
 }
+
+func (r *wekaClusterReconcilerLoop) selectDataServicesFEContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
+	var feContainers []*weka.WekaContainer
+	for _, container := range containers {
+		if container.Spec.Mode == weka.WekaContainerModeDataServicesFe {
+			feContainers = append(feContainers, container)
+		}
+	}
+
+	return feContainers
+}

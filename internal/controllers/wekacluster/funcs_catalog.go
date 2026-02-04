@@ -23,22 +23,40 @@ func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) er
 		return errors.New("No active container found")
 	}
 
-	// Collect container IDs from data-services containers only
+	// Collect container IDs from data-services containers that have a ready FE on the same node
 	// (not data-services-fe - those join separately)
 	var containerIds []int
 
 	dataServicesContainers := r.SelectDataServicesContainers(r.containers)
+	dataServicesFEContainers := r.selectDataServicesFEContainers(r.containers)
+
+	// Build a map of node -> ready FE container for quick lookup
+	readyFEByNode := make(map[string]bool)
+	for _, fe := range dataServicesFEContainers {
+		// FE is ready if it has a ClusterContainerID and is running on a node
+		if fe.Status.ClusterContainerID != nil && fe.GetNodeAffinity() != "" {
+			readyFEByNode[string(fe.GetNodeAffinity())] = true
+		}
+	}
 
 	for _, c := range dataServicesContainers {
-		if c.Status.ClusterContainerID != nil {
+		if c.Status.ClusterContainerID == nil {
+			continue
+		}
+		// Only include if there's a ready FE on the same node
+		nodeAffinity := string(c.GetNodeAffinity())
+		if nodeAffinity != "" && readyFEByNode[nodeAffinity] {
 			containerIds = append(containerIds, *c.Status.ClusterContainerID)
 		}
 	}
 
-	// Need at least 2 data-services containers to form catalog cluster
+	// Need at least 2 data-services containers with ready FE to form catalog cluster
 	if len(containerIds) < 2 {
-		logger.Info("Not enough data-services containers to form catalog cluster", "containerIds", len(containerIds))
-		return errors.New("Need at least 2 data-services containers to form catalog cluster")
+		logger.Info("Not enough data-services containers with ready FE to form catalog cluster",
+			"eligibleContainers", len(containerIds),
+			"totalDataServicesContainers", len(dataServicesContainers),
+			"totalFEContainers", len(dataServicesFEContainers))
+		return errors.New("Need at least 2 data-services containers with ready FE to form catalog cluster")
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
