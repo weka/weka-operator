@@ -123,6 +123,24 @@ func IsRangeAvailable(boundaries Range, ranges []Range, targetRange Range) bool 
 	return true
 }
 
+// getClusterPortByNameV} returns the current allocated port from cluster status by name
+func getClusterPortByName(cluster *weka.WekaCluster, name string) int {
+	switch name {
+	case "lb":
+		return cluster.Status.Ports.LbPort
+	case "lbAdmin":
+		return cluster.Status.Ports.LbAdminPort
+	case "s3":
+		return cluster.Status.Ports.S3Port
+	case "managementProxy":
+		return cluster.Status.Ports.ManagementProxyPort
+	case "dataServices":
+		return cluster.Status.Ports.DataServicesPort
+	default:
+		return 0
+	}
+}
+
 func (a *Allocations) FindNodeRangeWithOffset(owner Owner, node v1alpha1.NodeName, size int, offset int) (Range, error) {
 	// combine Global.Range and node-specific ranges
 	allowedRange := a.Global.ClusterRanges[owner.OwnerCluster]

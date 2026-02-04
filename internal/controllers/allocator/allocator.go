@@ -285,6 +285,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		cluster.Status.Ports.LbPort = allocations.Global.AllocatedRanges[owner]["lb"].Base
 		cluster.Status.Ports.LbAdminPort = allocations.Global.AllocatedRanges[owner]["lbAdmin"].Base
 		cluster.Status.Ports.S3Port = allocations.Global.AllocatedRanges[owner]["s3"].Base
+		cluster.Status.Ports.DataServicesPort = allocations.Global.AllocatedRanges[owner]["dataServices"].Base
 
 		cluster.Status.Ports.PortRange = currentAllocation.Size
 		cluster.Status.Ports.BasePort = currentAllocation.Base
@@ -317,7 +318,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 		Size: targetSize,
 	}
 
-	var envoyPort, envoyAdminPort, s3Port Range
+	var envoyPort, envoyAdminPort, s3Port, dataServicesPort Range
 
 	// allocate envoy, envoys3 and envoyadmin ports and ranges
 	if cluster.Spec.Ports.LbPort != 0 {
@@ -341,7 +342,16 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	if cluster.Spec.Ports.S3Port != 0 {
 		s3Port, err = allocations.EnsureSpecificGlobalRange(owner, "s3", Range{Base: cluster.Spec.Ports.S3Port, Size: 1})
 	} else {
-		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 1, SinglePortsOffset)
+		s3Port, err = allocations.EnsureGlobalRangeWithOffset(owner, "s3", 2, SinglePortsOffset)
+	}
+	if err != nil {
+		return err
+	}
+
+	if cluster.Spec.Ports.DataServicesPort != 0 {
+		dataServicesPort, err = allocations.EnsureSpecificGlobalRange(owner, "dataServices", Range{Base: cluster.Spec.Ports.DataServicesPort, Size: 2})
+	} else {
+		dataServicesPort, err = allocations.EnsureGlobalRangeWithOffset(owner, "dataServices", 2, SinglePortsOffset)
 	}
 	if err != nil {
 		return err
@@ -350,6 +360,7 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	cluster.Status.Ports.LbPort = envoyPort.Base
 	cluster.Status.Ports.LbAdminPort = envoyAdminPort.Base
 	cluster.Status.Ports.S3Port = s3Port.Base
+	cluster.Status.Ports.DataServicesPort = dataServicesPort.Base
 
 	// Management proxy port is allocated on-demand when the management proxy is first enabled
 	// This avoids wasting a port if the feature is not used

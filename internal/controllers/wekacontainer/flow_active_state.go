@@ -498,6 +498,16 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.ShouldEnsureNfsInterfaceGroupPorts,
 			},
 		},
+		// For data-services containers, ensure sibling FE container exists on the same node
+		&lifecycle.SimpleStep{
+			Run: r.ensureSiblingFECreated,
+			Predicates: lifecycle.Predicates{
+				r.container.IsDataServicesContainer,
+				func() bool {
+					return r.container.Status.ClusterContainerID != nil
+				},
+			},
+		},
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:    condition.CondJoinedCatalogCluster,
