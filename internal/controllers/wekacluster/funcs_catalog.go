@@ -42,12 +42,18 @@ func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) er
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)
+
+	// Set the catalog cluster port before creating the cluster
+	if err := wekaService.SetCatalogClusterPort(ctx, r.cluster.Status.Ports.DataServicesPort); err != nil {
+		return err
+	}
+
 	err := wekaService.CreateCatalogCluster(ctx, containerIds)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("Catalog cluster ensured", "containerIds", containerIds)
+	logger.Info("Catalog cluster ensured", "containerIds", containerIds, "port", r.cluster.Status.Ports.DataServicesPort)
 	return nil
 }
 
