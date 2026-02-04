@@ -89,9 +89,9 @@ help: ## Display this help.
 
 ##@ Development
 
-CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/driveclaims_types.go \
-		pkg/weka-k8s-api/api/v1alpha1/container_types.go \
+CRD_TYPES = pkg/weka-k8s-api/api/v1alpha1/container_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekacluster_types.go \
+		pkg/weka-k8s-api/api/v1alpha1/client_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekamanualoperation_types.go \
 		pkg/weka-k8s-api/api/v1alpha1/wekapolicy_types.go
 
