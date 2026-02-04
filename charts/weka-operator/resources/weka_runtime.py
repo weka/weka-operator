@@ -1648,6 +1648,30 @@ async def periodic_cpu_affinity_management():
         await asyncio.sleep(60)
 
 
+async def periodic_autodrain_setup():
+    """Periodically check for autodrain file and write value when it exists.
+
+    This task runs in the background for S3 containers, checking for the
+    existence of /proc/wekafs/<container-name>/autodrain. Once the file
+    exists, it writes '300' to it and exits.
+    """
+    autodrain_path = f"/proc/wekafs/{NAME}/autodrain"
+    logging.info(f"Starting periodic autodrain setup, watching for {autodrain_path}")
+
+    while not exiting:
+        try:
+            if os.path.exists(autodrain_path):
+                logging.info(f"Autodrain file found at {autodrain_path}, writing value 300")
+                with open(autodrain_path, 'w') as f:
+                    f.write('300')
+                logging.info(f"Successfully wrote 300 to {autodrain_path}, task complete")
+                return
+        except Exception as e:
+            logging.warning(f"Error checking/writing autodrain file (non-fatal): {e}")
+
+        await asyncio.sleep(5)
+
+
 async def await_agent():
     start = time.time()
     agent_timeout = 60 if WEKA_PERSISTENCE_MODE != "global" else 1500  # global usually is remote storage and pre-create of logs file might take much longer
@@ -3539,6 +3563,10 @@ async def main():
     # Start periodic CPU affinity management for drive, compute, and client containers
     if MODE in ["drive", "compute", "client"]:
         asyncio.create_task(periodic_cpu_affinity_management())
+
+    # Start periodic autodrain setup for s3 containers
+    if MODE == "s3":
+        asyncio.create_task(periodic_autodrain_setup())
 
     if MODE == "drive":
         await ensure_drives()
