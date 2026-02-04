@@ -135,6 +135,8 @@ func getClusterPortByName(cluster *weka.WekaCluster, name string) int {
 		return cluster.Status.Ports.S3Port
 	case "managementProxy":
 		return cluster.Status.Ports.ManagementProxyPort
+	case "dataServices":
+		return cluster.Status.Ports.DataServicesPort
 	default:
 		return 0
 	}
