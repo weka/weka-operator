@@ -37,15 +37,8 @@ func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) er
 	var containerIds []int
 
 	dataServicesContainers := r.SelectDataServicesContainers(r.containers)
-	dataServicesFEContainers := r.SelectDataServicesFEContainers(r.containers)
 
 	for _, c := range dataServicesContainers {
-		if c.Status.ClusterContainerID != nil {
-			containerIds = append(containerIds, *c.Status.ClusterContainerID)
-		}
-	}
-
-	for _, c := range dataServicesFEContainers {
 		if c.Status.ClusterContainerID != nil {
 			containerIds = append(containerIds, *c.Status.ClusterContainerID)
 		}
