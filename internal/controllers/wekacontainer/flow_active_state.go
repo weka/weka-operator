@@ -594,9 +594,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 			Run: r.JoinCatalogCluster,
 			Predicates: lifecycle.Predicates{
-				func() bool {
-					return r.container.IsDataServicesContainer() || r.container.IsDataServicesFEContainer()
-				},
+				// Only data-services containers join the catalog cluster
+				// data-services-fe are frontend containers and should not join
+				r.container.IsDataServicesContainer,
 				func() bool {
 					return r.container.Status.ClusterContainerID != nil
 				},
