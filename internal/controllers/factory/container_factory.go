@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/weka/weka-k8s-api/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/controllers/resources"
@@ -199,6 +201,16 @@ func preparePodTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role
 	return podConstraints
 }
 
+// marshalToRawExtension marshals any object to runtime.RawExtension
+func marshalToRawExtension(obj interface{}) *runtime.RawExtension {
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		// Return nil if marshaling fails
+		return nil
+	}
+	return &runtime.RawExtension{Raw: raw}
+}
+
 func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, role string) *wekav1alpha1.RoleTopologySpreadConstraints {
 	constraints := &wekav1alpha1.RoleTopologySpreadConstraints{}
 
@@ -251,13 +263,17 @@ func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, 
 		}
 	}
 
-	switch role {
-	case "compute":
-		constraints.Compute = append(constraints.Compute, roleConstraints...)
-	case "drive":
-		constraints.Drive = append(constraints.Drive, roleConstraints...)
-	case "s3":
-		constraints.S3 = append(constraints.S3, roleConstraints...)
+	// Marshal roleConstraints to RawExtension and assign to the appropriate role field
+	if len(roleConstraints) > 0 {
+		rawExtension := marshalToRawExtension(roleConstraints)
+		switch role {
+		case "compute":
+			constraints.Compute = rawExtension
+		case "drive":
+			constraints.Drive = rawExtension
+		case "s3":
+			constraints.S3 = rawExtension
+		}
 	}
 	return constraints
 }
