@@ -5,24 +5,15 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
-	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 
 	"github.com/weka/weka-operator/internal/services"
 	"github.com/weka/weka-operator/internal/services/discovery"
 )
 
-// SelectDataServicesFEContainers returns all data-services-fe containers from the given list
-func (r *wekaClusterReconcilerLoop) SelectDataServicesFEContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var feContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeDataServicesFe {
-			feContainers = append(feContainers, container)
-		}
-	}
-	return feContainers
-}
-
-// EnsureCatalogCluster creates the catalog cluster with initial data-services and data-services-fe containers
+// EnsureCatalogCluster creates the catalog cluster with data-services containers.
+// Note: Only data-services container IDs are used for catalog cluster creation,
+// not data-services-fe container IDs. The FE containers join the catalog cluster
+// separately via JoinCatalogCluster.
 func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "EnsureCatalogCluster")
 	defer end()
@@ -32,12 +23,11 @@ func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) er
 		return errors.New("No active container found")
 	}
 
-	// Collect container IDs from data-services and data-services-fe containers
-	// that have joined the cluster (have ClusterContainerID)
+	// Collect container IDs from data-services containers only
+	// (not data-services-fe - those join separately)
 	var containerIds []int
 
 	dataServicesContainers := r.SelectDataServicesContainers(r.containers)
-	dataServicesFEContainers := r.SelectDataServicesFEContainers(r.containers)
 
 	for _, c := range dataServicesContainers {
 		if c.Status.ClusterContainerID != nil {
@@ -45,16 +35,10 @@ func (r *wekaClusterReconcilerLoop) EnsureCatalogCluster(ctx context.Context) er
 		}
 	}
 
-	for _, c := range dataServicesFEContainers {
-		if c.Status.ClusterContainerID != nil {
-			containerIds = append(containerIds, *c.Status.ClusterContainerID)
-		}
-	}
-
-	// Need at least 2 containers (1 data-services + 1 data-services-fe) to form catalog cluster
+	// Need at least 2 data-services containers to form catalog cluster
 	if len(containerIds) < 2 {
-		logger.Info("Not enough containers to form catalog cluster", "containerIds", len(containerIds))
-		return errors.New("Need at least 2 containers (data-services + data-services-fe) to form catalog cluster")
+		logger.Info("Not enough data-services containers to form catalog cluster", "containerIds", len(containerIds))
+		return errors.New("Need at least 2 data-services containers to form catalog cluster")
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, container)

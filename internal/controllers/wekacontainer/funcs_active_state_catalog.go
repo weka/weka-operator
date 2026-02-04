@@ -49,6 +49,15 @@ func (r *containerReconcilerLoop) RemoveFromCatalogCluster(ctx context.Context) 
 		return err
 	}
 
+	// For data-services containers, ensure sibling FE is deleted first.
+	// The FE container has mounts that block its graceful stop, so we need
+	// to stop data-services first (done above), then delete the FE.
+	if r.container.IsDataServicesContainer() {
+		if err := r.ensureSiblingFEDeleted(ctx); err != nil {
+			return err
+		}
+	}
+
 	containerId := r.container.Status.ClusterContainerID
 	if containerId == nil {
 		return nil
