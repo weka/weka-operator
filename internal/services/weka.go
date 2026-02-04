@@ -365,6 +365,7 @@ type WekaService interface {
 	GetCapacity(ctx context.Context) (WekaCapacityInfo, error)
 	ConfigureDataServicesGlobalConfig(ctx context.Context) error
 	GetCatalogCluster(ctx context.Context) (*CatalogCluster, error)
+	SetCatalogClusterPort(ctx context.Context, port int) error
 	CreateCatalogCluster(ctx context.Context, containerIds []int) error
 	JoinCatalogCluster(ctx context.Context, containerId int) error
 	RemoveFromCatalogCluster(ctx context.Context, containerId int) error
@@ -1426,6 +1427,31 @@ func (c *CliWekaService) GetCatalogCluster(ctx context.Context) (*CatalogCluster
 		return nil, err
 	}
 	return &catalogCluster, nil
+}
+
+func (c *CliWekaService) SetCatalogClusterPort(ctx context.Context, port int) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SetCatalogClusterPort")
+	defer end()
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		return err
+	}
+
+	cmd := []string{
+		"weka", "debug", "config", "override",
+		"catalogInfo.clusterInfo.port",
+		strconv.Itoa(port),
+	}
+
+	_, stderr, err := executor.ExecNamed(ctx, "SetCatalogClusterPort", cmd)
+	if err != nil {
+		logger.SetError(err, "Failed to set catalog cluster port", "stderr", stderr.String())
+		return err
+	}
+
+	logger.Info("Set catalog cluster port", "port", port)
+	return nil
 }
 
 func (c *CliWekaService) CreateCatalogCluster(ctx context.Context, containerIds []int) error {
