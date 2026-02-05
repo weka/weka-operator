@@ -1311,7 +1311,7 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 			LabelSelector: &metav1.LabelSelector{},
 			TopologyKey:   "kubernetes.io/hostname",
 		}
-		if f.container.HasFrontend() && !config.Config.AllowMultipleProtocolsPerNode {
+		if (f.container.HasFrontend() || f.container.IsDataServicesContainer()) && !config.Config.AllowMultipleProtocolsPerNode {
 			// we don't want to allow more than one s3 or client container per node
 			// Other types of containers we validate to be once for cluster
 			antiAffinityModes := domain.ContainerModesWithFrontend
