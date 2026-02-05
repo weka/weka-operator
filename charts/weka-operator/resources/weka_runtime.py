@@ -3842,7 +3842,9 @@ async def shutdown():
             force_stop = True
         if is_wrong_generation():
             force_stop = True
-        if MODE not in ["s3", "drive", "compute", "nfs", "data-services", "data-services-fe"]:
+        if MODE not in ["s3", "drive", "compute", "nfs"]:
+            # data services not included due to possibility to get stuck on immediate pod term with no agent running
+            # TODO: Refine for more safety, but dataserv is low risk and should be surviving failures regardless due to distributed nature
             force_stop = True
         stop_flag = "--force" if force_stop else "-g"
 
