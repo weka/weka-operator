@@ -1523,6 +1523,10 @@ func (c *CliWekaService) RemoveFromCatalogCluster(ctx context.Context, container
 
 	stdout, stderr, err := executor.ExecNamed(ctx, "RemoveFromCatalogCluster", cmd)
 	if err != nil {
+		if strings.Contains(stderr.String(), fmt.Sprintf("Specified container HostId<%d> is not part of catalog cluster, cannot be removed", containerId)) {
+			logger.Warn("Container is not part of the catalog cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
+			return nil
+		} // verified actual
 		if strings.Contains(stderr.String(), "is not part of the catalog cluster") {
 			logger.Warn("Container is not part of the catalog cluster", "containerId", containerId, "err", stderr.String(), "stdout", stdout.String())
 			return nil
@@ -1542,7 +1546,7 @@ func (c *CliWekaService) RemoveFromCatalogCluster(ctx context.Context, container
 		if strings.Contains(stderr.String(), "Catalog cluster is not setup") {
 			logger.Warn("Catalog cluster is not setup", "stderr", stderr.String(), "stdout", stdout.String())
 			return nil
-		}
+		} // verified actual
 		logger.Error(err, "Failed to remove from catalog cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
