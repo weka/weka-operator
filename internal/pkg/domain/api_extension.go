@@ -6,4 +6,5 @@ var ContainerModesWithFrontend = []string{
 	v1alpha1.WekaContainerModeNfs,
 	v1alpha1.WekaContainerModeS3,
 	v1alpha1.WekaContainerModeClient,
+	v1alpha1.WekaContainerModeDataServices,
 }

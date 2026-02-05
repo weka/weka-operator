@@ -1121,7 +1121,7 @@ func (f *PodFactory) getHugePagesOffset() int {
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
 	switch f.container.Spec.Mode {
-	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
+	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices, weka.WekaContainerModeDataServicesFe:
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1170,7 +1170,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
 		}
 		switch f.container.Spec.Mode {
-		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
+		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices, weka.WekaContainerModeDataServicesFe:
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
@@ -1294,12 +1294,20 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeDataServices {
-		// Data services require at least 3.5GB reserved memory
-		dataServicesMemory := 3584 // 3.5GB in MiB
+		// Data services require 32GB reserved memory
+		dataServicesMemory := 32768 // 32GB in MiB
 		managementMemory := 1965
 		perCoreMemory := 512 // minimal per-core overhead for data services
 		buffer := 450
 		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+dataServicesMemory+perCoreMemory*f.container.Spec.NumCores+f.container.Spec.AdditionalMemory)
+	}
+
+	if f.container.Spec.Mode == weka.WekaContainerModeDataServicesFe {
+		// Data-services-fe uses client-like memory profile (frontend-only)
+		managementMemory := 1965
+		perFrontendMemory := 3050
+		buffer := 2000
+		memRequest = fmt.Sprintf("%dMi", buffer+managementMemory+perFrontendMemory*totalNumCores+f.container.Spec.AdditionalMemory)
 	}
 
 	if f.container.Spec.Mode == weka.WekaContainerModeEnvoy {
@@ -1474,11 +1482,18 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 		if f.container.HasFrontend() && !config.Config.AllowMultipleProtocolsPerNode {
 			// we don't want to allow more than one s3 or client container per node
 			// Other types of containers we validate to be once for cluster
+			antiAffinityModes := domain.ContainerModesWithFrontend
+			// data-services-fe needs to be co-located with data-services, so exclude it from anti-affinity
+			if f.container.IsDataServicesFEContainer() {
+				antiAffinityModes = slices.DeleteFunc(slices.Clone(domain.ContainerModesWithFrontend), func(s string) bool {
+					return s == weka.WekaContainerModeDataServices
+				})
+			}
 			term.LabelSelector.MatchExpressions = []metav1.LabelSelectorRequirement{
 				{
 					Key:      domain.WekaLabelMode,
 					Operator: metav1.LabelSelectorOpIn,
-					Values:   domain.ContainerModesWithFrontend,
+					Values:   antiAffinityModes,
 				},
 			}
 		} else {
@@ -1528,6 +1543,28 @@ func (f *PodFactory) setAffinities(ctx context.Context, pod *corev1.Pod) error {
 				LabelSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"weka.io/mode":       weka.WekaContainerModeCompute,
+						"weka.io/cluster-id": clusterId,
+					},
+				},
+				TopologyKey: "kubernetes.io/hostname",
+			}
+			if pod.Spec.Affinity.PodAffinity == nil {
+				pod.Spec.Affinity.PodAffinity = &corev1.PodAffinity{
+					RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{term},
+				}
+			} else {
+				terms := pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+				terms = append(terms, term)
+				pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = terms
+			}
+		}
+
+		if f.container.IsDataServicesFEContainer() {
+			// schedule together with data-services, required during scheduling
+			term := corev1.PodAffinityTerm{
+				LabelSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"weka.io/mode":       weka.WekaContainerModeDataServices,
 						"weka.io/cluster-id": clusterId,
 					},
 				},

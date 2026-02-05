@@ -348,6 +348,9 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 	// Check if telemetry exports are configured
 	hasTelemetryExports := cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0
 
+	// Note: data-services-fe containers are NOT created here - they are created by
+	// the data-services container itself via ensureSiblingFECreated to ensure
+	// they are placed on the same node as their data-services sibling.
 	for _, role := range []string{"drive", "compute", "s3", "envoy", "nfs", "telemetry", "data-services"} {
 		var numContainers int
 

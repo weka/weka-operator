@@ -529,7 +529,14 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		dataServicesContainers, err := clusterService.GetOwnedContainers(ctx, weka.WekaContainerModeDataServices)
+		if err != nil {
+			return err
+		}
+		// Note: data-services-fe containers are upgraded as part of data-services container upgrade
+		// (ensureSiblingFEUpgraded handles updating and waiting for the FE before the DS pod is deleted)
 		feContainers := append(s3Containers, nfsContainres...)
+		feContainers = append(feContainers, dataServicesContainers...)
 
 		prepareForUpgrade = true
 		// if any s3 container or any NFS container changed version - do not prepare for frontends

@@ -27,6 +27,7 @@
 - [S3Config](#s3config)
 - [SmbwConfig](#smbwconfig)
 - [TelemetryConfig](#telemetryconfig)
+- [CatalogConfig](#catalogconfig)
 - [ClusterMetrics](#clustermetrics)
 - [ClusterPrinterColumns](#clusterprintercolumns)
 - [RoleTopologySpreadConstraints](#roletopologyspreadconstraints)
@@ -103,6 +104,7 @@
 | s3 | *S3Config |  |
 | smbw | *SmbwConfig |  |
 | telemetry | *TelemetryConfig | Telemetry configuration for exporting audit logs and other telemetry data |
+| catalog | *CatalogConfig | Catalog configuration for data catalog service |
 
 ---
 
@@ -224,6 +226,7 @@
 | envoy | int |  |
 | smbw | int |  |
 | dataServices | int |  |
+| dataServicesFe | int |  |
 
 ---
 
@@ -279,6 +282,9 @@
 | dataServicesExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container |
 | dataServicesHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend |
 | dataServicesHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend |
+| dataServicesFeCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services frontend cores per container |
+| dataServicesFeHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend container |
+| dataServicesFeHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend container |
 
 ---
 
@@ -402,6 +408,15 @@
 | JSON Field | Type | Description |
 |------------|------|-------------|
 | exports | []TelemetryExport | List of telemetry exports to configure |
+
+---
+
+## CatalogConfig
+
+| JSON Field | Type | Description |
+|------------|------|-------------|
+| indexInterval | string | IndexInterval specifies how often the catalog index is updated (e.g., "1d", "1m") |
+| retentionPeriod | string | RetentionPeriod specifies how long catalog data is retained (e.g., "30d", "10m") |
 
 ---
 
