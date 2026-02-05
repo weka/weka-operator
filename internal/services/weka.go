@@ -1539,6 +1539,10 @@ func (c *CliWekaService) RemoveFromCatalogCluster(ctx context.Context, container
 			logger.Warn("Catalog cluster is not configured", "stderr", stderr.String(), "stdout", stdout.String())
 			return nil
 		}
+		if strings.Contains(stderr.String(), "Catalog cluster is not setup") {
+			logger.Warn("Catalog cluster is not setup", "stderr", stderr.String(), "stdout", stdout.String())
+			return nil
+		}
 		logger.Error(err, "Failed to remove from catalog cluster", "stderr", stderr.String(), "stdout", stdout.String())
 		return err
 	}
