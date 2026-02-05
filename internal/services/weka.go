@@ -1051,7 +1051,7 @@ func (c *CliWekaService) EnsureNfsIpRanges(ctx context.Context, interfaceGroupNa
 	// Now remove IP ranges that shouldn't be there (after adding new ones)
 	for _, ipRange := range rangesToRemove {
 		cmd = []string{
-			"weka", "nfs", "interface-group", "ip-range", "remove", interfaceGroupName, ipRange,
+			"weka", "nfs", "interface-group", "ip-range", "remove", interfaceGroupName, ipRange, "-f",
 		}
 		_, stderr, err = executor.ExecNamed(ctx, "RemoveNfsInterfaceGroupIpRange", cmd)
 		if err != nil {
