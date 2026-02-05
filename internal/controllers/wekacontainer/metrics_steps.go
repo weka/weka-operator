@@ -68,6 +68,8 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 							weka.WekaContainerModeDrive,
 							weka.WekaContainerModeEnvoy,
 							weka.WekaContainerModeSSDProxy,
+							weka.WekaContainerModeDataServices,
+							weka.WekaContainerModeDataServicesFe,
 						}, container.Spec.Mode)
 				},
 			},
