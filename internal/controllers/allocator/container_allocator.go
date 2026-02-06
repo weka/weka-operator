@@ -184,11 +184,11 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 	allDrives := nodeInfo.AvailableDrives
 	logger.Debug("Found drives on node", "total", len(allDrives))
 
-	// Filter out allocated drives
+	// Filter out allocated drives (keyed by serial)
 	availableDrives := []string{}
 	for _, drive := range allDrives {
-		if !allocatedDrives[drive] {
-			availableDrives = append(availableDrives, drive)
+		if !allocatedDrives[drive.Serial] {
+			availableDrives = append(availableDrives, drive.Serial)
 		}
 	}
 

@@ -111,7 +111,8 @@ type Allocator interface {
 }
 
 type AllocatorNodeInfo struct {
-	AvailableDrives []string
+	// AvailableDrives contains available (non-blocked) drives for non-proxy mode.
+	AvailableDrives []domain.DriveEntry
 	// SharedDrives contains shared drive information for drive sharing mode (proxy mode)
 	// Empty if node doesn't have shared drives or is using non-proxy mode
 	SharedDrives []domain.SharedDriveInfo
