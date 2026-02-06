@@ -32,6 +32,7 @@ class Disk:
     path: str
     is_mounted: bool
     serial_id: Optional[str]
+    capacity_gib: Optional[int] = None
 
 
 MODE = os.environ.get("MODE")
@@ -448,12 +449,24 @@ async def find_disks() -> List[Disk]:
                 if has_mountpoint(child):
                     return True
         return False
+    
+    async def get_capacity_gib(device_path: str) -> int:
+        """Get the capacity of the device in GiB."""
+        cmd = f"blockdev --getsize64 {device_path}"
+        stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
+        if ec == 0:
+            size_bytes = int(stdout.decode().strip())
+            return size_bytes // (1024 ** 3)  # Convert to GiB
+        else:
+            raise Exception(f"Failed to get capacity for {device_path}: {stderr.decode()}")
 
     for device in data.get("blockdevices", []):
         if device.get("type") == "disk":
             is_mounted = has_mountpoint(device)
             serial_id = device.get("serial")
             device_path = device["name"]
+            capacity_gib = await get_capacity_gib(device_path)
+
             if not serial_id:
                 logging.warning(f"lsblk did not return serial for {device_path}. Using fallback.")
                 serial_id = await get_serial_id_fallback(device_path)
@@ -463,7 +476,7 @@ async def find_disks() -> List[Disk]:
                 serial_id = await get_serial_id_cos_specific(device_name)
 
             logging.info(f"Found drive: {device_path}, mounted: {is_mounted}, serial: {serial_id}")
-            disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id))
+            disks.append(Disk(path=device_path, is_mounted=is_mounted, serial_id=serial_id, capacity_gib=capacity_gib))
 
     return disks
 
