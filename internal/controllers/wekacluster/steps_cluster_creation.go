@@ -259,8 +259,12 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return err
 	}
 
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
+	template, err := allocator.GetEnrichedTemplate(ctx, r.Manager.GetClient(), cluster.Spec.Template, *cluster)
+	if err != nil {
+		logger.Error(err, "Failed to get template with node capacity")
+		return err
+	}
+	if template == nil {
 		keys := make([]string, 0, len(allocator.WekaClusterTemplates))
 		for k := range allocator.WekaClusterTemplates {
 			keys = append(keys, k)
@@ -271,7 +275,7 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 
 	//newContainersLimit := config.Consts.NewContainersLimit
-	missingContainers, err := BuildMissingContainers(ctx, cluster, template, r.containers)
+	missingContainers, err := BuildMissingContainers(ctx, cluster, *template, r.containers)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
 		return err
