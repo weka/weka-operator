@@ -103,7 +103,23 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	}
 
 	if config.ComputeHugepages == 0 {
-		config.ComputeHugepages = 3000 * config.ComputeCores
+		var totalRawCapacityGiB int
+		if config.ContainerCapacity > 0 {
+			totalRawCapacityGiB = *config.DriveContainers * config.ContainerCapacity
+		} else if config.NumDrives > 0 && config.DriveCapacity > 0 {
+			totalRawCapacityGiB = *config.DriveContainers * config.NumDrives * config.DriveCapacity
+		}
+
+		capacityComponent := 0
+		if *config.ComputeContainers > 0 && totalRawCapacityGiB > 0 {
+			capacityComponent = totalRawCapacityGiB / *config.ComputeContainers
+		}
+
+		perCoreComponent := 1700 * config.ComputeCores
+		config.ComputeHugepages = capacityComponent + perCoreComponent
+
+		minHugepages := 3000 * config.ComputeCores
+		config.ComputeHugepages = max(config.ComputeHugepages, minHugepages)
 	}
 
 	if config.ComputeHugepagesOffset == 0 {
