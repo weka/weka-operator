@@ -142,18 +142,26 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	}
 
 	// Update weka.io/weka-drives annotation (regular mode)
-	previousDrives := []string{}
 	newDrivesFound := 0
-	if existingDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		_ = json.Unmarshal([]byte(existingDrivesStr), &previousDrives)
+
+	// Build a map from raw drives for capacity lookup
+	rawDriveCapacity := make(map[string]int)
+	for _, raw := range opResult.RawDrives {
+		if raw.SerialId != "" {
+			rawDriveCapacity[raw.SerialId] = raw.CapacityGiB
+		}
 	}
 
-	seenDrives := make(map[string]bool)
-	for _, drive := range previousDrives {
-		if drive == "" {
-			continue // clean bad records of empty serial ids
+	// Parse existing annotation (handles both old []string and new []DriveEntry formats)
+	seenDrives := make(map[string]domain.DriveEntry)
+	if existingDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && existingDrivesStr != "" {
+		existingEntries, _, _ := domain.ParseDriveEntries(existingDrivesStr)
+		for _, entry := range existingEntries {
+			if entry.Serial == "" {
+				continue // clean bad records of empty serial ids
+			}
+			seenDrives[entry.Serial] = entry
 		}
-		seenDrives[drive] = true
 	}
 
 	complete := func() error {
@@ -168,16 +176,17 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		if _, ok := seenDrives[drive.SerialId]; !ok {
 			newDrivesFound++
 		}
-		seenDrives[drive.SerialId] = true
+		capacity := rawDriveCapacity[drive.SerialId]
+		seenDrives[drive.SerialId] = domain.DriveEntry{Serial: drive.SerialId, CapacityGiB: capacity}
 	}
 
 	if newDrivesFound == 0 {
 		logger.Info("No new drives found")
 	}
 
-	updatedDrivesList := []string{}
-	for drive := range seenDrives {
-		updatedDrivesList = append(updatedDrivesList, drive)
+	updatedDrivesList := make([]domain.DriveEntry, 0, len(seenDrives))
+	for _, entry := range seenDrives {
+		updatedDrivesList = append(updatedDrivesList, entry)
 	}
 	newDrivesStr, err := json.Marshal(updatedDrivesList)
 	if err != nil {
@@ -213,8 +222,8 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 	}
 
 	availableDrives := 0
-	for _, drive := range updatedDrivesList {
-		if !slices.Contains(blockedDrives, drive) {
+	for _, entry := range updatedDrivesList {
+		if !slices.Contains(blockedDrives, entry.Serial) {
 			availableDrives++
 		}
 	}
