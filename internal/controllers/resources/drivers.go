@@ -7,9 +7,13 @@ import (
 )
 
 func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
+	// todo InstructionCopyWekaFilesToDriverLoader can be removed once weka cli is copied
 	if f.container.Spec.Instructions != nil && f.container.Spec.Instructions.Type ==
 		weka.InstructionCopyWekaFilesToDriverLoader {
 		f.copyWekaVersionToDriverLoader(pod)
+	}
+	if f.container.Spec.Mode == weka.WekaContainerModeDriversLoader {
+		CopyWekaCliToMainContainer(pod)
 	}
 	if f.nodeInfo.IsCos() {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override
@@ -102,4 +106,41 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 			MountPath: usrSrcPath,
 		})
 	}
+}
+
+// todo find a common place (will need to be used for builder later)
+func CopyWekaCliToMainContainer(pod *corev1.Pod) {
+
+	sharedVolumeName := "shared-weka-cli"
+	sharedVolumeMountPath := "/shared-weka-cli"
+
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, corev1.Container{
+		Name:    "init-copy-cli",
+		Image:   config.Config.DefaultCliContainer,
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			`
+					cp /usr/bin/weka /shared-weka-cli/
+					echo "Init container copy cli completed successfully"
+					`,
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      sharedVolumeName,
+				MountPath: sharedVolumeMountPath,
+			},
+		},
+	})
+
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+		Name:      sharedVolumeName,
+		MountPath: sharedVolumeMountPath,
+	})
+	pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
+
+		Name: sharedVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
 }

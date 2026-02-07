@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import socket
+import shutil
 import struct
 import subprocess
 import sys
@@ -257,6 +258,24 @@ if otel_enabled:
     logging.info("OpenTelemetry logging initialized successfully")
 else:
     logging.info("Using standard logging configuration")
+
+
+def copy_cli():
+    """Copy weka CLI from shared volume if it exists."""
+    src = "/shared-weka-cli/weka"
+    dst = "/usr/bin/weka"
+    if os.path.exists(src):
+        logging.info(f"Copying weka CLI from {src} to {dst}")
+        shutil.copy(src, dst)
+        logging.info("Weka CLI copied successfully")
+    else:
+        logging.debug(f"Shared weka CLI not found at {src}, skipping copy")
+
+
+# Copy weka CLI from shared volume if available (for custom builder images)
+
+if MODE in ["drivers-loader", "drivers-builder"]:
+    copy_cli()
 
 def use_go_syslog() -> bool:
     syslog_package = os.environ.get("SYSLOG_PACKAGE", "auto")

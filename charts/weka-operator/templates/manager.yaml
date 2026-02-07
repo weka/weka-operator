@@ -126,6 +126,8 @@ spec:
               value: "{{ .Values.wekahome.enableStats }}"
             - name: WEKA_OPERATOR_DEBUG_SLEEP
               value: "{{ .Values.debugSleep }}"
+            - name: DEFAULT_CLI_CONTAINER
+              value: "{{ .Values.defaultCliContainer }}"
             - name: WEKA_OPERATOR_MAINTENANCE_SA_NAME
               value: "{{ .Values.prefix }}-maintenance"
             - name: WEKA_MAINTENANCE_IMAGE
