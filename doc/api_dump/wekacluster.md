@@ -185,9 +185,9 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| topologySpreadConstraints | []v1.TopologySpreadConstraint | controls the distribution of weka containers across the failure domainsqq |
+| topologySpreadConstraints | *runtime.RawExtension | controls the distribution of weka containers across the failure domains |
 | roleTopologySpreadConstraints | *RoleTopologySpreadConstraints | takes precedence over the `topologySpreadConstraints` |
-| affinity | *v1.Affinity | advanced scheduling constraints |
+| affinity | *runtime.RawExtension | advanced scheduling constraints |
 | roleAffinity | *RoleAffinity | affinity per container role<br>takes precedence over the `affinity` field |
 
 ---
@@ -438,11 +438,11 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| compute | []v1.TopologySpreadConstraint |  |
-| drive | []v1.TopologySpreadConstraint |  |
-| s3 | []v1.TopologySpreadConstraint |  |
-| nfs | []v1.TopologySpreadConstraint |  |
-| smbw | []v1.TopologySpreadConstraint |  |
+| compute | *runtime.RawExtension |  |
+| drive | *runtime.RawExtension |  |
+| s3 | *runtime.RawExtension |  |
+| nfs | *runtime.RawExtension |  |
+| smbw | *runtime.RawExtension |  |
 
 ---
 
@@ -450,11 +450,11 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| compute | *v1.Affinity |  |
-| drive | *v1.Affinity |  |
-| s3 | *v1.Affinity |  |
-| nfs | *v1.Affinity |  |
-| smbw | *v1.Affinity |  |
+| compute | *runtime.RawExtension |  |
+| drive | *runtime.RawExtension |  |
+| s3 | *runtime.RawExtension |  |
+| nfs | *runtime.RawExtension |  |
+| smbw | *runtime.RawExtension |  |
 
 ---
 
