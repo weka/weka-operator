@@ -1318,6 +1318,18 @@ func (a *NodeAgent) readDriveSignature(ctx context.Context, devicePath string) (
 	return strings.TrimSpace(string(output)), nil
 }
 
+// isGoogleCOS checks if the host OS is Google Container-Optimized OS
+// by reading /host/etc/os-release and looking for ID=cos
+func isGoogleCOS() bool {
+	data, err := os.ReadFile("/host/etc/os-release")
+	if err != nil {
+		return false
+	}
+	// Check for ID=cos or ID="cos"
+	content := string(data)
+	return strings.Contains(content, "ID=cos") || strings.Contains(content, "ID=\"cos\"")
+}
+
 func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialID string, blockDevice string, err error) {
 	// Get PCI device path
 	cmd := exec.CommandContext(ctx, "readlink", "-f", "/sys/class/block/"+partName)
@@ -1334,16 +1346,31 @@ func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialI
 			return "", "", fmt.Errorf("invalid PCI device path")
 		}
 
-		// Serial is 2 directories up
-		serialPath := strings.Join(pathParts[:len(pathParts)-2], "/") + "/serial"
-		serialData, err := os.ReadFile(serialPath)
-		if err != nil {
-			return "", "", fmt.Errorf("failed to read serial: %w", err)
-		}
-		serialID = strings.TrimSpace(string(serialData))
-
 		// Device path is the parent of the partition
 		blockDevice = "/dev/" + pathParts[len(pathParts)-2]
+		deviceName := pathParts[len(pathParts)-2]
+
+		// Try method 1: Read serial from normal serial path
+		serialPath := strings.Join(pathParts[:len(pathParts)-2], "/") + "/serial"
+		serialData, err := os.ReadFile(serialPath)
+		if err == nil {
+			serialID = strings.TrimSpace(string(serialData))
+		}
+
+		// On Google COS, NVMe serial may not be available via normal path
+		// Fallback to wwid (World Wide Identifier) which contains the serial
+		if (serialID == "" || serialID == "nvme_card") && isGoogleCOS() {
+			wwidPath := "/sys/block/" + deviceName + "/wwid"
+			wwidData, err := os.ReadFile(wwidPath)
+			if err == nil {
+				serialID = strings.TrimSpace(string(wwidData))
+			}
+		}
+
+		// If both methods failed, return error
+		if serialID == "" {
+			return "", "", fmt.Errorf("failed to get serial ID for NVMe device %s: tried serial path and wwid", deviceName)
+		}
 	} else {
 		// Regular SCSI device
 		pathParts := strings.Split(pciDevicePath, "/")
