@@ -17,11 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+	"fmt"
 	"slices"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/weka/weka-k8s-api/util"
 )
@@ -347,48 +350,102 @@ type RoleCoreIds struct {
 }
 
 type RoleTopologySpreadConstraints struct {
-	Compute []v1.TopologySpreadConstraint `json:"compute,omitempty"`
-	Drive   []v1.TopologySpreadConstraint `json:"drive,omitempty"`
-	S3      []v1.TopologySpreadConstraint `json:"s3,omitempty"`
-	Nfs     []v1.TopologySpreadConstraint `json:"nfs,omitempty"`
-	Smbw    []v1.TopologySpreadConstraint `json:"smbw,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Compute *runtime.RawExtension `json:"compute,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Drive *runtime.RawExtension `json:"drive,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	S3 *runtime.RawExtension `json:"s3,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Nfs *runtime.RawExtension `json:"nfs,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Smbw *runtime.RawExtension `json:"smbw,omitempty"`
 }
 
 func (c *RoleTopologySpreadConstraints) ForRole(role string) []v1.TopologySpreadConstraint {
+	var raw *runtime.RawExtension
 	switch role {
 	case "compute":
-		return c.Compute
+		raw = c.Compute
 	case "drive":
-		return c.Drive
+		raw = c.Drive
 	case "s3":
-		return c.S3
+		raw = c.S3
 	case "nfs":
-		return c.Nfs
+		raw = c.Nfs
 	case "smbw":
-		return c.Smbw
+		raw = c.Smbw
 	default:
 		return nil
 	}
+
+	constraints, _ := unmarshalTopologySpreadConstraints(raw)
+	return constraints
 }
 
 type RoleAffinity struct {
-	Compute *v1.Affinity `json:"compute,omitempty"`
-	Drive   *v1.Affinity `json:"drive,omitempty"`
-	S3      *v1.Affinity `json:"s3,omitempty"`
-	Nfs     *v1.Affinity `json:"nfs,omitempty"`
-	Smbw    *v1.Affinity `json:"smbw,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Compute *runtime.RawExtension `json:"compute,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Drive *runtime.RawExtension `json:"drive,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	S3 *runtime.RawExtension `json:"s3,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Nfs *runtime.RawExtension `json:"nfs,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Smbw *runtime.RawExtension `json:"smbw,omitempty"`
 }
 
 type PodConfiguration struct {
-	// controls the distribution of weka containers across the failure domainsqq
-	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	// controls the distribution of weka containers across the failure domains
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	TopologySpreadConstraints *runtime.RawExtension `json:"topologySpreadConstraints,omitempty"`
 	// takes precedence over the `topologySpreadConstraints`
 	RoleTopologySpreadConstraints *RoleTopologySpreadConstraints `json:"roleTopologySpreadConstraints,omitempty"`
 	// advanced scheduling constraints
-	Affinity *v1.Affinity `json:"affinity,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Affinity *runtime.RawExtension `json:"affinity,omitempty"`
 	// affinity per container role
 	// takes precedence over the `affinity` field
 	RoleAffinity *RoleAffinity `json:"roleAffinity,omitempty"`
+}
+
+// unmarshalAffinity safely unmarshals RawExtension to v1.Affinity
+func unmarshalAffinity(raw *runtime.RawExtension) (*v1.Affinity, error) {
+	if raw == nil || raw.Raw == nil {
+		return nil, nil
+	}
+
+	var affinity v1.Affinity
+	if err := json.Unmarshal(raw.Raw, &affinity); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal affinity: %w", err)
+	}
+	return &affinity, nil
+}
+
+// unmarshalTopologySpreadConstraints safely unmarshals RawExtension to []v1.TopologySpreadConstraint
+func unmarshalTopologySpreadConstraints(raw *runtime.RawExtension) ([]v1.TopologySpreadConstraint, error) {
+	if raw == nil || raw.Raw == nil {
+		return nil, nil
+	}
+
+	var constraints []v1.TopologySpreadConstraint
+	if err := json.Unmarshal(raw.Raw, &constraints); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal topologySpreadConstraints: %w", err)
+	}
+	return constraints, nil
 }
 
 type StartIoConditions struct {
@@ -920,54 +977,71 @@ func (c *WekaCluster) GetCoreIdsForRole(role string) []int {
 }
 
 // Use role-specific affinity if set, otherwise use cluster affinity from PodConfig.
+// Returns nil if unmarshaling fails.
 func (c *WekaCluster) GetAffinityForRole(role string) *v1.Affinity {
 	if c.Spec.PodConfig == nil {
 		return nil
 	}
 
-	if c.Spec.PodConfig.RoleAffinity == nil {
-		return c.Spec.PodConfig.Affinity
+	// Try role-specific affinity first
+	if c.Spec.PodConfig.RoleAffinity != nil {
+		var roleRaw *runtime.RawExtension
+
+		switch role {
+		case "compute":
+			roleRaw = c.Spec.PodConfig.RoleAffinity.Compute
+		case "drive":
+			roleRaw = c.Spec.PodConfig.RoleAffinity.Drive
+		case "s3":
+			roleRaw = c.Spec.PodConfig.RoleAffinity.S3
+		case "nfs":
+			roleRaw = c.Spec.PodConfig.RoleAffinity.Nfs
+		case "smbw":
+			roleRaw = c.Spec.PodConfig.RoleAffinity.Smbw
+		}
+
+		if roleRaw != nil {
+			affinity, err := unmarshalAffinity(roleRaw)
+			if err != nil {
+				// Log error but don't crash - return nil to skip affinity
+				return nil
+			}
+			if affinity != nil {
+				return affinity
+			}
+		}
 	}
 
-	var affinity *v1.Affinity
-
-	switch role {
-	case "compute":
-		affinity = c.Spec.PodConfig.RoleAffinity.Compute
-	case "drive":
-		affinity = c.Spec.PodConfig.RoleAffinity.Drive
-	case "s3":
-		affinity = c.Spec.PodConfig.RoleAffinity.S3
-	case "nfs":
-		affinity = c.Spec.PodConfig.RoleAffinity.Nfs
-	case "smbw":
-		affinity = c.Spec.PodConfig.RoleAffinity.Smbw
+	// Fall back to global affinity
+	affinity, err := unmarshalAffinity(c.Spec.PodConfig.Affinity)
+	if err != nil {
+		return nil
 	}
-
-	if affinity != nil {
-		return affinity
-	} else {
-		return c.Spec.PodConfig.Affinity
-	}
+	return affinity
 }
 
 // Use role-specific topology spread constraints if set, otherwise use cluster topology spread constraints from PodConfig.
+// Returns nil if unmarshaling fails.
 func (c *WekaCluster) GetTopologySpreadConstraintsForRole(role string) []v1.TopologySpreadConstraint {
 	if c.Spec.PodConfig == nil {
 		return nil
 	}
 
-	if c.Spec.PodConfig.RoleTopologySpreadConstraints == nil {
-		return c.Spec.PodConfig.TopologySpreadConstraints
+	// Try role-specific constraints first
+	if c.Spec.PodConfig.RoleTopologySpreadConstraints != nil {
+		// Use the ForRole() method which now handles RawExtension internally
+		constraints := c.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role)
+		if constraints != nil {
+			return constraints
+		}
 	}
 
-	topologySpreadConstraints := c.Spec.PodConfig.RoleTopologySpreadConstraints.ForRole(role)
-
-	if topologySpreadConstraints != nil {
-		return topologySpreadConstraints
-	} else {
-		return c.Spec.PodConfig.TopologySpreadConstraints
+	// Fall back to global constraints
+	constraints, err := unmarshalTopologySpreadConstraints(c.Spec.PodConfig.TopologySpreadConstraints)
+	if err != nil {
+		return nil
 	}
+	return constraints
 }
 
 func init() {
