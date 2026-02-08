@@ -376,6 +376,10 @@ spec:
               value: "{{ .Values.driveSharing.enforceMinDrivesPerTypePerCore }}"
             - name: ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES
               value: "{{ .Values.driveSharing.enableDynamicDriveScalingForSharedDrives }}"
+            - name: HUGEPAGES_TLC_RATIO
+              value: "{{ .Values.hugepagesTlcRatio }}"
+            - name: HUGEPAGES_QLC_RATIO
+              value: "{{ .Values.hugepagesQlcRatio }}"
             - name: SSD_PROXY_HUGEPAGES_OFFSET_MIB
               value: "{{ .Values.driveSharing.ssdProxy.hugepagesOffsetMiB }}"
             - name: PORT_ALLOCATION_STARTING_PORT

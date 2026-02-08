@@ -18,15 +18,17 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 		computeContainers int
 		computeCores      int
 		presetHugepages   int
+		driveTypesRatio   *weka.DriveTypesRatio
 		expectedHugepages int
 	}{
 		{
-			name:              "drive sharing large containerCapacity",
+			name:              "drive sharing large containerCapacity (TLC only)",
 			containerCapacity: 5000,
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			expectedHugepages: 6700, // 5000*6/6 + 1700*1 = 5000 + 1700
+			// total=30000GiB, all TLC: 30000*1024/1000=30720MiB cluster, /6=5120 + 1700
+			expectedHugepages: 6820,
 		},
 		{
 			name:              "drive sharing small containerCapacity, clamped to minimum",
@@ -34,7 +36,8 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			expectedHugepages: 3000, // 500*6/6 + 1700*1 = 2200, min = 3000
+			// total=3000GiB, all TLC: 3000*1024/1000=3072MiB cluster, /6=512 + 1700=2212, min=3000
+			expectedHugepages: 3000,
 		},
 		{
 			name:              "drive sharing (numDrives + driveCapacity)",
@@ -43,7 +46,8 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      1,
-			expectedHugepages: 9700, // 6*4*2000/6 + 1700*1 = 8000 + 1700
+			// total=48000GiB, all TLC: 48000*1024/1000=49152MiB cluster, /6=8192 + 1700
+			expectedHugepages: 9892,
 		},
 		{
 			name:              "no capacity backward compatible",
@@ -56,13 +60,38 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 			driveContainers:   6,
 			computeContainers: 6,
 			computeCores:      2,
-			expectedHugepages: 13400, // 10000*6/6 + 1700*2 = 10000 + 3400
+			// total=60000GiB, all TLC: 60000*1024/1000=61440MiB cluster, /6=10240 + 1700*2=3400
+			expectedHugepages: 13640,
 		},
 		{
 			name:              "explicit override preserved",
 			computeCores:      1,
 			presetHugepages:   5000,
 			expectedHugepages: 5000,
+		},
+		{
+			name:              "mixed TLC/QLC ratio 1:1",
+			containerCapacity: 5000,
+			driveContainers:   6,
+			computeContainers: 6,
+			computeCores:      1,
+			driveTypesRatio:   &weka.DriveTypesRatio{Tlc: 1, Qlc: 1},
+			// total=30000GiB, tlc=15000, qlc=15000
+			// tlcMiB=15000*1024/1000=15360, qlcMiB=15000*1024/6000=2560
+			// cluster=17920, /6=2986 + 1700=4686
+			expectedHugepages: 4686,
+		},
+		{
+			name:              "QLC-heavy ratio 1:10",
+			containerCapacity: 10000,
+			driveContainers:   6,
+			computeContainers: 6,
+			computeCores:      1,
+			driveTypesRatio:   &weka.DriveTypesRatio{Tlc: 1, Qlc: 10},
+			// total=60000GiB, tlc=60000/11=5454, qlc=54546
+			// tlcMiB=5454*1024/1000=5584, qlcMiB=54546*1024/6000=9309
+			// cluster=14893, /6=2482 + 1700=4182
+			expectedHugepages: 4182,
 		},
 	}
 
@@ -74,6 +103,7 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 				DriveCapacity:     tt.driveCapacity,
 				ComputeCores:      tt.computeCores,
 				ComputeHugepages:  tt.presetHugepages,
+				DriveTypesRatio:   tt.driveTypesRatio,
 			}
 			if tt.driveContainers > 0 {
 				config.DriveContainers = util.IntRef(tt.driveContainers)
