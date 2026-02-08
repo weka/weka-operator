@@ -277,6 +277,13 @@ driveSharing:
     # Default: 2048 (2 GiB)
     hugepagesOffsetMiB: 2048
 
+# Hugepages capacity ratios for compute containers.
+# These control how much hugepages memory is allocated based on raw drive capacity.
+# Formula: clusterHugepages = tlcCapacityGiB / hugepagesTlcRatio + qlcCapacityGiB / hugepagesQlcRatio
+# TLC drives require more hugepages per GiB than QLC drives.
+hugepagesTlcRatio: 1000
+hugepagesQlcRatio: 6000
+
 # Port allocation configuration
 portAllocation:
   # Starting port for Weka container port allocation.

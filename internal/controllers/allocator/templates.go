@@ -102,26 +102,6 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		}
 	}
 
-	if config.ComputeHugepages == 0 {
-		var totalRawCapacityGiB int
-		if config.ContainerCapacity > 0 {
-			totalRawCapacityGiB = *config.DriveContainers * config.ContainerCapacity
-		} else if config.NumDrives > 0 && config.DriveCapacity > 0 {
-			totalRawCapacityGiB = *config.DriveContainers * config.NumDrives * config.DriveCapacity
-		}
-
-		capacityComponent := 0
-		if *config.ComputeContainers > 0 && totalRawCapacityGiB > 0 {
-			capacityComponent = totalRawCapacityGiB / *config.ComputeContainers
-		}
-
-		perCoreComponent := 1700 * config.ComputeCores
-		config.ComputeHugepages = capacityComponent + perCoreComponent
-
-		minHugepages := 3000 * config.ComputeCores
-		config.ComputeHugepages = max(config.ComputeHugepages, minHugepages)
-	}
-
 	if config.ComputeHugepagesOffset == 0 {
 		config.ComputeHugepagesOffset = 200
 	}
@@ -165,6 +145,49 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 				Qlc: ratio.Qlc,
 			}
 		}
+	}
+
+	if config.ComputeHugepages == 0 {
+		var totalRawCapacityGiB int
+		if config.ContainerCapacity > 0 {
+			totalRawCapacityGiB = *config.DriveContainers * config.ContainerCapacity
+		} else if config.NumDrives > 0 && config.DriveCapacity > 0 {
+			totalRawCapacityGiB = *config.DriveContainers * config.NumDrives * config.DriveCapacity
+		}
+
+		capacityBased := 0
+		if *config.ComputeContainers > 0 && totalRawCapacityGiB > 0 {
+			tlcCapGiB, qlcCapGiB := v1alpha1.GetTlcQlcCapacity(totalRawCapacityGiB, config.DriveTypesRatio)
+
+			hugepagesTlcRatio := globalconfig.Config.DriveSharing.HugepagesTlcRatio
+			if hugepagesTlcRatio == 0 {
+				hugepagesTlcRatio = 1000
+			}
+			hugepagesQlcRatio := globalconfig.Config.DriveSharing.HugepagesQlcRatio
+			if hugepagesQlcRatio == 0 {
+				hugepagesQlcRatio = 6000
+			}
+
+			// Compute cluster-wide hugepages in MiB from TLC and QLC capacities
+			// Formula: (tlcGiB * 1024 / tlcRatio) + (qlcGiB * 1024 / qlcRatio)
+			// The *1024 converts GiB capacity to MiB hugepages before applying ratio
+			clusterHugepagesMiB := 0
+			if hugepagesTlcRatio > 0 {
+				clusterHugepagesMiB += tlcCapGiB * 1024 / hugepagesTlcRatio
+			}
+			if hugepagesQlcRatio > 0 {
+				clusterHugepagesMiB += qlcCapGiB * 1024 / hugepagesQlcRatio
+			}
+
+			// Per-container capacity hugepages
+			capacityBased = clusterHugepagesMiB / *config.ComputeContainers
+		}
+
+		perCoreComponent := 1700 * config.ComputeCores
+		config.ComputeHugepages = capacityBased + perCoreComponent
+
+		minHugepages := 3000 * config.ComputeCores
+		config.ComputeHugepages = max(config.ComputeHugepages, minHugepages)
 	}
 
 	return ClusterTemplate{

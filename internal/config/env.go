@@ -150,6 +150,8 @@ type DriveSharingConfig struct {
 	EnforceMinDrivesPerTypePerCore bool
 	EnableDynamicDriveScaling      bool
 	SsdProxyHugepagesOffsetMiB     int
+	HugepagesTlcRatio              int
+	HugepagesQlcRatio              int
 }
 
 type PortAllocationConfig struct {
@@ -438,6 +440,8 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.EnforceMinDrivesPerTypePerCore = getBoolEnvOrDefault("ENFORCE_MIN_DRIVES_PER_TYPE_PER_CORE", true)
 	Config.DriveSharing.EnableDynamicDriveScaling = getBoolEnvOrDefault("ENABLE_DYNAMIC_DRIVE_SCALING_FOR_SHARED_DRIVES", false)
 	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 2048)
+	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
+	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
