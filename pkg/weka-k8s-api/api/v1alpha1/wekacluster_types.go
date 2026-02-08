@@ -196,33 +196,28 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 type WekaConfig struct {
-	ComputeContainers         *int `json:"computeContainers,omitempty"`
-	DriveContainers           *int `json:"driveContainers,omitempty"`
-	S3Containers              int  `json:"s3Containers,omitempty"`
-	ComputeCores              int  `json:"computeCores,omitempty"`
-	DriveCores                int  `json:"driveCores,omitempty"`
-	S3Cores                   int  `json:"s3Cores,omitempty"`
-	NumDrives                 int  `json:"numDrives,omitempty"`
-	ComputeExtraCores         int  `json:"computeExtraCores,omitempty"`
-	DriveExtraCores           int  `json:"driveExtraCores,omitempty"`
-	S3ExtraCores              int  `json:"s3ExtraCores,omitempty"`
-	DriveHugepages            int  `json:"driveHugepages,omitempty"`
-	DriveHugepagesOffset      int  `json:"driveHugepagesOffset,omitempty"`
-	ComputeHugepages          int  `json:"computeHugepages,omitempty"`
-	ComputeHugepagesOffset    int  `json:"computeHugepagesOffset,omitempty"`
-	S3FrontendHugepages       int  `json:"s3FrontendHugepages,omitempty"`
-	S3FrontendHugepagesOffset int  `json:"s3FrontendHugepagesOffset,omitempty"`
-	EnvoyCores                int  `json:"envoyCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS containers
-	NfsContainers int `json:"nfsContainers,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS cores per container
-	NfsCores int `json:"nfsCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container
-	NfsExtraCores int `json:"nfsExtraCores,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend
-	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
-	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend
-	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
+	ComputeContainers          *int `json:"computeContainers,omitempty"`
+	DriveContainers            *int `json:"driveContainers,omitempty"`
+	S3Containers               int  `json:"s3Containers,omitempty"`
+	ComputeCores               int  `json:"computeCores,omitempty"`
+	DriveCores                 int  `json:"driveCores,omitempty"`
+	S3Cores                    int  `json:"s3Cores,omitempty"`
+	NumDrives                  int  `json:"numDrives,omitempty"`
+	ComputeExtraCores          int  `json:"computeExtraCores,omitempty"`
+	DriveExtraCores            int  `json:"driveExtraCores,omitempty"`
+	S3ExtraCores               int  `json:"s3ExtraCores,omitempty"`
+	DriveHugepages             int  `json:"driveHugepages,omitempty"`
+	DriveHugepagesOffset       int  `json:"driveHugepagesOffset,omitempty"`
+	ComputeHugepages           int  `json:"computeHugepages,omitempty"`
+	ComputeHugepagesOffset     int  `json:"computeHugepagesOffset,omitempty"`
+	S3FrontendHugepages        int  `json:"s3FrontendHugepages,omitempty"`
+	S3FrontendHugepagesOffset  int  `json:"s3FrontendHugepagesOffset,omitempty"`
+	EnvoyCores                 int  `json:"envoyCores,omitempty"`
+	NfsContainers              int  `json:"nfsContainers,omitempty"`
+	NfsCores                   int  `json:"nfsCores,omitempty"`
+	NfsExtraCores              int  `json:"nfsExtraCores,omitempty"`
+	NfsFrontendHugepages       int  `json:"nfsFrontendHugepages,omitempty"`
+	NfsFrontendHugepagesOffset int  `json:"nfsFrontendHugepagesOffset,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
 	SmbwContainers int `json:"smbwContainers,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container
