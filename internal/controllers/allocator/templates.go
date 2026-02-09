@@ -188,6 +188,10 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 
 		minHugepages := 3000 * config.ComputeCores
 		config.ComputeHugepages = max(config.ComputeHugepages, minHugepages)
+		// Must be devidable by 2, ceil-ing up to nearest even number if not:
+		if config.ComputeHugepages%2 != 0 {
+			config.ComputeHugepages++
+		}
 	}
 
 	return ClusterTemplate{
