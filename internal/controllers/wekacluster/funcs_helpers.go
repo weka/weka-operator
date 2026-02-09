@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weka/go-lib/pkg/workers"
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -130,4 +132,92 @@ func (r *wekaClusterReconcilerLoop) ValidateDriveTypesRatio(ctx context.Context)
 	}
 
 	return nil
+}
+
+func (r *wekaClusterReconcilerLoop) ShouldSetComputeHugepages() bool {
+	return r.cluster.Spec.Template == "dynamic" &&
+		r.cluster.Spec.Dynamic != nil &&
+		r.cluster.Spec.Dynamic.ComputeHugepages == 0 // skip if user explicitly set
+}
+
+// ensureComputeContainersHugepages patches compute containers' Spec.Hugepages based on
+// actual drive capacity from sibling drive containers' AddedDrives.
+// This handles the case where existing compute containers have stale hugepages values
+// after upgrading the operator to a version with capacity-based hugepages calculation.
+func (r *wekaClusterReconcilerLoop) ensureComputeContainersHugepages(ctx context.Context) error {
+	cluster := r.cluster
+	containers := r.containers
+
+	tmpl := allocator.BuildDynamicTemplate(cluster.Spec.Dynamic)
+
+	// Collect "goods" drive containers: those with all expected drives added and SizeBytes > 0
+	var goodContainersCapacitySum int64
+	goodContainersCount := 0
+	for _, c := range containers {
+		if !c.IsDriveContainer() {
+			continue
+		}
+		if c.Status.Allocations == nil {
+			continue
+		}
+		expectedDrives := 0
+		if c.UsesDriveSharing() {
+			expectedDrives = len(c.Status.Allocations.VirtualDrives)
+		} else {
+			expectedDrives = len(c.Status.Allocations.Drives)
+		}
+		if expectedDrives == 0 || len(c.Status.AddedDrives) != expectedDrives {
+			continue
+		}
+		containerBytes := int64(0)
+		allHaveSize := true
+		for _, drive := range c.Status.AddedDrives {
+			if drive.SizeBytes == 0 {
+				allHaveSize = false
+				break
+			}
+			containerBytes += drive.SizeBytes
+		}
+		if !allHaveSize {
+			continue
+		}
+		goodContainersCapacitySum += containerBytes
+		goodContainersCount++
+	}
+
+	if goodContainersCount < 5 {
+		return nil // not enough good drive containers yet for reliable extrapolation
+	}
+
+	// Extrapolate: avg per-container capacity × expected drive container count
+	avgPerContainer := goodContainersCapacitySum / int64(goodContainersCount)
+	totalRawBytes := avgPerContainer * int64(tmpl.DriveContainers)
+	totalRawCapacityGiB := int(totalRawBytes / (1024 * 1024 * 1024))
+
+	desired := allocator.ComputeCapacityBasedHugepages(
+		totalRawCapacityGiB, tmpl.ComputeContainers, tmpl.ComputeCores, tmpl.DriveTypesRatio)
+
+	// Collect compute containers that need updating
+	var computeContainers []*weka.WekaContainer
+	for _, c := range containers {
+		if c.IsComputeContainer() && c.Spec.Hugepages < desired {
+			computeContainers = append(computeContainers, c)
+		}
+	}
+
+	if len(computeContainers) == 0 {
+		return nil
+	}
+
+	// Patch compute containers in parallel
+	return workers.ProcessConcurrently(ctx, computeContainers, 32,
+		func(ctx context.Context, c *weka.WekaContainer) error {
+			ctx, _, end := instrumentation.GetLogSpan(ctx, "patchComputeContainerHugepages",
+				"container", c.Name, "currentHugepages", c.Spec.Hugepages, "desiredHugepages", desired)
+			defer end()
+
+			patch := client.MergeFrom(c.DeepCopy())
+			c.Spec.Hugepages = desired
+			return r.getClient().Patch(ctx, c, patch)
+		}).AsError()
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,6 +105,9 @@ const maxNodeSample = 3
 // computes the top-numDrives capacity sum per node, and returns the maximum.
 // This represents the worst-case (most memory) capacity a single drive container could manage.
 func computeMaxNodeDriveCapacity(ctx context.Context, k8sClient client.Client, nodeSelector map[string]string, numDrives int) (int, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "computeMaxNodeDriveCapacity", "nodeSelector", nodeSelector, "numDrives", numDrives)
+	defer end()
+
 	kubeService := kubernetes.NewKubeService(k8sClient)
 	nodes, err := kubeService.GetNodes(ctx, nodeSelector)
 	if err != nil {
@@ -113,7 +117,7 @@ func computeMaxNodeDriveCapacity(ctx context.Context, k8sClient client.Client, n
 	sampleSize := min(len(nodes), maxNodeSample)
 
 	maxCapacity := 0
-	for i := 0; i < sampleSize; i++ {
+	for i := range sampleSize {
 		node := nodes[i]
 		drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
 		if !ok || drivesStr == "" {
@@ -139,6 +143,8 @@ func computeMaxNodeDriveCapacity(ctx context.Context, k8sClient client.Client, n
 		}
 		maxCapacity = max(maxCapacity, nodeSum)
 	}
+
+	logger.Info("Computed max node drive capacity", "maxCapacityGiB", maxCapacity)
 
 	return maxCapacity, nil
 }
