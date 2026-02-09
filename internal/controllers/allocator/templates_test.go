@@ -16,7 +16,11 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
+func TestGetEnrichedTemplate_ComputeHugepages(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+
 	tests := []struct {
 		name              string
 		containerCapacity int
@@ -120,7 +124,20 @@ func TestBuildDynamicTemplate_ComputeHugepages(t *testing.T) {
 				config.ComputeContainers = util.IntRef(tt.computeContainers)
 			}
 
-			tmpl := BuildDynamicTemplate(config)
+			cluster := weka.WekaCluster{
+				Spec: weka.WekaClusterSpec{
+					Template: "dynamic",
+					Dynamic:  config,
+				},
+			}
+
+			tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tmpl == nil {
+				t.Fatal("expected template to be found")
+			}
 
 			if tmpl.ComputeHugepages != tt.expectedHugepages {
 				t.Errorf("expected ComputeHugepages=%d, got %d", tt.expectedHugepages, tmpl.ComputeHugepages)
@@ -176,10 +193,10 @@ func TestGetEnrichedTemplate_EnrichesFromNodeDrives(t *testing.T) {
 		t.Fatal("expected template to be found")
 	}
 
-	// totalRawCapacity = driveContainers(6) * maxNodeCap(7000) = 42000
-	// hugepages = max(42000/6 + 1700*1, 3000*1) = max(7000+1700, 3000) = 8700
-	if tmpl.ComputeHugepages != 8700 {
-		t.Errorf("expected enriched ComputeHugepages=8700, got %d", tmpl.ComputeHugepages)
+	// totalRawCapacity = driveContainers(6) * maxNodeCap(7000) = 42000GiB, all TLC
+	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 = 8868
+	if tmpl.ComputeHugepages != 8868 {
+		t.Errorf("expected enriched ComputeHugepages=8868, got %d", tmpl.ComputeHugepages)
 	}
 }
 
