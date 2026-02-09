@@ -14,6 +14,24 @@ if [ -z "$VERSION" ]; then
 fi
 echo "Building version $VERSION"
 
+# Determine repository names based on branch
+# Use production repositories for any release/* branch, otherwise use -dev repositories
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "Current branch: $CURRENT_BRANCH"
+
+if [[ "$CURRENT_BRANCH" == release/* ]]; then
+  echo "Building for production repositories (release/* branch)"
+  export REPO="${REPO:-quay.io/weka.io/weka-operator}"
+  export HELM_REPO="${HELM_REPO:-quay.io/weka.io/helm}"
+else
+  echo "Building for development repositories (non-release branch)"
+  export REPO="${REPO:-quay.io/weka.io/weka-operator-dev}"
+  export HELM_REPO="${HELM_REPO:-quay.io/weka.io/helm-dev}"
+fi
+
+echo "Using REPO: $REPO"
+echo "Using HELM_REPO: $HELM_REPO"
+
 #helm chart manipulations require to run go as well, and extracting needed parts from image is hell on GHA
 #so if we need helm and go outside of the image, no reason to build binary within docker
 #eventual reason might be caching, and well, repeatable environment, but then it needs to include helm as well,
@@ -25,18 +43,6 @@ make generate
 make rbac
 make crd
 go vet ./...
-
-# NOTE: moved into image.Dockerfile
-#export CGO_ENABLED=0
-#export GOOS=linux
-## multi-arch should be simple, but, weka image not packaged yet for arm, and is messy, so omitting for now
-#export GOARCH=amd64
-#
-#go build -o dist/weka-operator cmd/manager/main.go
-
-
-export REPO="${REPO:-quay.io/weka.io/weka-operator}"
-export HELM_REPO="${HELM_REPO:-quay.io/weka.io/helm}"
 
 echo "Building helm chart"
 make chart VERSION=v$VERSION

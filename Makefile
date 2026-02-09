@@ -23,7 +23,15 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
 # weka.io/weka-operator-bundle:$VERSION and weka.io/weka-operator-catalog:$VERSION.
 #IMAGE_TAG_BASE ?= weka.io/weka-operator
-REGISTRY_ENDPOINT ?= quay.io/weka.io
+
+# Determine repository name based on branch
+# Use production repository for any release/* branch, otherwise use -dev repository
+CURRENT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+ifneq ($(findstring release/,$(CURRENT_BRANCH)),)
+REPO ?= quay.io/weka.io/weka-operator
+else
+REPO ?= quay.io/weka.io/weka-operator-dev
+endif
 VERSION ?= dev-$(shell git rev-parse --short HEAD)
 DEPLOY_CONTROLLER ?= true
 WH_ENABLE_INSECURE ?= false
@@ -51,7 +59,7 @@ VALUES_YAML ?= charts/weka-operator/values.yaml
 OPERATOR_SDK_VERSION ?= v1.32.0
 
 # Image URL to use all building/pushing image targets
-#IMG ?= $(REGISTRY_ENDPOINT)/weka-operator:$(VERSION)
+#IMG ?= $(REPO):$(VERSION)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.26.0
 
@@ -154,17 +162,17 @@ clean: ## Clean build artifacts.
 
 .PHONY: dev
 dev:
-	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
-	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) build VERSION=${VERSION} REPO=${REPO}
+	$(MAKE) docker-push VERSION=${VERSION} REPO=${REPO}
 	- $(MAKE) undeploy
 	- $(MAKE) uninstall
-	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) deploy VERSION=${VERSION} REPO=${REPO}
 
 .PHONY: devupdate
 devupdate:
-	$(MAKE) build VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
-	$(MAKE) docker-push VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
-	$(MAKE) deploy VERSION=${VERSION} REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}
+	$(MAKE) build VERSION=${VERSION} REPO=${REPO}
+	$(MAKE) docker-push VERSION=${VERSION} REPO=${REPO}
+	$(MAKE) deploy VERSION=${VERSION} REPO=${REPO}
 
 .PHONY: run
 run: generate manifests install fmt vet deploy runcontroller ## Run a controller from your host.
@@ -235,7 +243,7 @@ debugcontroller: ## Run a controller from your host.
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	docker push ${REGISTRY_ENDPOINT}/weka-operator:${VERSION}
+	docker push ${REPO}:${VERSION}
 
 ##@ Deployment
 
@@ -252,7 +260,7 @@ uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube
 	kubectl delete --ignore-not-found=$(ignore-not-found) -f charts/weka-operator/crds
 
 NAMESPACE="weka-operator-system"
-VALUES="prefix=weka-operator,image.repository=$(REGISTRY_ENDPOINT)/weka-operator,image.tag=$(VERSION)"
+VALUES="prefix=weka-operator,image.repository=$(REPO),image.tag=$(VERSION)"
 
 .PHONY: deploy
 deploy: generate install ## Deploy controller to the K8s cluster specified in ~/.kube/config.
