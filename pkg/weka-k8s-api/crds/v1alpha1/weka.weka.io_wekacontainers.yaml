@@ -1196,6 +1196,7 @@ spec:
                 - telemetry
                 - ssdproxy
                 - data-services
+                - data-services-fe
                 type: string
               name:
                 type: string

@@ -81,6 +81,8 @@ spec:
                     type: integer
                   dataServices:
                     type: integer
+                  dataServicesFe:
+                    type: integer
                   drive:
                     type: integer
                   envoy:
@@ -95,6 +97,20 @@ spec:
               bucketRaftSize:
                 description: size of raft for buckets, defaults to 5, 5/9 are supported
                 type: integer
+              catalog:
+                description: Catalog configuration for data catalog service
+                properties:
+                  indexInterval:
+                    default: 1d
+                    description: IndexInterval specifies how often the catalog index
+                      is updated (e.g., "1d", "1m")
+                    type: string
+                  retentionPeriod:
+                    default: 30d
+                    description: RetentionPeriod specifies how long catalog data is
+                      retained (e.g., "30d", "10m")
+                    type: string
+                type: object
               cpuPolicy:
                 default: auto
                 description: |-
@@ -242,6 +258,18 @@ spec:
                   dataServicesExtraCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of data services extra cores per container'
+                    type: integer
+                  dataServicesFeCores:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: number of data services frontend cores per container'
+                    type: integer
+                  dataServicesFeHugepages:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage allocation for data services frontend container'
+                    type: integer
+                  dataServicesFeHugepagesOffset:
+                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
+                      production: hugepage offset for data services frontend container'
                     type: integer
                   dataServicesHugepages:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
@@ -694,6 +722,8 @@ spec:
                     description: |-
                       We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
                       Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+                    type: integer
+                  dataServicesPort:
                     type: integer
                   lbAdminPort:
                     type: integer
@@ -1572,6 +1602,8 @@ spec:
                     description: |-
                       We should not be updating Spec, as it's a user interface and we should not break ability to update spec file
                       Therefore, when BasePort is 0, and Range as 0, we have application level defaults that will be written in here
+                    type: integer
+                  dataServicesPort:
                     type: integer
                   lbAdminPort:
                     type: integer
