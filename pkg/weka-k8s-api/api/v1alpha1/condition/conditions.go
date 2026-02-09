@@ -51,4 +51,8 @@ const (
 	CondManagementServiceConfigured  = "ManagementServiceConfigured"
 	CondVirtualDrivesAdded           = "VirtualDrivesAdded"
 	CondTelemetryConfigured          = "TelemetryConfigured"
+	CondCatalogClusterCreated        = "CatalogClusterCreated"
+	CondJoinedCatalogCluster         = "JoinedCatalogCluster"
+	CondRemovedFromCatalogCluster    = "RemovedFromCatalogCluster"
+	CondCatalogConfigured            = "CatalogConfigured"
 )

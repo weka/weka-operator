@@ -158,13 +158,14 @@ func (n *Network) Equal(o *Network) bool {
 }
 
 type AdditionalMemory struct {
-	Compute      int `json:"compute,omitempty"`
-	Drive        int `json:"drive,omitempty"`
-	S3           int `json:"s3,omitempty"`
-	Nfs          int `json:"nfs,omitempty"`
-	Envoy        int `json:"envoy,omitempty"`
-	Smbw         int `json:"smbw,omitempty"`
-	DataServices int `json:"dataServices,omitempty"`
+	Compute        int `json:"compute,omitempty"`
+	Drive          int `json:"drive,omitempty"`
+	S3             int `json:"s3,omitempty"`
+	Nfs            int `json:"nfs,omitempty"`
+	Envoy          int `json:"envoy,omitempty"`
+	Smbw           int `json:"smbw,omitempty"`
+	DataServices   int `json:"dataServices,omitempty"`
+	DataServicesFe int `json:"dataServicesFe,omitempty"`
 }
 
 func (a *AdditionalMemory) GetForMode(mode string) int {
@@ -180,6 +181,8 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 		additionalMemory = a.Nfs
 	case WekaContainerModeDataServices:
 		additionalMemory = a.DataServices
+	case WekaContainerModeDataServicesFe:
+		additionalMemory = a.DataServicesFe
 	case WekaContainerModeEnvoy:
 		additionalMemory = a.Envoy
 	case WekaContainerModeSmbw:
@@ -247,6 +250,12 @@ type WekaConfig struct {
 	DataServicesHugepages int `json:"dataServicesHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend
 	DataServicesHugepagesOffset int `json:"dataServicesHugepagesOffset,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services frontend cores per container
+	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend container
+	DataServicesFeHugepages int `json:"dataServicesFeHugepages,omitempty"`
+	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend container
+	DataServicesFeHugepagesOffset int `json:"dataServicesFeHugepagesOffset,omitempty"`
 }
 
 type DriveTypesRatio struct {
@@ -527,6 +536,16 @@ type SmbwConfig struct {
 	IpRanges []string `json:"ipRanges,omitempty"`
 }
 
+// CatalogConfig defines configuration for the data catalog service
+type CatalogConfig struct {
+	// IndexInterval specifies how often the catalog index is updated (e.g., "1d", "1m")
+	// +kubebuilder:default="1d"
+	IndexInterval string `json:"indexInterval,omitempty"`
+	// RetentionPeriod specifies how long catalog data is retained (e.g., "30d", "10m")
+	// +kubebuilder:default="30d"
+	RetentionPeriod string `json:"retentionPeriod,omitempty"`
+}
+
 // TelemetryConfig defines the telemetry export configuration for the Weka cluster
 type TelemetryConfig struct {
 	// List of telemetry exports to configure
@@ -671,6 +690,8 @@ type WekaClusterSpec struct {
 	SmbwConfig  *SmbwConfig       `json:"smbw,omitempty"`
 	// Telemetry configuration for exporting audit logs and other telemetry data
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
+	// Catalog configuration for data catalog service
+	Catalog *CatalogConfig `json:"catalog,omitempty"`
 }
 
 func (c *WekaClusterSpec) GetOverrides() *WekaClusterSpecOverrides {
