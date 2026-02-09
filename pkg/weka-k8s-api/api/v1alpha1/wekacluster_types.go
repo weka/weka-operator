@@ -763,6 +763,7 @@ type ClusterPorts struct {
 	LbAdminPort         int `json:"lbAdminPort,omitempty"`
 	S3Port              int `json:"s3Port,omitempty"`
 	ManagementProxyPort int `json:"managementProxyPort,omitempty"`
+	DataServicesPort    int `json:"dataServicesPort,omitempty"`
 }
 
 // WekaClusterStatus defines the observed state of WekaCluster
