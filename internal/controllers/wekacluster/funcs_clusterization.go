@@ -246,6 +246,9 @@ func (r *wekaClusterReconcilerLoop) WaitForDrivesAdd(ctx context.Context) error 
 			if !container.IsDriveContainer() {
 				continue
 			}
+			if container.Status.Allocations == nil {
+				continue
+			}
 			if container.UsesDriveSharing() {
 				containersAllocatedDrivesNum += len(container.Status.Allocations.VirtualDrives)
 			} else {
