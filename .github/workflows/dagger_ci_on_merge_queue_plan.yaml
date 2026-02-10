@@ -240,6 +240,7 @@ jobs:
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
             --registry=${{ vars.CI_REGISTRY }}
+            --wekai-endpoint=${{ vars.WEKAI_ENDPOINT}}
 
       - name: Upload Wekai execution files
         uses: actions/upload-artifact@v4

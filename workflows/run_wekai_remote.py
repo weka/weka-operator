@@ -28,7 +28,7 @@ import sys
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 def get_github_token(provided_token: Optional[str]) -> Optional[str]:
@@ -47,7 +47,6 @@ def run_wekai_with_json_output(
     wekai_path: str,
     request_file: str,
     execution_id: str,
-    docs_dir: str,
     params: List[str],
     execution_tmp_dir: Optional[str] = None,
     remote_bot_endpoint: Optional[str] = None,
@@ -60,7 +59,6 @@ def run_wekai_with_json_output(
         wekai_path: Path to wekai executable
         request_file: Path to request file
         execution_id: Unique execution ID
-        docs_dir: Path to documentation directory
         params: Parameters to pass to wekai
         execution_tmp_dir: Optional temporary directory
         remote_bot_endpoint: Remote bot API endpoint (required, set via WEKAI_ENDPOINT env var)
@@ -81,10 +79,9 @@ def run_wekai_with_json_output(
 
     cmd = [
         wekai_path,
-        '--mode', 'remote-bot',
+        'remote-bot',
         '--json-output',
         '--stderr-logs',
-        '--docs-dir', docs_dir,
         '--remote-bot-endpoint', endpoint,
         '--remote-bot-worker', remote_bot_worker,
         '--execution-id', execution_id,
@@ -262,7 +259,7 @@ def create_github_comment(
             comment_body += f"**Result Preview:**\n```\n{result_preview}\n```\n\n"
         
         # Footer with timestamp
-        timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        timestamp = datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')
         sha = os.environ.get('GITHUB_SHA', 'unknown')[:7]
         comment_body += f"*Last updated: {timestamp} • Commit: {sha}*"
         
@@ -294,7 +291,6 @@ def main():
     parser.add_argument('--execution-id', required=True, help='Unique execution ID for tracking')
     parser.add_argument('--execution-tmp-dir', help='Temporary directory for execution files')
     parser.add_argument('--request-file', required=True, help='Path to request file (plan.txt)')
-    parser.add_argument('--docs-dir', required=True, help='Path to documentation directory')
     parser.add_argument('--params', action='append', default=[], help='Parameters to pass to wekai')
     parser.add_argument('--pr-number', type=int, help='GitHub PR number for comments')
     parser.add_argument('--gh-token', help='GitHub token (fallback - prefer GITHUB_TOKEN env var)')
@@ -310,10 +306,6 @@ def main():
         
     if not Path(args.request_file).exists():
         print(f"❌ Request file not found: {args.request_file}")
-        return 1
-        
-    if not Path(args.docs_dir).exists():
-        print(f"❌ Docs directory not found: {args.docs_dir}")
         return 1
     
     if args.execution_tmp_dir and not Path(args.execution_tmp_dir).exists():
@@ -331,7 +323,6 @@ def main():
         request_file=args.request_file,
         execution_id=args.execution_id,
         execution_tmp_dir=args.execution_tmp_dir,
-        docs_dir=args.docs_dir,
         params=args.params,
         remote_bot_endpoint=args.remote_bot_endpoint,
         remote_bot_worker=args.remote_bot_worker,
