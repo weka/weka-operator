@@ -571,6 +571,17 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 				r.container.HasJoinIps,
 			},
 		},
+		&lifecycle.SimpleStep{
+			State: &lifecycle.State{
+				Name:    condition.CondJoinedSmbwCluster,
+				Message: "Joined SMB-W cluster",
+			},
+			Run: r.JoinSmbwCluster,
+			Predicates: lifecycle.Predicates{
+				r.container.IsSmbwContainer,
+				r.container.HasJoinIps,
+			},
+		},
 	}
 
 	steps := append(steps1, metricsSteps...)

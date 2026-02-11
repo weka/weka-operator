@@ -366,6 +366,8 @@ spec:
               value: "{{ .Values.nfs.lockmanagerPort }}"
             - name: NFS_NOTIFY_PORT
               value: "{{ .Values.nfs.notifyPort }}"
+            - name: SMBW_SHM_SIZE
+              value: "{{ .Values.smbw.shmSize }}"
             - name: DRIVE_TYPES_RATIO_TLC
               value: "{{ .Values.driveSharing.driveTypesRatio.tlc }}"
             - name: DRIVE_TYPES_RATIO_QLC

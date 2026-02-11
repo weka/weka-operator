@@ -40,6 +40,11 @@ type ClusterTemplate struct {
 	DataServicesContainers      int
 	DataServicesHugepages       int
 	DataServicesHugepagesOffset int
+	SmbwCores                   int
+	SmbwExtraCores              int
+	SmbwContainers              int
+	SmbwFrontendHugepages       int
+	SmbwFrontendHugepagesOffset int
 }
 
 func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
@@ -75,6 +80,14 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 
 	if config.NfsExtraCores == 0 {
 		config.NfsExtraCores = 1
+	}
+
+	if config.SmbwCores == 0 {
+		config.SmbwCores = 1
+	}
+
+	if config.SmbwExtraCores == 0 {
+		config.SmbwExtraCores = 1
 	}
 
 	if config.NumDrives == 0 && config.ContainerCapacity == 0 {
@@ -128,6 +141,14 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 
 	if config.DataServicesHugepagesOffset == 0 {
 		config.DataServicesHugepagesOffset = 200
+	}
+
+	if config.SmbwFrontendHugepages == 0 {
+		config.SmbwFrontendHugepages = 1400 * config.SmbwCores
+	}
+
+	if config.SmbwFrontendHugepagesOffset == 0 {
+		config.SmbwFrontendHugepagesOffset = 200
 	}
 
 	if config.EnvoyCores == 0 {
@@ -226,6 +247,11 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		DataServicesExtraCores:      config.DataServicesExtraCores,
 		DataServicesHugepages:       config.DataServicesHugepages,
 		DataServicesHugepagesOffset: config.DataServicesHugepagesOffset,
+		SmbwContainers:              config.SmbwContainers,
+		SmbwCores:                   config.SmbwCores,
+		SmbwExtraCores:              config.SmbwExtraCores,
+		SmbwFrontendHugepages:       config.SmbwFrontendHugepages,
+		SmbwFrontendHugepagesOffset: config.SmbwFrontendHugepagesOffset,
 	}
 
 }

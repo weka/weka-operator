@@ -275,6 +275,12 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 								MountPath: "/dev/hugepages",
 							})
 						}
+						if f.container.IsSmbwContainer() {
+							mounts = append(mounts, corev1.VolumeMount{
+								Name:      "smbw-shm",
+								MountPath: "/dev/shm",
+							})
+						}
 						return mounts
 					}(),
 					Env: []corev1.EnvVar{
@@ -496,6 +502,18 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{
 								Medium: corev1.StorageMedium(fmt.Sprintf("HugePages-%s", f.getHugePagesDetails().HugePagesK8sSuffix)),
+							},
+						},
+					})
+				}
+				if f.container.IsSmbwContainer() {
+					shmSizeLimit := resource.MustParse(config.Config.Smbw.ShmSize)
+					vols = append(vols, corev1.Volume{
+						Name: "smbw-shm",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium:    corev1.StorageMediumMemory,
+								SizeLimit: &shmSizeLimit,
 							},
 						},
 					})
@@ -1121,7 +1139,7 @@ func (f *PodFactory) getHugePagesOffset() int {
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	totalNumCores := f.container.Spec.NumCores
 	switch f.container.Spec.Mode {
-	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
+	case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
 		totalNumCores += f.container.Spec.ExtraCores
 	}
 
@@ -1170,7 +1188,7 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 			totalCores = totalNumCores // inconsistency with pre-allocation, but we rather not allocate envoy too much too soon
 		}
 		switch f.container.Spec.Mode {
-		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeDataServices:
+		case weka.WekaContainerModeCompute, weka.WekaContainerModeDrive, weka.WekaContainerModeS3, weka.WekaContainerModeNfs, weka.WekaContainerModeSmbw, weka.WekaContainerModeDataServices:
 			totalCores = totalCores - f.container.Spec.ExtraCores // basically reducing back what we over-allocated
 		}
 		cpuRequestStr = fmt.Sprintf("%d", totalCores)
@@ -1290,6 +1308,16 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		perFrontendBuffer := 200
 		buffer := 450
 		total := buffer + managementMemory + nfsMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
+		memRequest = fmt.Sprintf("%dMi", total)
+	}
+
+	if f.container.Spec.Mode == weka.WekaContainerModeSmbw {
+		smbwMemory := 28000 //  for smbw service we should have minimum of 32GiB total
+		managementMemory := 2450
+		perFrontendMemory := 2850 //5.1.0.8-8.13
+		perFrontendBuffer := 200
+		buffer := 450
+		total := buffer + managementMemory + smbwMemory + (perFrontendMemory+perFrontendBuffer)*f.container.Spec.NumCores + f.container.Spec.AdditionalMemory
 		memRequest = fmt.Sprintf("%dMi", total)
 	}
 

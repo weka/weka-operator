@@ -236,6 +236,12 @@ nfs:
   # Port for notify service
   notifyPort: 18002
 
+# SMB-W global configuration
+smbw:
+  # Size of /dev/shm for SMB-W containers (for corosync shared memory)
+  # Default: 8Gi
+  shmSize: "8Gi"
+
 # Drive sharing configuration
 driveSharing:
   # driveTypesRatio specifies the global default ratio of drive types (TLC vs QLC) when using drive sharing.
