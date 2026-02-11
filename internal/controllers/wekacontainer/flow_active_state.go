@@ -249,6 +249,13 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
+			Run: r.ensureEnoughComputeHugepages,
+			Predicates: lifecycle.Predicates{
+				r.container.IsComputeContainer,
+				lifecycle.IsNotFunc(r.PodNotSet),
+			},
+		},
+		&lifecycle.SimpleStep{
 			Run: r.ensurePod,
 			Predicates: lifecycle.Predicates{
 				r.PodNotSet,
@@ -792,6 +799,37 @@ func (r *containerReconcilerLoop) setPodRunningStatus(ctx context.Context) error
 		return r.updateContainerStatusIfNotEquals(ctx, weka.PodRunning)
 	}
 	return nil
+}
+
+func (r *containerReconcilerLoop) ensureEnoughComputeHugepages(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureEnoughComputeHugepages")
+	defer end()
+
+	podContainer, err := resources.GetWekaPodContainer(r.pod)
+	if err != nil {
+		return nil // no weka container in pod, skip
+	}
+
+	// Determine hugepages resource name based on page size
+	hpSuffix := "2Mi"
+	if r.container.Spec.HugepagesSize == "1Gi" {
+		hpSuffix = "1Gi"
+	}
+	hpResourceName := v1.ResourceName("hugepages-" + hpSuffix)
+
+	// Get pod's current hugepages in MiB
+	podHp := podContainer.Resources.Requests[hpResourceName]
+	podHpMiB := int(podHp.Value() / (1024 * 1024))
+
+	specHpMiB := r.container.Spec.Hugepages
+
+	if podHpMiB >= specHpMiB {
+		return nil
+	}
+
+	logger.Info("Pod hugepages less than spec, deleting pod to apply new value",
+		"podHugepagesMiB", podHpMiB, "specHugepagesMiB", specHpMiB)
+	return r.deletePod(ctx, r.pod)
 }
 
 func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {

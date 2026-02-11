@@ -175,13 +175,12 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 			// Detect old annotation format and invalidate hash to trigger re-run
 			if drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && drivesStr != "" {
 				_, isOldFormat, _ := domain.ParseDriveEntries(drivesStr)
-				if isOldFormat {
+				if isOldFormat && node.Annotations[consts.AnnotationSignDrivesHash] != "" {
 					// Clear hash so sign-drives re-runs and writes the new format
 					delete(node.Annotations, consts.AnnotationSignDrivesHash)
 					if err := o.client.Update(ctx, &node); err != nil {
 						return fmt.Errorf("failed to clear sign-drives hash for format migration on node %s: %w", node.Name, err)
 					}
-					return lifecycle.NewWaitError(fmt.Errorf("detected old weka-drives annotation format on node %s, cleared hash to trigger migration, waiting for re-run", node.Name))
 				}
 			}
 
