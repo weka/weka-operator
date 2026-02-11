@@ -280,6 +280,9 @@ class FeaturesFlags:
     supports_binding_to_not_all_interfaces: Union[bool, int] = 2
     agent_validate_60_ports_per_container: Union[bool, int] = 3
     allow_per_container_driver_interfaces: Union[bool, int] = 4
+    weka_get_copy_local_driver_files = Union[bool, int] = 5
+    driver_supports_auto_drain = Union[bool, int] = 6
+    ssd_proxy_iommu_support: Union[bool, int] = 7
 
     def __init__(self, b64_flags: Optional[str]) -> None:
         active: Set[int] = set(parse_feature_bitmap(b64_flags or ""))
@@ -3776,19 +3779,33 @@ async def write_management_ips():
     MANAGEMENT_IPS = ipAddresses
 
 
+async def has_iommu_groups() -> bool:
+    """Check if the system has IOMMU groups present."""
+    iommu_check_cmd = 'ls -A /sys/kernel/iommu_groups/ 2>/dev/null'
+    stdout, _, _ = await run_command(iommu_check_cmd)
+    return bool(stdout.decode().strip())
+
+
+async def assert_ssdproxy_iommu_supported():
+    """Fail early if ssdproxy runs on an IOMMU system without feature flag support."""
+    if await has_iommu_groups():
+        ff = await get_feature_flags()
+        if not ff.ssd_proxy_iommu_support:
+            raise Exception(
+                "SSD proxy mode is not supported on IOMMU-enabled systems with this Weka version. "
+                "Please upgrade to a version that supports IOMMU for SSD proxy."
+            )
+        logging.info("IOMMU system detected, ssd_proxy_iommu_support feature flag is set")
+
+
 async def assert_vfio_pci_loaded_if_required():
     """Check if vfio-pci is loaded when iommu groups are present (required for drives).
 
     For drives, we must ensure vfio-pci is loaded when iommu is enabled.
     Unlike clients where we just log an error, drives must fail if vfio-pci is required but not loaded.
     """
-    # Check if iommu groups are present
-    iommu_check_cmd = 'ls -A /sys/kernel/iommu_groups/ 2>/dev/null'
-    stdout, _, _ = await run_command(iommu_check_cmd)
-    has_iommu_groups = bool(stdout.decode().strip())
-
     # On Google COS, always check vfio-pci regardless of iommu groups
-    if is_google_cos() or has_iommu_groups:
+    if is_google_cos() or await has_iommu_groups():
         vfio_check_cmd = 'lsmod | grep -w vfio_pci'
         _, _, ec = await run_command(vfio_check_cmd)
         if ec != 0:
@@ -4127,6 +4144,7 @@ async def main():
         return
 
     if MODE == "ssdproxy":
+        await assert_ssdproxy_iommu_supported()
         await ensure_ssdproxy_container()
         await ensure_weka_version(force_set=True)
         await configure_traces() # TODO: fragile code, we are entering configure_traces into multiple places, re-write in go and using our API will be more suitable
