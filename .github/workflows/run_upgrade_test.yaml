@@ -36,6 +36,11 @@ on:
         description: 'Whether to clean up the cluster after the test'
         required: false
         default: 'true'
+      dev:
+        description: 'dev registry'
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   optimize_ci:
@@ -151,10 +156,16 @@ jobs:
         NEW_VERSION: ${{ github.event.inputs.weka-new-version || 'quay.io/weka.io/weka-in-container:4.4.10.183' }}
         OPERATOR_VERSION_INPUT: ${{ env.OPERATOR_VERSION || github.event.inputs.operator-version }}
         DO_CLEANUP: ${{ github.event.inputs.do_cleanup }}
+        DEV: ${{ github.event.inputs.dev }}
       run: |
         cleanup=""
         if [[ "$DO_CLEANUP" == "false" ]]; then
           cleanup="--cleanup no-cleanup"
+        fi
+
+        dev_args=""
+        if [[ "$DEV" == "true" ]]; then
+          dev_args="--operator-helm-image quay.io/weka.io/helm-dev/weka-operator --operator-image quay.io/weka.io/weka-operator-dev"
         fi
 
         ./weka-k8s-testing upgrade-extended \
@@ -164,4 +175,5 @@ jobs:
           --node-selector "weka.io/dedicated:upgrade-extended" \
           --namespace "test-upgrade-extended" \
           --cluster-name "upgrade-extended" \
-          $cleanup
+          $cleanup \
+          $dev_args
