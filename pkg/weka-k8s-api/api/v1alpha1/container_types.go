@@ -225,7 +225,6 @@ type WekaContainerSpec struct {
 	Hugepages             int                   `json:"hugepages,omitempty"`
 	HugepagesOffset       int                   `json:"hugepagesOffset,omitempty"`
 	HugepagesSize         string                `json:"hugepagesSize,omitempty"`
-	HugepagesOverride     string                `json:"hugepagesSizeOverride,omitempty"`
 	NumDrives             int                   `json:"numDrives,omitempty"`
 	DriversDistService    string                `json:"driversDistService,omitempty"`
 	DriversLoaderImage    string                `json:"driversLoaderImage,omitempty"`

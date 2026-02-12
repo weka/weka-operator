@@ -203,29 +203,29 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 || self.driveTypesRatio.qlc > 0",message="at least one of driveTypesRatio.tlc or driveTypesRatio.qlc must be greater than 0"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
-type WekaConfig struct {
-	ComputeContainers          *int `json:"computeContainers,omitempty"`
-	DriveContainers            *int `json:"driveContainers,omitempty"`
-	S3Containers               int  `json:"s3Containers,omitempty"`
-	ComputeCores               int  `json:"computeCores,omitempty"`
-	DriveCores                 int  `json:"driveCores,omitempty"`
-	S3Cores                    int  `json:"s3Cores,omitempty"`
-	NumDrives                  int  `json:"numDrives,omitempty"`
-	ComputeExtraCores          int  `json:"computeExtraCores,omitempty"`
-	DriveExtraCores            int  `json:"driveExtraCores,omitempty"`
-	S3ExtraCores               int  `json:"s3ExtraCores,omitempty"`
-	DriveHugepages             int  `json:"driveHugepages,omitempty"`
-	DriveHugepagesOffset       int  `json:"driveHugepagesOffset,omitempty"`
-	ComputeHugepages           int  `json:"computeHugepages,omitempty"`
-	ComputeHugepagesOffset     int  `json:"computeHugepagesOffset,omitempty"`
-	S3FrontendHugepages        int  `json:"s3FrontendHugepages,omitempty"`
-	S3FrontendHugepagesOffset  int  `json:"s3FrontendHugepagesOffset,omitempty"`
-	EnvoyCores                 int  `json:"envoyCores,omitempty"`
-	NfsContainers              int  `json:"nfsContainers,omitempty"`
-	NfsCores                   int  `json:"nfsCores,omitempty"`
-	NfsExtraCores              int  `json:"nfsExtraCores,omitempty"`
-	NfsFrontendHugepages       int  `json:"nfsFrontendHugepages,omitempty"`
-	NfsFrontendHugepagesOffset int  `json:"nfsFrontendHugepagesOffset,omitempty"`
+type WekaClusterTemplate struct {
+	ComputeContainers          int `json:"computeContainers,omitempty"`
+	DriveContainers            int `json:"driveContainers,omitempty"`
+	S3Containers               int `json:"s3Containers,omitempty"`
+	ComputeCores               int `json:"computeCores,omitempty"`
+	DriveCores                 int `json:"driveCores,omitempty"`
+	S3Cores                    int `json:"s3Cores,omitempty"`
+	NumDrives                  int `json:"numDrives,omitempty"`
+	ComputeExtraCores          int `json:"computeExtraCores,omitempty"`
+	DriveExtraCores            int `json:"driveExtraCores,omitempty"`
+	S3ExtraCores               int `json:"s3ExtraCores,omitempty"`
+	DriveHugepages             int `json:"driveHugepages,omitempty"`
+	DriveHugepagesOffset       int `json:"driveHugepagesOffset,omitempty"`
+	ComputeHugepages           int `json:"computeHugepages,omitempty"`
+	ComputeHugepagesOffset     int `json:"computeHugepagesOffset,omitempty"`
+	S3FrontendHugepages        int `json:"s3FrontendHugepages,omitempty"`
+	S3FrontendHugepagesOffset  int `json:"s3FrontendHugepagesOffset,omitempty"`
+	EnvoyCores                 int `json:"envoyCores,omitempty"`
+	NfsContainers              int `json:"nfsContainers,omitempty"`
+	NfsCores                   int `json:"nfsCores,omitempty"`
+	NfsExtraCores              int `json:"nfsExtraCores,omitempty"`
+	NfsFrontendHugepages       int `json:"nfsFrontendHugepages,omitempty"`
+	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
 	SmbwContainers int `json:"smbwContainers,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container
@@ -620,9 +620,6 @@ type SplunkExportConfig struct {
 
 // WekaClusterSpec defines the desired state of WekaCluster
 type WekaClusterSpec struct {
-	// A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster
-	// +kubebuilder:default=dynamic
-	Template string `json:"template,omitempty"`
 	// full container image name in format of quay.io/weka.io/weka-in-container:VERSION
 	// +kubebuilder:validation:Pattern=`^.+:\d+\.\d+\.\d+.*$`
 	Image string `json:"image"`
@@ -668,7 +665,7 @@ type WekaClusterSpec struct {
 	// endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration
 	ExpandEndpoints []string `json:"expandEndpoints,omitempty"`
 	// weka cluster topology configuration
-	Dynamic *WekaConfig `json:"dynamicTemplate,omitempty"`
+	Dynamic *WekaClusterTemplate `json:"dynamicTemplate,omitempty"`
 	// weka cluster network configuration
 	Network Network `json:"network,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
