@@ -1608,28 +1608,6 @@ async def load_drivers():
     logging.info("All drivers loaded successfully")
 
 
-async def copy_drivers():
-    if WEKA_DRIVERS_HANDLING:
-        return
-
-    weka_driver_version = version_params.get('wekafs')
-    assert weka_driver_version
-
-    stdout, stderr, ec = await run_command(dedent(f"""
-      mkdir -p /opt/weka/dist/drivers
-      cp /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r)/wekafsio.ko /opt/weka/dist/drivers/weka_driver-wekafsio-{weka_driver_version}-$(uname -r).$(uname -m).ko
-      cp /opt/weka/data/weka_driver/{weka_driver_version}/$(uname -r)/wekafsgw.ko /opt/weka/dist/drivers/weka_driver-wekafsgw-{weka_driver_version}-$(uname -r).$(uname -m).ko
-
-      cp /opt/weka/data/igb_uio/{IGB_UIO_DRIVER_VERSION}/$(uname -r)/igb_uio.ko /opt/weka/dist/drivers/igb_uio-{IGB_UIO_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
-      cp /opt/weka/data/mpin_user/{MPIN_USER_DRIVER_VERSION}/$(uname -r)/mpin_user.ko /opt/weka/dist/drivers/mpin_user-{MPIN_USER_DRIVER_VERSION}-$(uname -r).$(uname -m).ko
-      {"" if version_params.get('uio_pci_generic') == False else f"cp /opt/weka/data/uio_generic/{UIO_PCI_GENERIC_DRIVER_VERSION}/$(uname -r)/uio_pci_generic.ko /opt/weka/dist/drivers/uio_pci_generic-{UIO_PCI_GENERIC_DRIVER_VERSION}-$(uname -r).$(uname -m).ko"}
-    """))
-    if ec != 0:
-        logging.info(f"Failed to copy drivers post build {stderr}: exc={ec}")
-        raise Exception(f"Failed to copy drivers post build: {stderr}")
-    logging.info("done copying drivers")
-
-
 async def setup_overlayfs_for_lib_modules():
     """
     Set up overlayfs for /lib/modules to allow writes on top of readonly host mount.
@@ -2491,9 +2469,6 @@ async def configure_traces():
             retention_type="BYTES"
         )
 
-    if MODE == 'dist':
-        data['enabled'] = False
-        data['retention_bytes'] = 1 * 1024 * 1024 * 1024 # value should not be in effect due to enabled=False
     data_string = json.dumps(data)
 
     old_full_location = "/data/reserved_space/dumper_config.json.override"
@@ -4116,7 +4091,7 @@ async def main():
         await start_syslog()
 
     await override_dependencies_flag()
-    if MODE not in ["dist", "drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
+    if MODE not in ["drivers-dist", "drivers-loader", "drivers-builder", "adhoc-op-with-container", "envoy",
                     "adhoc-op", "telemetry"]:
         await ensure_drivers()
 
@@ -4197,49 +4172,6 @@ async def main():
             await umount_drivers()
         else:
             raise ValueError(f"Unsupported instruction: {INSTRUCTIONS}")
-        return
-
-    # de-facto, both drivers-builder and dist right now are doing "build and serve"
-    if MODE in ["dist", "drivers-builder"]:
-        DIST_LEGACY_MODE = await is_legacy_driver_cmd()
-        logging.info("dist-service flow")
-        if is_google_cos():
-            await install_gsutil()
-            await cos_build_drivers()
-
-        elif DIST_LEGACY_MODE:  # default
-            await agent.stop()
-            await configure_agent(agent_handle_drivers=True)
-            await agent.start()  # here the build happens
-            await await_agent()
-
-        await ensure_stem_container("dist")
-        await configure_traces()
-        if not DIST_LEGACY_MODE:
-            # there might be a better place for preRunScript, but it is needed just for driver now
-            await run_prerun_script()
-            await pack_drivers()  # explicit pack of drivers if supported, which is new method, that should become default with rest of code removed eventually
-        else:
-            await agent.stop()
-            await configure_agent(agent_handle_drivers=False)
-            await agent.start()
-            await await_agent()
-
-        if DIST_LEGACY_MODE:
-            await copy_drivers()
-        await start_stem_container()
-        await cleanup_traces_and_stop_dumper()
-        weka_version, _, _ = await run_command("weka version current")
-        write_results(
-            {
-                "driver_built": True,
-                "err": "",
-                "weka_version": weka_version.decode().strip(),
-                "kernel_signature": await get_kernel_signature(weka_pack_supported=not DIST_LEGACY_MODE,
-                                                               weka_drivers_handling=WEKA_DRIVERS_HANDLING),
-                "weka_pack_not_supported": DIST_LEGACY_MODE,
-                "no_weka_drivers_handling": not WEKA_DRIVERS_HANDLING,
-            })
         return
 
     if MODE == "envoy":
