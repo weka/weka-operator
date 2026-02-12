@@ -119,12 +119,6 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Login to Registry
-        env:
-          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME_RO }}
-          QUAY_PASSWORD: ${{ secrets.QUAY_TOKEN_RO }}
-        run: helm registry login quay.io/weka.io --username "$QUAY_USERNAME" --password "$QUAY_PASSWORD"
-
       - name: Build Go Binary
         run: |
           go build -o weka-k8s-testing main.go
@@ -157,6 +151,18 @@ jobs:
         name: weka-k8s-testing-binary
     - name: Make binary executable
       run: chmod +x ./weka-k8s-testing
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: v3.16.3
+
+    - name: Login to Helm Registry
+      env:
+        QUAY_USERNAME: ${{ secrets.QUAY_USERNAME_RO }}
+        QUAY_PASSWORD: ${{ secrets.QUAY_TOKEN_RO }}
+      run: helm registry login quay.io/weka.io --username "$QUAY_USERNAME" --password "$QUAY_PASSWORD"
+
     - name: Run upgrade test
       env:
         INITIAL_VERSION: ${{ github.event.inputs.weka-initial-version || 'quay.io/weka.io/weka-in-container:4.4.5.118-k8s.' }}
