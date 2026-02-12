@@ -297,8 +297,8 @@ class FeaturesFlags:
     supports_binding_to_not_all_interfaces: Union[bool, int] = 2
     agent_validate_60_ports_per_container: Union[bool, int] = 3
     allow_per_container_driver_interfaces: Union[bool, int] = 4
-    weka_get_copy_local_driver_files = Union[bool, int] = 5
-    driver_supports_auto_drain = Union[bool, int] = 6
+    weka_get_copy_local_driver_files: Union[bool, int] = 5
+    driver_supports_auto_drain: Union[bool, int] = 6
     ssd_proxy_iommu_support: Union[bool, int] = 7
 
     def __init__(self, b64_flags: Optional[str]) -> None:
@@ -1437,6 +1437,23 @@ async def get_weka_version():
     return version
 
 
+async def get_target_version():
+    """
+    Get the target weka version to use.
+    If CLUSTER_IMAGE_NAME is set, extract version from the image tag.
+    Otherwise, get version from the local dist release files.
+    """
+    cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
+    if cluster_image_name:
+        version = cluster_image_name.split(':')[-1]
+        # Remove -dev suffix if present
+        if version.endswith("-dev"):
+            version = version[:-4]
+        logging.info(f"Target version from CLUSTER_IMAGE_NAME: {version}")
+        return version
+    return await get_weka_version()
+
+
 @dataclass
 class ReleaseSpec:
     feature_flags: Optional[str] = None
@@ -1537,24 +1554,8 @@ async def load_drivers():
     else:
         # list directory /opt/weka/dist/version
         # assert single json file and take json filename
-        version = await get_weka_version()
+        version = await get_target_version()
 
-        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
-        if cluster_image_name is not None and cluster_image_name != IMAGE_NAME:
-            # when driversLoaderImage is set, we need to detect the cluster version
-            # and to get the driver files for that version
-            version = cluster_image_name.split(':')[-1]
-            logging.info(f"Should get version: {version}")
-            version_get_cmds = [
-                (f"cp /usr/bin/weka /usr/bin/weka-save && unlink /usr/bin/weka && mv /usr/bin/weka-save /usr/bin/weka", "Use image weka cli"),
-                (f"rm -rf /opt/weka/dist && ln -s /shared-weka-version-data/dist /opt/weka/dist", "Use cluster dist files"),
-            ]
-            for cmd, desc in version_get_cmds:
-                logging.info(f"Driver get step: {desc}")
-                stdout, stderr, ec = await run_command(cmd)
-                if ec != 0:
-                    logging.error(f"Failed to get drivers {stderr.decode('utf-8')}: exc={ec}, last command: {cmd}")
-                    raise Exception(f"Failed to get drivers: {stderr.decode('utf-8')}")
 
         kernelBuildIdArg = ""
         if DRIVERS_BUILD_ID != 'auto':
@@ -1564,7 +1565,16 @@ async def load_drivers():
         elif is_ubuntu_24() and weka_dist_service():
             kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
 
+        # When CLUSTER_IMAGE_NAME differs from IMAGE_NAME, weka files are copied
+        # from cluster image to /shared-weka-version/ via init container
+        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
+        if cluster_image_name and cluster_image_name != IMAGE_NAME:
+            version_get_cmd = f"weka version get --without-agent --driver-only --from file://shared-weka-version/ {version}"
+        else:
+            version_get_cmd = f"weka version get --without-agent --driver-only {version}"
+
         download_cmds = [
+            (version_get_cmd, "Getting version"),
             (f"weka driver download --from '{DIST_SERVICE}' --without-agent --version {version} {kernelBuildIdArg}", "Downloading drivers")
         ]
         load_cmds = [
@@ -3952,7 +3962,6 @@ async def main():
 
     if MODE in ["drivers-builder"]:
         await run_prerun_script()
-        copy_cli()
         # Default version from IMAGE_NAME
         version = IMAGE_NAME.split(':')[-1]
         cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
@@ -3960,8 +3969,11 @@ async def main():
             # when driversLoaderImage is set, we need to detect the cluster version
             # and to get the driver files for that version
             version = cluster_image_name.split(':')[-1]
+        # Remove -dev suffix if present
+        if version.endswith("-dev"):
+            version = version[:-4]
         logging.info(f"Building drivers for version: {version}")
-        stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar {version}")
+        stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar --from file://shared-weka-version/ {version}")
         if ec != 0:
             logging.error(f"Failed to get weka version {version}: {stderr}")
             raise Exception(f"Failed to get weka version {version}: {stderr}")
@@ -3984,12 +3996,15 @@ async def main():
             logging.error(f"Failed to create symlink: {stderr}")
             raise Exception(f"Failed to create symlink: {stderr}")
         # Write results so operator knows build is complete
+        kernel_signature = get_kernel_signature()
+        if not kernel_signature:
+            raise Exception("Failed to get kernel signature from built drivers")
         write_results({
             "driver_built": True,
             "err": "",
             "weka_version": version,
             "kernel_build_id": kernel_build_id,
-            "kernel_signature": "auto",  # Will be determined by the operator from node info
+            "kernel_signature": kernel_signature,
             "weka_pack_not_supported": False,
             "no_weka_drivers_handling": True,
         })
@@ -4027,7 +4042,6 @@ async def main():
 
 
     if MODE == "drivers-loader":
-        copy_cli()
         # self signal to exit
         await override_dependencies_flag()
         # 2 minutes timeout for driver loading
@@ -4207,24 +4221,28 @@ async def main():
         await ensure_drives()
 
 
-async def get_kernel_signature(weka_pack_supported=False, weka_drivers_handling=False):
-    if not weka_drivers_handling:
-        return ""
+def get_kernel_signature(drivers_dir="/opt/weka/dist/drivers"):
+    """
+    Parse kernel signature from weka-driver zip filename in the drivers directory.
+    Filename follows pattern: weka-driver-<hash>-<kernel_signature>.zip
+    """
 
-    cmd = ""
-    if weka_pack_supported:
-        cmd = "weka driver kernel 2>&1 | awk '{printf \"%s\", $NF}'"
-    else:
-        # tr -d '\0' is needed to remove null character from the end of output
-        cmd = "weka driver kernel-sig 2>&1 | awk '{printf \"%s\", $NF}' | tr -d '\\0'"
+    if not os.path.isdir(drivers_dir):
+        logging.warning(f"Drivers directory {drivers_dir} does not exist")
+        return None
 
-    stdout, stderr, ec = await run_command(cmd)
-    if ec != 0:
-        raise Exception(f"Failed to get kernel signature: {stderr}")
+    # Look for weka-driver-*.zip file
+    pattern = r'^weka-driver-[a-f0-9]+-([a-f0-9]+)\.zip$'
+    for filename in os.listdir(drivers_dir):
+        match = re.match(pattern, filename)
+        if match:
+            kernel_sig = match.group(1)
+            logging.info(f"Parsed kernel signature '{kernel_sig}' from: {filename}")
+            return kernel_sig
 
-    res = stdout.decode().strip()
-    assert res, "Kernel signature not found"
-    return res
+    logging.warning(f"No weka-driver zip file found in {drivers_dir}")
+    return None
+
 
 
 async def stop_process(process):

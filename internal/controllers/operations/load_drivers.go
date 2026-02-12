@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -212,19 +213,20 @@ func (o *LoadDrivers) HasNotContainer() bool {
 func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	serviceAccountName := config.Config.MaintenanceSaName
 	name := o.getContainerName()
+	loaderImage := drivers.GetLoaderImageForNode(ctx, o.node, o.containerDetails.Image)
 
 	labels := map[string]string{
 		"weka.io/mode": weka.WekaContainerModeDriversLoader, // need to make this somehow more generic and not per place
 	}
 	labels = util.MergeMaps(o.containerDetails.Labels, labels)
 
-	containerImage := o.containerDetails.Image
+	// When loader image differs from cluster image, we need to copy weka files
+	// from the cluster image via an init container
 	var instructions *weka.Instructions
-	if o.driversLoaderImage != "" {
-		containerImage = o.driversLoaderImage
+	if loaderImage != o.containerDetails.Image {
 		instructions = &weka.Instructions{
 			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-			Payload: o.containerDetails.Image,
+			Payload: o.containerDetails.Image, // Source image to copy weka files from
 		}
 	}
 
@@ -235,18 +237,18 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 			Labels:    labels,
 		},
 		Spec: weka.WekaContainerSpec{
-			Image:               containerImage,
-			Instructions:        instructions,
+			Image:               o.containerDetails.Image, // Always the cluster image
 			Mode:                weka.WekaContainerModeDriversLoader,
 			ImagePullSecret:     o.containerDetails.ImagePullSecret,
 			Hugepages:           0,
 			NodeAffinity:        weka.NodeName(o.node.Name),
 			DriversDistService:  o.distServiceEndpoint,
-			DriversLoaderImage:  o.driversLoaderImage,
+			DriversLoaderImage:  loaderImage, // The actual image to use for the pod
 			DriversBuildId:      o.driversBuildId,
 			TracesConfiguration: weka.GetDefaultTracesConfiguration(),
 			Tolerations:         o.containerDetails.Tolerations,
 			ServiceAccountName:  serviceAccountName,
+			Instructions:        instructions,
 		},
 	}
 
