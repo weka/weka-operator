@@ -265,23 +265,8 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		return err
 	}
 
-	template, err := allocator.GetEnrichedTemplate(ctx, r.Manager.GetClient(), cluster.Spec.Template, *cluster)
-	if err != nil {
-		logger.Error(err, "Failed to get template with node capacity")
-		return err
-	}
-	if template == nil {
-		keys := make([]string, 0, len(allocator.WekaClusterTemplates))
-		for k := range allocator.WekaClusterTemplates {
-			keys = append(keys, k)
-		}
-		err := errors.New("template not found")
-		logger.Error(err, "", "template", cluster.Spec.Template, "keys", keys)
-		return err
-	}
-
 	//newContainersLimit := config.Consts.NewContainersLimit
-	missingContainers, err := BuildMissingContainers(ctx, cluster, *template, r.containers)
+	missingContainers, err := r.BuildMissingContainers(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")
 		return err
@@ -340,20 +325,18 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	return results.AsError()
 }
 
-func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, template allocator.ClusterTemplate, existingContainers []*weka.WekaContainer) ([]*weka.WekaContainer, error) {
-	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
+func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) ([]*weka.WekaContainer, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "BuildMissingContainers")
 	defer end()
+
+	cluster := r.cluster
+	existingContainers := r.containers
+
+	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
 
 	containers := make([]*weka.WekaContainer, 0)
 
 	clusterReady := meta.IsStatusConditionTrue(cluster.Status.Conditions, condition.CondClusterCreated)
-
-	existingByRole := map[string]int{}
-	totalByrole := map[string]int{}
-
-	for _, container := range existingContainers {
-		existingByRole[container.Spec.Mode]++
-	}
 
 	// Check if telemetry exports are configured
 	hasTelemetryExports := cluster.Spec.Telemetry != nil && len(cluster.Spec.Telemetry.Exports) > 0
@@ -364,31 +347,31 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 		if clusterReady {
 			switch role {
 			case "compute":
-				numContainers = template.ComputeContainers
+				numContainers = nums.Compute
 			case "drive":
-				numContainers = template.DriveContainers
+				numContainers = nums.Drive
 			case "s3":
-				numContainers = template.S3Containers
+				numContainers = nums.S3
 			case "envoy":
-				numContainers = template.S3Containers
+				numContainers = nums.S3 // Envoy containers are 1-per-S3 container
 			case "nfs":
-				numContainers = template.NfsContainers
+				numContainers = nums.Nfs
 			case "telemetry":
 				// Telemetry containers are created 1-per-compute container when telemetry exports are configured
 				if hasTelemetryExports {
-					numContainers = template.ComputeContainers
+					numContainers = nums.Compute
 				} else {
 					numContainers = 0
 				}
 			case "data-services":
-				numContainers = template.DataServicesContainers
+				numContainers = nums.DataServices
 			}
 		} else {
 			switch role {
 			case "compute":
-				numContainers = util.GetMinValue(template.ComputeContainers, config.Consts.FormClusterMaxComputeContainers)
+				numContainers = util.GetMinValue(nums.Compute, config.Consts.FormClusterMaxComputeContainers)
 			case "drive":
-				numContainers = util.GetMinValue(template.DriveContainers, config.Consts.FormClusterMaxDriveContainers)
+				numContainers = util.GetMinValue(nums.Drive, config.Consts.FormClusterMaxDriveContainers)
 			default:
 				continue
 			}
@@ -404,21 +387,22 @@ func BuildMissingContainers(ctx context.Context, cluster *weka.WekaCluster, temp
 			}
 		}
 
-		toCreateNum := numContainers - currentCount
-		totalByrole[role] = existingByRole[role] + toCreateNum
-		if role == "envoy" {
-			numContainers = totalByrole["s3"]
+		if currentCount >= numContainers {
+			continue
 		}
-		if role == "telemetry" && hasTelemetryExports {
-			numContainers = totalByrole["compute"]
+
+		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+
+		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, role)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get container hugepages for role %s: %w", role, err)
 		}
 
 		for i := currentCount; i < numContainers; i++ {
-
 			name := allocator.NewContainerName(role)
 			logger.Info("Building missing container", "role", role, "name", name)
 
-			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, role, name)
+			container, err := factory.NewWekaContainerForWekaCluster(cluster, template, *hp, role, name)
 			if err != nil {
 				logger.Error(err, "Failed to build container", "role", role, "name", name)
 				return nil, err

@@ -7,6 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
+	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-k8s-api/api/v1alpha1/condition"
 	"go.opentelemetry.io/otel/codes"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -39,7 +40,9 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 		return nil
 	}
 
-	s3Containers := r.SelectS3Containers(r.containers)
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
+	s3Containers := discovery.SelectRunningContainersByRole(r.containers, nums.S3, weka.WekaContainerModeS3)
+
 	containerIds := []int{}
 	for _, c := range s3Containers {
 		if len(containerIds) == config.Consts.FormS3ClusterMaxContainerCount {
@@ -93,15 +96,12 @@ func (r *wekaClusterReconcilerLoop) ShouldDestroyS3Cluster() bool {
 	}
 
 	// if spec contains desired S3 containers, do not destroy the cluster
-	template, ok := allocator.GetTemplateByName(r.cluster.Spec.Template, *r.cluster)
-	if !ok {
-		return false
-	}
-	if template.S3Containers > 0 {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
+	if nums.S3 > 0 {
 		return false
 	}
 
-	containers := r.SelectS3Containers(r.containers)
+	containers := discovery.SelectContainersByRole(r.containers, weka.WekaContainerModeS3)
 
 	// if there are more that 1 S3 container, we should not destroy the cluster
 	if len(containers) > 1 {
