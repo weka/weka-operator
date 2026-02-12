@@ -181,7 +181,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		loop.Op = ensureNICsOp
 	case "enable-local-drivers-distribution":
 		if wekaPolicy.Spec.Payload.DriverDistPayload == nil {
-			return ctrl.Result{}, fmt.Errorf("enableLocalDriversDistributionPayload is not defined for policy type: %s", wekaPolicy.Spec.Type)
+			wekaPolicy.Spec.Payload.DriverDistPayload = &weka.DriverDistPayload{}
 		}
 		opImage := ""
 		if wekaPolicy.Spec.Image != nil {
@@ -209,7 +209,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		loop.Op = enableLocalDriversDistOp
 	case "remote-traces-session":
 		if wekaPolicy.Spec.Payload.RemoteTracesSession == nil {
-			return ctrl.Result{}, fmt.Errorf("remoteTracesSessionPayload is not defined for policy type: %s", wekaPolicy.Spec.Type)
+			wekaPolicy.Spec.Payload.RemoteTracesSession = &weka.RemoteTracesSessionConfig{}
 		}
 
 		isExpired := wekaPolicy.Status.Status == "Expired"
