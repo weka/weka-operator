@@ -69,6 +69,8 @@ async def build_go(
         cache_deps: bool = True,
         program_path: str = "main.go",
         go_generate: bool = False,
+        target_os: str = "",
+        target_arch: str = "",
 ) -> Container:
     """returns container suitable for building go applications"""
 
@@ -85,10 +87,16 @@ async def build_go(
     if go_generate:
         cont = cont.with_exec(["go", "generate", "./..."])
 
-    cont = (cont
-            .with_directory("/src", src)
-            .with_exec(["go", "build", "-o", "/out-binary", program_path])
-            )
+    cont = cont.with_directory("/src", src)
+
+    if target_os and target_arch:
+        cont = (cont
+            .with_env_variable("CGO_ENABLED", "0")
+            .with_env_variable("GOOS", target_os)
+            .with_env_variable("GOARCH", target_arch)
+        )
+
+    cont = cont.with_exec(["go", "build", "-o", "/out-binary", program_path])
     return await cont
 
 

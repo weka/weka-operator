@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# NOTE: This script is used by the WEKA team for internal CI/CD pipelines.
-# External users should use the standard 'dagger' script instead.
-
 # supressing ugly logs/unsetting OTEL
 unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
 export DAGGER_NO_NAG=1
@@ -21,9 +18,14 @@ export _EXPERIMENTAL_DAGGER_RUNNER_HOST="kube-pod://${DAGGER_RUNNER_POD}?namespa
 # Build additional args from environment variables
 additional_args=()
 
-# Add --registry if DAGGER_REGISTRY is set
-if [[ -n "${DAGGER_REGISTRY:-}" ]]; then
-    additional_args+=("--registry=${DAGGER_REGISTRY}")
+# Add --operator-repo if DAGGER_OPERATOR_REPO is set
+if [[ -n "${DAGGER_OPERATOR_REPO:-}" ]]; then
+    additional_args+=("--operator-repo=${DAGGER_OPERATOR_REPO}")
+fi
+
+# Add --helm-repo if DAGGER_HELM_REPO is set
+if [[ -n "${DAGGER_HELM_REPO:-}" ]]; then
+    additional_args+=("--helm-repo=${DAGGER_HELM_REPO}")
 fi
 
 exec dagger "$@" "${additional_args[@]}"

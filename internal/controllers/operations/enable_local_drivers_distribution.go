@@ -199,12 +199,6 @@ func (o *EnsureDistServiceOperation) DiscoverNodesAndLabel(ctx context.Context) 
 
 	return workers.ProcessConcurrently(ctx, processingItems, 32, func(ctx context.Context, item nodeProcessingInfo) error {
 		node := item.node
-		// We are only interested in AMD64 for now as per requirement
-		if node.Status.NodeInfo.Architecture != "amd64" {
-			logger.V(1).Info("Skipping node due to non-amd64 architecture", "node", node.Name, "architecture", node.Status.NodeInfo.Architecture)
-			return nil
-		}
-
 		attrs := nodeAttributes{
 			kernelVersion: node.Status.NodeInfo.KernelVersion,
 			architecture:  node.Status.NodeInfo.Architecture,
@@ -538,8 +532,8 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					UploadResultsTo:   distContainerName,
 					Tolerations:       o.containerDetails.Tolerations,
 					// NodeSelector logic:
-					// Merge payload selector (ka.nodeSelector), specific kernel/arch, and amd64.
-					// Specifics (kernel, arch, amd64) take precedence if keys overlap.
+					// Merge payload selector (ka.nodeSelector), specific kernel/arch.
+					// Specifics (kernel, arch) take precedence if keys overlap.
 					NodeSelector: func() map[string]string {
 						builderNodeSelector := make(map[string]string)
 						// 1. Add the nodeSelector from the payload (if any) that led to this kernel/arch combination
@@ -551,8 +545,6 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 						// 2. Add specific kernel and architecture labels (overrides if keys exist in ka.nodeSelector)
 						builderNodeSelector[archLabelKey] = ka.architecture
 						builderNodeSelector[kernelLabelKey] = ka.kernelVersion
-						// 3. Ensure it runs on amd64 (overrides if kubernetes.io/arch was in ka.nodeSelector)
-						builderNodeSelector["kubernetes.io/arch"] = "amd64"
 						return builderNodeSelector
 					}(),
 					// Instructions to tell the builder what kernel/arch to build for

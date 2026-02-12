@@ -104,11 +104,16 @@ jobs:
 
       - name: Validate required variables
         run: |
-          if [ -z "${{ vars.CI_REGISTRY }}" ]; then
-            echo "::error::CI_REGISTRY repository variable is not set. Please set it in Settings → Secrets and variables → Actions → Variables"
+          if [ -z "${{ vars.CI_OPERATOR_REPO }}" ]; then
+            echo "::error::CI_OPERATOR_REPO repository variable is not set. Please set it in Settings → Secrets and variables → Actions → Variables"
             exit 1
           fi
-          echo "CI_REGISTRY is set to: ${{ vars.CI_REGISTRY }}"
+          if [ -z "${{ vars.CI_HELM_REPO }}" ]; then
+            echo "::error::CI_HELM_REPO repository variable is not set. Please set it in Settings → Secrets and variables → Actions → Variables"
+            exit 1
+          fi
+          echo "CI_OPERATOR_REPO is set to: ${{ vars.CI_OPERATOR_REPO }}"
+          echo "CI_HELM_REPO is set to: ${{ vars.CI_HELM_REPO }}"
 
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -183,7 +188,8 @@ jobs:
             --operator=${{ github.workspace }}/operator
             --gh-token="env://GH_TOKEN"
             --sock=/var/run/docker.sock
-            --registry=${{ vars.CI_REGISTRY }}
+            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
+            --helm-repo=${{ vars.CI_HELM_REPO }}
             --output ${{ github.workspace }}/versions
       
       - name: Set Operator Versions (to output and environment variables)
@@ -239,7 +245,8 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ env.operator_image }}
             --operator-helm-image=${{ env.operator_helm_image }}
-            --registry=${{ vars.CI_REGISTRY }}
+            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
+            --helm-repo=${{ vars.CI_HELM_REPO }}
 
       - name: Upload Wekai execution files
         uses: actions/upload-artifact@v4
@@ -260,8 +267,12 @@ jobs:
     steps:
       - name: Validate required variables
         run: |
-          if [ -z "${{ vars.CI_REGISTRY }}" ]; then
-            echo "::error::CI_REGISTRY repository variable is not set"
+          if [ -z "${{ vars.CI_OPERATOR_REPO }}" ]; then
+            echo "::error::CI_OPERATOR_REPO repository variable is not set"
+            exit 1
+          fi
+          if [ -z "${{ vars.CI_HELM_REPO }}" ]; then
+            echo "::error::CI_HELM_REPO repository variable is not set"
             exit 1
           fi
 
@@ -312,7 +323,8 @@ jobs:
             --use-gh-token-for-go-deps
             --operator-image=${{ needs.upgrade_extended_test.outputs.operator_image }}
             --operator-helm-image=${{ needs.upgrade_extended_test.outputs.operator_helm_image }}
-            --registry=${{ vars.CI_REGISTRY }}
+            --operator-repo=${{ vars.CI_OPERATOR_REPO }}
+            --helm-repo=${{ vars.CI_HELM_REPO }}
 
   ci_on_merge_queue_required_status:
     needs: [run_condition_check, upgrade_extended_test, clients_only_test]

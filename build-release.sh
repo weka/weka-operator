@@ -60,10 +60,10 @@ fi
 # Check if SSH_AUTH_SOCK is available, if not, build without SSH
 if [ -z "$SSH_AUTH_SOCK" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
   echo "No SSH agent available, building without SSH"
-  docker buildx build --platform linux/amd64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
+  docker buildx build --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 else
   echo "SSH agent available, building with SSH"
-  docker buildx build --ssh default --platform linux/amd64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
+  docker buildx build --ssh default --platform linux/amd64,linux/arm64 --tag $REPO:v$VERSION --push $CACHE_ARGS -f image.Dockerfile . || { echo "docker build failed, ensure login and re-run whole flow"; exit 1; }
 fi
 
 # helm chart push

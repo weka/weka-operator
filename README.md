@@ -63,7 +63,27 @@ Key configuration options in `charts/weka-operator/values.yaml`:
 
 See [values](charts/weka-operator/values.yaml) for all configuration options.
 
-### Using Dagger
+# Dev flows
+
+### Building and pushing weka-operator image and helm with docker only
+
+```sh
+helm registry login quay.io -p xxx -u xxx \
+  && docker login quay.io -p xxx -u xxx \
+  && VERSION=1.11.0-$USER-dev.0 REPO=quay.io/weka.io/weka-operator-dev HELM_REPO=quay.io/weka.io/helm-dev"\ 
+   ./build-release.sh
+```
+## installing dev release using helm 
+```sh
+export REPO=quay.io/weka.io/weka-operator-dev 
+export HELM_REPO=quay.io/weka.io/helm-dev
+export VERSION=v1.11.0-$USER-dev.0; helm show crds oci://$HELM_REPO/weka-operator --version $VERSION | kubectl apply --server-side -f -
+helm upgrade \
+--install weka-operator oci://$HELM_REPO/weka-operator \
+--namespace weka-operator-system \
+--create-namespace --version $VERSION --set image.repository=$REPO
+```
+### Building, pushing and deploying Using Dagger, a quick dev flow supporting remote building 
 
 See [dagger](.dagger/README.md) for deploying the operator with Dagger.
 

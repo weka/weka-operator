@@ -49,22 +49,30 @@ class OperatorFlows:
     async def build_to_registry(self,
                            operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                            sock: dagger.Socket,
-                           registry: str,
+                           operator_repo: str,
+                           helm_repo: str,
+                           helm_username: Optional[dagger.Secret] = None,
+                           helm_password: Optional[dagger.Secret] = None,
                            ) -> str:
         """
-        Build and push operator to a custom registry.
+        Build and push operator to registries.
 
         Args:
             operator: Operator source directory
             sock: Docker socket
-            registry: Container registry to push to
+            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
+            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
+            helm_username: Optional username for helm registry login
+            helm_password: Optional password for helm registry login
         """
         from apps.operator import publish_operator, publish_operator_helm_chart
         _ = await publish_operator(operator, sock,
-                                   repository=f"{registry}/weka-operator",
+                                   repository=operator_repo,
                                    )
         operator_helm = await publish_operator_helm_chart(operator, sock,
-                                                          repository=f"{registry}/helm",
+                                                          repository=helm_repo,
+                                                          helm_username=helm_username,
+                                                          helm_password=helm_password,
                                                           )
         return operator_helm
 
@@ -73,8 +81,11 @@ class OperatorFlows:
                             operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
                             sock: dagger.Socket,
                             kubeconfig: dagger.Secret,
-                            registry: str,
+                            operator_repo: str,
+                            helm_repo: str,
                             operator_values: Optional[dagger.File]=None,
+                            helm_username: Optional[dagger.Secret]=None,
+                            helm_password: Optional[dagger.Secret]=None,
                             ) -> str:
         """
         Build operator, push to registry, and deploy via Helm.
@@ -83,16 +94,21 @@ class OperatorFlows:
             operator: Operator source directory
             sock: Docker socket
             kubeconfig: Kubernetes config for deployment
-            registry: Container registry to push to
+            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
+            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
             operator_values: Optional custom values file
+            helm_username: Optional username for helm registry login
+            helm_password: Optional password for helm registry login
         """
         from apps.operator import install_helm_chart
-        operator_helm = await self.build_to_registry(operator, sock, registry)
+        operator_helm = await self.build_to_registry(operator, sock, operator_repo, helm_repo, helm_username, helm_password)
         install = await install_helm_chart(
             image=operator_helm,
             kubeconfig=kubeconfig,
-            operator_repo=f"{registry}/weka-operator",
+            operator_repo=operator_repo,
             values_file=operator_values,
+            helm_username=helm_username,
+            helm_password=helm_password,
         )
         return install
     
@@ -102,7 +118,8 @@ class OperatorFlows:
         self,
         operator: Annotated[dagger.Directory, Ignore(OPERATOR_EXCLUDE_LIST)],
         sock: dagger.Socket,
-        registry: str,
+        operator_repo: str,
+        helm_repo: str,
         gh_token: Optional[dagger.Secret] = None,
     ) -> List[str]:
         """
@@ -111,7 +128,8 @@ class OperatorFlows:
         Args:
             operator: Operator source directory
             sock: Docker socket
-            registry: Container registry to push to
+            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
+            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
             gh_token: Optional GitHub token for private dependencies
 
         Returns:
@@ -121,13 +139,13 @@ class OperatorFlows:
 
         operator_image_with_hash = await publish_operator(
             operator, sock,
-            repository=f"{registry}/weka-operator",
+            repository=operator_repo,
             gh_token=gh_token,
         )
 
         operator_helm_image = await publish_operator_helm_chart(
             operator, sock,
-            repository=f"{registry}/helm",
+            repository=helm_repo,
             gh_token=gh_token,
         )
 
@@ -168,7 +186,7 @@ class OperatorFlows:
         """Adds kubectl to the container."""
         return (
             container
-            .with_exec(["sh", "-c", "apk add --no-cache curl && curl -LO https://cdn.dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
+            .with_exec(["sh", "-c", "apk add --no-cache curl && ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && curl -LO https://cdn.dl.k8s.io/release/v1.29.0/bin/linux/${ARCH}/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
         )
 
     @function
@@ -263,7 +281,8 @@ class OperatorFlows:
         openai_api_key: dagger.Secret,
         gemini_api_key: dagger.Secret,
         kubeconfig_path: dagger.Secret,
-        registry: str,
+        operator_repo: str,
+        helm_repo: str,
         initial_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.95-k8s-safe-stop-and-metrics-alpha",
         new_weka_version: str = "quay.io/weka.io/weka-in-container:4.4.5.129-k8s",
         test_artifacts_dir: Optional[dagger.Directory] = None,
@@ -281,7 +300,8 @@ class OperatorFlows:
         """Executes the merge queue plan using pre-generated test artifacts (if provided) or generates them.
 
         Args:
-            registry: Container registry to use for operator images
+            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
+            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
         """
         current_gh_token = None
         if use_gh_token_for_go_deps:
@@ -352,7 +372,7 @@ class OperatorFlows:
 
         if not operator_image or not operator_helm_image:
             operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
-                operator, sock, gh_token=current_gh_token, registry=registry
+                operator, sock, operator_repo=operator_repo, helm_repo=helm_repo, gh_token=current_gh_token,
             )
 
         operator_version = operator_helm_image.split(":")[-1]
@@ -691,7 +711,8 @@ EOF
         gh_token: Optional[dagger.Secret],
         source_kubeconfig: dagger.Secret,
         target_kubeconfig: dagger.Secret,
-        registry: str,
+        operator_repo: str,
+        helm_repo: str,
         weka_image: str = "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.3",
         use_gh_token_for_go_deps: bool = False,
         cluster_name: str = "upgrade-extended",
@@ -703,7 +724,8 @@ EOF
         """Runs the OpenShift clients-only test flow independently.
 
         Args:
-            registry: Container registry to use for operator images
+            operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
+            helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
         """
         logger.info("Starting OCP clients-only test flow.")
         
@@ -725,7 +747,7 @@ EOF
 
         if not operator_image or not operator_helm_image:
             operator_image, operator_helm_image = await self.publish_operator_and_get_versions(
-                operator, sock, gh_token=current_gh_token, registry=registry
+                operator, sock, operator_repo=operator_repo, helm_repo=helm_repo, gh_token=current_gh_token,
             )
 
         operator_version = operator_helm_image.split(":")[-1]
