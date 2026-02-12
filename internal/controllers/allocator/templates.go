@@ -1,30 +1,45 @@
 package allocator
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/weka/weka-k8s-api/api/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	globalconfig "github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/pkg/util"
 )
 
+// ClusterLayout contains container counts, cores, and drive configuration fields.
+// It is returned by GetTemplateByName for callers that don't need hugepages.
+type ClusterLayout struct {
+	DriveCores             int
+	DriveExtraCores        int
+	ComputeCores           int
+	ComputeExtraCores      int
+	EnvoyCores             int
+	S3Cores                int
+	S3ExtraCores           int
+	NfsCores               int
+	NfsExtraCores          int
+	ComputeContainers      int
+	DriveContainers        int
+	S3Containers           int
+	NfsContainers          int
+	NumDrives              int
+	DriveCapacity          int
+	ContainerCapacity      int
+	DriveTypesRatio        *v1alpha1.DriveTypesRatio
+	DataServicesCores      int
+	DataServicesExtraCores int
+	DataServicesContainers int
+}
+
+// ClusterTemplate embeds ClusterLayout and adds hugepages fields.
+// It is returned by GetEnrichedTemplate for the container creation path.
 type ClusterTemplate struct {
-	DriveCores                  int
-	DriveExtraCores             int
-	ComputeCores                int
-	ComputeExtraCores           int
-	EnvoyCores                  int
-	S3Cores                     int
-	S3ExtraCores                int
-	NfsCores                    int
-	NfsExtraCores               int
-	ComputeContainers           int
-	DriveContainers             int
-	S3Containers                int
-	NfsContainers               int
-	NumDrives                   int
-	DriveCapacity               int
-	ContainerCapacity           int
-	DriveTypesRatio             *v1alpha1.DriveTypesRatio
+	ClusterLayout
 	DriveHugepages              int
 	DriveHugepagesOffset        int
 	ComputeHugepages            int
@@ -35,9 +50,6 @@ type ClusterTemplate struct {
 	S3FrontendHugepagesOffset   int
 	NfsFrontendHugepages        int
 	NfsFrontendHugepagesOffset  int
-	DataServicesCores           int
-	DataServicesExtraCores      int
-	DataServicesContainers      int
 	DataServicesHugepages       int
 	DataServicesHugepagesOffset int
 }
@@ -195,20 +207,28 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 	}
 
 	return ClusterTemplate{
-		DriveCores:                  config.DriveCores,
-		DriveExtraCores:             config.DriveExtraCores,
-		ComputeCores:                config.ComputeCores,
-		ComputeExtraCores:           config.ComputeExtraCores,
-		ComputeContainers:           *config.ComputeContainers,
-		DriveContainers:             *config.DriveContainers,
-		S3Containers:                config.S3Containers,
-		S3Cores:                     config.S3Cores,
-		S3ExtraCores:                config.S3ExtraCores,
-		NfsContainers:               config.NfsContainers,
-		NumDrives:                   config.NumDrives,
-		DriveCapacity:               config.DriveCapacity,
-		ContainerCapacity:           config.ContainerCapacity,
-		DriveTypesRatio:             config.DriveTypesRatio,
+		ClusterLayout: ClusterLayout{
+			DriveCores:             config.DriveCores,
+			DriveExtraCores:        config.DriveExtraCores,
+			ComputeCores:           config.ComputeCores,
+			ComputeExtraCores:      config.ComputeExtraCores,
+			ComputeContainers:      *config.ComputeContainers,
+			DriveContainers:        *config.DriveContainers,
+			S3Containers:           config.S3Containers,
+			S3Cores:                config.S3Cores,
+			S3ExtraCores:           config.S3ExtraCores,
+			NfsContainers:          config.NfsContainers,
+			NumDrives:              config.NumDrives,
+			DriveCapacity:          config.DriveCapacity,
+			ContainerCapacity:      config.ContainerCapacity,
+			DriveTypesRatio:        config.DriveTypesRatio,
+			EnvoyCores:             config.EnvoyCores,
+			NfsCores:               config.NfsCores,
+			NfsExtraCores:          config.NfsExtraCores,
+			DataServicesContainers: config.DataServicesContainers,
+			DataServicesCores:      config.DataServicesCores,
+			DataServicesExtraCores: config.DataServicesExtraCores,
+		},
 		DriveHugepages:              config.DriveHugepages,
 		DriveHugepagesOffset:        config.DriveHugepagesOffset,
 		ComputeHugepages:            config.ComputeHugepages,
@@ -216,81 +236,132 @@ func BuildDynamicTemplate(config *v1alpha1.WekaConfig) ClusterTemplate {
 		S3FrontendHugepages:         config.S3FrontendHugepages,
 		S3FrontendHugepagesOffset:   config.S3FrontendHugepagesOffset,
 		HugePageSize:                hgSize,
-		EnvoyCores:                  config.EnvoyCores,
-		NfsCores:                    config.NfsCores,
-		NfsExtraCores:               config.NfsExtraCores,
 		NfsFrontendHugepages:        config.NfsFrontendHugepages,
 		NfsFrontendHugepagesOffset:  config.NfsFrontendHugepagesOffset,
-		DataServicesContainers:      config.DataServicesContainers,
-		DataServicesCores:           config.DataServicesCores,
-		DataServicesExtraCores:      config.DataServicesExtraCores,
 		DataServicesHugepages:       config.DataServicesHugepages,
 		DataServicesHugepagesOffset: config.DataServicesHugepagesOffset,
 	}
 
 }
 
-func GetTemplateByName(name string, cluster v1alpha1.WekaCluster) (ClusterTemplate, bool) {
+// computeHugepagesForCompute calculates compute hugepages from cores and raw capacity.
+func computeHugepagesForCompute(computeCores, totalRawCapacityGiB, computeContainers int) int {
+	capacityComponent := 0
+	if computeContainers > 0 && totalRawCapacityGiB > 0 {
+		capacityComponent = totalRawCapacityGiB / computeContainers
+	}
+	perCoreComponent := 1700 * computeCores
+	minHugepages := 3000 * computeCores
+	return max(capacityComponent+perCoreComponent, minHugepages)
+}
+
+// GetTemplateByName returns the ClusterLayout (no hugepages) for the named template.
+// Use GetEnrichedTemplate when hugepages fields are needed.
+func GetTemplateByName(name string, cluster v1alpha1.WekaCluster) (ClusterLayout, bool) {
 	if name == "dynamic" {
-		return BuildDynamicTemplate(cluster.Spec.Dynamic), true
+		return BuildDynamicTemplate(cluster.Spec.Dynamic).ClusterLayout, true
 	}
 
 	template, ok := WekaClusterTemplates[name]
-	return template, ok
+	return template.ClusterLayout, ok
+}
+
+// GetEnrichedTemplate returns a full ClusterTemplate (including hugepages) for the named template.
+// For dynamic templates, it enriches compute hugepages with actual drive capacity from node
+// annotations when the spec doesn't provide capacity info (traditional drive mode).
+func GetEnrichedTemplate(ctx context.Context, k8sClient client.Client, name string, cluster v1alpha1.WekaCluster) (*ClusterTemplate, error) {
+	if name != "dynamic" {
+		template, ok := WekaClusterTemplates[name]
+		if !ok {
+			return nil, nil
+		}
+		return &template, nil
+	}
+	if cluster.Spec.Dynamic == nil {
+		return nil, nil
+	}
+
+	tmpl := BuildDynamicTemplate(cluster.Spec.Dynamic)
+
+	// Enrich compute hugepages with actual drive capacity from nodes
+	// when the spec doesn't provide capacity info (traditional drive mode)
+	if tmpl.ContainerCapacity == 0 && tmpl.DriveCapacity == 0 &&
+		tmpl.ComputeHugepages == 3000*tmpl.ComputeCores {
+
+		maxNodeCap, err := computeMaxNodeDriveCapacity(ctx, k8sClient, cluster.Spec.NodeSelector, tmpl.NumDrives)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute node drive capacity: %w", err)
+		}
+		if maxNodeCap > 0 {
+			totalRawCapacity := tmpl.DriveContainers * maxNodeCap
+			tmpl.ComputeHugepages = computeHugepagesForCompute(
+				tmpl.ComputeCores, totalRawCapacity, tmpl.ComputeContainers)
+		}
+	}
+
+	return &tmpl, nil
 }
 
 var WekaClusterTemplates = map[string]ClusterTemplate{
 	"small_s3": {
-		DriveCores:          1,
-		ComputeCores:        1,
-		ComputeContainers:   6,
-		DriveContainers:     6,
-		S3Containers:        6,
-		S3Cores:             1,
-		S3ExtraCores:        1,
-		NumDrives:           1,
+		ClusterLayout: ClusterLayout{
+			DriveCores:        1,
+			ComputeCores:      1,
+			ComputeContainers: 6,
+			DriveContainers:   6,
+			S3Containers:      6,
+			S3Cores:           1,
+			S3ExtraCores:      1,
+			NumDrives:         1,
+			EnvoyCores:        1,
+		},
 		DriveHugepages:      1500,
 		ComputeHugepages:    3000,
 		S3FrontendHugepages: 1400,
 		HugePageSize:        "2Mi",
-		EnvoyCores:          1,
 	},
 	"small": {
-		DriveCores:        1,
-		ComputeCores:      1,
-		ComputeContainers: 6,
-		DriveContainers:   6,
-		NumDrives:         1,
-		DriveHugepages:    1500,
-		ComputeHugepages:  3000,
-		HugePageSize:      "2Mi",
-		EnvoyCores:        1,
+		ClusterLayout: ClusterLayout{
+			DriveCores:        1,
+			ComputeCores:      1,
+			ComputeContainers: 6,
+			DriveContainers:   6,
+			NumDrives:         1,
+			EnvoyCores:        1,
+		},
+		DriveHugepages:   1500,
+		ComputeHugepages: 3000,
+		HugePageSize:     "2Mi",
 	},
 	"large": {
-		DriveCores:        1,
-		ComputeCores:      1,
-		ComputeContainers: 20,
-		DriveContainers:   20,
-		NumDrives:         1,
-		DriveHugepages:    1500,
-		ComputeHugepages:  3000,
-		HugePageSize:      "2Mi",
-		EnvoyCores:        2,
-		S3Containers:      5,
-		S3Cores:           1,
-		S3ExtraCores:      2,
+		ClusterLayout: ClusterLayout{
+			DriveCores:        1,
+			ComputeCores:      1,
+			ComputeContainers: 20,
+			DriveContainers:   20,
+			NumDrives:         1,
+			EnvoyCores:        2,
+			S3Containers:      5,
+			S3Cores:           1,
+			S3ExtraCores:      2,
+		},
+		DriveHugepages:   1500,
+		ComputeHugepages: 3000,
+		HugePageSize:     "2Mi",
 	},
 	"small_nfs": {
-		DriveCores:           1,
-		ComputeCores:         1,
-		ComputeContainers:    6,
-		DriveContainers:      6,
-		NfsContainers:        2,
-		NumDrives:            1,
+		ClusterLayout: ClusterLayout{
+			DriveCores:        1,
+			ComputeCores:      1,
+			ComputeContainers: 6,
+			DriveContainers:   6,
+			NfsContainers:     2,
+			NumDrives:         1,
+			EnvoyCores:        1,
+		},
 		DriveHugepages:       1500,
 		ComputeHugepages:     3000,
 		NfsFrontendHugepages: 1200,
 		HugePageSize:         "2Mi",
-		EnvoyCores:           1,
 	},
 }
