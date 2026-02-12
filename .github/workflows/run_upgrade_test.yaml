@@ -118,6 +118,13 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+
+      - name: Login to Registry
+        env:
+          QUAY_USERNAME: ${{ secrets.QUAY_USERNAME_RO }}
+          QUAY_PASSWORD: ${{ secrets.QUAY_TOKEN_RO }}
+        run: helm registry login quay.io/weka.io --username "$QUAY_USERNAME" --password "$QUAY_PASSWORD"
+
       - name: Build Go Binary
         run: |
           go build -o weka-k8s-testing main.go
