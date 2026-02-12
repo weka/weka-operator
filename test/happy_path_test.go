@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weka/go-weka-observability/instrumentation"
+	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/weka/go-weka-observability/instrumentation"
-	wekav1alpha1 "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"github.com/weka/weka-operator/test/fixtures"
 )
 
@@ -152,10 +152,9 @@ func testingCluster(wekaImage string, operatorNamespace string) *wekav1alpha1.We
 			Namespace: "weka-operator-system",
 		},
 		Spec: wekav1alpha1.WekaClusterSpec{
-			Template: "dynamic",
-			Dynamic: &wekav1alpha1.WekaConfig{
-				ComputeContainers: &numComputeContainers,
-				DriveContainers:   &numDriveContainers,
+			Dynamic: &wekav1alpha1.WekaClusterTemplate{
+				ComputeContainers: numComputeContainers,
+				DriveContainers:   numDriveContainers,
 			},
 			Image:              wekaImage,
 			ImagePullSecret:    "quay-io-robot-secret",

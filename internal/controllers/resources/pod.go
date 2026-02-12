@@ -1080,10 +1080,6 @@ func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
 		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-offset)
 	}
 
-	if f.container.Spec.HugepagesOverride != "" {
-		wekaMemoryString = f.container.Spec.HugepagesOverride
-	}
-
 	hugePagesName := corev1.ResourceName(
 		strings.Join(
 			[]string{corev1.ResourceHugePagesPrefix, hugePagesK8sSuffix},
