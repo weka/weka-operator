@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/weka/weka-operator/internal/pkg/domain"
-	"github.com/weka/weka-operator/pkg/util"
 )
 
 func TestMain(m *testing.M) {
@@ -53,10 +52,9 @@ func newTestAllocator(existingClusters []weka.WekaCluster) Allocator {
 func testWekaCluster(name string) *weka.WekaCluster {
 	return &weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
-			Template: "dynamic",
-			Dynamic: &weka.WekaConfig{
-				DriveContainers:   util.IntRef(5),
-				ComputeContainers: util.IntRef(5),
+			Dynamic: &weka.WekaClusterTemplate{
+				DriveContainers:   5,
+				ComputeContainers: 5,
 				NumDrives:         4,
 			},
 		},
