@@ -161,10 +161,7 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	driveCreatedCounts := &sync.Map{}
 	maxCpu := map[string]float64{}
 
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
-		return errors.New("Failed to get template")
-	}
+	template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
 
 	if cluster.Status.Stats == nil {
 		cluster.Status.Stats = &weka.ClusterMetrics{}
@@ -196,19 +193,19 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 	}
 
 	// calculate desired counts
-	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.ComputeContainers)
-	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.DriveContainers)
-	if template.S3Containers != 0 {
+	cluster.Status.Stats.Containers.Compute.Containers.Desired = weka.IntMetric(template.Containers.Compute)
+	cluster.Status.Stats.Containers.Drive.Containers.Desired = weka.IntMetric(template.Containers.Drive)
+	if template.Containers.S3 != 0 {
 		if cluster.Status.Stats.Containers.S3 == nil {
 			cluster.Status.Stats.Containers.S3 = &weka.ContainerMetrics{}
 		}
-		cluster.Status.Stats.Containers.S3.Containers.Desired = weka.IntMetric(template.S3Containers)
+		cluster.Status.Stats.Containers.S3.Containers.Desired = weka.IntMetric(template.Containers.S3)
 	}
-	if template.NfsContainers != 0 {
+	if template.Containers.Nfs != 0 {
 		if cluster.Status.Stats.Containers.Nfs == nil {
 			cluster.Status.Stats.Containers.Nfs = &weka.ContainerMetrics{}
 		}
-		cluster.Status.Stats.Containers.Nfs.Containers.Desired = weka.IntMetric(template.NfsContainers)
+		cluster.Status.Stats.Containers.Nfs.Containers.Desired = weka.IntMetric(template.Containers.Nfs)
 	}
 
 	if template.ContainerCapacity > 0 {
@@ -222,22 +219,22 @@ func (r *wekaClusterReconcilerLoop) UpdateContainersCounters(ctx context.Context
 
 		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(desiredDrives)
 	} else {
-		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.DriveContainers * template.NumDrives)
+		cluster.Status.Stats.Drives.DriveCounters.Desired = weka.IntMetric(template.Containers.Drive * template.NumDrives)
 	}
 
 	// convert to new metrics accessor
-	cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.ComputeCores), 1) * int64(template.ComputeContainers))
-	cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.DriveCores), 1) * int64(template.DriveContainers))
+	cluster.Status.Stats.Containers.Compute.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Compute), 1) * int64(template.Containers.Compute))
+	cluster.Status.Stats.Containers.Drive.Processes.Desired = weka.IntMetric(max(int64(template.Cores.Drive), 1) * int64(template.Containers.Drive))
 
 	// propagate "created" counters
 	cluster.Status.Stats.Containers.Compute.Containers.Created = weka.IntMetric(getCounter(roleCreatedCounts, weka.WekaContainerModeCompute))
 	cluster.Status.Stats.Containers.Drive.Containers.Created = weka.IntMetric(getCounter(roleCreatedCounts, weka.WekaContainerModeDrive))
 
 	// propagate "active" counters for these that not exposed explicitly in weka status --json
-	if template.S3Containers != 0 {
+	if template.Containers.S3 != 0 {
 		cluster.Status.Stats.Containers.S3.Containers.Active = weka.IntMetric(getCounter(roleActiveCounts, weka.WekaContainerModeS3))
 	}
-	if template.NfsContainers != 0 {
+	if template.Containers.Nfs != 0 {
 		cluster.Status.Stats.Containers.Nfs.Containers.Active = weka.IntMetric(getCounter(roleActiveCounts, weka.WekaContainerModeNfs))
 	}
 
@@ -295,19 +292,16 @@ func (r *wekaClusterReconcilerLoop) UpdateWekaStatusMetrics(ctx context.Context)
 		cluster.Status.Stats = &weka.ClusterMetrics{}
 	}
 
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
-		return errors.New("Failed to get template")
-	}
+	template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
 
-	cluster.Status.Stats.Containers.Compute.Processes.Active = weka.IntMetric(int64(wekaStatus.Containers.Computes.Active * template.ComputeCores))
+	cluster.Status.Stats.Containers.Compute.Processes.Active = weka.IntMetric(int64(wekaStatus.Containers.Computes.Active * template.Cores.Compute))
 	cluster.Status.Stats.Containers.Compute.Containers.Active = weka.IntMetric(int64(wekaStatus.Containers.Computes.Active))
-	cluster.Status.Stats.Containers.Drive.Processes.Active = weka.IntMetric(int64(wekaStatus.Containers.Drives.Active * template.DriveCores))
+	cluster.Status.Stats.Containers.Drive.Processes.Active = weka.IntMetric(int64(wekaStatus.Containers.Drives.Active * template.Cores.Drive))
 	cluster.Status.Stats.Containers.Drive.Containers.Active = weka.IntMetric(int64(wekaStatus.Containers.Drives.Active))
 	cluster.Status.Stats.Drives.DriveCounters.Active = weka.IntMetric(int64(wekaStatus.Drives.Active))
 
-	cluster.Status.Stats.Containers.Compute.Processes.Created = weka.IntMetric(int64(wekaStatus.Containers.Computes.Total * template.ComputeCores))
-	cluster.Status.Stats.Containers.Drive.Processes.Created = weka.IntMetric(int64(wekaStatus.Containers.Drives.Total * template.DriveCores))
+	cluster.Status.Stats.Containers.Compute.Processes.Created = weka.IntMetric(int64(wekaStatus.Containers.Computes.Total * template.Cores.Compute))
+	cluster.Status.Stats.Containers.Drive.Processes.Created = weka.IntMetric(int64(wekaStatus.Containers.Drives.Total * template.Cores.Drive))
 	// TODO: might be incorrect with bad drives, and better to buble up from containers
 	cluster.Status.Stats.Drives.DriveCounters.Created = weka.IntMetric(int64(wekaStatus.Drives.Total))
 	//TODO: this should go via template builder and not direct dynamic access

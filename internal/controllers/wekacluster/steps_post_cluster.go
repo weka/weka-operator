@@ -120,7 +120,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
-				loop.HasS3Containers,
+				loop.HasRunningS3Containers,
 			},
 			State: &lifecycle.State{
 				Name: condition.CondS3ClusterCreated,
@@ -130,7 +130,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
 				lifecycle.IsNotFunc(loop.cluster.IsExpand),
-				loop.HasNfsContainers,
+				loop.HasRunningNfsContainers,
 			},
 			State: &lifecycle.State{
 				Name: condition.ConfNfsConfigured,
@@ -139,7 +139,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
-				loop.HasNfsContainers,
+				loop.HasRunningNfsContainers,
 				loop.ShouldConfigureNfsIpRanges,
 			},
 			ContinueOnError: true,
@@ -147,7 +147,7 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		},
 		&lifecycle.SimpleStep{
 			Predicates: lifecycle.Predicates{
-				loop.HasDataServicesContainers,
+				loop.HasRunningDataServicesContainers,
 			},
 			State: &lifecycle.State{
 				Name: condition.CondDataServicesConfigured,

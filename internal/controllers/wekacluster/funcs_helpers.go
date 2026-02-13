@@ -53,65 +53,25 @@ func (r *wekaClusterReconcilerLoop) HasPostFormClusterScript() bool {
 	return r.cluster.Spec.GetOverrides().PostFormClusterScript != ""
 }
 
-func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
-	cluster := r.cluster
+func (r *wekaClusterReconcilerLoop) HasRunningS3Containers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
 
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
-		return false
-	}
-	if template.S3Containers == 0 {
-		return false
-	}
-
-	for _, container := range r.containers {
-		if container.Spec.Mode == weka.WekaContainerModeS3 {
-			return true
-		}
-	}
-
-	return false
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.S3, weka.WekaContainerModeS3)
+	return len(c) > 0
 }
 
-func (r *wekaClusterReconcilerLoop) HasNfsContainers() bool {
-	return len(r.SelectNfsContainers(r.containers)) > 0
+func (r *wekaClusterReconcilerLoop) HasRunningNfsContainers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
+
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.Nfs, weka.WekaContainerModeNfs)
+	return len(c) > 0
 }
 
-func (r *wekaClusterReconcilerLoop) SelectS3Containers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var s3Containers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeS3 {
-			s3Containers = append(s3Containers, container)
-		}
-	}
+func (r *wekaClusterReconcilerLoop) HasRunningDataServicesContainers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
 
-	return s3Containers
-}
-
-func (r *wekaClusterReconcilerLoop) SelectNfsContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var nfsContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeNfs {
-			nfsContainers = append(nfsContainers, container)
-		}
-	}
-
-	return nfsContainers
-}
-
-func (r *wekaClusterReconcilerLoop) HasDataServicesContainers() bool {
-	return len(r.SelectDataServicesContainers(r.containers)) > 0
-}
-
-func (r *wekaClusterReconcilerLoop) SelectDataServicesContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var dataServicesContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeDataServices {
-			dataServicesContainers = append(dataServicesContainers, container)
-		}
-	}
-
-	return dataServicesContainers
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.DataServices, weka.WekaContainerModeDataServices)
+	return len(c) > 0
 }
 
 // ValidateDriveTypesRatio validates that driveTypesRatio.tlc > 0 when driveTypesRatio is specified.
@@ -135,9 +95,8 @@ func (r *wekaClusterReconcilerLoop) ValidateDriveTypesRatio(ctx context.Context)
 }
 
 func (r *wekaClusterReconcilerLoop) ShouldSetComputeHugepages() bool {
-	return r.cluster.Spec.Template == "dynamic" &&
-		r.cluster.Spec.Dynamic != nil &&
-		r.cluster.Spec.Dynamic.ComputeHugepages == 0 // skip if user explicitly set
+	// skip if user explicitly set
+	return r.cluster.Spec.Dynamic != nil && r.cluster.Spec.Dynamic.ComputeHugepages == 0
 }
 
 // ensureComputeContainersHugepages patches compute containers' Spec.Hugepages based on
@@ -148,10 +107,8 @@ func (r *wekaClusterReconcilerLoop) ensureComputeContainersHugepages(ctx context
 	cluster := r.cluster
 	containers := r.containers
 
-	tmpl := allocator.BuildDynamicTemplate(cluster.Spec.Dynamic)
-
 	// Collect "goods" drive containers: those with all expected drives added and SizeBytes > 0
-	var goodContainersCapacitySum int64
+	var goodContainersCapacitySumBytes int64
 	goodContainersCount := 0
 	for _, c := range containers {
 		if !c.IsDriveContainer() {
@@ -181,7 +138,7 @@ func (r *wekaClusterReconcilerLoop) ensureComputeContainersHugepages(ctx context
 		if !allHaveSize {
 			continue
 		}
-		goodContainersCapacitySum += containerBytes
+		goodContainersCapacitySumBytes += containerBytes
 		goodContainersCount++
 	}
 
@@ -189,13 +146,15 @@ func (r *wekaClusterReconcilerLoop) ensureComputeContainersHugepages(ctx context
 		return nil // not enough good drive containers yet for reliable extrapolation
 	}
 
+	tmpl := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+
 	// Extrapolate: avg per-container capacity × expected drive container count
-	avgPerContainer := goodContainersCapacitySum / int64(goodContainersCount)
-	totalRawBytes := avgPerContainer * int64(tmpl.DriveContainers)
+	avgPerContainer := goodContainersCapacitySumBytes / int64(goodContainersCount)
+	totalRawBytes := avgPerContainer * int64(tmpl.Containers.Drive)
 	totalRawCapacityGiB := int(totalRawBytes / (1024 * 1024 * 1024))
 
 	desired := allocator.ComputeCapacityBasedHugepages(
-		totalRawCapacityGiB, tmpl.ComputeContainers, tmpl.ComputeCores, tmpl.DriveTypesRatio)
+		ctx, totalRawCapacityGiB, tmpl.Containers.Compute, tmpl.Cores.Compute, tmpl.DriveTypesRatio)
 
 	// Collect compute containers that need updating
 	var computeContainers []*weka.WekaContainer

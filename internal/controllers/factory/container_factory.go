@@ -20,51 +20,18 @@ import (
 
 func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	template allocator.ClusterTemplate,
+	hp allocator.ContainerHugepages,
 	role, name string,
 ) (*wekav1alpha1.WekaContainer, error) {
 	labels := RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
 	labels = util2.MergeMaps(cluster.ObjectMeta.GetLabels(), labels)
 
 	annotations := cluster.GetAnnotationsForRole(role)
-
-	var hugePagesNum int
-	var hugePagesOffset int
-	var numCores int
-	switch role {
-	case "drive":
-		hugePagesNum = template.DriveHugepages
-		hugePagesOffset = template.DriveHugepagesOffset
-		numCores = template.DriveCores
-	case "compute":
-		hugePagesNum = template.ComputeHugepages
-		hugePagesOffset = template.ComputeHugepagesOffset
-		numCores = template.ComputeCores
-	case "s3":
-		hugePagesNum = template.S3FrontendHugepages
-		hugePagesOffset = template.S3FrontendHugepagesOffset
-		numCores = template.S3Cores
-	case "envoy":
-		numCores = template.EnvoyCores
-	case "nfs":
-		numCores = template.NfsCores
-		hugePagesNum = template.NfsFrontendHugepages
-		hugePagesOffset = template.NfsFrontendHugepagesOffset
-	case "telemetry":
-		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
-		numCores = 0
-	case "data-services":
-		numCores = template.DataServicesCores
-		hugePagesNum = template.DataServicesHugepages
-		hugePagesOffset = template.DataServicesHugepagesOffset
-	default:
-		return nil, fmt.Errorf("unsupported role %s", role)
-	}
-
 	network := cluster.GetNetworkForRole(role)
-
 	secretKey := cluster.GetOperatorSecretName()
 
 	additionalMemory := 0
+	numCores := 0
 	extraCores := 0
 	numDrives := 0
 	driveCapacity := 0
@@ -73,24 +40,33 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 	switch role {
 	case "compute":
 		additionalMemory = cluster.Spec.AdditionalMemory.Compute
-		extraCores = template.ComputeExtraCores
+		numCores = template.Cores.Compute
+		extraCores = template.ExtraCores.Compute
 	case "drive":
 		additionalMemory = cluster.Spec.AdditionalMemory.Drive
 		numDrives = template.NumDrives
-		extraCores = template.DriveExtraCores
+		numCores = template.Cores.Drive
+		extraCores = template.ExtraCores.Drive
 		driveCapacity = template.DriveCapacity
 		containerCapacity = template.ContainerCapacity
 	case "s3":
 		additionalMemory = cluster.Spec.AdditionalMemory.S3
-		extraCores = template.S3ExtraCores
+		numCores = template.Cores.S3
+		extraCores = template.ExtraCores.S3
 	case "nfs":
 		additionalMemory = cluster.Spec.AdditionalMemory.Nfs
-		extraCores = template.NfsExtraCores
+		numCores = template.Cores.Nfs
+		extraCores = template.ExtraCores.Nfs
 	case "data-services":
 		additionalMemory = cluster.Spec.AdditionalMemory.DataServices
-		extraCores = template.DataServicesExtraCores
+		numCores = template.Cores.DataServices
+		extraCores = template.ExtraCores.DataServices
 	case "envoy":
 		additionalMemory = cluster.Spec.AdditionalMemory.Envoy
+		numCores = template.Cores.Envoy
+	case "telemetry":
+		// Telemetry container doesn't need weka cores or hugepages - resources are hardcoded in pod.go
+		numCores = 0
 	}
 
 	containerGroup := ""
@@ -141,10 +117,9 @@ func NewWekaContainerForWekaCluster(cluster *wekav1alpha1.WekaCluster,
 			NumCores:              numCores,
 			ExtraCores:            extraCores,
 			Network:               network,
-			Hugepages:             hugePagesNum,
-			HugepagesOffset:       hugePagesOffset,
-			HugepagesSize:         template.HugePageSize,
-			HugepagesOverride:     template.HugePagesOverride,
+			Hugepages:             hp.Hugepages,
+			HugepagesOffset:       hp.HugepagesOffset,
+			HugepagesSize:         hp.HugePageSize,
 			NumDrives:             numDrives,
 			DriveCapacity:         driveCapacity,
 			ContainerCapacity:     containerCapacity,

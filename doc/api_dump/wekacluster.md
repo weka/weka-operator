@@ -15,7 +15,7 @@
 - [WekaHomeConfig](#wekahomeconfig)
 - [AdditionalMemory](#additionalmemory)
 - [ClusterPorts](#clusterports)
-- [WekaConfig](#wekaconfig)
+- [WekaClusterTemplate](#wekaclustertemplate)
 - [Network](#network)
 - [StartIoConditions](#startioconditions)
 - [WekaClusterSpecOverrides](#wekaclusterspecoverrides)
@@ -64,7 +64,6 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| template | string | A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster |
 | image | string | full container image name in format of quay.io/weka.io/weka-in-container:VERSION |
 | imagePullSecret | string | image pull secret to use for pulling the image |
 | driversDistService | string | endpoint for distribution service, global https://drivers.weka.io or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001" |
@@ -84,7 +83,7 @@
 | ports | ClusterPorts | port allocation for weka containers, if not set, free range will be auto selected. Currently allocated ports can be seen in wekacluster.status.ports |
 | operatorSecretRef | string | reference to the secret containing the weka system credentials used by operator, used in flow of migration |
 | expandEndpoints | []string | endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration |
-| dynamicTemplate | *WekaConfig | weka cluster topology configuration |
+| dynamicTemplate | *WekaClusterTemplate | weka cluster topology configuration |
 | network | Network | weka cluster network configuration |
 | hotSpare | int | A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost<br>See: https://docs.weka.io/weka-system-overview/ssd-capacity-management#hot-spare |
 | redundancyLevel | int | storage capacity dedicated to system protection (2/4). https://docs.weka.io/weka-system-overview/ssd-capacity-management#protection-level |
@@ -240,12 +239,12 @@
 
 ---
 
-## WekaConfig
+## WekaClusterTemplate
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| computeContainers | *int |  |
-| driveContainers | *int |  |
+| computeContainers | int |  |
+| driveContainers | int |  |
 | s3Containers | int |  |
 | computeCores | int |  |
 | driveCores | int |  |
@@ -261,11 +260,11 @@
 | s3FrontendHugepages | int |  |
 | s3FrontendHugepagesOffset | int |  |
 | envoyCores | int |  |
-| nfsContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS containers |
-| nfsCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS cores per container |
-| nfsExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of NFS extra cores per container |
-| nfsFrontendHugepages | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for NFS frontend |
-| nfsFrontendHugepagesOffset | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for NFS frontend |
+| nfsContainers | int |  |
+| nfsCores | int |  |
+| nfsExtraCores | int |  |
+| nfsFrontendHugepages | int |  |
+| nfsFrontendHugepagesOffset | int |  |
 | smbwContainers | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8) |
 | smbwCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container |
 | smbwExtraCores | int | EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container |

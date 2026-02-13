@@ -163,13 +163,7 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			roles = []string{weka.WekaContainerModeDrive, weka.WekaContainerModeCompute}
 		}
 		if len(roles) > 0 {
-			roleFound := false
-			for _, role := range roles {
-				if container.Spec.Mode == role {
-					roleFound = true
-					break
-				}
-			}
+			roleFound := slices.Contains(roles, container.Spec.Mode)
 			if !roleFound {
 				continue
 			}
@@ -206,6 +200,35 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 			if len(selected) >= numContainers {
 				break
 			}
+		}
+	}
+
+	return selected
+}
+
+func SelectRunningContainersByRole(containers []*weka.WekaContainer, numContainers int, role string) []*weka.WekaContainer {
+	selected := []*weka.WekaContainer{}
+
+	for _, container := range containers {
+		if container.Spec.Mode != role {
+			continue
+		}
+		if container.Status.Status == weka.Running {
+			selected = append(selected, container)
+		}
+		if len(selected) >= numContainers {
+			break
+		}
+	}
+
+	return selected
+}
+
+func SelectContainersByRole(containers []*weka.WekaContainer, role string) []*weka.WekaContainer {
+	selected := []*weka.WekaContainer{}
+	for _, container := range containers {
+		if container.Spec.Mode == role {
+			selected = append(selected, container)
 		}
 	}
 
