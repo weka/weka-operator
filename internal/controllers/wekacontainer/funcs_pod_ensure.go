@@ -2,10 +2,8 @@ package wekacontainer
 
 import (
 	"context"
-	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
@@ -38,11 +36,6 @@ func (r *containerReconcilerLoop) refreshPod(ctx context.Context) error {
 func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
-
-	if NodeIsUnschedulable(r.node) {
-		err := errors.Errorf("node %s is unschedulable, cannot create pod", r.node.Name)
-		return lifecycle.NewWaitErrorWithDuration(err, time.Second*10)
-	}
 
 	container := r.container
 
