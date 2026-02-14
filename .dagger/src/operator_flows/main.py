@@ -655,6 +655,7 @@ EOF
         hooks_container = (
             dag.container()
             .from_("alpine:latest")
+            .with_exec(["apk", "add", "--no-cache", "shellcheck", "bash"])
             .with_directory("/test_artifacts", test_artifacts)
             .with_exec(["tree", "/test_artifacts"])
             .with_exec(["sh", "-c", """
@@ -664,15 +665,24 @@ EOF
                     if [ -d "$hook_dir" ]; then
                         # Extract hook name from directory name (remove "hook_" prefix)
                         hook_name=$(basename "$hook_dir" | sed 's/^hook_//')
-                        
+
                         # Check if hook.sh exists
                         if [ -f "$hook_dir/hook.sh" ]; then
                             echo "Found hook: $hook_name -> $hook_dir/hook.sh"
+
+                            # Validate hook script with shellcheck (only fail on errors, not warnings/style)
+                            echo "Validating $hook_dir/hook.sh with shellcheck..."
+                            if ! shellcheck --severity=error "$hook_dir/hook.sh"; then
+                                echo "ERROR: shellcheck validation failed for $hook_dir/hook.sh"
+                                exit 1
+                            fi
+                            echo "shellcheck validation passed for $hook_dir/hook.sh"
+
                             hook_env_vars="$hook_env_vars\\n$hook_name=$hook_dir/hook.sh"
                         fi
                     fi
                 done
-                        
+
                 # Save hook environment variables to a file
                 echo -e "$hook_env_vars" > /hooks_env_vars.txt
             """])
