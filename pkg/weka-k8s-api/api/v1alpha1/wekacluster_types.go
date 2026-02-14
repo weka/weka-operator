@@ -204,56 +204,90 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
 type WekaClusterTemplate struct {
-	ComputeContainers          int `json:"computeContainers,omitempty"`
-	DriveContainers            int `json:"driveContainers,omitempty"`
-	S3Containers               int `json:"s3Containers,omitempty"`
-	ComputeCores               int `json:"computeCores,omitempty"`
-	DriveCores                 int `json:"driveCores,omitempty"`
-	S3Cores                    int `json:"s3Cores,omitempty"`
-	NumDrives                  int `json:"numDrives,omitempty"`
-	ComputeExtraCores          int `json:"computeExtraCores,omitempty"`
-	DriveExtraCores            int `json:"driveExtraCores,omitempty"`
-	S3ExtraCores               int `json:"s3ExtraCores,omitempty"`
-	DriveHugepages             int `json:"driveHugepages,omitempty"`
-	DriveHugepagesOffset       int `json:"driveHugepagesOffset,omitempty"`
-	ComputeHugepages           int `json:"computeHugepages,omitempty"`
-	ComputeHugepagesOffset     int `json:"computeHugepagesOffset,omitempty"`
-	S3FrontendHugepages        int `json:"s3FrontendHugepages,omitempty"`
-	S3FrontendHugepagesOffset  int `json:"s3FrontendHugepagesOffset,omitempty"`
-	EnvoyCores                 int `json:"envoyCores,omitempty"`
-	NfsContainers              int `json:"nfsContainers,omitempty"`
-	NfsCores                   int `json:"nfsCores,omitempty"`
-	NfsExtraCores              int `json:"nfsExtraCores,omitempty"`
-	NfsFrontendHugepages       int `json:"nfsFrontendHugepages,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	ComputeContainers int `json:"computeContainers,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	DriveContainers int `json:"driveContainers,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	S3Containers int `json:"s3Containers,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	ComputeCores int `json:"computeCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	DriveCores int `json:"driveCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	S3Cores int `json:"s3Cores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	NumDrives int `json:"numDrives,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	ComputeExtraCores int `json:"computeExtraCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	DriveExtraCores int `json:"driveExtraCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	S3ExtraCores int `json:"s3ExtraCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	DriveHugepages int `json:"driveHugepages,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	DriveHugepagesOffset int `json:"driveHugepagesOffset,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	ComputeHugepages int `json:"computeHugepages,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	ComputeHugepagesOffset int `json:"computeHugepagesOffset,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	S3FrontendHugepages int `json:"s3FrontendHugepages,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	S3FrontendHugepagesOffset int `json:"s3FrontendHugepagesOffset,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	EnvoyCores int `json:"envoyCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	NfsContainers int `json:"nfsContainers,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	NfsCores int `json:"nfsCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	NfsExtraCores int `json:"nfsExtraCores,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	NfsFrontendHugepages int `json:"nfsFrontendHugepages,omitempty"`
+	// +kubebuilder:validation:Minimum=0
 	NfsFrontendHugepagesOffset int `json:"nfsFrontendHugepagesOffset,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W containers (3-8)
+	// +kubebuilder:validation:Minimum=0
 	SmbwContainers int `json:"smbwContainers,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W cores per container
+	// +kubebuilder:validation:Minimum=0
 	SmbwCores int `json:"smbwCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of SMB-W extra cores per container
+	// +kubebuilder:validation:Minimum=0
 	SmbwExtraCores int `json:"smbwExtraCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for SMB-W frontend
+	// +kubebuilder:validation:Minimum=0
 	SmbwFrontendHugepages int `json:"smbwFrontendHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for SMB-W frontend
+	// +kubebuilder:validation:Minimum=0
 	SmbwFrontendHugepagesOffset int `json:"smbwFrontendHugepagesOffset,omitempty"`
 	// DriveCapacity is the capacity in GiB to allocate per single virtual drive.
 	// NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.
 	// This value determines how much capacity each container receives from shared drives.
+	// +kubebuilder:validation:Minimum=0
 	DriveCapacity int `json:"driveCapacity,omitempty"`
 	// ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
 	// This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+	// +kubebuilder:validation:Minimum=0
 	ContainerCapacity int `json:"containerCapacity,omitempty"`
 	// DriveTypesRatio specifies the desired ratio of drive types (TLC vs QLC) when allocating drives for the cluster.
 	DriveTypesRatio *DriveTypesRatio `json:"driveTypesRatio,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services containers
+	// +kubebuilder:validation:Minimum=0
 	DataServicesContainers int `json:"dataServicesContainers,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services cores per container
+	// +kubebuilder:validation:Minimum=0
 	DataServicesCores int `json:"dataServicesCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services extra cores per container
+	// +kubebuilder:validation:Minimum=0
 	DataServicesExtraCores int `json:"dataServicesExtraCores,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage allocation for data services frontend
+	// +kubebuilder:validation:Minimum=0
 	DataServicesHugepages int `json:"dataServicesHugepages,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: hugepage offset for data services frontend
+	// +kubebuilder:validation:Minimum=0
 	DataServicesHugepagesOffset int `json:"dataServicesHugepagesOffset,omitempty"`
 	// EXPERIMENTAL, ALPHA STATE, should not be used in production: number of data services frontend cores per container
 	DataServicesFeCores int `json:"dataServicesFeCores,omitempty"`
