@@ -129,6 +129,7 @@ type EmbeddedCsiSettings struct {
 	RegistrarImage                                string
 	PreventNewWorkloadOnClientContainerNotRunning bool
 	LogLevel                                      int
+	SetOwnershipOnDynamicFilesystems              bool
 	ControllerResources                           CsiControllerResources
 	NodeResources                                 CsiNodeResources
 }
@@ -417,6 +418,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.Csi.RegistrarImage = env.GetString("CSI_REGISTRAR_IMAGE", "")
 	Config.Csi.PreventNewWorkloadOnClientContainerNotRunning = getBoolEnvOrDefault("CSI_PREVENT_NEW_WORKLOAD_ON_CLIENT_CONTAINER_NOT_RUNNING", true)
 	Config.Csi.LogLevel = getIntEnvOrDefault("CSI_LOG_LEVEL", 5)
+	Config.Csi.SetOwnershipOnDynamicFilesystems = getBoolEnvOrDefault("CSI_SET_OWNERSHIP_ON_DYNAMIC_FILESYSTEMS", false)
 	Config.Csi.ControllerResources = parseCsiControllerResources()
 	Config.Csi.NodeResources = parseCsiNodeResources()
 	Config.SyslogPackage = getEnvOrDefault("SYSLOG_PACKAGE", "auto")

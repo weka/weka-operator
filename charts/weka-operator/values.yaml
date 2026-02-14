@@ -334,6 +334,7 @@ csi:
   registrarImage: "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.14.0"
   preventNewWorkloadOnClientContainerNotRunning: true
   logLevel: 5
+  setOwnershipOnDynamicFilesystems: false
   controller:
     resources:
       wekafs:

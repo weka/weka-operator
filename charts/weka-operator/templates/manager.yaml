@@ -281,6 +281,8 @@ spec:
               value: "{{ .Values.csi.preventNewWorkloadOnClientContainerNotRunning }}"
             - name: CSI_LOG_LEVEL
               value: "{{ .Values.csi.logLevel }}"
+            - name: CSI_SET_OWNERSHIP_ON_DYNAMIC_FILESYSTEMS
+              value: "{{ .Values.csi.setOwnershipOnDynamicFilesystems }}"
             - name: CSI_CONTROLLER_WEKAFS_LIMITS_CPU
               value: "{{ .Values.csi.controller.resources.wekafs.limits.cpu }}"
             - name: CSI_CONTROLLER_WEKAFS_LIMITS_MEMORY
