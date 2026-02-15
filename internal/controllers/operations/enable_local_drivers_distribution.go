@@ -39,6 +39,7 @@ const (
 	DriverDistServiceSuffix     = "-dist"
 	DriverDistContainerSuffix   = "-dist"
 	DriversBuilderSuffix        = "builder"
+	ImageOverrideAnnotation     = "weka.io/image-override"
 )
 
 // sanitizeOsImageForLabel converts a string to a valid Kubernetes label value
@@ -541,6 +542,12 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					Name:      builderName,
 					Namespace: namespace,
 					Labels:    o.getBuilderContainerLabels(image, ka.kernelVersion, ka.architecture, ka.osImage),
+					Annotations: func() map[string]string {
+						if o.payload.BuilderImageOverride != "" {
+							return map[string]string{ImageOverrideAnnotation: o.payload.BuilderImageOverride}
+						}
+						return nil
+					}(),
 				},
 			}
 
