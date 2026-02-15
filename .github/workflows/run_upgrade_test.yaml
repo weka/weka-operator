@@ -108,13 +108,13 @@ jobs:
           chmod 600 ~/.netrc
 
       - name: Check out weka-k8s-testing private repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: weka/weka-k8s-testing
           token: ${{ steps.app-token.outputs.token }}
           submodules: recursive
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -137,7 +137,7 @@ jobs:
       OPERATOR_VERSION: ${{ needs.get_operator_version.outputs.operator_version }}
     steps:
     - name: Check out current repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - uses: azure/k8s-set-context@v4
       name: Set K8s context

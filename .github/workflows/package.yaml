@@ -62,7 +62,7 @@ jobs:
           chmod 600 ~/.netrc
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
@@ -73,7 +73,7 @@ jobs:
           mkdir -p dockerfile_files
           cp -r ~/.gitconfig ~/.netrc dockerfile_files/
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.24.3"
           cache: true

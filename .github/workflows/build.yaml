@@ -1,5 +1,5 @@
 ---
-name: Build
+name: CI
 on:
   push:
 
@@ -17,13 +17,14 @@ jobs:
         uses: withgraphite/graphite-ci-action@v0.0.9
         with:
           graphite_token: ${{ secrets.GRAPHITE_TOKEN }}
-  build:
+
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip == 'false'
     env:
       GOPRIVATE: github.com/weka
-
     steps:
       - uses: actions/create-github-app-token@v2
         id: app-token
@@ -39,16 +40,135 @@ jobs:
           echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
           chmod 600 ~/.netrc
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go.mod'
+          go-version-file: go.mod
+          cache: false
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.9.0
+          only-new-issues: true
+
+  static-checks:
+    name: Static Checks (deadcode)
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
+          chmod 600 ~/.netrc
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
+
+      - name: Install deadcode
+        run: go install golang.org/x/tools/cmd/deadcode@latest
+
+      - name: Run deadcode
+        run: deadcode -test ./...
+
+  security:
+    name: Security (govulncheck)
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
+          chmod 600 ~/.netrc
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
+          chmod 600 ~/.netrc
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
           cache: true
           cache-dependency-path: |
             go.sum

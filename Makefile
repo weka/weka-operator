@@ -137,6 +137,25 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: lint
+lint: lint-go lint-deadcode ## Run all linters (golangci-lint and deadcode).
+
+.PHONY: lint-go
+lint-go: ## Run golangci-lint against code.
+	golangci-lint run ./...
+
+.PHONY: lint-deadcode
+lint-deadcode: ## Run deadcode analysis (includes test coverage).
+	deadcode -test ./...
+
+.PHONY: lint-govulncheck
+lint-govulncheck: ## Run govulncheck against known vulnerability database.
+	govulncheck ./...
+
+.PHONY: lint-fix
+lint-fix: ## Run golangci-lint and auto-fix issues where possible.
+	golangci-lint run --fix ./...
+
 .PHONY: test
 test: ## Run tests.
 	go test -v ./internal/... -coverprofile cover.out

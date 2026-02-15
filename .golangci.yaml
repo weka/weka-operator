@@ -1,0 +1,39 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck      # Checks for unchecked errors
+    - govet         # Official Go static analyzer
+    - ineffassign   # Detects ineffectual assignments
+    - staticcheck   # Advanced static analysis
+    - unused        # Finds unused code (within packages)
+    - misspell      # Catches spelling mistakes
+    - gocritic      # Extensible linter with performance/diagnostic/style checks
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable:
+        - shadow
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+  exclusions:
+    # Kubernetes controllers often have long functions due to reconciliation logic
+    rules:
+      - path: internal/controllers/
+        text: "cognitive complexity|cyclomatic complexity"
+        linters:
+          - gocritic
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

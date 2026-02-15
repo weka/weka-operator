@@ -51,7 +51,7 @@ jobs:
           echo "Labels: ${{ toJson(github.event.pull_request.labels) }}"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check if all commits are chore/docs
         id: check_commits
@@ -123,14 +123,14 @@ jobs:
           owner: ${{ github.repository_owner }}
  
       - name: Checkout operator repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: operator
           submodules: true
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout wekai repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: weka/wekai
           token: ${{ steps.app-token.outputs.token }}
@@ -138,7 +138,7 @@ jobs:
           ref: fef89c34562a7c289d4bd1bf1f6f4c634cefcd9a
 
       - name: Checkout testing repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: weka/weka-k8s-testing
           token: ${{ steps.app-token.outputs.token }}
@@ -294,13 +294,13 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Checkout operator repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: operator
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Checkout testing repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: weka/weka-k8s-testing
           token: ${{ steps.app-token.outputs.token }}
