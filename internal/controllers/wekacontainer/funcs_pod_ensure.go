@@ -8,6 +8,7 @@ import (
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	"github.com/weka/weka-operator/internal/controllers/operations"
 	"github.com/weka/weka-operator/internal/drivers"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -101,6 +102,15 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
+	// For drivers-builder containers without explicit instructions (standalone, not via wekapolicy),
+	// set the copy-weka-version instruction so weka files are copied from the original image
+	if container.IsDriversBuilder() && container.Spec.Instructions == nil {
+		container.Spec.Instructions = &weka.Instructions{
+			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+			Payload: container.Spec.Image,
+		}
+	}
+
 	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
@@ -112,7 +122,6 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		//logger.Info("Determined builder image for drivers-builder", "osImage", node.Status.NodeInfo.OSImage, "builderImage", image)
 	}
 
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
@@ -134,6 +143,11 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 // adjustBuilderPod modifies the pod spec before creation (e.g., image overrides, init containers).
 func (r *containerReconcilerLoop) adjustBuilderPod(ctx context.Context, pod *v1.Pod,
 	nodeAffinity weka.NodeName) error {
+	if override := r.container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
+		pod.Spec.Containers[0].Image = override
+		return nil
+	}
+
 	node := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
 		return errors.Wrap(err, "failed to get target node for drivers-builder")
