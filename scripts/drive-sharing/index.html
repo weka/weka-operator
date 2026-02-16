@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drive-Sharing Virtual Drives Allocation Calculator</title>
+<style>
+  :root {
+    --tlc-color: #3B82F6;
+    --qlc-color: #10B981;
+    --free-color: #E5E7EB;
+    --error-color: #EF4444;
+    --error-bg: #FEF2F2;
+    --border: #D1D5DB;
+    --bg-panel: #F9FAFB;
+    --bg-card: #FFFFFF;
+    --text: #111827;
+    --text-muted: #6B7280;
+    --accent: #2563EB;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); background: #F3F4F6; line-height: 1.5; }
+  .container { display: flex; gap: 24px; max-width: 1600px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.25rem; padding: 16px; background: var(--bg-card); border-bottom: 1px solid var(--border); }
+  h2 { font-size: 1rem; margin-bottom: 8px; }
+  h3 { font-size: 0.875rem; margin-bottom: 6px; color: var(--text-muted); }
+
+  .input-panel { flex: 0 0 40%; min-width: 360px; }
+  .output-panel { flex: 1; min-width: 400px; }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+  label { font-size: 0.8125rem; font-weight: 500; display: block; margin-bottom: 2px; }
+  input[type="number"], select { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.875rem; }
+  input[type="number"]:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+  .form-row { display: flex; gap: 12px; margin-bottom: 8px; }
+  .form-row > * { flex: 1; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--bg-panel); font-weight: 600; }
+  td input, td select { padding: 4px 6px; font-size: 0.8125rem; }
+
+  .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8125rem; font-weight: 500; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #1D4ED8; }
+  .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: var(--bg-panel); }
+  .btn-danger { background: var(--error-color); color: #fff; }
+  .btn-danger:hover { background: #DC2626; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  .radio-group { display: flex; gap: 16px; margin-bottom: 12px; }
+  .radio-group label { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; cursor: pointer; }
+
+  .summary-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .summary-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .summary-card .value { font-size: 1.25rem; font-weight: 700; }
+  .summary-card .label { font-size: 0.75rem; color: var(--text-muted); }
+
+  .drive-bar-container { margin-bottom: 12px; }
+  .drive-bar-label { font-size: 0.8125rem; font-weight: 500; margin-bottom: 4px; }
+  .drive-bar { height: 36px; display: flex; border-radius: 4px; overflow: hidden; border: 1px solid var(--border); position: relative; }
+  .drive-segment { display: flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 600; color: #fff; overflow: hidden; white-space: nowrap; position: relative; cursor: default; min-width: 2px; }
+  .drive-segment.free { color: var(--text-muted); }
+  .drive-segment-tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1F2937; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.6875rem; white-space: nowrap; z-index: 10; margin-bottom: 4px; }
+  .drive-segment:hover .drive-segment-tooltip { display: block; }
+
+  .collapsible-header { cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+  .collapsible-header::before { content: '\25B6'; font-size: 0.625rem; transition: transform 0.2s; }
+  .collapsible-header.open::before { transform: rotate(90deg); }
+  .collapsible-body { display: none; margin-top: 8px; }
+  .collapsible-body.open { display: block; }
+
+  .log-area { background: #1F2937; color: #D1D5DB; padding: 12px; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+  .log-success { color: #34D399; }
+  .log-fail { color: #F87171; }
+  .log-info { color: #93C5FD; }
+
+  .error-banner { background: var(--error-bg); border: 1px solid var(--error-color); border-radius: 6px; padding: 12px 16px; color: #991B1B; font-size: 0.875rem; margin-bottom: 16px; display: none; }
+  .error-banner.visible { display: block; }
+
+  .checkbox-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .checkbox-row label { margin-bottom: 0; font-weight: 400; }
+
+  #calculate-btn { width: 100%; padding: 10px; font-size: 1rem; margin-top: 4px; }
+
+  @media (max-width: 900px) {
+    .container { flex-direction: column; }
+    .input-panel, .output-panel { flex: 1; min-width: 0; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Drive-Sharing Virtual Drives Allocation Calculator</h1>
+
+<div class="container">
+  <!-- INPUT PANEL -->
+  <div class="input-panel">
+
+    <!-- Physical Drives Editor -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Physical Drives</h2>
+        <button class="btn btn-sm btn-outline" onclick="addDriveRow()">+ Add Drive</button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-sm btn-outline" onclick="loadPreset('4tlc')">4x TLC 4TB</button>
+        <button class="btn btn-sm btn-outline" onclick="loadPreset('mixed')">2x TLC + 2x QLC 10TB</button>
+        <button class="btn btn-sm btn-outline" onclick="loadPreset('hetero')">Heterogeneous (20TB + 2x 500GB)</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Capacity (GiB)</th><th>Available (GiB)</th><th>Type</th><th></th></tr></thead>
+        <tbody id="drives-table"></tbody>
+      </table>
+    </div>
+
+    <!-- Allocation Mode -->
+    <div class="card">
+      <h2>Allocation Mode</h2>
+      <div class="radio-group">
+        <label><input type="radio" name="mode" value="capacity" checked onchange="toggleMode()"> Capacity-based</label>
+        <label><input type="radio" name="mode" value="fixed" onchange="toggleMode()"> Fixed Drives (TLC-only)</label>
+      </div>
+
+      <div id="capacity-inputs">
+        <div class="form-row">
+          <div><label>Container Capacity (GiB)</label><input type="number" id="containerCapacity" value="6000" min="1"></div>
+          <div><label>Drive Cores</label><input type="number" id="driveCores" value="3" min="1"></div>
+        </div>
+        <div class="form-row">
+          <div><label>TLC Ratio</label><input type="number" id="tlcRatio" value="1" min="0"></div>
+          <div><label>QLC Ratio</label><input type="number" id="qlcRatio" value="0" min="0"></div>
+        </div>
+      </div>
+
+      <div id="fixed-inputs" style="display:none;">
+        <div class="form-row">
+          <div><label>Number of Drives</label><input type="number" id="numDrivesFixed" value="3" min="1"></div>
+          <div><label>Drive Capacity (GiB)</label><input type="number" id="driveCapacityFixed" value="1000" min="1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Settings -->
+    <div class="card">
+      <div class="collapsible-header" onclick="toggleCollapsible(this)">
+        <h3 style="margin:0">Advanced Settings</h3>
+      </div>
+      <div class="collapsible-body">
+        <div class="form-row">
+          <div><label>Max Virtual Drives Per Core</label><input type="number" id="maxVDPerCore" value="8" min="1"></div>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="enforcePerType" checked>
+          <label for="enforcePerType">Enforce Min Drives Per Type Per Core</label>
+        </div>
+      </div>
+    </div>
+
+    <button id="calculate-btn" class="btn btn-primary" onclick="calculate()">Calculate</button>
+  </div>
+
+  <!-- OUTPUT PANEL -->
+  <div class="output-panel">
+    <div id="error-banner" class="error-banner"></div>
+
+    <div id="results" style="display:none;">
+      <!-- Summary Cards -->
+      <div class="summary-cards" id="summary-cards"></div>
+
+      <!-- Physical Drive Visualization -->
+      <div class="card">
+        <h2>Physical Drive Visualization</h2>
+        <div id="drive-bars"></div>
+      </div>
+
+      <!-- Virtual Drives Detail Table -->
+      <div class="card">
+        <h2>Virtual Drives</h2>
+        <table id="vd-table">
+          <thead><tr><th>#</th><th>Physical Drive</th><th>Capacity (GiB)</th><th>Type</th></tr></thead>
+          <tbody id="vd-table-body"></tbody>
+        </table>
+      </div>
+
+      <!-- Allocation Log -->
+      <div class="card">
+        <div class="collapsible-header open" onclick="toggleCollapsible(this)">
+          <h2 style="margin:0">Allocation Log</h2>
+        </div>
+        <div class="collapsible-body open">
+          <div class="log-area" id="log-area"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="placeholder" class="card" style="text-align:center; color: var(--text-muted); padding: 40px;">
+      Configure physical drives and allocation parameters, then click <strong>Calculate</strong>.
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// Constants (from Go)
+// ============================================================================
+const MIN_CHUNK_SIZE_GIB = 128 * 3; // 384
+
+// ============================================================================
+// Allocation Log
+// ============================================================================
+let logLines = [];
+function logReset() { logLines = []; }
+function log(msg, cls) { logLines.push({ msg, cls: cls || '' }); }
+function renderLog() {
+  const el = document.getElementById('log-area');
+  el.innerHTML = logLines.map(l => {
+    if (l.cls) return `<span class="${l.cls}">${escapeHtml(l.msg)}</span>`;
+    return escapeHtml(l.msg);
+  }).join('\n');
+}
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================================
+// Physical Drives Table
+// ============================================================================
+let driveCounter = 0;
+let physicalDrives = [];
+
+function addDriveRow(name, capacity, available, type) {
+  driveCounter++;
+  const n = name || ('drive-' + driveCounter);
+  const c = capacity || 4000;
+  const a = (available !== undefined) ? available : c;
+  const t = type || 'TLC';
+  physicalDrives.push({ name: n, capacity: c, available: a, type: t });
+  renderDrivesTable();
+}
+
+function removeDriveRow(idx) {
+  physicalDrives.splice(idx, 1);
+  renderDrivesTable();
+}
+
+function renderDrivesTable() {
+  const tbody = document.getElementById('drives-table');
+  tbody.innerHTML = '';
+  physicalDrives.forEach((d, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" value="${d.name}" style="width:90px" onchange="physicalDrives[${i}].name=this.value"></td>
+      <td><input type="number" value="${d.capacity}" min="1" style="width:90px" onchange="physicalDrives[${i}].capacity=parseInt(this.value);if(physicalDrives[${i}].available>parseInt(this.value))physicalDrives[${i}].available=parseInt(this.value);renderDrivesTable()"></td>
+      <td><input type="number" value="${d.available}" min="0" max="${d.capacity}" style="width:90px" onchange="physicalDrives[${i}].available=parseInt(this.value)"></td>
+      <td><select onchange="physicalDrives[${i}].type=this.value" style="width:70px"><option value="TLC"${d.type==='TLC'?' selected':''}>TLC</option><option value="QLC"${d.type==='QLC'?' selected':''}>QLC</option></select></td>
+      <td><button class="btn btn-sm btn-danger" onclick="removeDriveRow(${i})">x</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function loadPreset(preset) {
+  physicalDrives = [];
+  driveCounter = 0;
+  if (preset === '4tlc') {
+    for (let i = 0; i < 4; i++) addDriveRow(undefined, 4000, 4000, 'TLC');
+  } else if (preset === 'mixed') {
+    addDriveRow('tlc-1', 4000, 4000, 'TLC');
+    addDriveRow('tlc-2', 4000, 4000, 'TLC');
+    addDriveRow('qlc-1', 10000, 10000, 'QLC');
+    addDriveRow('qlc-2', 10000, 10000, 'QLC');
+  } else if (preset === 'hetero') {
+    addDriveRow('big-drive', 20000, 20000, 'TLC');
+    addDriveRow('small-1', 500, 500, 'TLC');
+    addDriveRow('small-2', 500, 500, 'TLC');
+  }
+  calculate();
+}
+
+// ============================================================================
+// UI Helpers
+// ============================================================================
+function toggleMode() {
+  const isCapacity = document.querySelector('input[name="mode"]:checked').value === 'capacity';
+  document.getElementById('capacity-inputs').style.display = isCapacity ? '' : 'none';
+  document.getElementById('fixed-inputs').style.display = isCapacity ? 'none' : '';
+}
+
+function toggleCollapsible(header) {
+  header.classList.toggle('open');
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.classList.add('visible');
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('placeholder').style.display = 'none';
+}
+
+function hideError() {
+  document.getElementById('error-banner').classList.remove('visible');
+}
+
+// ============================================================================
+// Core Allocation Logic (ported from Go)
+// ============================================================================
+
+/**
+ * GetTlcQlcCapacity splits total capacity into TLC and QLC based on ratio.
+ * Remainder goes to QLC to avoid rounding loss.
+ * Returns all capacity as TLC if ratio is null or both zero.
+ */
+function getTlcQlcCapacity(totalCapacity, ratio) {
+  if (!ratio || (ratio.tlc + ratio.qlc === 0)) {
+    return { tlc: totalCapacity, qlc: 0 };
+  }
+  const totalParts = ratio.tlc + ratio.qlc;
+  const tlc = Math.floor((totalCapacity * ratio.tlc) / totalParts);
+  const qlc = totalCapacity - tlc;
+  return { tlc, qlc };
+}
+
+/**
+ * distributeEvenly distributes totalCapacity across numDrives drives.
+ * Returns null if baseSize < minChunkSize.
+ */
+function distributeEvenly(totalCapacity, numDrives, minChunkSize, numCores) {
+  if (numDrives < numCores) return null;
+  const baseSize = Math.floor(totalCapacity / numDrives);
+  const remainder = totalCapacity % numDrives;
+  if (baseSize < minChunkSize) return null;
+  const sizes = [];
+  for (let i = 0; i < remainder; i++) sizes.push(baseSize + 1);
+  for (let i = remainder; i < numDrives; i++) sizes.push(baseSize);
+  return sizes;
+}
+
+/**
+ * Strategy generator: yields even distribution strategies, then fit-to-physical.
+ */
+function generateStrategies(totalCapacity, numCores, minChunkSize, driveCapacities, maxDrives) {
+  const strategies = [];
+
+  // Check if enough total capacity
+  let totalAvailable = 0;
+  for (const uuid in driveCapacities) totalAvailable += driveCapacities[uuid].available;
+  if (totalAvailable < totalCapacity) {
+    log(`Total available capacity (${totalAvailable} GiB) < needed (${totalCapacity} GiB), no strategies possible`, 'log-fail');
+    return strategies;
+  }
+
+  // Sorted available capacities descending (only those >= minChunkSize)
+  const sortedAvailCaps = [];
+  for (const uuid in driveCapacities) {
+    if (driveCapacities[uuid].available >= minChunkSize) {
+      sortedAvailCaps.push(driveCapacities[uuid].available);
+    }
+  }
+  sortedAvailCaps.sort((a, b) => b - a);
+
+  // Strategy 1: Even distribution
+  for (let numDrives = numCores; numDrives <= maxDrives; numDrives++) {
+    const sizes = distributeEvenly(totalCapacity, numDrives, minChunkSize, numCores);
+    if (sizes !== null) {
+      strategies.push({ driveSizes: sizes, name: `Even distribution (${numDrives} drives)` });
+    } else {
+      break; // base size too small, all subsequent will be smaller
+    }
+  }
+
+  // Strategy 2: Fit-to-physical fallback
+  {
+    let driveSizes = [];
+    let capacitySoFar = 0;
+
+    for (const availCap of sortedAvailCaps) {
+      if (availCap < minChunkSize) continue;
+      let allocate = availCap;
+      const remaining = totalCapacity - capacitySoFar;
+      if (allocate > remaining) allocate = remaining;
+      if (allocate >= minChunkSize) {
+        driveSizes.push(allocate);
+        capacitySoFar += allocate;
+      }
+      if (capacitySoFar >= totalCapacity) break;
+    }
+
+    if (capacitySoFar >= totalCapacity) {
+      // Split largest drives until we meet numCores constraint
+      while (driveSizes.length < numCores && driveSizes.length < maxDrives) {
+        let maxIdx = -1;
+        let maxSize = 0;
+        for (let i = 0; i < driveSizes.length; i++) {
+          if (driveSizes[i] > maxSize && driveSizes[i] >= 2 * minChunkSize) {
+            maxIdx = i;
+            maxSize = driveSizes[i];
+          }
+        }
+        if (maxIdx === -1) break;
+        const size1 = Math.floor(driveSizes[maxIdx] / 2);
+        const size2 = driveSizes[maxIdx] - size1;
+        driveSizes[maxIdx] = size1;
+        driveSizes.push(size2);
+      }
+
+      if (driveSizes.length >= numCores && driveSizes.length <= maxDrives) {
+        strategies.push({ driveSizes, name: `Fit-to-physical (${driveSizes.length} drives)` });
+      }
+    }
+  }
+
+  return strategies;
+}
+
+/**
+ * filterAndSortUsableDrives: filter by min capacity, sort descending by available.
+ * Returns array of { uuid, drive, available } objects.
+ */
+function filterAndSortUsableDrives(driveCapacities, minCap) {
+  const result = [];
+  for (const uuid in driveCapacities) {
+    const dc = driveCapacities[uuid];
+    if (dc.available >= minCap) {
+      result.push({ uuid, drive: dc, available: dc.available });
+    }
+  }
+  result.sort((a, b) => b.available - a.available);
+  return result;
+}
+
+/**
+ * tryAllocateStrategy: greedy most-available-first placement with bubble-down re-sort.
+ * Returns { success, plan } where plan is array of { physicalUUID, capacityGiB, serial, name }.
+ */
+function tryAllocateStrategy(usableDrives, strategy) {
+  if (usableDrives.length === 0) return { success: false, plan: [] };
+
+  // Copy available capacities for simulation
+  const availCaps = usableDrives.map(d => d.available);
+  const plan = [];
+
+  for (const driveSizeGiB of strategy.driveSizes) {
+    let allocated = false;
+
+    for (let j = 0; j < usableDrives.length; j++) {
+      if (availCaps[j] >= driveSizeGiB) {
+        plan.push({
+          physicalUUID: usableDrives[j].drive.uuid || usableDrives[j].uuid,
+          capacityGiB: driveSizeGiB,
+          serial: usableDrives[j].drive.serial,
+          name: usableDrives[j].drive.name
+        });
+        availCaps[j] -= driveSizeGiB;
+        allocated = true;
+
+        // Bubble-down re-sort: swap this drive down while it has less than the next
+        for (let k = j; k < usableDrives.length - 1; k++) {
+          if (availCaps[k] < availCaps[k + 1]) {
+            // Swap capacities
+            [availCaps[k], availCaps[k + 1]] = [availCaps[k + 1], availCaps[k]];
+            // Swap drive refs
+            [usableDrives[k], usableDrives[k + 1]] = [usableDrives[k + 1], usableDrives[k]];
+          } else {
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    if (!allocated) return { success: false, plan: [] };
+  }
+
+  return { success: true, plan };
+}
+
+/**
+ * allocateSingleDriveType: iterate strategies, try placement, return first success.
+ */
+function allocateSingleDriveType(driveType, capacityNeeded, minDrives, maxDrives, driveCapacities, totalMaxDrives, otherTypeDrivesUsed) {
+  const strategies = generateStrategies(capacityNeeded, minDrives, MIN_CHUNK_SIZE_GIB, driveCapacities, maxDrives);
+
+  for (const strategy of strategies) {
+    // Must make a fresh copy of usable drives for each attempt since tryAllocateStrategy mutates the array
+    const usableDrives = filterAndSortUsableDrives(driveCapacities, MIN_CHUNK_SIZE_GIB);
+    const { success, plan } = tryAllocateStrategy(usableDrives, strategy);
+
+    if (success) {
+      log(`${driveType}: ${strategy.name}: [${strategy.driveSizes.join(', ')}] -> SUCCESS`, 'log-success');
+      const placements = plan.map(p => `${p.name}(${p.capacityGiB})`).join(', ');
+      log(`  Placed: ${placements}`, 'log-success');
+
+      return {
+        virtualDrives: plan.map(p => ({
+          physicalUUID: p.physicalUUID,
+          capacityGiB: p.capacityGiB,
+          serial: p.serial,
+          physicalName: p.name,
+          type: driveType
+        })),
+        strategy: strategy.name
+      };
+    } else {
+      log(`${driveType}: ${strategy.name}: [${strategy.driveSizes.join(', ')}] -> FAILED (cannot place on physical drives)`, 'log-fail');
+    }
+  }
+
+  // Calculate error details
+  let totalAvailable = 0;
+  let usableAvailable = 0;
+  const physCaps = [];
+  for (const uuid in driveCapacities) {
+    const dc = driveCapacities[uuid];
+    totalAvailable += dc.available;
+    if (dc.available >= MIN_CHUNK_SIZE_GIB) usableAvailable += dc.available;
+    physCaps.push(dc.available);
+  }
+
+  let maxExplain = `Max ${driveType} virtual drives: ${maxDrives}`;
+  if (totalMaxDrives !== undefined && otherTypeDrivesUsed > 0) {
+    const otherType = driveType === 'TLC' ? 'QLC' : 'TLC';
+    maxExplain += ` (total limit ${totalMaxDrives} = cores * maxVDPerCore, minus ${otherTypeDrivesUsed} ${otherType} drives)`;
+  } else if (totalMaxDrives !== undefined) {
+    maxExplain += ` (= cores * maxVDPerCore)`;
+  }
+
+  let errMsg;
+  if (usableAvailable >= capacityNeeded) {
+    errMsg = `Cannot allocate ${capacityNeeded} GiB: each virtual drive must fit entirely on a single physical drive for drive type ${driveType}. Physical ${driveType} drives available: [${physCaps.join(', ')}] GiB. ${maxExplain}`;
+  } else {
+    errMsg = `Not enough ${driveType} drive capacity: need ${capacityNeeded} GiB, have ${usableAvailable} GiB usable (${totalAvailable} GiB total). Physical ${driveType} drives available: [${physCaps.join(', ')}] GiB. ${maxExplain}`;
+  }
+  return { error: errMsg };
+}
+
+/**
+ * buildDriveCapacityMap from physical drives array, keyed by name.
+ */
+function buildDriveCapacityMap(drives) {
+  const caps = {};
+  for (const d of drives) {
+    caps[d.name] = {
+      name: d.name,
+      uuid: d.name,
+      serial: d.name,
+      totalCapacity: d.capacity,
+      available: d.available,
+      type: d.type
+    };
+  }
+  return caps;
+}
+
+/**
+ * allocateByCapacity: main capacity-based allocation with TLC/QLC types.
+ */
+function allocateByCapacity(config) {
+  const { containerCapacity, numCores, ratio, enforcePerType, maxVDPerCore, drives } = config;
+
+  // Calculate TLC and QLC capacities
+  const { tlc: tlcCapacity, qlc: qlcCapacity } = getTlcQlcCapacity(containerCapacity, ratio);
+
+  // QLC-only is not allowed — TLC ratio must be > 0
+  if (tlcCapacity === 0 && qlcCapacity > 0) {
+    return { error: 'QLC-only configuration is not supported. TLC ratio must be greater than 0.' };
+  }
+
+  log(`Capacity split: TLC=${tlcCapacity} GiB, QLC=${qlcCapacity} GiB`, 'log-info');
+  log(`Cores=${numCores}, EnforcePerType=${enforcePerType}, MaxVDPerCore=${maxVDPerCore}`, 'log-info');
+
+  const maxDrives = numCores * maxVDPerCore;
+  const minCapPerType = numCores * MIN_CHUNK_SIZE_GIB;
+  const totalCapacity = tlcCapacity + qlcCapacity;
+
+  // Validation
+  if (enforcePerType) {
+    if (tlcCapacity > 0 && tlcCapacity < minCapPerType) {
+      return { error: `Insufficient TLC capacity: with ${numCores} drive cores and enforceMinDrivesPerTypePerCore=true, need at least ${minCapPerType} GiB TLC (minimum ${numCores} drives x ${MIN_CHUNK_SIZE_GIB} GiB each), but only ${tlcCapacity} GiB configured. Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false` };
+    }
+    if (qlcCapacity > 0 && qlcCapacity < minCapPerType) {
+      return { error: `Insufficient QLC capacity: with ${numCores} drive cores and enforceMinDrivesPerTypePerCore=true, need at least ${minCapPerType} GiB QLC (minimum ${numCores} drives x ${MIN_CHUNK_SIZE_GIB} GiB each), but only ${qlcCapacity} GiB configured. Increase containerCapacity or adjust driveTypesRatio, or set enforceMinDrivesPerTypePerCore=false` };
+    }
+  } else {
+    if (totalCapacity < minCapPerType) {
+      return { error: `Insufficient total capacity: with ${numCores} drive cores, need at least ${minCapPerType} GiB total (minimum ${numCores} drives x ${MIN_CHUNK_SIZE_GIB} GiB each), but only ${totalCapacity} GiB available. Increase containerCapacity` };
+    }
+  }
+
+  // Separate drives by type
+  const tlcDrives = drives.filter(d => d.type === 'TLC');
+  const qlcDrives = drives.filter(d => d.type === 'QLC');
+
+  if (tlcCapacity > 0 && tlcDrives.length === 0) {
+    return { error: `No TLC drives available but TLC capacity ${tlcCapacity} GiB is required` };
+  }
+  if (qlcCapacity > 0 && qlcDrives.length === 0) {
+    return { error: `No QLC drives available but QLC capacity ${qlcCapacity} GiB is required` };
+  }
+
+  const tlcCaps = tlcCapacity > 0 ? buildDriveCapacityMap(tlcDrives) : {};
+  const qlcCaps = qlcCapacity > 0 ? buildDriveCapacityMap(qlcDrives) : {};
+
+  // Determine TLC min/max range for iteration
+  let tlcMinStart, tlcMinEnd;
+  if (tlcCapacity === 0) {
+    // QLC only
+    tlcMinStart = 0;
+    tlcMinEnd = 0;
+  } else if (qlcCapacity === 0 || enforcePerType) {
+    // TLC only or per-type constraint
+    tlcMinStart = numCores;
+    tlcMinEnd = numCores;
+  } else {
+    // Combined constraint with mixed types: iterate from 1 to numCores
+    tlcMinStart = 1;
+    tlcMinEnd = numCores;
+  }
+
+  log(`TLC min range: [${tlcMinStart}..${tlcMinEnd}], maxDrives=${maxDrives}`, 'log-info');
+
+  let allVirtualDrives = [];
+  let lastTlcError = null;
+  let lastQlcError = null;
+  let successStrategy = '';
+
+  for (let tlcMin = tlcMinStart; tlcMin <= tlcMinEnd; tlcMin++) {
+    allVirtualDrives = [];
+    let tlcResult = null;
+
+    // Allocate TLC
+    if (tlcCapacity > 0) {
+      log(`\nTrying TLC allocation with minDrives=${tlcMin}...`, 'log-info');
+      tlcResult = allocateSingleDriveType('TLC', tlcCapacity, tlcMin, maxDrives, tlcCaps, maxDrives, 0);
+      if (tlcResult.error) {
+        lastTlcError = tlcResult.error;
+        log(`  TLC failed: ${tlcResult.error}`, 'log-fail');
+        continue;
+      }
+      allVirtualDrives = allVirtualDrives.concat(tlcResult.virtualDrives);
+      successStrategy = tlcResult.strategy;
+    }
+
+    // Allocate QLC
+    if (qlcCapacity > 0) {
+      let qlcMin;
+      if (enforcePerType) {
+        qlcMin = numCores;
+      } else {
+        qlcMin = Math.max(1, numCores - allVirtualDrives.length);
+      }
+      const qlcMax = maxDrives - allVirtualDrives.length;
+
+      log(`\nTrying QLC allocation with minDrives=${qlcMin}, maxDrives=${qlcMax}...`, 'log-info');
+      const qlcResult = allocateSingleDriveType('QLC', qlcCapacity, qlcMin, qlcMax, qlcCaps, maxDrives, allVirtualDrives.length);
+      if (qlcResult.error) {
+        lastQlcError = qlcResult.error;
+        log(`  QLC failed: ${qlcResult.error}`, 'log-fail');
+        continue;
+      }
+      allVirtualDrives = allVirtualDrives.concat(qlcResult.virtualDrives);
+      if (!successStrategy) successStrategy = qlcResult.strategy;
+      else successStrategy += ' + ' + qlcResult.strategy;
+    }
+
+    // Both succeeded
+    break;
+  }
+
+  // Check success
+  let expectedTypes = 0;
+  if (tlcCapacity > 0) expectedTypes++;
+  if (qlcCapacity > 0) expectedTypes++;
+
+  const minRequired = numCores;
+
+  const actualTypes = new Set(allVirtualDrives.map(d => d.type)).size;
+  if (actualTypes < expectedTypes || allVirtualDrives.length < minRequired) {
+    const err = lastQlcError || lastTlcError || `Failed to allocate virtual drives: could not satisfy combined constraint of ${minRequired} minimum drives`;
+    return { error: err };
+  }
+
+  return { virtualDrives: allVirtualDrives, strategy: successStrategy };
+}
+
+/**
+ * allocateByDrivesNum: fixed drives mode (TLC-only).
+ */
+function allocateByDrivesNum(config) {
+  const { numDrives, driveCapacity, drives } = config;
+
+  // Filter TLC drives only
+  const tlcDrives = drives.filter(d => d.type === 'TLC');
+  log(`Fixed drives mode: ${numDrives} drives x ${driveCapacity} GiB, TLC only`, 'log-info');
+  log(`Available TLC drives: ${tlcDrives.length}`, 'log-info');
+
+  if (tlcDrives.length < numDrives) {
+    return { error: `Not enough drives available: need ${numDrives}, have ${tlcDrives.length} TLC drives` };
+  }
+
+  // Build capacity map and filter by driveCapacity
+  const caps = buildDriveCapacityMap(tlcDrives);
+  const availableDrives = filterAndSortUsableDrives(caps, driveCapacity);
+
+  if (availableDrives.length < numDrives) {
+    const totalAvail = Object.values(caps).reduce((s, d) => s + d.available, 0);
+    return { error: `Not enough drives available: need ${numDrives * driveCapacity} GiB, have ${totalAvail} GiB across ${availableDrives.length} usable drives (need ${numDrives} with at least ${driveCapacity} GiB each)` };
+  }
+
+  const virtualDrives = [];
+  for (let i = 0; i < numDrives; i++) {
+    const selected = availableDrives[0];
+    virtualDrives.push({
+      physicalUUID: selected.drive.uuid,
+      capacityGiB: driveCapacity,
+      serial: selected.drive.serial,
+      physicalName: selected.drive.name,
+      type: 'TLC'
+    });
+
+    selected.available -= driveCapacity;
+
+    // Re-sort by available descending
+    availableDrives.sort((a, b) => b.available - a.available);
+
+    log(`Drive ${i + 1}: ${selected.drive.name} (${driveCapacity} GiB, remaining: ${selected.available} GiB)`, 'log-success');
+  }
+
+  return { virtualDrives, strategy: 'Fixed Drives (round-robin)' };
+}
+
+// ============================================================================
+// Main Calculate Function
+// ============================================================================
+function calculate() {
+  logReset();
+  hideError();
+
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const maxVDPerCore = parseInt(document.getElementById('maxVDPerCore').value) || 8;
+  const enforcePerType = document.getElementById('enforcePerType').checked;
+
+  // Snapshot physical drives
+  const drives = physicalDrives.map(d => ({ ...d }));
+
+  if (drives.length === 0) {
+    showError('Add at least one physical drive.');
+    renderLog();
+    return;
+  }
+
+  let result;
+
+  if (mode === 'capacity') {
+    const containerCapacity = parseInt(document.getElementById('containerCapacity').value) || 0;
+    const numCores = parseInt(document.getElementById('driveCores').value) || 1;
+    const tlcRatio = parseInt(document.getElementById('tlcRatio').value) || 0;
+    const qlcRatio = parseInt(document.getElementById('qlcRatio').value) || 0;
+
+    if (containerCapacity <= 0) {
+      showError('Container Capacity must be positive.');
+      renderLog();
+      return;
+    }
+
+    result = allocateByCapacity({
+      containerCapacity,
+      numCores,
+      ratio: { tlc: tlcRatio, qlc: qlcRatio },
+      enforcePerType,
+      maxVDPerCore,
+      drives
+    });
+  } else {
+    const numDrives = parseInt(document.getElementById('numDrivesFixed').value) || 1;
+    const driveCapacity = parseInt(document.getElementById('driveCapacityFixed').value) || 0;
+
+    if (driveCapacity <= 0) {
+      showError('Drive Capacity must be positive.');
+      renderLog();
+      return;
+    }
+
+    result = allocateByDrivesNum({
+      numDrives,
+      driveCapacity,
+      drives
+    });
+  }
+
+  renderLog();
+
+  if (result.error) {
+    showError(result.error);
+    return;
+  }
+
+  renderResults(result, drives);
+}
+
+// ============================================================================
+// Render Results
+// ============================================================================
+function renderResults(result, drives) {
+  document.getElementById('results').style.display = '';
+  document.getElementById('placeholder').style.display = 'none';
+
+  const vds = result.virtualDrives;
+
+  // Summary cards
+  const tlcVDs = vds.filter(d => d.type === 'TLC');
+  const qlcVDs = vds.filter(d => d.type === 'QLC');
+  const tlcCap = tlcVDs.reduce((s, d) => s + d.capacityGiB, 0);
+  const qlcCap = qlcVDs.reduce((s, d) => s + d.capacityGiB, 0);
+
+  document.getElementById('summary-cards').innerHTML = `
+    <div class="summary-card"><div class="value">${vds.length}</div><div class="label">Total VDs</div></div>
+    <div class="summary-card"><div class="value" style="color:var(--tlc-color)">${tlcVDs.length} / ${tlcCap} GiB</div><div class="label">TLC</div></div>
+    <div class="summary-card"><div class="value" style="color:var(--qlc-color)">${qlcVDs.length} / ${qlcCap} GiB</div><div class="label">QLC</div></div>
+    <div class="summary-card"><div class="value" style="font-size:0.875rem">${escapeHtml(result.strategy)}</div><div class="label">Strategy</div></div>
+  `;
+
+  // Physical drive visualization
+  const maxCap = Math.max(...drives.map(d => d.capacity));
+  const barsEl = document.getElementById('drive-bars');
+  barsEl.innerHTML = '';
+
+  for (const drive of drives) {
+    const container = document.createElement('div');
+    container.className = 'drive-bar-container';
+
+    // Collect VDs on this drive
+    const driveVDs = vds.filter(v => v.physicalName === drive.name);
+    const usedCap = driveVDs.reduce((s, v) => s + v.capacityGiB, 0);
+    const preClaimed = drive.capacity - drive.available;
+    const freeCap = drive.available - usedCap;
+
+    container.innerHTML = `<div class="drive-bar-label">${escapeHtml(drive.name)} (${drive.type}, ${drive.capacity} GiB)</div>`;
+
+    const bar = document.createElement('div');
+    bar.className = 'drive-bar';
+    const barWidth = (drive.capacity / maxCap) * 100;
+    bar.style.width = barWidth + '%';
+
+    // Pre-claimed segment
+    if (preClaimed > 0) {
+      const pct = (preClaimed / drive.capacity) * 100;
+      const seg = document.createElement('div');
+      seg.className = 'drive-segment';
+      seg.style.width = pct + '%';
+      seg.style.background = '#9CA3AF';
+      seg.innerHTML = `${pct > 8 ? preClaimed + ' GiB claimed' : ''}<div class="drive-segment-tooltip">${preClaimed} GiB pre-claimed</div>`;
+      bar.appendChild(seg);
+    }
+
+    // VD segments
+    for (const vd of driveVDs) {
+      const pct = (vd.capacityGiB / drive.capacity) * 100;
+      const seg = document.createElement('div');
+      seg.className = 'drive-segment';
+      seg.style.width = pct + '%';
+      seg.style.background = vd.type === 'TLC' ? 'var(--tlc-color)' : 'var(--qlc-color)';
+      seg.innerHTML = `${pct > 6 ? vd.capacityGiB + ' GiB' : ''}<div class="drive-segment-tooltip">${vd.type} virtual drive: ${vd.capacityGiB} GiB</div>`;
+      bar.appendChild(seg);
+    }
+
+    // Free segment
+    if (freeCap > 0) {
+      const pct = (freeCap / drive.capacity) * 100;
+      const seg = document.createElement('div');
+      seg.className = 'drive-segment free';
+      seg.style.width = pct + '%';
+      seg.style.background = 'var(--free-color)';
+      seg.innerHTML = `${pct > 8 ? freeCap + ' GiB free' : ''}<div class="drive-segment-tooltip">${freeCap} GiB free</div>`;
+      bar.appendChild(seg);
+    }
+
+    container.appendChild(bar);
+    barsEl.appendChild(container);
+  }
+
+  // Virtual drives table
+  const tbody = document.getElementById('vd-table-body');
+  tbody.innerHTML = '';
+  vds.forEach((vd, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i + 1}</td><td>${escapeHtml(vd.physicalName)}</td><td>${vd.capacityGiB}</td><td><span style="color:${vd.type === 'TLC' ? 'var(--tlc-color)' : 'var(--qlc-color)'}; font-weight:600">${vd.type}</span></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ============================================================================
+// Initialize with default preset
+// ============================================================================
+loadPreset('4tlc');
+</script>
+</body>
+</html>
