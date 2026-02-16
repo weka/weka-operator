@@ -701,22 +701,23 @@ function allocateByDrivesNum(config) {
   log(`Fixed drives mode: ${numDrives} drives x ${driveCapacity} GiB, TLC only`, 'log-info');
   log(`Available TLC drives: ${tlcDrives.length}`, 'log-info');
 
-  if (tlcDrives.length < numDrives) {
-    return { error: `Not enough drives available: need ${numDrives}, have ${tlcDrives.length} TLC drives` };
-  }
-
   // Build capacity map and filter by driveCapacity
   const caps = buildDriveCapacityMap(tlcDrives);
   const availableDrives = filterAndSortUsableDrives(caps, driveCapacity);
 
-  if (availableDrives.length < numDrives) {
+  const totalUsableCapacity = availableDrives.reduce((s, d) => s + d.available, 0);
+  const totalCapacityNeeded = numDrives * driveCapacity;
+  if (availableDrives.length === 0 || totalUsableCapacity < totalCapacityNeeded) {
     const totalAvail = Object.values(caps).reduce((s, d) => s + d.available, 0);
-    return { error: `Not enough drives available: need ${numDrives * driveCapacity} GiB, have ${totalAvail} GiB across ${availableDrives.length} usable drives (need ${numDrives} with at least ${driveCapacity} GiB each)` };
+    return { error: `Not enough drive capacity available: need ${totalCapacityNeeded} GiB, have ${totalUsableCapacity} GiB usable (${totalAvail} GiB total) for TLC drives` };
   }
 
   const virtualDrives = [];
   for (let i = 0; i < numDrives; i++) {
     const selected = availableDrives[0];
+    if (selected.available < driveCapacity) {
+      return { error: `Cannot place virtual drive ${i + 1}: largest available space is ${selected.available} GiB but need ${driveCapacity} GiB per drive` };
+    }
     virtualDrives.push({
       physicalUUID: selected.drive.uuid,
       capacityGiB: driveCapacity,

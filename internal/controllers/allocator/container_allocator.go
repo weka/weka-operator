@@ -928,10 +928,6 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context
 		"tlcDrives", len(tlcDrives),
 	)
 
-	if len(tlcDrives) < req.NumDrives {
-		return nil, &InsufficientDrivesError{Needed: req.NumDrives, Available: len(tlcDrives)}
-	}
-
 	// Calculate capacity needed per virtual drive
 	driveCapacityGiB := req.Container.Spec.DriveCapacity
 	if driveCapacityGiB == 0 {
@@ -955,16 +951,20 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context
 		"availableDriveCapacities", availableCapacities,
 	)
 
-	if len(availableDrives) < req.NumDrives {
-		// Calculate total available across all drives for error message
+	totalUsableCapacity := 0
+	for _, ad := range availableDrives {
+		totalUsableCapacity += ad.availableCapacity
+	}
+	if len(availableDrives) == 0 || totalUsableCapacity < totalCapacityNeeded {
 		totalAvailable := 0
 		for _, dc := range driveCapacities {
 			totalAvailable += dc.availableCapacity
 		}
-
-		return nil, &InsufficientDrivesError{
-			Needed:    totalCapacityNeeded,
-			Available: totalAvailable,
+		return nil, &InsufficientDriveCapacityError{
+			NeededGiB:    totalCapacityNeeded,
+			UsableGiB:    totalUsableCapacity,
+			AvailableGiB: totalAvailable,
+			Type:         "TLC",
 		}
 	}
 
@@ -974,6 +974,10 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByDrivesNum(ctx context
 
 	for i := 0; i < req.NumDrives; i++ {
 		selectedDrive := availableDrives[0] // Drive with most available capacity
+
+		if selectedDrive.availableCapacity < driveCapacityGiB {
+			return nil, fmt.Errorf("cannot place virtual drive %d: largest available space is %d GiB but need %d GiB per drive", i+1, selectedDrive.availableCapacity, driveCapacityGiB)
+		}
 
 		msg := fmt.Sprintf("Allocating virtual drive %d from physical drive %s (available: %d GiB, needed: %d GiB)",
 			i+1, selectedDrive.drive.PhysicalUUID, selectedDrive.availableCapacity, driveCapacityGiB)

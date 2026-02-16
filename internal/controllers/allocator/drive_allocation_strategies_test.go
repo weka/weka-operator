@@ -1458,7 +1458,7 @@ func TestVirtualDriveReallocation(t *testing.T) {
 
 // TestAllocateSharedDrivesByDrivesNum tests the TLC-only numDrives + driveCapacity allocation mode
 // This is an alternative path to capacity-based allocation, used when numDrives and driveCapacity are specified
-// Note: This mode requires at least numDrives physical TLC drives available (one virtual per physical minimum)
+// Note: This mode requires total usable TLC capacity >= numDrives * driveCapacity (multiple VDs per physical drive allowed)
 func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -1499,7 +1499,7 @@ func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 			},
 		},
 		{
-			name:          "insufficient physical TLC drives error",
+			name:          "fewer physical drives than virtual drives succeeds when capacity sufficient",
 			numDrives:     5,
 			driveCapacity: 1000,
 			availableDrives: []domain.SharedDriveInfo{
@@ -1507,8 +1507,13 @@ func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 				{PhysicalUUID: "tlc-2", Serial: "TLC-SN-2", CapacityGiB: 10000, Type: "TLC"},
 				{PhysicalUUID: "qlc-1", Serial: "QLC-SN-1", CapacityGiB: 50000, Type: "QLC"}, // QLC ignored
 			},
-			expectError:   true,
-			errorContains: "not enough drives",
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-1", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "tlc-2", CapacityGiB: 1000, Serial: "TLC-SN-2", Type: "TLC"},
+				{PhysicalUUID: "tlc-1", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "tlc-2", CapacityGiB: 1000, Serial: "TLC-SN-2", Type: "TLC"},
+				{PhysicalUUID: "tlc-1", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+			},
 		},
 		{
 			name:          "round-robin distribution across physical drives",
@@ -1542,7 +1547,7 @@ func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 				{PhysicalUUID: "tlc-3", Serial: "TLC-SN-3", CapacityGiB: 2500, Type: "TLC"}, // Only this one works
 			},
 			expectError:   true,
-			errorContains: "not enough drives",
+			errorContains: "not enough drive capacity",
 		},
 		{
 			name:          "allocation with varying physical drive capacities",
@@ -1561,6 +1566,31 @@ func TestAllocateSharedDrivesByDrivesNum(t *testing.T) {
 				{PhysicalUUID: "tlc-3", CapacityGiB: 1000, Serial: "TLC-SN-3", Type: "TLC"},
 				{PhysicalUUID: "tlc-4", CapacityGiB: 1000, Serial: "TLC-SN-4", Type: "TLC"},
 			},
+		},
+		{
+			name:          "fewer physical drives than virtual drives succeeds",
+			numDrives:     3,
+			driveCapacity: 1000,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-1", Serial: "TLC-SN-1", CapacityGiB: 5000, Type: "TLC"},
+				{PhysicalUUID: "tlc-2", Serial: "TLC-SN-2", CapacityGiB: 5000, Type: "TLC"},
+			},
+			expectedDrives: []weka.VirtualDrive{
+				{PhysicalUUID: "tlc-1", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+				{PhysicalUUID: "tlc-2", CapacityGiB: 1000, Serial: "TLC-SN-2", Type: "TLC"},
+				{PhysicalUUID: "tlc-1", CapacityGiB: 1000, Serial: "TLC-SN-1", Type: "TLC"},
+			},
+		},
+		{
+			name:          "total capacity insufficient error",
+			numDrives:     3,
+			driveCapacity: 500,
+			availableDrives: []domain.SharedDriveInfo{
+				{PhysicalUUID: "tlc-1", Serial: "TLC-SN-1", CapacityGiB: 400, Type: "TLC"},
+				{PhysicalUUID: "tlc-2", Serial: "TLC-SN-2", CapacityGiB: 400, Type: "TLC"},
+			},
+			expectError:   true,
+			errorContains: "not enough drive capacity",
 		},
 	}
 
