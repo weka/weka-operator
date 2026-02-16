@@ -1,6 +1,10 @@
 package resources
 
-import v1 "k8s.io/api/core/v1"
+import (
+	"encoding/json"
+
+	v1 "k8s.io/api/core/v1"
+)
 
 func addUIOLoaderInitContainer(pod *v1.Pod) *v1.Pod {
 	if pod == nil {
@@ -68,24 +72,67 @@ echo "UIO module loaded successfully"
 	return pod
 }
 
-// copy weka dist files if drivers-loader image is
-// different from cluster image
+// copyWekaVersionToContainer adds init containers to copy weka files from the target image
+// when the pod uses a different image (builder/loader). It parses the JSON instruction payload
+// to get targetImage and cliImage.
 func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
-	originalImage := f.container.Spec.Instructions.Payload
+	var payload struct {
+		TargetImage string `json:"targetImage"`
+		CliImage    string `json:"cliImage"`
+	}
+	if err := json.Unmarshal([]byte(f.container.Spec.Instructions.Payload), &payload); err != nil {
+		// Fallback for legacy single-image payload
+		payload.TargetImage = f.container.Spec.Instructions.Payload
+		payload.CliImage = f.container.Spec.Instructions.Payload
+	}
 
 	sharedVolumeName := "shared-weka-version"
 	sharedVolumeMountPath := "/shared-weka-version"
 
 	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
-		Name:    "copy-weka-version",
-		Image:   originalImage,
+		Name:    "copy-cli",
+		Image:   payload.CliImage,
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			`
-					mkdir -p /shared-weka-version &&
-					cp -r /opt/weka/* /shared-weka-version/ &&
-					echo "shared weka version copied successfully"
+					# Copy the actual binary file that command resolves to (follows symlinks)
+					mkdir -p /shared-weka-version/cli &&
+					cp -a -- "$(readlink -f -- "$(command -v weka)")" /shared-weka-version/cli/weka &&
+					echo "copy-cli init container done"
 					`,
+		},
+		VolumeMounts: []v1.VolumeMount{
+			{
+				Name:      sharedVolumeName,
+				MountPath: sharedVolumeMountPath,
+			},
+		},
+	})
+
+	privileged := true
+	pod.Spec.InitContainers = append(pod.Spec.InitContainers, v1.Container{
+		Name:    "copy-weka-version",
+		Image:   payload.TargetImage,
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			`
+			# Detect version from release spec file
+			SPEC_FILE=$(ls /opt/weka/dist/release/*.spec 2>/dev/null | head -1)
+			if [ -z "$SPEC_FILE" ]; then
+				echo "ERROR: No .spec file found in /opt/weka/dist/release/" >&2
+				exit 1
+			fi
+			VERSION=$(basename "$SPEC_FILE" .spec)
+			echo "Detected weka version: $VERSION"
+			mkdir -p /original-opt-weka &&
+			mkdir -p /shared-weka-version/opt-weka &&
+			mount -o bind /opt/weka /original-opt-weka &&
+			mount -o bind /shared-weka-version/opt-weka /opt/weka &&
+			/shared-weka-version/cli/weka version get "$VERSION" --without-agent --driver-only --from file://original-opt-weka
+					`,
+		},
+		SecurityContext: &v1.SecurityContext{
+			Privileged: &privileged,
 		},
 		VolumeMounts: []v1.VolumeMount{
 			{
@@ -100,10 +147,15 @@ func (f *PodFactory) copyWekaVersionToContainer(pod *v1.Pod) {
 		MountPath: sharedVolumeMountPath,
 	})
 	pod.Spec.Volumes = append(pod.Spec.Volumes, v1.Volume{
-
 		Name: sharedVolumeName,
 		VolumeSource: v1.VolumeSource{
 			EmptyDir: &v1.EmptyDirVolumeSource{},
 		},
+	})
+
+	// Set the target image so the container knows which version to use
+	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, v1.EnvVar{
+		Name:  "TARGET_IMAGE_NAME",
+		Value: payload.TargetImage,
 	})
 }

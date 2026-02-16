@@ -14,12 +14,6 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		f.copyWekaVersionToContainer(pod)
 	}
 
-	// Set the cluster image so the container knows which version to use
-	pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, corev1.EnvVar{
-		Name:  "CLUSTER_IMAGE_NAME",
-		Value: f.container.Spec.Image,
-	})
-
 	if f.nodeInfo.IsCos() {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override
 		addUIOLoaderInitContainer(pod)
