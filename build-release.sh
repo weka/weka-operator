@@ -50,7 +50,12 @@ make chart VERSION=v$VERSION
 # Re-package chart with the correct image repository for the target registry
 CHART_TMP=$(mktemp -d)
 cp -r charts/weka-operator "$CHART_TMP/"
-sed -i '' "s|repository: quay.io/weka.io/weka-operator.*|repository: $REPO|" "$CHART_TMP/weka-operator/values.yaml"
+# Use portable sed syntax that works on both BSD (macOS) and GNU (Linux)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' "s|repository: quay.io/weka.io/weka-operator.*|repository: $REPO|" "$CHART_TMP/weka-operator/values.yaml"
+else
+  sed -i "s|repository: quay.io/weka.io/weka-operator.*|repository: $REPO|" "$CHART_TMP/weka-operator/values.yaml"
+fi
 helm package "$CHART_TMP/weka-operator" --destination charts --version v$VERSION
 rm -rf "$CHART_TMP"
 
