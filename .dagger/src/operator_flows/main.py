@@ -186,7 +186,7 @@ class OperatorFlows:
         """Adds kubectl to the container."""
         return (
             container
-            .with_exec(["sh", "-c", "apk add --no-cache curl && ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && curl -LO https://cdn.dl.k8s.io/release/v1.29.0/bin/linux/${ARCH}/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
+            .with_exec(["sh", "-c", "apk add --no-cache curl && ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && curl -LO https://dl.k8s.io/release/v1.29.0/bin/linux/${ARCH}/kubectl && chmod +x kubectl && mv kubectl /usr/local/bin/"])
         )
 
     @function
