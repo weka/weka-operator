@@ -1426,16 +1426,16 @@ async def get_weka_version():
 async def get_target_version():
     """
     Get the target weka version to use.
-    If CLUSTER_IMAGE_NAME is set, extract version from the image tag.
+    If TARGET_IMAGE_NAME is set, extract version from the image tag.
     Otherwise, get version from the local dist release files.
     """
-    cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
-    if cluster_image_name:
-        version = cluster_image_name.split(':')[-1]
+    target_image_name = os.environ.get("TARGET_IMAGE_NAME")
+    if target_image_name:
+        version = target_image_name.split(':')[-1]
         # Remove -dev suffix if present
         if version.endswith("-dev"):
             version = version[:-4]
-        logging.info(f"Target version from CLUSTER_IMAGE_NAME: {version}")
+        logging.info(f"Target version from TARGET_IMAGE_NAME: {version}")
         return version
     return await get_weka_version()
 
@@ -1551,11 +1551,11 @@ async def load_drivers():
         elif is_ubuntu_24() and weka_dist_service():
             kernelBuildIdArg = f"--kernel-build-id {UBUNTU24_BUILD_ID}"
 
-        # When CLUSTER_IMAGE_NAME differs from IMAGE_NAME, weka files are copied
+        # When TARGET_IMAGE_NAME differs from IMAGE_NAME, weka files are copied
         # from cluster image to /shared-weka-version/ via init container
-        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
-        if cluster_image_name and cluster_image_name != IMAGE_NAME:
-            version_get_cmd = f"weka version get --without-agent --driver-only --from file://shared-weka-version/ {version}"
+        target_image_name = os.environ.get("TARGET_IMAGE_NAME")
+        if target_image_name and target_image_name != IMAGE_NAME:
+            version_get_cmd = f"weka version get --without-agent --driver-only --from file://shared-weka-version/opt-weka {version}"
         else:
             version_get_cmd = f"weka version get --without-agent --driver-only {version}"
 
@@ -4016,16 +4016,16 @@ async def main():
         await run_prerun_script()
         # Default version from IMAGE_NAME
         version = IMAGE_NAME.split(':')[-1]
-        cluster_image_name = os.environ.get("CLUSTER_IMAGE_NAME")
-        if cluster_image_name is not None and cluster_image_name != IMAGE_NAME:
+        target_image_name = os.environ.get("TARGET_IMAGE_NAME")
+        if target_image_name is not None and target_image_name != IMAGE_NAME:
             # when driversLoaderImage is set, we need to detect the cluster version
             # and to get the driver files for that version
-            version = cluster_image_name.split(':')[-1]
+            version = target_image_name.split(':')[-1]
         # Remove -dev suffix if present
         if version.endswith("-dev"):
             version = version[:-4]
         logging.info(f"Building drivers for version: {version}")
-        stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar --from file://shared-weka-version/ {version}")
+        stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar --from file://shared-weka-version/opt-weka {version}")
         if ec != 0:
             logging.error(f"Failed to get weka version {version}: {stderr}")
             raise Exception(f"Failed to get weka version {version}: {stderr}")

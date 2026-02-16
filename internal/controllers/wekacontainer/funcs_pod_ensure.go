@@ -2,6 +2,7 @@ package wekacontainer
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/pkg/errors"
@@ -102,26 +103,33 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	// For drivers-builder containers without explicit instructions (standalone, not via wekapolicy),
-	// set the copy-weka-version instruction so weka files are copied from the original image
-	if container.IsDriversBuilder() && container.Spec.Instructions == nil {
-		container.Spec.Instructions = &weka.Instructions{
-			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-			Payload: container.Spec.Image,
+	// For drivers-builder containers, resolve the builder image and set instructions
+	// before creating the pod so setDriverDependencies handles init containers uniformly
+	if container.IsDriversBuilder() {
+		if override := container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
+			image = override
+		} else {
+			node := &v1.Node{}
+			if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
+				return errors.Wrap(err, "failed to get target node for drivers-builder")
+			}
+			builderImage := drivers.GetBuilderImageForNode(node)
+			image = builderImage
+
+			payloadBytes, _ := json.Marshal(map[string]string{
+				"targetImage": container.Spec.Image,
+				"cliImage":    builderImage,
+			})
+			container.Spec.Instructions = &weka.Instructions{
+				Type:    weka.InstructionCopyWekaFilesToDriverLoader,
+				Payload: string(payloadBytes),
+			}
 		}
 	}
 
 	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
-	}
-
-	// For drivers-builder containers, determine the builder image based on the target node's OS
-	if container.IsDriversBuilder() {
-		err = r.adjustBuilderPod(ctx, desiredPod, nodeAffinity)
-		if err != nil {
-			return err
-		}
 	}
 
 	if err := ctrl.SetControllerReference(container, desiredPod, r.Scheme); err != nil {
@@ -137,21 +145,5 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		return err
 	}
 
-	return nil
-}
-
-// adjustBuilderPod modifies the pod spec before creation (e.g., image overrides, init containers).
-func (r *containerReconcilerLoop) adjustBuilderPod(ctx context.Context, pod *v1.Pod,
-	nodeAffinity weka.NodeName) error {
-	if override := r.container.Annotations[operations.ImageOverrideAnnotation]; override != "" {
-		pod.Spec.Containers[0].Image = override
-		return nil
-	}
-
-	node := &v1.Node{}
-	if err := r.Get(ctx, client.ObjectKey{Name: string(nodeAffinity)}, node); err != nil {
-		return errors.Wrap(err, "failed to get target node for drivers-builder")
-	}
-	pod.Spec.Containers[0].Image = drivers.GetBuilderImageForNode(node)
 	return nil
 }

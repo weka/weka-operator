@@ -592,10 +592,6 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					Overrides: &weka.WekaContainerSpecOverrides{
 						DebugSleepOnTerminate: 3600,
 					},
-					Instructions: &weka.Instructions{
-						Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-						Payload: image,
-					},
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
 					// Resources: Define appropriate resources for a builder container

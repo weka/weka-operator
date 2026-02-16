@@ -224,9 +224,13 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	// from the cluster image via an init container
 	var instructions *weka.Instructions
 	if loaderImage != o.containerDetails.Image {
+		payloadBytes, _ := json.Marshal(map[string]string{
+			"targetImage": o.containerDetails.Image,
+			"cliImage":    loaderImage,
+		})
 		instructions = &weka.Instructions{
 			Type:    weka.InstructionCopyWekaFilesToDriverLoader,
-			Payload: o.containerDetails.Image, // Source image to copy weka files from
+			Payload: string(payloadBytes),
 		}
 	}
 
