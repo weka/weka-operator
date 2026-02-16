@@ -2675,6 +2675,9 @@ async def ensure_weka_container():
     resources['memory'] = convert_to_bytes(MEMORY)
     resources['auto_discovery_enabled'] = False
     resources["ips"] = MANAGEMENT_IPS
+    # Set DPDK base memory for frontend containers
+    if MODE in ['client', 's3', 'nfs']:
+        resources['dpdk_base_memory_mb'] = 64
     # update join ips
     if JOIN_IPS:
         # update backend_endpoints
