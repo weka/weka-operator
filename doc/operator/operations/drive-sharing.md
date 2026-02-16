@@ -87,7 +87,7 @@ Enable drive sharing by setting capacity fields in `spec.dynamicTemplate`. Choos
 
 Specify capacity per individual virtual drive using `driveCapacity` with `numDrives`.
 
-**Important:** This mode allocates **only TLC drives**. It cannot be used with `driveTypesRatio`. For mixed TLC/QLC drives or QLC-only, use `containerCapacity` with `driveTypesRatio` instead (see Mode 2).
+**Important:** This mode allocates **only TLC drives**. It cannot be used with `driveTypesRatio`. For mixed TLC/QLC drives, use `containerCapacity` with `driveTypesRatio` instead (see Mode 2).
 
 ```yaml
 apiVersion: weka.weka.io/v1alpha1
@@ -144,7 +144,7 @@ spec:
   dynamicTemplate:
     driveContainers: 6
     driveCores: 4
-    containerCapacity: 8000  # Total capacity per container
+    containerCapacity: 8000  # Total capacity (GiB) per container
     driveTypesRatio:
       tlc: 1  # 100% TLC
       qlc: 0  # No QLC drives
@@ -158,6 +158,8 @@ spec:
 ```
 
 **Result:** Each drive container receives 8000 GiB total from TLC drives only, distributed across multiple virtual drives (typically `driveCores` or more drives).
+
+**NOTE:** QLC-only mode is NOT supported by weka.
 
 ##### Mixed TLC/QLC Drives
 
@@ -604,7 +606,7 @@ Controls the minimum drive count constraint when using mixed TLC/QLC configurati
 
 - **When `false`:** Combined constraint - total drives across both types must be at least `driveCores`. More flexible, allows asymmetric distribution (e.g., 4 TLC + 2 QLC for 6 cores).
 
-**Note:** This setting only affects mixed TLC/QLC configurations. Single-type allocations (TLC-only or QLC-only) behave identically in both modes.
+**Note:** This setting only affects mixed TLC/QLC configurations. Single-type allocations (TLC-only) behave identically in both modes.
 
 #### enableDynamicDriveScalingForSharedDrives
 
@@ -657,7 +659,7 @@ spec:
   dynamicTemplate:
     driveContainers: 6
     driveCores: 3
-    containerCapacity: 6000  # 6TB per container
+    containerCapacity: 6000  # GiB per container
     computeContainers: 6
     computeCores: 3
   nodeSelector:
