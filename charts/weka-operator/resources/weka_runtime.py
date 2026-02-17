@@ -2781,21 +2781,34 @@ class ShutdownInstructions:
 async def get_shutdown_instructions() -> ShutdownInstructions:
     if not POD_ID:  ## back compat mode for when pod was scheduled without downward api
         return ShutdownInstructions()
-    instructions_dir = get_instructions_dir()
-    instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
 
-    if not os.path.exists(instructions_file):
-        ret = ShutdownInstructions()
-    else:
-        with open(instructions_file, "r") as file:
-            data = json.load(file)
-            ret = ShutdownInstructions(**data)
+    try:
+        instructions_dir = get_instructions_dir()
+        instructions_file = os.path.join(instructions_dir, "shutdown_instructions.json")
 
-    if exists("/tmp/.allow-force-stop"):
-        ret.allow_force_stop = True
-    if exists("/tmp/.allow-stop"):
-        ret.allow_stop = True
-    return ret
+        if not os.path.exists(instructions_file):
+            ret = ShutdownInstructions()
+            logging.debug(f"No shutdown instructions file found at {instructions_file}")
+        else:
+            try:
+                with open(instructions_file, "r") as file:
+                    data = json.load(file)
+                    ret = ShutdownInstructions(**data)
+                    logging.debug(f"Loaded shutdown instructions from file: {data}")
+            except (json.JSONDecodeError, OSError) as e:
+                logging.warning(f"Failed to read/parse shutdown instructions file: {e}, using defaults")
+                ret = ShutdownInstructions()
+
+        if exists("/tmp/.allow-force-stop"):
+            ret.allow_force_stop = True
+            logging.debug("Found /tmp/.allow-force-stop file")
+        if exists("/tmp/.allow-stop"):
+            ret.allow_stop = True
+            logging.debug("Found /tmp/.allow-stop file")
+        return ret
+    except Exception as e:
+        logging.exception(f"Unexpected error in get_shutdown_instructions: {e}")
+        return ShutdownInstructions()
 
 
 async def start_weka_container():
@@ -4360,18 +4373,26 @@ async def wait_for_existing_frontend_disconnect(container_name: str, timeout_sec
 
 
 async def wait_for_shutdown_instruction():
+    logging.info("Entered wait_for_shutdown_instruction() - waiting for shutdown approval from controller")
+    iteration = 0
     while True:
-        shutdown_instructions = await get_shutdown_instructions()
+        iteration += 1
+        try:
+            shutdown_instructions = await get_shutdown_instructions()
 
-        if shutdown_instructions.allow_force_stop:
-            logging.info("Received 'allow-force-stop' instruction")
-            return
-        if shutdown_instructions.allow_stop:
-            logging.info("Received 'allow-stop' instruction")
-            return
+            if shutdown_instructions.allow_force_stop:
+                logging.info("Received 'allow-force-stop' instruction - proceeding with force shutdown")
+                return
+            if shutdown_instructions.allow_stop:
+                logging.info("Received 'allow-stop' instruction - proceeding with graceful shutdown")
+                return
 
-        logging.info("Waiting for shutdown instruction...")
-        await asyncio.sleep(5)
+            if iteration % 6 == 1:  # Log every 30 seconds (every 6th iteration)
+                logging.info(f"Waiting for shutdown instruction... (iteration {iteration}, elapsed ~{iteration * 5}s)")
+            await asyncio.sleep(5)
+        except Exception as e:
+            logging.exception(f"Error in wait_for_shutdown_instruction loop (iteration {iteration}): {e}")
+            await asyncio.sleep(5)
 
 
 async def watch_for_force_shutdown():
@@ -4411,8 +4432,15 @@ async def shutdown():
     exiting = True  # multiple entry points of shutdown, exiting is global check for various conditions
 
     if MODE not in ["drivers-loader", "discovery", "ensure-nics"]:
+        logging.info(f"Shutdown for MODE={MODE}: checking if shutdown instruction is needed")
         if MODE in ["client", "s3", "nfs", "drive", "compute"]:
-            await wait_for_shutdown_instruction()
+            logging.info(f"MODE={MODE} requires shutdown instruction approval - calling wait_for_shutdown_instruction()")
+            try:
+                await wait_for_shutdown_instruction()
+                logging.info("wait_for_shutdown_instruction() completed successfully")
+            except Exception as e:
+                logging.exception(f"CRITICAL: wait_for_shutdown_instruction() failed with exception: {e}")
+                raise
 
         force_stop = False
         if (await get_shutdown_instructions()).allow_force_stop:
