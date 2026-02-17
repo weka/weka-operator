@@ -13,6 +13,7 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/pkg/domain"
 	"github.com/weka/weka-operator/internal/services"
 )
@@ -42,6 +43,11 @@ var _ = AfterSuite(func() {
 })
 
 var _ = Describe("Driver Image Selection", func() {
+
+	BeforeEach(func() {
+		config.Config.BuilderImages.Default = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+		config.Config.BuilderImages.Ubuntu24 = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+	})
 
 	Describe("GetBuilderImageForNode", func() {
 		It("should return ubuntu24 builder image for Ubuntu 24.04 nodes", func() {

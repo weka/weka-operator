@@ -141,6 +141,10 @@ spec:
               value: "{{ .Values.ocpCompatibility.driverToolkitSecretName }}"
             - name: WEKA_OCP_TOOLKIT_IMAGE_BASE_URL
               value: "{{ .Values.ocpCompatibility.driverToolkitImageBaseUrl }}"
+            - name: BUILDER_IMAGE_DEFAULT
+              value: "{{ .Values.builderImages.default }}"
+            - name: BUILDER_IMAGE_UBUNTU24
+              value: "{{ .Values.builderImages.ubuntu24 }}"
             - name: WEKA_COS_ALLOW_DISABLE_DRIVER_SIGNING
               value: "{{ .Values.gkeCompatibility.disableDriverSigning }}"
             - name: WEKA_COS_ALLOW_HUGEPAGE_CONFIG

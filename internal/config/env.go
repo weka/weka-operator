@@ -158,6 +158,11 @@ type PortAllocationConfig struct {
 	StartingPort int
 }
 
+type BuilderImagesConfig struct {
+	Default  string
+	Ubuntu24 string
+}
+
 func (t *TolerationsMismatchSettings) GetIgnoredTaints() []string {
 	if t == nil || !t.EnableIgnoredTaints {
 		return nil
@@ -226,6 +231,7 @@ var Config struct {
 	EvictedPodCleanupEnabled                     bool
 	EvictedPodCleanupInterval                    time.Duration
 
+	BuilderImages   BuilderImagesConfig
 	Csi             EmbeddedCsiSettings
 	SyslogPackage   string
 	Proxy           string
@@ -446,6 +452,10 @@ func ConfigureEnv(ctx context.Context) {
 	Config.DriveSharing.SsdProxyHugepagesOffsetMiB = getIntEnvOrDefault("SSD_PROXY_HUGEPAGES_OFFSET_MIB", 2048)
 	Config.DriveSharing.HugepagesTlcRatio = getIntEnvOrDefault("HUGEPAGES_TLC_RATIO", 1000)
 	Config.DriveSharing.HugepagesQlcRatio = getIntEnvOrDefault("HUGEPAGES_QLC_RATIO", 6000)
+
+	// Builder images configuration
+	Config.BuilderImages.Default = getEnvOrDefault("BUILDER_IMAGE_DEFAULT", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22")
+	Config.BuilderImages.Ubuntu24 = getEnvOrDefault("BUILDER_IMAGE_UBUNTU24", "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24")
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)

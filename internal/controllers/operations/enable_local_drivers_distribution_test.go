@@ -142,7 +142,7 @@ var _ = Describe("EnsureBuilderContainers", func() {
 		// Compute expected new-format names
 		// Format: {policyName}-builder-{hashFNV(image+arch)}-{normalizedOs}-{kernelNorm}
 		kernelNorm := "5-15-0-100-generic"
-		normalizedOs := "ubuntu-22.04" // NormalizeOSImageName("Ubuntu 22.04.5 LTS")
+		normalizedOs := "ubuntu-22-04" // NormalizeOSImageName("Ubuntu 22.04.5 LTS")
 		expectedName1 := "test-policy-builder-" + hashFNV(image1+arch) + "-" + normalizedOs + "-" + kernelNorm
 		expectedName2 := "test-policy-builder-" + hashFNV(image2+arch) + "-" + normalizedOs + "-" + kernelNorm
 
