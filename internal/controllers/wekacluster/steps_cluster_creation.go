@@ -66,12 +66,6 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.HandleSpecUpdates,
 		},
 		&lifecycle.SimpleStep{
-			Run: loop.ensureComputeContainersHugepages,
-			Predicates: lifecycle.Predicates{
-				loop.ShouldSetComputeHugepages,
-			},
-		},
-		&lifecycle.SimpleStep{
 			Run: loop.updateContainersOnNodeSelectorMismatch,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.CleanupBackendsOnNodeSelectorMismatch),
@@ -393,7 +387,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 		template := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
 
-		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, role)
+		hp, err := allocator.GetContainerHugepages(ctx, r.getClient(), template, cluster, r.containers, role)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get container hugepages for role %s: %w", role, err)
 		}
@@ -468,7 +462,7 @@ func (r *wekaClusterReconcilerLoop) updateContainersOnNodeSelectorMismatch(ctx c
 
 	logger.Info("Updating containers with node selector mismatch", "toUpdate", len(toUpdate))
 	updateErr := workers.ProcessConcurrently(ctx, toUpdate, maxBackendsDeletePerReconcile, func(ctx context.Context, container *weka.WekaContainer) error {
-		patch := []map[string]interface{}{
+		patch := []map[string]any{
 			{
 				"op":    "replace",
 				"path":  "/spec/nodeSelector",

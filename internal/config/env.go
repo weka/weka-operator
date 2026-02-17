@@ -144,6 +144,31 @@ type NfsConfig struct {
 	NotifyPort      int
 }
 
+type HugepagesUpdateConfig struct {
+	Compute      bool
+	Drive        bool
+	S3           bool
+	Nfs          bool
+	DataServices bool
+}
+
+func (h *HugepagesUpdateConfig) IsEnabledForRole(role string) bool {
+	switch role {
+	case "compute":
+		return h.Compute
+	case "drive":
+		return h.Drive
+	case "s3":
+		return h.S3
+	case "nfs":
+		return h.Nfs
+	case "data-services":
+		return h.DataServices
+	default:
+		return false
+	}
+}
+
 type DriveSharingConfig struct {
 	DriveTypesRatio                v1alpha1.DriveTypesRatio
 	MaxVirtualDrivesPerCore        int
@@ -231,14 +256,16 @@ var Config struct {
 	EvictedPodCleanupEnabled                     bool
 	EvictedPodCleanupInterval                    time.Duration
 
-	BuilderImages   BuilderImagesConfig
-	Csi             EmbeddedCsiSettings
-	SyslogPackage   string
-	Proxy           string
-	PriorityClasses PriorityClasses
-	Nfs             NfsConfig
-	DriveSharing    DriveSharingConfig
-	PortAllocation  PortAllocationConfig
+	BuilderImages          BuilderImagesConfig
+	Csi                    EmbeddedCsiSettings
+	SyslogPackage          string
+	Proxy                  string
+	PriorityClasses        PriorityClasses
+	Nfs                    NfsConfig
+	DriveSharing           DriveSharingConfig
+	PortAllocation         PortAllocationConfig
+	HugepagesUpdate        HugepagesUpdateConfig
+	ComputeMaxHugepagesMiB int
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -459,6 +486,14 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
+
+	// Hugepages update propagation configuration
+	Config.HugepagesUpdate.Compute = getBoolEnvOrDefault("HUGEPAGES_UPDATE_COMPUTE", false)
+	Config.HugepagesUpdate.Drive = getBoolEnvOrDefault("HUGEPAGES_UPDATE_DRIVE", false)
+	Config.HugepagesUpdate.S3 = getBoolEnvOrDefault("HUGEPAGES_UPDATE_S3", false)
+	Config.HugepagesUpdate.Nfs = getBoolEnvOrDefault("HUGEPAGES_UPDATE_NFS", false)
+	Config.HugepagesUpdate.DataServices = getBoolEnvOrDefault("HUGEPAGES_UPDATE_DATA_SERVICES", false)
+	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
 
 	// Evicted pod cleanup configuration
 	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)
