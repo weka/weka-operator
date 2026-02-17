@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/resources"
 	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/pkg/domain"
@@ -60,6 +61,9 @@ var _ = Describe("LoadDrivers CreateContainer", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		clusterImage = "quay.io/weka.io/weka-in-container:4.5.0.100"
+
+		config.Config.BuilderImages.Default = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
+		config.Config.BuilderImages.Ubuntu24 = "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
 
 		scheme = runtime.NewScheme()
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())

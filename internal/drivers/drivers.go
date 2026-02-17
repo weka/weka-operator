@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services"
 	v1 "k8s.io/api/core/v1"
 )
@@ -16,10 +17,10 @@ var (
 	rockyRe  = regexp.MustCompile(`(?i)rocky\s*(\d+)`)
 )
 
-// NormalizeOSImageName converts OS image names into short canonical IDs.
+// NormalizeOSImageName converts OS image names into short, DNS-1123 compliant canonical IDs.
 // Examples:
 //
-//	"Ubuntu 22.04.5 LTS" -> "ubuntu-22.04"
+//	"Ubuntu 22.04.5 LTS" -> "ubuntu-22-04"
 //	"Ubuntu 24.04.3 LTS" -> "ubuntu-24"
 //	"RHEL 9.4"           -> "rhel09"
 //	"Rocky Linux 8.10"   -> "rocky08"
@@ -36,7 +37,7 @@ func NormalizeOSImageName(input string) string {
 			return "ubuntu-24"
 		}
 
-		return fmt.Sprintf("ubuntu-%s.%s", major, minor)
+		return fmt.Sprintf("ubuntu-%s-%s", major, minor)
 	}
 
 	// RHEL
@@ -56,10 +57,9 @@ func GetBuilderImageForNode(node *v1.Node) string {
 	osImage := node.Status.NodeInfo.OSImage
 	switch {
 	case strings.Contains(osImage, "Ubuntu 24.04"):
-		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu24"
+		return config.Config.BuilderImages.Ubuntu24
 	default:
-		return "quay.io/weka.io/weka-drivers-build-images:builder-ubuntu22"
-
+		return config.Config.BuilderImages.Default
 	}
 }
 
