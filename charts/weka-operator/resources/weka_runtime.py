@@ -2384,9 +2384,10 @@ async def create_container():
         join_secret_cmd = "$(cat /var/run/secrets/weka-operator/operator-user/join-secret)"
 
     global NETWORK_DEVICE
+    devices_info = None
     if not NETWORK_DEVICE and NETWORK_SELECTORS:
-        devices = await get_devices_by_selectors(NETWORK_SELECTORS)
-        NETWORK_DEVICE = ",".join(devices)
+        devices_info = await get_devices_by_selectors(NETWORK_SELECTORS)
+        NETWORK_DEVICE = ",".join(d['device'] for d in devices_info)
 
     if not NETWORK_DEVICE and SUBNETS:
         devices = await get_devices_by_subnets(SUBNETS)
@@ -2395,16 +2396,11 @@ async def create_container():
     if is_managed_k8s():
         devices = [dev.replace("aws_", "").replace("oci_", "") for dev in NETWORK_DEVICE.split(",")]
         net_str = " ".join([f"--net {d}" for d in devices]) + " --management-ips " + ",".join(MANAGEMENT_IPS)
-    elif ',' in NETWORK_DEVICE:
-        net_str = " ".join([f"--net {d}" for d in NETWORK_DEVICE.split(",")])
+    elif is_udp():
+        net_str = "--net udp"
     else:
-        if not NETWORK_DEVICE:
-            raise Exception("NETWORK_DEVICE not set")
-
-        if is_udp():
-            net_str = f"--net udp"
-        else:
-            net_str = f"--net {NETWORK_DEVICE}"
+        # Bare-metal: create without --net, reconcile adds devices after
+        net_str = ""
 
     failure_domain = FAILURE_DOMAIN
 
@@ -2430,6 +2426,9 @@ async def create_container():
     if ec != 0:
         raise Exception(f"Failed to create container: {stderr}")
     logging.info("Container created successfully")
+
+    if not is_managed_k8s() and not is_udp():
+        await reconcile_net_devices()
 
 
 async def configure_traces():
@@ -2623,6 +2622,56 @@ async def link_resources_file(file_name, resources_dir: str):
         raise Exception(f"Failed to link resources file: {stderr}")
 
 
+async def reconcile_net_devices() -> bool:
+    """Reconcile network devices to match desired state. Used for both initial setup and reconfiguration."""
+    if is_managed_k8s() or is_udp():
+        return False
+
+    target_devices = set(NETWORK_DEVICE.split(","))
+    device_flags = {}
+
+    if NETWORK_SELECTORS:
+        devices_info = await get_devices_by_selectors(NETWORK_SELECTORS)
+        target_devices = set(d['device'] for d in devices_info)
+        device_flags = {d['device']: d for d in devices_info}
+    if SUBNETS:
+        target_devices = set(await get_devices_by_subnets(SUBNETS))
+
+    resources = await get_weka_local_resources()
+    net_device_names = set(dev['device'] for dev in resources['net_devices'])
+    rdma_devs = resources.get('rdma_devices', {})
+    rdma_device_names = set(dev['name'] for dev in rdma_devs.get('devices', []))
+    current_devices = net_device_names | rdma_device_names
+
+    to_remove = current_devices - target_devices
+    to_add = target_devices - current_devices
+
+    # Detect devices that exist but need --rdma-off: device is in rdma_devices
+    # but selector says disable_rdma. Remove and re-add with correct flag.
+    to_readd = set()
+    for device in (target_devices & current_devices):
+        if device in device_flags and device_flags[device].get('disable_rdma'):
+            if device in rdma_device_names:
+                to_readd.add(device)
+
+    for device in to_remove | to_readd:
+        stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} remove {device}")
+        if ec != 0:
+            raise Exception(f"Failed to remove net device {device}: {stderr}")
+    for device in to_add | to_readd:
+        flags = ""
+        if device in device_flags:
+            if device_flags[device].get('rdma_only'):
+                flags += " --rdma-only"
+            if device_flags[device].get('disable_rdma'):
+                flags += " --rdma-off"
+        stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} add {device}{flags}")
+        if ec != 0:
+            raise Exception(f"Failed to add net device {device}: {stderr}")
+
+    return len(to_add) > 0 or len(to_remove) > 0 or len(to_readd) > 0
+
+
 async def ensure_weka_container():
     resources_dir = f"/opt/weka/data/{NAME}/container"
     os.makedirs(resources_dir, exist_ok=True)
@@ -2730,25 +2779,7 @@ async def ensure_weka_container():
     await link_resources_file(file_name, resources_dir)
 
     # cli-based changes
-    cli_changes = False
-    if not is_managed_k8s() and not is_udp():
-        target_devices = set(NETWORK_DEVICE.split(","))
-        if NETWORK_SELECTORS:
-            target_devices = set(await get_devices_by_selectors(NETWORK_SELECTORS))
-        if SUBNETS:
-            target_devices = set(await get_devices_by_subnets(SUBNETS))
-        current_devices = set(dev['device'] for dev in resources['net_devices'])
-        to_remove = current_devices - target_devices
-        to_add = target_devices - current_devices
-        for device in to_remove:
-            stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} remove {device}")
-            if ec != 0:
-                raise Exception(f"Failed to remove net device {device}: {stderr}")
-        for device in to_add:
-            stdout, stderr, ec = await run_command(f"weka local resources net -C {NAME} add {device}")
-            if ec != 0:
-                raise Exception(f"Failed to add net device {device}: {stderr}")
-        cli_changes = cli_changes or len(target_devices.difference(current_devices))
+    cli_changes = await reconcile_net_devices()
 
     # applying cli-based changes
     if cli_changes:
@@ -3686,14 +3717,17 @@ async def get_devices_by_subnets(subnets_str: str) -> List[str]:
     return await get_devices_waiting_for_all_subnets_to_have_device(subnets)
 
 
-async def get_devices_by_selectors(selectors_str: str) -> List[str]:
+async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
     devices = []
+    seen_devices = set()
     selectors = json.loads(selectors_str)
     for selector in selectors:
         min_devices = selector.get("min", 0)
         max_devices = selector.get("max", 0)
         device_names = selector.get("deviceNames")
         subnet = selector.get("subnet")
+        rdma_only = selector.get("rdmaOnly", False)
+        disable_rdma = selector.get("disableRdma", False)
 
         if device_names:
             device_names = await filter_out_missing_devices(device_names)
@@ -3704,8 +3738,9 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
                 device_names = device_names[:max_devices]
 
             for device_name in device_names:
-                if device_name not in devices:
-                    devices.append(device_name)
+                if device_name not in seen_devices:
+                    seen_devices.add(device_name)
+                    devices.append({"device": device_name, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
 
             continue
 
@@ -3720,8 +3755,9 @@ async def get_devices_by_selectors(selectors_str: str) -> List[str]:
             subnet_devices = subnet_devices[:max_devices]
 
         for device in subnet_devices:
-            if device not in devices:
-                devices.append(device)
+            if device not in seen_devices:
+                seen_devices.add(device)
+                devices.append({"device": device, "rdma_only": rdma_only, "disable_rdma": disable_rdma})
 
     logging.info(f"Devices found by selectors: {devices}")
 
@@ -3738,12 +3774,16 @@ async def write_management_ips():
     if os.environ.get("MANAGEMENT_IP") and is_managed_k8s():
         ipAddresses.append(os.environ.get("MANAGEMENT_IP"))
     elif MANAGEMENT_IPS_SELECTORS:
-        devices = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)
-        for device in devices:
-            ip = await get_single_device_ip(device)
+        devices_info = await get_devices_by_selectors(MANAGEMENT_IPS_SELECTORS)
+        for d in devices_info:
+            ip = await get_single_device_ip(d['device'])
             ipAddresses.append(ip)
     elif not NETWORK_DEVICE and NETWORK_SELECTORS:
-        devices = await get_devices_by_selectors(NETWORK_SELECTORS)
+        all_devices = await get_devices_by_selectors(NETWORK_SELECTORS)
+        devices = [d['device'] for d in all_devices if not d.get('rdma_only')]
+        if not devices:
+            raise Exception("No non-rdma-only devices available for management IPs; "
+                            "configure managementIpsSelectors separately")
         for device in devices:
             ip = await get_single_device_ip(device)
             ipAddresses.append(ip)

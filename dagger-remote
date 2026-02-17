@@ -28,5 +28,5 @@ if [[ -n "${DAGGER_HELM_REPO:-}" ]]; then
     additional_args+=("--helm-repo=${DAGGER_HELM_REPO}")
 fi
 
-exec dagger "$@" "${additional_args[@]}"
+exec dagger "$@" ${additional_args[@]+"${additional_args[@]}"}
 

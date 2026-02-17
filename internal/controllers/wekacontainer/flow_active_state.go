@@ -225,6 +225,12 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.validateNetworkConfig,
+			Predicates: lifecycle.Predicates{
+				r.PodNotSet,
+			},
+		},
+		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name: condition.CondContainerMigratedOutFromPVC,
 			},
