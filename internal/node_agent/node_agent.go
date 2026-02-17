@@ -25,6 +25,7 @@ import (
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/exp/rand"
+	"golang.org/x/sync/singleflight"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,6 +44,13 @@ type NodeAgent struct {
 	token          string
 	lastTokenPull  time.Time
 	jsonrpcService *WekaJSONRPCService
+
+	// metricsCache caches the /metrics response to avoid redundant JRPC calls
+	metricsCacheMu    sync.Mutex
+	metricsCachedBody []byte
+	metricsCachedAt   time.Time
+	metricsCacheTTL   time.Duration
+	metricsFlight     singleflight.Group
 }
 
 type ContainerInfo struct {
@@ -144,7 +152,8 @@ func NewNodeAgent(logger logr.Logger) *NodeAgent {
 			lock: sync.RWMutex{},
 			data: make(map[string]*ContainerInfo),
 		},
-		jsonrpcService: NewWekaJSONRPCService(),
+		jsonrpcService:  NewWekaJSONRPCService(),
+		metricsCacheTTL: 15 * time.Second,
 	}
 }
 
@@ -309,7 +318,50 @@ func (a *NodeAgent) RemoveContainer(containerId string) {
 }
 
 func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Request) {
-	ctx, logger, end := instrumentation.GetLogSpan(request.Context(), "metrics.handler")
+	_, logger, end := instrumentation.GetLogSpan(request.Context(), "metrics.handler")
+	defer end()
+
+	body, err := a.getOrRefreshMetrics(request.Context())
+	if err != nil {
+		logger.Error(err, "Failed to generate metrics")
+		http.Error(writer, "metrics generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Set("Content-Type", "text/plain")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write(body)
+}
+
+// getOrRefreshMetrics returns a cached metrics response if fresh, otherwise regenerates it.
+// Concurrent requests are coalesced via singleflight so only one generation runs at a time.
+func (a *NodeAgent) getOrRefreshMetrics(ctx context.Context) ([]byte, error) {
+	a.metricsCacheMu.Lock()
+	if a.metricsCachedBody != nil && time.Since(a.metricsCachedAt) < a.metricsCacheTTL {
+		body := a.metricsCachedBody
+		a.metricsCacheMu.Unlock()
+		return body, nil
+	}
+	a.metricsCacheMu.Unlock()
+
+	v, err, _ := a.metricsFlight.Do("metrics", func() (interface{}, error) {
+		body, err := a.generateMetricsResponse(ctx)
+		if err == nil {
+			a.metricsCacheMu.Lock()
+			a.metricsCachedBody = body
+			a.metricsCachedAt = time.Now()
+			a.metricsCacheMu.Unlock()
+		}
+		return body, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]byte), nil
+}
+
+func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error) {
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "metrics.generate")
 	defer end()
 
 	// Create a span for the metrics collection phase
@@ -321,11 +373,9 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 
 	collectLogger.Info("Starting metrics collection for containers", "container_count", len(a.containersData.data))
 
-	//TODO: Throttle actual fetch? it should be very lightweight, just to prevent DoS(Accidental including) against management
 	for _, container := range a.containersData.data {
 		go func(container *ContainerInfo) {
 			defer wg.Done()
-			// Create a deadline context that preserves the trace context from the collect span
 			deadlineCtx, cancel := context.WithDeadline(collectCtx, time.Now().Add(5*time.Second))
 			defer cancel()
 			err := a.fetchAndPopulateMetrics(deadlineCtx, container)
@@ -334,7 +384,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			}
 		}(container)
 	}
-	a.containersData.lock.RUnlock() // Don't forget to unlock
+	a.containersData.lock.RUnlock()
 	wg.Wait()
 	endCollect()
 
@@ -367,7 +417,6 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 				"mode":           container.mode,
 			})
 		if container.mode == weka.WekaContainerModeClient {
-			//containerLabels[domain] = container.containerName
 			containerLabels["weka_io_cluster_name"] = defaultLabels["weka_io_target_cluster_name"]
 		}
 
@@ -386,7 +435,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 
 			data, err := TransformMetrics(data, containerLabels, target.AppName+"_")
 			if err != nil {
-				logger.Error(err, "Failed to transform metrics", "container_name", container.containerName)
+				processLogger.Error(err, "Failed to transform metrics", "container_name", container.containerName)
 				continue
 			}
 			promResponse.AddBytes(data)
@@ -417,18 +466,16 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 			)
 
 			for nodeIdStr, cpuLoad := range container.cpuInfo {
-				// do we care about the node id? should we report per node or containers totals? will stay with totals for now
-
 				processId, err := resources.NodeIdToProcessId(nodeIdStr)
 				if err != nil {
-					logger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
+					processLogger.Error(err, "Failed to convert node id to process id", "node_id", nodeIdStr)
 					continue
 				}
 				processIdStr := fmt.Sprintf("%d", processId)
 
 				value := 0.0
 				if cpuLoad.Err != nil && *cpuLoad.Err != "" {
-					logger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
+					processLogger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
 					continue
 				} else {
 					if cpuLoad.Value != nil {
@@ -474,10 +521,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 		a.addLocalNodeStats(ctx, promResponse, container, containerLabels)
 	}
 
-	// Write the response
-	writer.Header().Set("Content-Type", "text/plain")
-	writer.WriteHeader(http.StatusOK)
-	_, _ = writer.Write([]byte(promResponse.String()))
+	return []byte(promResponse.String()), nil
 }
 
 func (a *NodeAgent) getCurrentToken() string {
