@@ -257,6 +257,8 @@ driveTypesRatio: {tlc: 4, qlc: 1}
 
 ### Virtual Drive Allocation Strategies
 
+> **Quick Reference:** For a condensed technical summary with flowcharts and decision trees, see [Drive Sharing Allocation Logic Summary](drive-sharing-summary.md).
+
 The operator uses two strategies to allocate virtual drives from physical capacity. Both strategies ensure each drive meets the **minimum 384 GiB** requirement.
 
 #### Strategy 1: Even Distribution (primary)
@@ -844,6 +846,7 @@ Insufficient TLC drives: need 6000 GiB, available 3000 GiB
 
 ## Related Documentation
 
+- [Drive Sharing Allocation Logic Summary](drive-sharing-summary.md) - Condensed technical summary with flowcharts and examples
 - [Drive Signing](drive-signing.md) - Standard (exclusive) drive signing for single-cluster deployments
 - [Cluster Provisioning](../deployment/cluster-provisioning.md) - General cluster configuration
 - [WekaCluster API Reference](../../api_dump/wekacluster.md) - Complete field reference
