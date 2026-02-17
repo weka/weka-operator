@@ -46,6 +46,8 @@ type NetworkSelector struct {
 	Min         int      `json:"min,omitempty"`
 	Max         int      `json:"max,omitempty"`
 	DeviceNames []string `json:"deviceNames,omitempty"`
+	RdmaOnly    bool     `json:"rdmaOnly,omitempty"`
+	DisableRdma bool     `json:"disableRdma,omitempty"`
 }
 
 func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
@@ -59,7 +61,9 @@ func (n *NetworkSelector) Equal(o *NetworkSelector) bool {
 	return n.Subnet == o.Subnet &&
 		n.Min == o.Min &&
 		n.Max == o.Max &&
-		slices.Equal(n.DeviceNames, o.DeviceNames)
+		slices.Equal(n.DeviceNames, o.DeviceNames) &&
+		n.RdmaOnly == o.RdmaOnly &&
+		n.DisableRdma == o.DisableRdma
 }
 
 func boolPtrEqual(a, b *bool) bool {
