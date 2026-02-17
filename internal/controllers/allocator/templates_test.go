@@ -130,7 +130,7 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 			}
 
 			template := GetWekaClusterTemplate(config)
-			hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+			hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -184,7 +184,7 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestGetContainerHugepages_UsesContainerCapacity(t *testing.T) {
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestGetContainerHugepages_FallbackWhenNoNodes(t *testing.T) {
 	}
 
 	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, nil, "compute")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -23,6 +23,12 @@
           "required": ["tlc", "qlc"]
         }
       }
+    },
+    "computeMaxHugepagesMiB": {
+      "type": "integer",
+      "minimum": 0,
+      "multipleOf": 2,
+      "description": "Maximum hugepages (MiB) for compute containers. Must be even. 0 = no cap."
     }
   }
 }

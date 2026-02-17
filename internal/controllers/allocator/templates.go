@@ -125,7 +125,7 @@ func GetWekaClusterTemplate(config *weka.WekaClusterTemplate) ClusterTemplate {
 	}
 }
 
-func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, role string) (*ContainerHugepages, error) {
+func GetContainerHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer, role string) (*ContainerHugepages, error) {
 	hp := &ContainerHugepages{
 		HugePageSize: "2Mi",
 	}
@@ -139,15 +139,15 @@ func GetContainerHugepages(ctx context.Context, k8sClient client.Client, templat
 	case "drive":
 		hp.Hugepages = util.GetNonZeroOrDefault(
 			dynamicTemplate.DriveHugepages,
-			calculateDriveHugepages(template),
+			CalculateDriveHugepages(template),
 		)
 		hp.HugepagesOffset = util.GetNonZeroOrDefault(
 			dynamicTemplate.DriveHugepagesOffset,
-			calculateDriveHugepagesOffset(template),
+			CalculateDriveHugepagesOffset(template),
 		)
 	case "compute":
 		if dynamicTemplate.ComputeHugepages == 0 {
-			hpComputed, err := calculateDynamicComputeHugepages(ctx, k8sClient, template, cluster)
+			hpComputed, err := calculateDynamicComputeHugepages(ctx, k8sClient, template, cluster, containers)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate dynamic compute hugepages: %w", err)
 			}
