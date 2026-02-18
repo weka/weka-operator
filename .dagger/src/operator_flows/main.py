@@ -121,6 +121,8 @@ class OperatorFlows:
         operator_repo: str,
         helm_repo: str,
         gh_token: Optional[dagger.Secret] = None,
+        helm_username: Optional[dagger.Secret] = None,
+        helm_password: Optional[dagger.Secret] = None,
     ) -> List[str]:
         """
         Build, publish operator and return image versions.
@@ -131,6 +133,8 @@ class OperatorFlows:
             operator_repo: Fully qualified operator image repository (e.g. quay.io/weka.io/weka-operator)
             helm_repo: Fully qualified Helm chart OCI repository (e.g. quay.io/weka.io/helm)
             gh_token: Optional GitHub token for private dependencies
+            helm_username: Optional Helm registry username
+            helm_password: Optional Helm registry password
 
         Returns:
             Tuple of (operator_image, operator_helm_image)
@@ -141,12 +145,16 @@ class OperatorFlows:
             operator, sock,
             repository=operator_repo,
             gh_token=gh_token,
+            registry_username=helm_username,
+            registry_password=helm_password,
         )
 
         operator_helm_image = await publish_operator_helm_chart(
             operator, sock,
             repository=helm_repo,
             gh_token=gh_token,
+            helm_username=helm_username,
+            helm_password=helm_password,
         )
 
         operator_image = operator_image_with_hash.split("@")[0]
