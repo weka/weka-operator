@@ -179,6 +179,8 @@ jobs:
         uses: dagger/dagger-for-github@v8.2.0
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
+          HELM_PASSWORD: ${{ secrets.CI_HELM_PASSWORD }}
         with:
           version: "0.19.10"
           workdir: operator/.dagger/src
@@ -190,6 +192,8 @@ jobs:
             --sock=/var/run/docker.sock
             --operator-repo=${{ vars.CI_OPERATOR_REPO }}
             --helm-repo=${{ vars.CI_HELM_REPO }}
+            --helm-username=${{ env.HELM_USERNAME }}
+            --helm-password=${{ env.HELM_PASSWORD }}
             --output ${{ github.workspace }}/versions
       
       - name: Set Operator Versions (to output and environment variables)
@@ -221,6 +225,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HELM_USERNAME: ${{ secrets.CI_HELM_USERNAME }}
+          HELM_PASSWORD: ${{ secrets.CI_HELM_PASSWORD }}
         with:
           version: "0.19.10"
           workdir: operator/.dagger/src
@@ -247,6 +253,8 @@ jobs:
             --operator-helm-image=${{ env.operator_helm_image }}
             --operator-repo=${{ vars.CI_OPERATOR_REPO }}
             --helm-repo=${{ vars.CI_HELM_REPO }}
+            --helm-username=${{ env.HELM_USERNAME }}
+            --helm-password=${{ env.HELM_PASSWORD }}
             --wekai-endpoint=${{ vars.WEKAI_ENDPOINT}}
 
       - name: Upload Wekai execution files
