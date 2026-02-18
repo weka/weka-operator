@@ -1417,27 +1417,16 @@ loop = asyncio.get_event_loop()
 
 
 async def get_weka_version():
-    files = os.listdir("/opt/weka/dist/release")
-    assert len(files) == 1, Exception(f"More then one release found: {files}")
-    version = files[0].partition(".spec")[0]
-    return version
+    release_dirs = ["/opt/weka/dist/release", "/shared-weka-version/opt-weka/dist/release"]
+    for release_dir in release_dirs:
+        if os.path.isdir(release_dir):
+            files = os.listdir(release_dir)
+            if files:
+                assert len(files) == 1, Exception(f"More then one release found: {files}")
+                version = files[0].partition(".spec")[0]
+                return version
+    raise Exception(f"No release files found in any of: {release_dirs}")
 
-
-async def get_target_version():
-    """
-    Get the target weka version to use.
-    If TARGET_IMAGE_NAME is set, extract version from the image tag.
-    Otherwise, get version from the local dist release files.
-    """
-    target_image_name = os.environ.get("TARGET_IMAGE_NAME")
-    if target_image_name:
-        version = target_image_name.split(':')[-1]
-        # Remove -dev suffix if present
-        if version.endswith("-dev"):
-            version = version[:-4]
-        logging.info(f"Target version from TARGET_IMAGE_NAME: {version}")
-        return version
-    return await get_weka_version()
 
 
 @dataclass
@@ -1540,7 +1529,7 @@ async def load_drivers():
     else:
         # list directory /opt/weka/dist/version
         # assert single json file and take json filename
-        version = await get_target_version()
+        version = await get_weka_version()
 
 
         kernelBuildIdArg = ""
@@ -4015,15 +4004,7 @@ async def main():
     if MODE in ["drivers-builder"]:
         await run_prerun_script()
         # Default version from IMAGE_NAME
-        version = IMAGE_NAME.split(':')[-1]
-        target_image_name = os.environ.get("TARGET_IMAGE_NAME")
-        if target_image_name is not None and target_image_name != IMAGE_NAME:
-            # when driversLoaderImage is set, we need to detect the cluster version
-            # and to get the driver files for that version
-            version = target_image_name.split(':')[-1]
-        # Remove -dev suffix if present
-        if version.endswith("-dev"):
-            version = version[:-4]
+        version = await get_weka_version()
         logging.info(f"Building drivers for version: {version}")
         stdout, stderr, ec = await run_command(f"weka version get --driver-only --without-agent --no-progress-bar --from file://shared-weka-version/opt-weka {version}")
         if ec != 0:
