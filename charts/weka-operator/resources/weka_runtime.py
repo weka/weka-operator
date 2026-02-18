@@ -2698,12 +2698,22 @@ async def ensure_weka_container():
 
     # reconfigure containers
     logging.info("Container already exists, reconfiguring")
-    resources = await get_weka_local_resources()
+    try:
+        resources = await get_weka_local_resources()
+    except Exception as e:
+        if MODE == "client" and "resources.json.staging: No such file or directory" in str(e):
+            logging.warning(f"Client container has corrupted state (staging file missing), removing and recreating: {e}")
+            await run_command("weka local stop --force", capture_stdout=False)
+            await run_command(f"weka local rm {NAME} --force", capture_stdout=False)
+            await create_container()
+            resources = await get_weka_local_resources()
+        else:
+            raise
 
     if MODE == "client" and should_recreate_client_container(resources):
         logging.info("Recreating client container")
         await run_command("weka local stop --force", capture_stdout=False)
-        await run_command(f"weka local rm --all --force", capture_stdout=False)
+        await run_command(f"weka local rm {NAME} --force", capture_stdout=False)
         await create_container()
         resources = await get_weka_local_resources()
 
