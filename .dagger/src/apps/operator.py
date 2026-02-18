@@ -36,7 +36,9 @@ async def _calc_operator_version(src: Directory, version: str = "") -> str:
 
 
 async def publish_operator(src: Directory, sock: Socket, repository: str, version: str = "",
-                           gh_token: Optional[Secret] = None) -> str:
+                           gh_token: Optional[Secret] = None,
+                           registry_username: Optional[Secret] = None,
+                           registry_password: Optional[Secret] = None) -> str:
     """Build and publish multi-arch operator image (linux/amd64 + linux/arm64)."""
     version = await _calc_operator_version(src, version)
 
@@ -45,7 +47,12 @@ async def publish_operator(src: Directory, sock: Socket, repository: str, versio
         for p in PLATFORMS
     ])
 
-    return await dag.container().publish(
+    publisher = dag.container()
+    if registry_username and registry_password:
+        registry_host = repository.split("/")[0]
+        publisher = publisher.with_registry_auth(registry_host, registry_username, registry_password)
+
+    return await publisher.publish(
         f"{repository}:{version}",
         platform_variants=list(variants),
     )
