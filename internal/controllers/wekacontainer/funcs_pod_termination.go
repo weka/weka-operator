@@ -130,7 +130,7 @@ func (r *containerReconcilerLoop) handlePodTermination(ctx context.Context) erro
 				}
 			} else {
 				// Get timeout from cluster overrides
-				deactivationTimeout := 5 * time.Minute // default value
+				deactivationTimeout := config.Config.Timeouts.PodTerminationDeactivationTimeout // default value
 				cluster, err := r.getCluster(ctx)
 				if err != nil {
 					return err

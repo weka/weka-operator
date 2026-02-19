@@ -49,7 +49,7 @@ wekahome:
 
 reconcileTimeout: 30m
 kubeExecTimeout: 5m
-
+podTerminationDeactivationTimeout: 10m
 # -- maximum number of workers for each reconciler (for each resource type)
 maxWorkers:
   wekaCluster: 5
