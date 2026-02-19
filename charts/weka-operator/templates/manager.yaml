@@ -187,6 +187,8 @@ spec:
               value: "{{ .Values.reconcileTimeout }}"
             - name: KUBE_EXEC_TIMEOUT
               value: "{{ .Values.kubeExecTimeout }}"
+            - name: POD_TERMINATION_DEACTIVATION_TIMEOUT
+              value: "{{ .Values.podTerminationDeactivationTimeout }}"
             - name: WEKA_ALLOC_ZOMBIE_DELETE_AFTER
               value: "{{ .Values.wekaAllocZombieDeleteAfter }}"
             - name: MAX_WORKERS_WEKACLUSTER

@@ -23,6 +23,7 @@ type BindAddress struct {
 type Timeouts struct {
 	ReconcileTimeout time.Duration // Reconcile timeout
 	KubeExecTimeout  time.Duration // Kubernetes ssh commands executor timeout
+	PodTerminationDeactivationTimeout time.Duration // Default timeout for pod termination deactivation
 }
 
 // OpenTelemetry settings
@@ -368,6 +369,7 @@ func ConfigureEnv(ctx context.Context) {
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
 	Config.Timeouts.KubeExecTimeout = getDurationEnvOrDefault("KUBE_EXEC_TIMEOUT", 5*time.Minute)
+	Config.Timeouts.PodTerminationDeactivationTimeout = getDurationEnvOrDefault("POD_TERMINATION_DEACTIVATION_TIMEOUT", 10*time.Minute)
 	Config.Timeouts.ReconcileTimeout = getDurationEnvOrDefault("RECONCILE_TIMEOUT", 30*time.Minute)
 	Config.Otel.DeploymentIdentifier = os.Getenv("OTEL_DEPLOYMENT_IDENTIFIER")
 	Config.Otel.ExporterOtlpEndpoint = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
