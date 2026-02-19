@@ -80,6 +80,11 @@ make test-e2e
 
 See `.ainav/tasks.md` for detailed guides on common development tasks.
 
+## Traces / Observability
+
+For trace queries, spawn a dedicated team member that will read `doc/dev/traces.md` before receiving queries.
+Do not query SigNoz directly from the main agent — delegate to the sub-agent/team-member.
+
 # Agentic flow
 
 The main agent is an orchestrator. It should delegate work
