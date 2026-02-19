@@ -184,7 +184,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		return complete()
 	}
 
-	endpoint := fmt.Sprintf("https://%s:%d", builderIp, builderPort)
+	endpoint := fmt.Sprintf("http://%s:%d", builderIp, builderPort)
 
 	// if weka pack is not supported, we don't need to download it
 	if !results.WekaPackNotSupported {

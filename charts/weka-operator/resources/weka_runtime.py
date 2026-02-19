@@ -4039,7 +4039,7 @@ async def main():
             "kernel_build_id": kernel_build_id,
             "kernel_signature": kernel_signature,
             "weka_pack_not_supported": False,
-            "no_weka_drivers_handling": True,
+            "no_weka_drivers_handling": not WEKA_DRIVERS_HANDLING,
         })
         logging.info(f"Build results written for version {version}")
 
