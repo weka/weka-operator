@@ -36,6 +36,7 @@ const (
 	WekaClusterStatusReady        WekaClusterStatusEnum = "Ready"
 	WekaClusterStatusWaitDrives   WekaClusterStatusEnum = "WaitForDrives"
 	WekaClusterStatusStartingIO   WekaClusterStatusEnum = "StartingIO"
+	WekaClusterStatusPaused       WekaClusterStatusEnum = "Paused"
 	WekaClusterStatusGracePeriod  WekaClusterStatusEnum = "GracePeriod"
 	WekaClusterStatusDestroying   WekaClusterStatusEnum = "Destroying"
 	WekaClusterStatusDeallocating WekaClusterStatusEnum = "Deallocating"
@@ -750,6 +751,11 @@ type WekaClusterSpecOverrides struct {
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
 	// +optional
 	PodTerminationDeactivationTimeout *metav1.Duration `json:"podTerminationDeactivationTimeout,omitempty"`
+	// Pause the cluster - all containers will be stopped forcefully.
+	// nil (not set): no propagation, allows direct container-level state manipulation.
+	// true: pause all containers.
+	// false: actively unpause containers that are in paused state.
+	Paused *bool `json:"paused,omitempty"`
 	// Cancel deletion of the cluster if it is in graceful destroy period, a disaster recovery mechanism
 	CancelDeletion bool `json:"cancelDeletion,omitempty"`
 }
