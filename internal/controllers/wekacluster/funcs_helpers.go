@@ -131,3 +131,33 @@ func (r *wekaClusterReconcilerLoop) ValidateDriveTypesRatio(ctx context.Context)
 
 	return nil
 }
+
+func (r *wekaClusterReconcilerLoop) ClusterIsPaused() bool {
+	p := r.cluster.Spec.GetOverrides().Paused
+	return p != nil && *p
+}
+
+// ClusterIsExplicitlyUnpaused returns true when paused is explicitly set to false (not nil).
+func (r *wekaClusterReconcilerLoop) ClusterIsExplicitlyUnpaused() bool {
+	p := r.cluster.Spec.GetOverrides().Paused
+	return p != nil && !*p
+}
+
+// ClusterIsNotActivelyDeleting returns true when the cluster is either not marked for deletion,
+// or marked for deletion but with cancelDeletion set (i.e. deletion was rescued).
+func (r *wekaClusterReconcilerLoop) ClusterIsNotActivelyDeleting() bool {
+	return !r.cluster.IsMarkedForDeletion() || r.ClusterDeletionCancelled()
+}
+
+func (r *wekaClusterReconcilerLoop) ClusterStatusIsPaused() bool {
+	return r.cluster.Status.Status == weka.WekaClusterStatusPaused
+}
+
+func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
+	for _, container := range r.containers {
+		if container.IsPaused() {
+			return true
+		}
+	}
+	return false
+}

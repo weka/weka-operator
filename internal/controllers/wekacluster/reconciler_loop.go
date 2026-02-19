@@ -75,6 +75,17 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 	// Throttled metrics steps - can run in parallel and are isolated from main flow
 	steps = append(steps, GetThrottledMetricsSteps(loop)...)
 
+	// Manual pause path - when paused=true and cluster is not actively being deleted
+	// (either not marked for deletion, or deletion was cancelled via cancelDeletion)
+	steps = append(steps, &lifecycle.SimpleStep{
+		Predicates: lifecycle.Predicates{
+			loop.ClusterIsPaused,
+			loop.ClusterIsNotActivelyDeleting,
+		},
+		Run:             loop.HandleManualPause,
+		FinishOnSuccess: true,
+	})
+
 	// Deletion/creation paths are mutually exclusive
 	steps = append(steps, &lifecycle.GroupedSteps{
 		Name: "DeletionPath",
@@ -86,12 +97,35 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 		FinishOnSuccess: true,
 	})
 
+	// Recovery of paused containers when deletion is cancelled and cluster is NOT manually paused
 	steps = append(steps, &lifecycle.SimpleStep{
 		Predicates: lifecycle.Predicates{
 			loop.ClusterDeletionCancelled,
+			lifecycle.IsNotFunc(loop.ClusterIsPaused),
 		},
 		Run:             loop.RecoverPausedContainers,
 		ContinueOnError: true,
+	})
+
+	// Recovery of paused containers when paused is explicitly set to false
+	steps = append(steps, &lifecycle.SimpleStep{
+		Predicates: lifecycle.Predicates{
+			loop.ClusterIsExplicitlyUnpaused,
+			lifecycle.IsNotFunc(loop.cluster.IsMarkedForDeletion),
+			loop.HasPausedContainers,
+		},
+		Run:             loop.RecoverPausedContainers,
+		ContinueOnError: true,
+	})
+
+	// Reset cluster status from Paused once recovery is complete
+	steps = append(steps, &lifecycle.SimpleStep{
+		Predicates: lifecycle.Predicates{
+			loop.ClusterStatusIsPaused,
+			lifecycle.IsNotFunc(loop.ClusterIsPaused),
+			lifecycle.IsNotFunc(loop.HasPausedContainers),
+		},
+		Run: loop.ClearPausedStatus,
 	})
 
 	clusterSetupSteps := GetClusterSetupSteps(loop)
@@ -156,4 +190,36 @@ func (r *wekaClusterReconcilerLoop) ClusterDeletionCancelled() bool {
 
 func (r *wekaClusterReconcilerLoop) RecoverPausedContainers(ctx context.Context) error {
 	return r.ensureContainersNotPaused(ctx, "")
+}
+
+func (r *wekaClusterReconcilerLoop) ClearPausedStatus(ctx context.Context) error {
+	return r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusReady)
+}
+
+func (r *wekaClusterReconcilerLoop) HandleManualPause(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	err := r.updateClusterStatusIfNotEquals(ctx, weka.WekaClusterStatusPaused)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeS3)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureContainersPaused(ctx, weka.WekaContainerModeNfs)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureContainersPaused(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Cluster is manually paused (overrides.paused=true)")
+	return nil
 }

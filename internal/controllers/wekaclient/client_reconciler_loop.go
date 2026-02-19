@@ -140,6 +140,23 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					},
 				},
 			},
+			// Pause client containers when target cluster is paused
+			&lifecycle.SimpleStep{
+				Predicates: lifecycle.Predicates{
+					loop.targetClusterIsPaused,
+				},
+				Run:             loop.handleTargetClusterPause,
+				FinishOnSuccess: true,
+			},
+			// Recover paused client containers when target cluster is explicitly unpaused
+			&lifecycle.SimpleStep{
+				Predicates: lifecycle.Predicates{
+					loop.targetClusterIsExplicitlyUnpaused,
+					loop.hasPausedContainers,
+				},
+				Run:             loop.recoverPausedClientContainers,
+				ContinueOnError: true,
+			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
 			&lifecycle.SimpleStep{
 				State:              &lifecycle.State{Name: condition.CondCsiDeployed},
