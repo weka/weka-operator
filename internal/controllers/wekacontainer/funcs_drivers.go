@@ -134,25 +134,9 @@ type BuiltDriversResult struct {
 	Err                   string `json:"err"`
 }
 
-func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
-	targetDistContainer, err := r.getTargetContainer(ctx)
-	if err != nil {
-		return err
-	}
-
-	complete := func() error {
-		r.container.Status.Status = weka.Completed
-		return r.Status().Update(ctx, r.container)
-	}
-
-	// TODO: This is not a best solution, to download version, but, usable.
-	// Should replace this with ad-hocy downloader container, that will use newer version(as the one who built), to download using shared storage
-
-	executor, err := r.ExecService.GetExecutor(ctx, targetDistContainer)
-	if err != nil {
-		return err
-	}
-
+// downloadDriversFromBuilder downloads drivers from the builder pod into the target executor.
+// It handles version get + driver download, using the builder's HTTP endpoint as the source.
+func (r *containerReconcilerLoop) downloadDriversFromBuilder(ctx context.Context, executor util.Exec, results *BuiltDriversResult) error {
 	builderIp := r.pod.Status.PodIP
 	builderPort := r.container.GetPort()
 
@@ -160,31 +144,10 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		return errors.New("Builder IP is not set")
 	}
 
-	results := &BuiltDriversResult{}
-	err = json.Unmarshal([]byte(*r.container.Status.ExecutionResult), results)
-	if err != nil {
-		return err
-	}
-
-	if results.NoWekaDriversHandling {
-		// for legacy drivers handling, we don't have support for weka driver command
-		// copy everything from builer's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
-		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
-		stdout, stderr, err := executor.ExecNamed(ctx, "CopyDrivers",
-			[]string{"bash", "-ce", cmd},
-		)
-		if err != nil {
-			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-			return err
-		}
-		return complete()
-	}
-
 	endpoint := fmt.Sprintf("https://%s:%d", builderIp, builderPort)
 
-	// if weka pack is not supported, we don't need to download it
 	if !results.WekaPackNotSupported {
-		stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
+		stdout, stderr, err := executor.ExecNamed(ctx, "GetVersion",
 			[]string{"bash", "-ce",
 				"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
 			},
@@ -218,7 +181,56 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		}
 	}
 
-	return complete()
+	return nil
+}
+
+func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error {
+	targetDistContainer, err := r.getTargetContainer(ctx)
+	if err != nil {
+		return err
+	}
+
+	// TODO: This is not a best solution, to download version, but, usable.
+	// Should replace this with ad-hocy downloader container, that will use newer version(as the one who built), to download using shared storage
+
+	executor, err := r.ExecService.GetExecutor(ctx, targetDistContainer)
+	if err != nil {
+		return err
+	}
+
+	results := &BuiltDriversResult{}
+	err = json.Unmarshal([]byte(*r.container.Status.ExecutionResult), results)
+	if err != nil {
+		return err
+	}
+
+	if results.NoWekaDriversHandling {
+		builderIp := r.pod.Status.PodIP
+		builderPort := r.container.GetPort()
+		if builderIp == "" {
+			return errors.New("Builder IP is not set")
+		}
+		// for legacy drivers handling, we don't have support for weka driver command
+		// copy everything from builer's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
+		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
+		stdout, stderr, err := executor.ExecNamed(ctx, "CopyDrivers",
+			[]string{"bash", "-ce", cmd},
+		)
+		if err != nil {
+			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
+			return err
+		}
+
+		r.container.Status.Status = weka.Completed
+		return r.Status().Update(ctx, r.container)
+	}
+
+	if err := r.downloadDriversFromBuilder(ctx, executor, results); err != nil {
+		return err
+	}
+
+	r.container.Status.Status = weka.Completed
+	return r.Status().Update(ctx, r.container)
 }
 
 func (r *containerReconcilerLoop) getTargetContainer(ctx context.Context) (*weka.WekaContainer, error) {
@@ -274,20 +286,11 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 		return err
 	}
 
-	// assuming `weka driver pack` is supported
-	downloadCmd := fmt.Sprintf(
-		"weka driver download --without-agent --version %s --kernel-signature %s",
-		results.WekaVersion, results.KernelSignature,
-	)
-
-	stdout, stderr, err := executor.ExecNamed(ctx, "DownloadDrivers",
-		[]string{"bash", "-ce", downloadCmd},
-	)
+	err = r.downloadDriversFromBuilder(ctx, executor, results)
 	if err != nil {
-		err = fmt.Errorf("error downloading drivers: %w, stderr: %s", err, stderr.String())
-		logger.Debug(err.Error())
+		logger.Debug(fmt.Sprintf("error downloading drivers: %s", err.Error()))
 
-		if strings.Contains(stderr.String(), "Failed to download the drivers") || strings.Contains(stderr.String(), "Version missing") {
+		if strings.Contains(err.Error(), "Failed to download the drivers") || strings.Contains(err.Error(), "Version missing") {
 			msg := "Cannot load drivers, trigger re-build and re-upload"
 			logger.Info(msg)
 
@@ -301,6 +304,6 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 		return err
 	}
 
-	logger.Debug("Drivers loaded successfully", "stdout", stdout.String())
+	logger.Debug("Drivers loaded successfully")
 	return nil
 }
