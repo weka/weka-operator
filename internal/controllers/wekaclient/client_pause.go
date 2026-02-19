@@ -66,7 +66,7 @@ func (c *clientReconcilerLoop) recoverPausedClientContainers(ctx context.Context
 
 func (c *clientReconcilerLoop) ensureClientContainersPaused(ctx context.Context) error {
 	return workers.ProcessConcurrently(ctx, c.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "", "container", container.Name)
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientContainerPaused", "container", container.Name)
 		defer end()
 
 		if !container.IsPaused() {
@@ -100,7 +100,7 @@ func (c *clientReconcilerLoop) ensureClientContainersPaused(ctx context.Context)
 
 func (c *clientReconcilerLoop) ensureClientContainersNotPaused(ctx context.Context) error {
 	return workers.ProcessConcurrently(ctx, c.containers, 32, func(ctx context.Context, container *weka.WekaContainer) error {
-		ctx, _, end := instrumentation.GetLogSpan(ctx, "", "container", container.Name)
+		ctx, _, end := instrumentation.GetLogSpan(ctx, "ensureClientContainerNotPaused", "container", container.Name)
 		defer end()
 
 		if container.IsPaused() {
