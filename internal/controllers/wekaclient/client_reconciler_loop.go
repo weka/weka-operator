@@ -115,19 +115,6 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 					lifecycle.BoolValue(config.Config.Csi.Enabled),
 				},
 			},
-			&lifecycle.SimpleStep{
-				Run: loop.HandleDeletion,
-				Predicates: lifecycle.Predicates{
-					wekaClient.IsMarkedForDeletion,
-				},
-				FinishOnSuccess: true,
-			},
-			&lifecycle.SimpleStep{
-				Run: loop.ensureFinalizer,
-				Predicates: lifecycle.Predicates{
-					func() bool { return wekaClient.GetFinalizers() == nil },
-				},
-			},
 			// NOTE: both tolerations mismatch and node selector mismatch deletion
 			// are now handled at container level in deleteIfTolerationsMismatch
 			// and deleteIfNodeSelectorMismatch respectively.
@@ -156,6 +143,19 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				},
 				Run:             loop.recoverPausedClientContainers,
 				ContinueOnError: true,
+			},
+			&lifecycle.SimpleStep{
+				Run: loop.HandleDeletion,
+				Predicates: lifecycle.Predicates{
+					wekaClient.IsMarkedForDeletion,
+				},
+				FinishOnSuccess: true,
+			},
+			&lifecycle.SimpleStep{
+				Run: loop.ensureFinalizer,
+				Predicates: lifecycle.Predicates{
+					func() bool { return wekaClient.GetFinalizers() == nil },
+				},
 			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
 			&lifecycle.SimpleStep{
