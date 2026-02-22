@@ -2485,6 +2485,33 @@ async def configure_traces():
         stdout, stderr, ec = await run_command(command)
         if ec != 0:
             raise Exception(f"Failed to configure traces: {stderr}")
+
+    # Generate config.json for ssdproxy mode
+    if MODE == "ssdproxy":
+        config_data = dict(
+            enabled=True,
+            ensure_free_space_bytes=data.get("ensure_free_space_bytes", 0),
+            freeze_period=dict(
+                comment="",
+                end_time="1970-01-01T00:00:00Z",
+                retention=0,
+                start_time="1970-01-01T00:00:00Z"
+            ),
+            retention_type="DEFAULT",
+            version=1,
+            weka_iops_rate=dict()
+        )
+        config_data_string = json.dumps(config_data)
+        config_command = dedent(f"""
+            set -e
+            mkdir -p /opt/weka/k8s-scripts
+            echo '{config_data_string}' > /opt/weka/k8s-scripts/config.json
+            weka local run --container {NAME} mv /opt/weka/k8s-scripts/config.json /traces/config.json
+            """)
+        stdout, stderr, ec = await run_command(config_command)
+        if ec != 0:
+            raise Exception(f"Failed to generate traces config.json: {stderr}")
+
     logging.info("Traces configured successfully")
 
 
