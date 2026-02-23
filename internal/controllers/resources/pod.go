@@ -819,7 +819,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	if f.container.IsDriversContainer() { // Dependencies for driver-loader probably can be reduced
 		f.setDriverDependencies(pod)
 	}
-	
+
 	// Add OTEL packages installation init container only if explicitly configured
 	if config.Config.Otel.PythonPackagesInstallerImage != "" {
 		otelInitContainer := corev1.Container{
@@ -1297,8 +1297,10 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 	// since this is HT, we are doubling num of cores on allocation
 	logger.SetValues("cpuRequestStr", cpuRequestStr, "cpuLimitStr", cpuLimitStr, "memRequest", memRequest, "hugePages", hgDetails.HugePagesStr)
 	if f.container.IsAdhocOpContainer() {
-		// Adhoc-op containers: minimal requests, no limits
+		// Adhoc-op containers: minimal requests, no CPU/memory limits
 		pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+			// TODO: set appropriate limits for adhoc-op containers
+			Limits: corev1.ResourceList{},
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:              resource.MustParse(cpuRequestStr),
 				corev1.ResourceMemory:           resource.MustParse(memRequest),
