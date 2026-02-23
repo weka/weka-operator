@@ -660,7 +660,7 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 
 	logger.Info("Drive removed from weka")
 
-	if useDriveSharing {
+	if useDriveSharing && !r.container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
 		// remove virtual drive on ssdproxy
 		err = r.removeVirtualDrive(ctx, drive.Uuid)
 		if err != nil {
