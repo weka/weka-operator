@@ -197,6 +197,11 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveVirtualDrives")
 	defer end()
 
+	if container.Spec.GetOverrides().SkipVirtualDrivesRemoval {
+		logger.Info("Skipping virtual drive removal as requested via SkipVirtualDrivesRemoval override")
+		return nil
+	}
+
 	// Only for drive sharing mode
 	if !container.UsesDriveSharing() {
 		logger.Debug("Container not using drive sharing, skipping virtual drive removal")
