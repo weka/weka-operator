@@ -1080,7 +1080,7 @@ async def list_weka_proxy_drives_with_sign_tool():
                     continue
 
                 weka_info = device_data.get('weka_info', {})
-                cluster_guid = weka_info.get('cluster_guid', '')
+                cluster_guid = weka_info.get('cluster_guid') or ''
                 is_proxy = weka_info.get('is_proxy', False)
 
                 # 026938d8-a8a2-4ad4-a316-2f23358a1e7a means signed for proxy (but not yet added to proxy)
