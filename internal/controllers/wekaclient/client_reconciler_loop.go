@@ -909,6 +909,16 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 		c.emitClientUpgradeCustomEvent(ctx)
 	}
 
+	// If client has a target cluster reference, wait for backend upgrade to complete first
+	if c.targetCluster != nil && c.targetCluster.Spec.Image != c.targetCluster.Status.LastAppliedImage {
+		logger.Info("Target cluster upgrade is in progress, deferring client upgrade",
+			"targetCluster", c.targetCluster.Name,
+			"clusterSpecImage", c.targetCluster.Spec.Image,
+			"clusterAppliedImage", c.targetCluster.Status.LastAppliedImage,
+		)
+		return lifecycle.NewWaitErrorWithDuration(errors.New("waiting for target cluster upgrade to complete before upgrading client containers"), time.Second*30)
+	}
+
 	c.upgradeInProgress = true
 
 	err := c.setStatusUpgrading(ctx)
