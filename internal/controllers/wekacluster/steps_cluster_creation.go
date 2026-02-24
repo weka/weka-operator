@@ -262,6 +262,16 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 	}
 
 	//newContainersLimit := config.Consts.NewContainersLimit
+	resolvedURL, source := utils.ResolveDriversDistService(ctx, r.getClient(), cluster.Namespace, cluster.Spec.DriversDistService)
+	cluster.Spec.DriversDistService = resolvedURL
+	switch source {
+	case utils.DriverDistDefault:
+		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistDefault", fmt.Sprintf("No WekaPolicy, using default driversDistService: %s", resolvedURL))
+	case utils.DriverDistPolicy:
+		_ = r.RecordEvent(v1.EventTypeNormal, "DriversDistAutoResolved", fmt.Sprintf("Resolved driversDistService from WekaPolicy: %s", resolvedURL))
+	case utils.DriverDistAmbiguous:
+		_ = r.RecordEvent(v1.EventTypeWarning, "DriversDistAmbiguousPolicy", fmt.Sprintf("Multiple WekaPolicy resources found for drivers distribution, falling back to default: %s", resolvedURL))
+	}
 	missingContainers, err := r.BuildMissingContainers(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to create missing containers")

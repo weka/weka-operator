@@ -422,6 +422,8 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 		return nil, err
 	}
 
+	driversDistService, _ := utils.ResolveDriversDistService(ctx, c.Client, wekaClient.Namespace, wekaClient.Spec.DriversDistService)
+
 	// Apply default portRange if dynamic port allocation is needed
 	portRange := getDefaultedPortRange(wekaClient.Spec.Port, wekaClient.Spec.AgentPort, wekaClient.Spec.PortRange)
 
@@ -465,7 +467,7 @@ func (c *clientReconcilerLoop) buildClientWekaContainer(ctx context.Context, nod
 			HugepagesOffset:     c.getHugepagesOffset(),
 			HugepagesSize:       "2Mi",
 			WekaSecretRef:       v1.EnvVarSource{SecretKeyRef: &v1.SecretKeySelector{Key: secretName}},
-			DriversDistService:  wekaClient.Spec.DriversDistService,
+			DriversDistService:  driversDistService,
 			DriversBuildId:      wekaClient.Spec.GetOverrides().DriversBuildId,
 			JoinIps:             wekaClient.Spec.JoinIps,
 			TracesConfiguration: wekaClient.Spec.TracesConfiguration,
