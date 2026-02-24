@@ -344,7 +344,7 @@ func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clus
 	return containers, nil
 }
 
-func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.WekaClient) []*weka.WekaContainer {
+func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.WekaClient) ([]*weka.WekaContainer, error) {
 	containersList := weka.WekaContainerList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(wekaClient.Namespace),
@@ -354,14 +354,14 @@ func GetClientContainers(ctx context.Context, c client.Client, wekaClient *weka.
 
 	err := c.List(ctx, &containersList, listOpts...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	containers := make([]*weka.WekaContainer, len(containersList.Items))
 	for i := range containersList.Items {
 		containers[i] = &containersList.Items[i]
 	}
-	return containers
+	return containers, nil
 }
 
 func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer {

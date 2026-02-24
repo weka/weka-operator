@@ -300,7 +300,10 @@ func (c *clientReconcilerLoop) finalizeClient(ctx context.Context) error {
 }
 
 func (c *clientReconcilerLoop) getCurrentContainers(ctx context.Context) error {
-	currentContainers := discovery.GetClientContainers(ctx, c.Client, c.wekaClient)
+	currentContainers, err := discovery.GetClientContainers(ctx, c.Client, c.wekaClient)
+	if err != nil {
+		return err
+	}
 	c.containers = currentContainers
 	return nil
 }
