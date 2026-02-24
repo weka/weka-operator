@@ -302,3 +302,8 @@ func GetKubernetesVersion(config *rest.Config) (string, error) {
 
 	return version.String(), nil
 }
+
+// SanitizeK8sName replaces characters not allowed in DNS-1035 labels (dots) with hyphens.
+func SanitizeK8sName(name string) string {
+	return strings.ReplaceAll(name, ".", "-")
+}

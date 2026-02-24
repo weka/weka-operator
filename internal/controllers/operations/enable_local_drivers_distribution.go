@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weka/go-lib/pkg/workers"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
-	"github.com/weka/weka-operator/internal/drivers"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,10 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/weka/go-lib/pkg/workers"
-	"github.com/weka/go-steps-engine/lifecycle"
+	"github.com/weka/weka-operator/internal/drivers"
 	"github.com/weka/weka-operator/internal/services/discovery"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -319,7 +320,7 @@ func (o *EnsureDistServiceOperation) DiscoverImages(ctx context.Context) error {
 }
 
 func (o *EnsureDistServiceOperation) getDistServiceName() string {
-	return fmt.Sprintf("%s%s", o.policy.GetName(), DriverDistServiceSuffix)
+	return fmt.Sprintf("%s%s", util.SanitizeK8sName(o.policy.GetName()), DriverDistServiceSuffix)
 }
 
 func (o *EnsureDistServiceOperation) getDistContainerName(ctx context.Context) (string, error) {

@@ -18,6 +18,7 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/allocator"
 	"github.com/weka/weka-operator/internal/services/discovery"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -449,12 +450,12 @@ func (r *wekaClusterReconcilerLoop) shouldUpdateProxyConfig(existingConfigMap *c
 
 // getManagementProxyName returns the name of the management proxy deployment
 func (r *wekaClusterReconcilerLoop) getManagementProxyName() string {
-	return fmt.Sprintf("%s-%s", r.cluster.Name, ManagementProxyName)
+	return fmt.Sprintf("%s-%s", util.SanitizeK8sName(r.cluster.Name), ManagementProxyName)
 }
 
 // getManagementConfigMapName returns the name of the management proxy ConfigMap
 func (r *wekaClusterReconcilerLoop) getManagementConfigMapName() string {
-	return fmt.Sprintf("%s-%s", r.cluster.Name, ManagementConfigMapName)
+	return fmt.Sprintf("%s-%s", util.SanitizeK8sName(r.cluster.Name), ManagementConfigMapName)
 }
 
 // ensureManagementProxyIngress creates or updates the Ingress for the management proxy
