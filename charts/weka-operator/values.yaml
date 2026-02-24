@@ -182,7 +182,12 @@ nodeAgent:
     limits:
       cpu: 1000m
       memory: 1024Mi
-      ephemeral-storage: 200Mi
+      # On VM nodes using the native containerd snapshotter (e.g. KubeVirt guests without
+      # overlayfs support), the entire container image is copied into the writable snapshot
+      # and counted as ephemeral storage. On such nodes rootfs usage equals the image size
+      # (~300Mi for weka-operator), regardless of any actual writes by the process.
+      # Increase this value if node-agent pods are evicted on such nodes.
+      ephemeral-storage: 400Mi
     requests:
       cpu: 50m
       memory: 64Mi
