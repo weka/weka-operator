@@ -3,6 +3,7 @@ package wekaclient
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"time"
 
@@ -155,6 +156,12 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 				Run: loop.ensureFinalizer,
 				Predicates: lifecycle.Predicates{
 					func() bool { return wekaClient.GetFinalizers() == nil },
+				},
+			},
+			&lifecycle.SimpleStep{
+				Run: loop.ValidateClientVersionCompatibility,
+				Predicates: lifecycle.Predicates{
+					func() bool { return loop.targetCluster != nil },
 				},
 			},
 			&lifecycle.SimpleStep{Run: loop.EnsureClientsWekaContainers},
@@ -378,9 +385,7 @@ func (c *clientReconcilerLoop) updateClientLabels(ctx context.Context, expected,
 	// if there are missing labels, we need to update the client
 	if len(missingLabels) > 0 {
 		logger.Info("Updating client missing labels", "client", found.Name)
-		for k, v := range missingLabels {
-			found.Labels[k] = v
-		}
+		maps.Copy(found.Labels, missingLabels)
 		err := c.Update(ctx, found)
 		if err != nil {
 			err = fmt.Errorf("failed to update client %s labels: %w", found.Name, err)
@@ -834,6 +839,46 @@ func (c *clientReconcilerLoop) emitClientUpgradeCustomEvent(ctx context.Context)
 	if err != nil {
 		logger.Warn("Failed to emit custom event", "event", msg)
 	}
+}
+
+func (c *clientReconcilerLoop) RecordEventThrottled(eventtype, reason, message string, interval time.Duration) error {
+	if !c.ThrottlingMap.ShouldRun(eventtype+reason, &throttling.ThrottlingSettings{
+		Interval:                    interval,
+		DisableRandomPreSetInterval: true,
+	}) {
+		return nil
+	}
+	return c.RecordEvent(&eventtype, reason, message)
+}
+
+func (c *clientReconcilerLoop) ValidateClientVersionCompatibility(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	if c.targetCluster == nil {
+		return nil
+	}
+
+	clientVersion := utils.GetSoftwareVersion(c.wekaClient.Spec.Image)
+	clusterVersion := utils.GetSoftwareVersion(c.targetCluster.Status.LastAppliedImage)
+	if clientVersion == "" || clusterVersion == "" {
+		return nil
+	}
+
+	if utils.CompareVersions(clientVersion, clusterVersion) > 0 {
+		msg := fmt.Sprintf("client image version %s is higher than target cluster version %s — refusing to create or upgrade client containers", clientVersion, clusterVersion)
+		logger.Error(nil, "Client image version is higher than target cluster version, refusing to proceed",
+			"targetCluster", c.targetCluster.Name,
+			"clientVersion", clientVersion,
+			"clusterVersion", clusterVersion,
+		)
+
+		_ = c.RecordEventThrottled(v1.EventTypeWarning, "ClientVersionMismatch", msg, 30*time.Second)
+
+		return lifecycle.NewWaitErrorWithDuration(errors.New(msg), 30*time.Second)
+	}
+
+	return nil
 }
 
 func (c *clientReconcilerLoop) handleImagePrePull(ctx context.Context) error {
