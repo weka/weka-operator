@@ -8,7 +8,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
+	apiutil "github.com/weka/weka-k8s-api/util"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -126,7 +128,10 @@ func (r *containerReconcilerLoop) buildProxyContainerSpec(ctx context.Context, c
 			Image:              cluster.Spec.Image,
 			ImagePullSecret:    cluster.Spec.ImagePullSecret,
 			ServiceAccountName: cluster.Spec.ServiceAccountName,
-			Tolerations:        cluster.Spec.RawTolerations,
+			DriversDistService: cluster.Spec.DriversDistService,
+			DriversLoaderImage: cluster.Spec.GetOverrides().DriversLoaderImage,
+			DriversBuildId:     cluster.Spec.GetOverrides().DriversBuildId,
+			Tolerations:        apiutil.ExpandTolerations([]v1.Toleration{}, cluster.Spec.Tolerations, cluster.Spec.RawTolerations),
 			Hugepages:          hugepagesMiB + config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB,
 			HugepagesSize:      "2Mi",
 		},
