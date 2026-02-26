@@ -247,6 +247,7 @@ var Config struct {
 	PortAllocation         PortAllocationConfig
 	HugepagesUpdate        HugepagesUpdateConfig
 	ComputeMaxHugepagesMiB int
+	PodConfigVersion       int
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -346,6 +347,7 @@ func ConfigureEnv(ctx context.Context) {
 		Config.OcpCompatibility.DriverToolkitSecretName = getEnvOrFail("WEKA_OCP_PULL_SECRET")
 	}
 	Config.BindAddress.NodeAgent = getEnvOrDefault("NODE_AGENT_BIND_ADDRESS", ":8090")
+	Config.PodConfigVersion = getIntEnvOrDefault("POD_CONFIG_VERSION", 1)
 	Config.EnableLeaderElection = getBoolEnvOrDefault("ENABLE_LEADER_ELECTION", false)
 	Config.EnableClusterApi = getBoolEnvOrDefault("ENABLE_CLUSTER_API", false)
 	Config.Timeouts.KubeExecTimeout = getDurationEnvOrDefault("KUBE_EXEC_TIMEOUT", 5*time.Minute)
