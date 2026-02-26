@@ -130,6 +130,14 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
+			Run: r.deletePodOnConfigVersionMismatch,
+			Predicates: lifecycle.Predicates{
+				lifecycle.IsNotFunc(r.PodNotSet),
+				func() bool { return r.pod.DeletionTimestamp == nil },
+				func() bool { return !r.container.IsServiceContainer() },
+			},
+		},
+		&lifecycle.SimpleStep{
 			// in case pod gracefully went down, we dont want to deactivate, and we will drop timestamp once pod comes back
 			Run: r.dropStopAttemptRecord,
 			Predicates: lifecycle.Predicates{

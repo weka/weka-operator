@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	"go.opentelemetry.io/otel/codes"
@@ -247,4 +248,92 @@ func (r *containerReconcilerLoop) dropStopAttemptRecord(ctx context.Context) err
 	}
 	delete(r.container.Status.Timestamps, string(weka.TimestampStopAttempt))
 	return r.Status().Update(ctx, r.container)
+}
+
+func (r *containerReconcilerLoop) deletePodOnConfigVersionMismatch(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
+	currentHash := resources.PodConfigHash()
+	podHash, exists := r.pod.Annotations["weka.io/pod-config-version"]
+
+	if exists && podHash == currentHash {
+		return nil
+	}
+
+	// Only rotate one pod at a time: check sibling stability and deterministic ordering.
+	// Rotation priority: drive → compute → frontend.
+	siblings, err := r.getClusterContainers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster containers: %w", err)
+	}
+
+	mode := r.container.Spec.Mode
+	myPriority := configRotationPriority(mode)
+
+	for _, sibling := range siblings {
+		if sibling.UID == r.container.UID {
+			continue
+		}
+
+		// If any sibling is unstable, defer rotation
+		status := sibling.Status.Status
+		if (status == weka.PodTerminating || status == weka.PodNotRunning || status == weka.Init) && sibling.DeletionTimestamp == nil {
+			logger.Info("Deferring pod config rotation: sibling container is unstable",
+				"sibling", sibling.Name,
+				"siblingStatus", status,
+			)
+			return lifecycle.NewWaitError(fmt.Errorf("deferring config rotation: sibling %s is in %s state", sibling.Name, status))
+		}
+
+		if sibling.DeletionTimestamp != nil {
+			continue
+		}
+
+		siblingPriority := configRotationPriority(sibling.Spec.Mode)
+
+		// Yield to higher-priority container type, or to lower name within same priority
+		if siblingPriority < myPriority || (siblingPriority == myPriority && sibling.Name < r.container.Name) {
+			siblingPod := &v1.Pod{}
+			podKey := client.ObjectKey{Name: sibling.Name, Namespace: sibling.Namespace}
+			if err := r.Get(ctx, podKey, siblingPod); err == nil {
+				siblingHash, exists := siblingPod.Annotations["weka.io/pod-config-version"]
+				if !exists || siblingHash != currentHash {
+					logger.Info("Deferring pod config rotation: yielding to higher-priority or lower-named sibling",
+						"sibling", sibling.Name,
+						"siblingMode", sibling.Spec.Mode,
+					)
+					return lifecycle.NewWaitError(fmt.Errorf("deferring config rotation: yielding to sibling %s", sibling.Name))
+				}
+			}
+		}
+	}
+
+	logger.Info("Pod config version mismatch, deleting pod for rotation",
+		"pod", r.pod.Name,
+		"podHash", podHash,
+		"currentHash", currentHash,
+	)
+
+	_ = r.RecordEvent(v1.EventTypeNormal, "PodConfigVersionMismatch",
+		fmt.Sprintf("Deleting pod %s: config version hash changed from %q to %s", r.pod.Name, podHash, currentHash))
+
+	if err := r.deletePod(ctx, r.pod); err != nil {
+		return fmt.Errorf("failed to delete pod on config version mismatch: %w", err)
+	}
+
+	return errors.New("pod deleted due to config version mismatch")
+}
+
+// configRotationPriority returns the rotation priority for a container mode.
+// Lower value = higher priority, matching rolling upgrade order: drive → compute → frontend.
+func configRotationPriority(mode string) int {
+	switch mode {
+	case weka.WekaContainerModeDrive:
+		return 0
+	case weka.WekaContainerModeCompute:
+		return 1
+	default:
+		return 2
+	}
 }
