@@ -1191,6 +1191,14 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 	return nil
 }
 
+// validDrivePools defines the allowed values for the --pool flag.
+// Allowed pool names: legacy, i4uk, iubig
+var validDrivePools = map[string]bool{
+	"legacy": true,
+	"i4uk":   true,
+	"iubig":  true,
+}
+
 func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error {
 	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
 	if err != nil {
@@ -1199,6 +1207,16 @@ func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePa
 
 	cmd := []string{
 		"weka", "cluster", "drive", "add", strconv.Itoa(containerId), devicePath,
+	}
+
+	configPool := config.Config.ForceDrivePool
+	if configPool != "" {
+		if !validDrivePools[configPool] {
+			return fmt.Errorf("invalid drive pool %q: allowed values are legacy, i4uk, iubig", configPool)
+		}
+		if pool == nil || *pool == "" {
+			pool = &configPool
+		}
 	}
 
 	if pool != nil && *pool != "" {

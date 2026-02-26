@@ -161,6 +161,10 @@ skipClientsTolerationValidation: true
 
 removeFailedDrives: false
 
+# -- force drive pool for all drives added by the operator
+# Allowed values: "legacy", "i4uk", "iubig". Leave empty to use weka default.
+forceDrivePool: ""
+
 # -- if true, allows multiple network protocols containers per node, like NFS for multiple weka clusters or S3+NFS on same nodes,
 # in case of multiple clusters upgrades need to be synchronized/keep spares for per-node eviction
 allowMultipleProtocolsPerNode: false
