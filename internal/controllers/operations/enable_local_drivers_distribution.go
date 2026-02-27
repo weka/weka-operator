@@ -45,8 +45,16 @@ const (
 
 // sanitizeOsImageForLabel converts a string to a valid Kubernetes label value
 // by replacing spaces with dashes and removing invalid characters.
+// Valid label values: [a-z0-9._-], must start and end with alphanumeric.
 func sanitizeOsImageForLabel(s string) string {
-	return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
+	s = strings.ToLower(strings.ReplaceAll(s, " ", "-"))
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return strings.Trim(b.String(), "-._")
 }
 
 type nodeAttributes struct {

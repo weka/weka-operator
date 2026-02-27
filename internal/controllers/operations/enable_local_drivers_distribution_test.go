@@ -19,6 +19,12 @@ var _ = Describe("sanitizeOsImageForLabel", func() {
 		Expect(sanitizeOsImageForLabel("simple")).To(Equal("simple"))
 		Expect(sanitizeOsImageForLabel("")).To(Equal(""))
 	})
+
+	It("should strip parentheses and other invalid label characters", func() {
+		Expect(sanitizeOsImageForLabel("Red Hat Enterprise Linux CoreOS 9.6.20251119-0 (Plow)")).To(Equal("red-hat-enterprise-linux-coreos-9.6.20251119-0-plow"))
+		Expect(sanitizeOsImageForLabel("24.04.4 LTS (Noble Numbat)")).To(Equal("24.04.4-lts-noble-numbat"))
+		Expect(sanitizeOsImageForLabel("123Abc$%#$%#$%Def-~-")).To(Equal("123abcdef"))
+	})
 })
 
 var _ = Describe("nodeAttributes StringKey", func() {
