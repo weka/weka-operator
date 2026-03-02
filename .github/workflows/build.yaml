@@ -37,8 +37,6 @@ jobs:
         run: |
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
-          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
-          chmod 600 ~/.netrc
 
       - uses: actions/checkout@v6
         with:
@@ -54,6 +52,9 @@ jobs:
         with:
           version: v2.9.0
           only-new-issues: true
+
+      - name: Check for typos
+        uses: crate-ci/typos@v1.44.0
 
   static-checks:
     name: Static Checks (deadcode)
@@ -74,8 +75,6 @@ jobs:
         run: |
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
-          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
-          chmod 600 ~/.netrc
 
       - uses: actions/checkout@v6
         with:
@@ -116,8 +115,6 @@ jobs:
         run: |
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
-          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
-          chmod 600 ~/.netrc
 
       - uses: actions/checkout@v6
         with:
@@ -158,8 +155,6 @@ jobs:
         run: |
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
           git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
-          echo "machine github.com login x-access-token password ${{ steps.app-token.outputs.token }}" > ~/.netrc
-          chmod 600 ~/.netrc
 
       - uses: actions/checkout@v6
         with:
@@ -185,3 +180,100 @@ jobs:
           go generate ./...
           make generate
           make test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
+
+      - name: Build
+        run: go build ./...
+
+  verify:
+    name: Verify (mod tidy + generated code)
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    env:
+      GOPRIVATE: github.com/weka
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.SCALAR_WORKERS_APP_ID }}
+          private-key: ${{ secrets.SCALAR_WORKERS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Setup access for private go modules
+        run: |
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf https://github.com/
+          git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf git@github.com:
+
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            pkg/weka-k8s-api/go.sum
+            pkg/go-steps-engine/go.sum
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Verify generated code is current
+        run: |
+          make generate
+          make manifests
+          git diff --exit-code
+
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    needs: optimize_ci
+    if: needs.optimize_ci.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

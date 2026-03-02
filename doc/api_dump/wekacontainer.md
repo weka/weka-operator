@@ -297,6 +297,8 @@
 | min | int |  |
 | max | int |  |
 | deviceNames | []string |  |
+| rdmaOnly | bool |  |
+| disableRdma | bool |  |
 
 ---
 

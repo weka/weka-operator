@@ -130,6 +130,15 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: ./build-release.sh
+      - name: Scan image for vulnerabilities
+        if: ${{ env.VERSION != '' }}
+        uses: aquasecurity/trivy-action@0.34.1
+        with:
+          image-ref: quay.io/weka.io/weka-operator:${{ env.VERSION }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
       - name: Create release
         if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
         env:

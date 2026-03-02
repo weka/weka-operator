@@ -8,3 +8,8 @@ repos:
         types: [go]
         pass_filenames: false
         stages: [pre-commit]
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.44.0
+    hooks:
+      - id: typos

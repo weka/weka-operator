@@ -172,6 +172,18 @@ cluster-sample: ## Deploy sample cluster CRD
 
 ##@ Build
 
+.PHONY: build
+build: ## Build the operator binary.
+	go build ./...
+
+.PHONY: verify
+verify: ## Verify go.mod is tidy and generated files are current.
+	go mod tidy
+	git diff --exit-code go.mod go.sum
+	$(MAKE) generate
+	$(MAKE) manifests
+	git diff --exit-code
+
 .PHONY: clean
 clean: ## Clean build artifacts.
 	find . -name 'mock_*.go' -delete
