@@ -27,9 +27,9 @@ jobs:
     if: needs.optimize_ci.outputs.skip == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
       
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.21.3"
 
@@ -52,7 +52,7 @@ jobs:
           private-key: ${{ secrets.WEKA_K8S_API_GH_APP_PRIVATE_KEY }}
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.app-token.outputs.token }}
 

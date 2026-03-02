@@ -20,9 +20,9 @@ jobs:
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip == 'false'
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
     - uses: actions/setup-python@v3
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v6
       with:
-        go-version: "1.21.3"
+        go-version: "1.26.0"
     - uses: pre-commit/action@v3.0.0

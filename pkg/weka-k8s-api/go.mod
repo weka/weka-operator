@@ -1,6 +1,6 @@
 module github.com/weka/weka-k8s-api
 
-go 1.24.3
+go 1.26.0
 
 require (
 	k8s.io/api v0.31.3
