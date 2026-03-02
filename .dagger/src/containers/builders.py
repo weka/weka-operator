@@ -3,7 +3,7 @@ from typing import Optional
 from dagger import dag, Container, Directory, Socket, Secret
 
 
-async def _go_builder_container(sock: Socket, gh_token: Optional[Secret] = None, version: str = "1.24-alpine") -> Container:
+async def _go_builder_container(sock: Socket, gh_token: Optional[Secret] = None, version: str = "1.26.1-alpine") -> Container:
     """
     Returns a container suitable for building go applications.
     If gh_token is provided, it will be used to configure git to use the token.
