@@ -1799,12 +1799,8 @@ def find_full_cores(n):
         return selected_siblings
 
 
-def get_data_path_cores():
-    """Get cores used by data path wekanode processes (slot != 0).
-
-    These are the high-performance drive/compute/client processes that need
-    dedicated cores.
-    """
+def get_datapath_pids():
+    """Get PIDs of data path wekanode processes (slot != 0)."""
     try:
         result = subprocess.run(
             ["ps", "aux"],
@@ -1812,40 +1808,41 @@ def get_data_path_cores():
             text=True,
             check=True
         )
-
-        data_path_pids = []
+        pids = []
         for line in result.stdout.splitlines():
-            # Find wekanode processes that are NOT slot 0 (i.e., slot 1, 2, 3, etc.)
             if "/weka/wekanode" in line and "--slot" in line and "--slot 0" not in line:
                 parts = line.split()
                 if len(parts) > 1:
-                    pid = parts[1]
-                    data_path_pids.append(pid)
-
-        # Get CPU affinity for each data path PID
-        data_path_cores = set()
-        for pid in data_path_pids:
-            try:
-                affinity_result = subprocess.run(
-                    ["taskset", "-cp", pid],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                # Parse output like "pid 1673's current affinity list: 6"
-                for line in affinity_result.stdout.splitlines():
-                    if "affinity list:" in line:
-                        affinity_str = line.split("affinity list:")[-1].strip()
-                        cores = expand_ranges(affinity_str)
-                        data_path_cores.update(cores)
-            except subprocess.CalledProcessError as e:
-                logging.debug(f"Failed to get affinity for PID {pid}: {e}")
-                continue
-
-        return list(data_path_cores)
+                    pids.append(parts[1])
+        return pids
     except Exception as e:
-        logging.debug(f"Failed to get data path cores: {e}")
+        logging.debug(f"Failed to get datapath PIDs: {e}")
         return []
+
+
+def get_data_path_cores():
+    """Get cores used by data path wekanode processes (slot != 0).
+
+    These are the high-performance drive/compute/client processes that need
+    dedicated cores.
+    """
+    data_path_cores = set()
+    for pid in get_datapath_pids():
+        try:
+            affinity_result = subprocess.run(
+                ["taskset", "-cp", pid],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            # Parse output like "pid 1673's current affinity list: 6"
+            for line in affinity_result.stdout.splitlines():
+                if "affinity list:" in line:
+                    affinity_str = line.split("affinity list:")[-1].strip()
+                    data_path_cores.update(expand_ranges(affinity_str))
+        except subprocess.CalledProcessError as e:
+            logging.debug(f"Failed to get affinity for PID {pid}: {e}")
+    return list(data_path_cores)
 
 
 def get_all_reserved_cores():
@@ -1912,12 +1909,15 @@ def get_process_uptime(pid):
 
 
 def get_processes_to_reassign():
-    """Get PIDs of processes that should be reassigned to remaining cores.
+    """Get thread IDs (tids) that should be reassigned to remaining cores.
 
-    Excludes:
-    - PID 1 (weka_runtime.py - the script doing the calculations)
-    - wekanode processes with slot != 0 (drive/compute processes)
-    - Processes running for less than 10 seconds (to avoid race conditions)
+    Scans all threads in the system. For each process:
+    - PID 1 (weka_runtime.py) is excluded entirely, including all its threads.
+    - Processes running less than 10 seconds are excluded (race condition avoidance).
+    - Datapath wekanode processes (slot != 0): non-main threads are included so
+      they are pushed off datapath cores; the main thread (tid == pid) is excluded
+      so it keeps its dedicated core affinity.
+    - All other processes: all threads are included.
     """
     try:
         result = subprocess.run(
@@ -1927,7 +1927,7 @@ def get_processes_to_reassign():
             check=True
         )
 
-        pids_to_reassign = []
+        tids_to_reassign = []
         for line in result.stdout.splitlines():
             parts = line.split()
             if len(parts) < 2:
@@ -1943,22 +1943,31 @@ def get_processes_to_reassign():
             if pid == "1":
                 continue
 
-            # Skip wekanode processes that are NOT slot 0
-            # (slot 0 is management, slot 1,2,etc are drive/compute/client)
-            if "/weka/wekanode" in line and "--slot 0" not in line:
-                continue
-
             # Skip processes running for less than 10 seconds to avoid race conditions
             # Also skip if we can't determine uptime (process might have just died)
             uptime = get_process_uptime(pid)
             if uptime is None or uptime < 10.0:
                 continue
 
-            pids_to_reassign.append(pid)
+            is_datapath = "/weka/wekanode" in line and "--slot 0" not in line
 
-        return pids_to_reassign
+            for tid in get_thread_ids(pid):
+                if is_datapath and tid == pid:
+                    # Leave the main datapath thread pinned to its dedicated core
+                    continue
+                tids_to_reassign.append(tid)
+
+        return tids_to_reassign
     except Exception as e:
-        logging.debug(f"Failed to get processes to reassign: {e}")
+        logging.debug(f"Failed to get threads to reassign: {e}")
+        return []
+
+
+def get_thread_ids(pid):
+    """Return all thread IDs (tids) for a process, including the main thread."""
+    try:
+        return os.listdir(f"/proc/{pid}/task")
+    except Exception:
         return []
 
 
@@ -2017,50 +2026,40 @@ async def manage_cpu_affinities():
         target_cores_set = set(remaining_cores)
         cores_str = ",".join(map(str, remaining_cores))
 
-        pids = get_processes_to_reassign()
+        tids = get_processes_to_reassign()
 
-        # First pass: check if any changes are needed
-        pids_needing_changes = []
-        for pid in pids:
+        # First pass: find tids whose affinity needs updating.
+        tids_needing_changes = []
+        for tid in tids:
             try:
-                current_affinity = get_process_affinity(pid)
-                # Skip if we can't get affinity (process dead/unreadable)
+                current_affinity = get_process_affinity(tid)
                 if current_affinity is None:
                     continue
-                # Skip if already set correctly
-                if current_affinity == target_cores_set:
-                    continue
-                pids_needing_changes.append(pid)
+                if current_affinity != target_cores_set:
+                    tids_needing_changes.append(tid)
             except Exception:
-                # Process might have exited, skip it
+                # Process/thread might have exited, skip it
                 continue
 
         # If no changes needed, return silently
-        if not pids_needing_changes:
+        if not tids_needing_changes:
             return
 
-        # Log only when we have changes to make
         logging.debug(f"CPU affinity calculation: available={available_cores}, "
                      f"data_path={data_path_cores}, reserved={sorted(reserved_cores)}, "
                      f"remaining={remaining_cores}")
         logging.debug(f"Managing CPU affinities: assigning processes to cores {cores_str}")
-        logging.debug(f"Found {len(pids_needing_changes)} processes needing affinity changes (out of {len(pids)} checked)")
+        logging.debug(f"Found {len(tids_needing_changes)} threads needing affinity changes (out of {len(tids)} checked)")
 
         changes_made = 0
-        for pid in pids_needing_changes:
+        for tid in tids_needing_changes:
             try:
-                # Get current affinity and command line for logging
-                current_affinity = get_process_affinity(pid)
-
-                # Skip if process died between first and second pass
+                current_affinity = get_process_affinity(tid)
                 if current_affinity is None:
                     continue
 
-                cmdline = get_process_cmdline(pid)
-
-                # Set new affinity
                 result = subprocess.run(
-                    ["taskset", "-cp", cores_str, pid],
+                    ["taskset", "-cp", cores_str, tid],
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -2068,18 +2067,17 @@ async def manage_cpu_affinities():
 
                 if result.returncode == 0:
                     current_str = ",".join(map(str, sorted(current_affinity))) if current_affinity else "unknown"
-                    logging.info(f"Changed CPU affinity for PID {pid}: {current_str} -> {cores_str} | {cmdline}")
+                    logging.info(f"Changed CPU affinity for TID {tid}: {current_str} -> {cores_str}")
                     changes_made += 1
                 else:
-                    # Process might have exited - only log at debug level
-                    logging.debug(f"Failed to set affinity for PID {pid}: {result.stderr}")
+                    logging.debug(f"Failed to set affinity for TID {tid}: {result.stderr}")
             except subprocess.TimeoutExpired:
-                logging.debug(f"Timeout setting affinity for PID {pid}")
+                logging.debug(f"Timeout setting affinity for TID {tid}")
             except Exception as e:
-                logging.debug(f"Error setting affinity for PID {pid}: {e}")
+                logging.debug(f"Error setting affinity for TID {tid}: {e}")
 
         if changes_made > 0:
-            logging.info(f"CPU affinity management: adjusted {changes_made} processes")
+            logging.info(f"CPU affinity management: adjusted {changes_made} threads")
     except Exception as e:
         logging.warning(f"CPU affinity management failed (non-fatal): {e}")
 
