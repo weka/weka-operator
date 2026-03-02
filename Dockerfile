@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM docker.io/library/golang:1.22 as builder
+FROM docker.io/library/golang:1.26.0 as builder
 # right now this image is not in use, might be in future when whole release process runs as docker build
 # and when used probably will be heavily re-done
 
