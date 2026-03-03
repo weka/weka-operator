@@ -1183,6 +1183,9 @@ func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {
 		cpuRequestStr = "500m"
 		cpuLimitStr = "2000m"
 	}
+	if f.container.IsDriversBuilder() {
+		cpuLimitStr = "16000m"
+	}
 	if slices.Contains([]string{weka.WekaContainerModeDiscovery}, f.container.Spec.Mode) {
 		memRequest = "500M"
 		cpuRequestStr = "500m"
