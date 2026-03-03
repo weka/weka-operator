@@ -4290,7 +4290,7 @@ async def stop_process(process):
 
 
 def is_wrong_generation():
-    if MODE in ['drivers-loader', 'discovery']:
+    if MODE in ['drivers-loader', 'discovery', 'drivers-builder']:
         return False
 
     current_generation = read_generation()
