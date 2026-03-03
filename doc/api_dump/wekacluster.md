@@ -308,7 +308,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
-| minNumDrives | int | minumum number of drives that should be added to the cluster before starting IO |
+| minNumDrives | int | minimum number of drives that should be added to the cluster before starting IO |
 
 ---
 
@@ -401,6 +401,17 @@
 | domainJoinSecret | string |  |
 | userName | string |  |
 | ipRanges | []string | IpRanges specifies floating IP ranges for SMB-W high availability |
+| symlink | *bool | Creation-time configuration flags<br>Symlink enables symlink support for SMB-W shares |
+| domainNetbiosName | string | DomainNetbiosName is the NetBIOS name for the domain |
+| idmapBackend | string | IdmapBackend specifies the identity mapping backend (e.g., "ad", "rfc2307") |
+| defaultDomainMappingFromId | *int | DefaultDomainMappingFromId is the start of the UID/GID range for default domain mapping |
+| defaultDomainMappingToId | *int | DefaultDomainMappingToId is the end of the UID/GID range for default domain mapping |
+| joinedDomainMappingFromId | *int | JoinedDomainMappingFromId is the start of the UID/GID range for joined domain mapping |
+| joinedDomainMappingToId | *int | JoinedDomainMappingToId is the end of the UID/GID range for joined domain mapping |
+| encryption | string | Encryption specifies the encryption level for SMB connections |
+| scaleOutMode | string | ScaleOutMode specifies the scale-out mode for SMB-W clustering |
+| smbConfExtra | string | SmbConfExtra contains additional smb.conf configuration |
+| ipPools | []string | IpPools specifies IP pools for SMB-W service assignment |
 
 ---
 

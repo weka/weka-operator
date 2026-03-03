@@ -57,7 +57,7 @@ Related:
 | `resources.go` | Resource allocation types |
 | `allocations.go` | Allocation structures |
 | `consts.go` | Domain constants |
-| `hashs.go` | Hash utilities |
+| `hashes.go` | Hash utilities |
 | `auth.go` | Auth types |
 | `wekahome.go` | Weka home integration |
 | `api_extension.go` | API extensions |

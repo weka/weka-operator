@@ -222,7 +222,7 @@ func getDefaultRoleTopologySpreadConstraints(cluster *wekav1alpha1.WekaCluster, 
 	} else if len(cluster.Spec.FailureDomain.CompositeLabels) > 0 {
 		for _, label := range cluster.Spec.FailureDomain.CompositeLabels {
 			// if composite labels are set, use them as topology keys
-			// and scheule with the best effort - "ScheduleAnyway"
+			// and schedule with the best effort - "ScheduleAnyway"
 			constraint := v1.TopologySpreadConstraint{
 				MaxSkew:           1,
 				TopologyKey:       label,

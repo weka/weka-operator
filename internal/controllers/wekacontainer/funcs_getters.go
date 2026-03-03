@@ -120,7 +120,7 @@ func (r *containerReconcilerLoop) NeedWekaDrivesListUpdate() bool {
 	if !r.AllExpectedDrivesAreActive() {
 		return true
 	}
-	if r.AddedDrivesNotAligedWithAllocations() {
+	if r.AddedDrivesNotAlignedWithAllocations() {
 		return true
 	}
 
@@ -161,22 +161,22 @@ func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {
 	return false
 }
 
-func (r *containerReconcilerLoop) AddedDrivesNotAligedWithAllocations() bool {
+func (r *containerReconcilerLoop) AddedDrivesNotAlignedWithAllocations() bool {
 	if r.container.Status.Allocations == nil {
 		return false
 	}
 
 	if r.container.UsesDriveSharing() {
-		addedDrivesVirualUuids := r.container.Status.GetAddedDrivesUuids()
-		if len(addedDrivesVirualUuids) == 0 {
+		addedDrivesVirtualUuids := r.container.Status.GetAddedDrivesUuids()
+		if len(addedDrivesVirtualUuids) == 0 {
 			return false
 		}
 
 		allocatedVirtualUuids := r.container.Status.Allocations.GetVirtualDrivesUuids()
-		slices.Sort(addedDrivesVirualUuids)
+		slices.Sort(addedDrivesVirtualUuids)
 		slices.Sort(allocatedVirtualUuids)
 
-		return !slices.Equal(addedDrivesVirualUuids, allocatedVirtualUuids)
+		return !slices.Equal(addedDrivesVirtualUuids, allocatedVirtualUuids)
 	} else {
 		// non-proxy mode
 		addedDrivesSerials := r.container.Status.GetAddedDrivesSerials()

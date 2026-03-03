@@ -515,7 +515,7 @@ func (f *PodFactory) Create(ctx context.Context, podImage *string) (*corev1.Pod,
 	}
 
 	if f.container.Spec.PortRange != nil {
-		// vars needed for clients to dinamically set ports
+		// vars needed for clients to dynamically set ports
 		envVars := []corev1.EnvVar{
 			{
 				Name:  "BASE_PORT",

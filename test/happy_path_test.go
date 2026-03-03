@@ -94,7 +94,7 @@ func TestHappyPath(t *testing.T) {
 		return err == nil
 	})
 
-	// Creaet the cluster
+	// Create the cluster
 	logger.Info("Creating cluster", "cluster", cluster.Name)
 	if err := k8sClient.Create(ctx, cluster); err != nil {
 		if client.IgnoreAlreadyExists(err) != nil {

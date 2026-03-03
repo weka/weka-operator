@@ -65,7 +65,7 @@ controller:
     "client-node-selector": "client-node-selector"
 node:   
   nodeSelector:
-    "client-node-selector": "client-node-selecor"
+    "client-node-selector": "client-node-selector"
 csiDriverName: CLUSTER_NAME.weka.io
 ```
 

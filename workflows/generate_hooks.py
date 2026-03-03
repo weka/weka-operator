@@ -364,9 +364,9 @@ You are running in the middle of execution of another workflow, that workflow ha
 
 When plan that you will generate will run it will have following environment variables set, you can rely on them to fetch information
 
-<hooks_environmnent_variables>
+<hooks_environment_variables>
 {upgrade_test_hooks_env_vars}
-</hooks_environmnent_variables>
+</hooks_environment_variables>
 
 <hooks_guidance>
 {hooks_guidance}

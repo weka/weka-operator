@@ -204,7 +204,7 @@ func ClientReconcileSteps(r *ClientController, wekaClient *weka.WekaClient) life
 			&lifecycle.SimpleStep{
 				Run: loop.setStatusRunning,
 				Predicates: lifecycle.Predicates{
-					// upgrade step migth not fail (with ExpectedError) so check if upgrade is in progress
+					// upgrade step might not fail (with ExpectedError) so check if upgrade is in progress
 					func() bool {
 						return !loop.upgradeInProgress && wekaClient.Status.Status != weka.WekaClientStatusRunning
 					},
@@ -530,8 +530,8 @@ func (c *clientReconcilerLoop) resolveJoinIps(ctx context.Context) error {
 	}
 
 	c.wekaClient.Spec.JoinIps = joinIps
-	// not commiting on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
-	// and new reconcilation loops will refresh it each time
+	// not committing on purpose. If it will be - let it be. Just ad-hocy create for initial client create use. It wont be needed later
+	// and new reconciliation loops will refresh it each time
 	return nil
 }
 

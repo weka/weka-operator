@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# supressing ugly logs/unsetting OTEL
+# suppressing ugly logs/unsetting OTEL
 unset OTEL_EXPORTER_OTLP_ENDPOINT ANTHROPIC_API_KEY
 export DAGGER_NO_NAG=1
 

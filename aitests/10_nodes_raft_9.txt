@@ -24,6 +24,6 @@ Testing notes:
 - this tests run on physical environment, use 10.200.0.0/16 subnet for testing
 - use weka.io/mode=compute|drive,weka.io/cluster-id=<cluster-id> to filter compute and drive containers
     - cluster id references to kubernetes metadata.uid
-- when testing 2 and 3 drive containers stop - stop them as soon as possible in time, withing single step
+- when testing 2 and 3 drive containers stop - stop them as soon as possible in time, within single step
     - after testing to - recover, and do same but now with 3 containers, as soon as close in time. ideally - use some method in python to make this asynchronous calls to touch flag-file and then stop containers using weka local stop --force
 - Make sure that container selected for CLI use will not be stopped during the test AIMUST
