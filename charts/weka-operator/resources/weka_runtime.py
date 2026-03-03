@@ -410,17 +410,9 @@ async def sign_drives_by_pci_info(vendor_id: str, device_id: str, options: dict)
     if ec != 0:
         return
 
-    signed_drives = []
     pci_devices = stdout.decode().strip().split()
-    for pci_device in pci_devices:
-        device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
-        try:
-            await sign_device_path(device, options)
-            signed_drives.append(device)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-    return signed_drives
+    devices = [f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1" for pci_device in pci_devices]
+    return await sign_device_paths_batch(devices, options)
 
 
 async def find_disks() -> List[Disk]:
@@ -482,31 +474,16 @@ async def sign_not_mounted(options: dict) -> List[str]:
     """
     logging.info("Signing drives that are not mounted")
     all_disks = await find_disks()
-    signed_drives = []
 
     unmounted_disks = [disk for disk in all_disks if not disk.is_mounted]
     logging.info(f"Found {len(unmounted_disks)} unmounted disks to sign: {[d.path for d in unmounted_disks]}")
 
-    for disk in unmounted_disks:
-        try:
-            await sign_device_path(disk.path, options)
-            signed_drives.append(disk.path)
-        except SignException as e:
-            logging.error(str(e))
-            continue
+    signed_drives = await sign_device_paths_batch([disk.path for disk in unmounted_disks], options)
     return signed_drives
 
 
 async def sign_device_paths(devices_paths, options) -> List[str]:
-    signed_drives = []
-    for device_path in devices_paths:
-        try:
-            await sign_device_path(device_path, options)
-            signed_drives.append(device_path)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-    return signed_drives
+    return await sign_device_paths_batch(list(devices_paths), options)
 
 
 class SignException(Exception):
@@ -553,13 +530,7 @@ async def get_drives_with_cluster_guid(use_proxy_socket: bool = False) -> dict:
         return {}
 
 
-async def sign_device_path(device_path, options: SignOptions):
-    # Check if device path should be excluded
-    if device_path in EXCLUDED_DRIVE_PATHS:
-        logging.info(f"Skipping drive {device_path} - in exclusion list")
-        return
-
-    logging.info(f"Signing drive {device_path}")
+def _build_sign_params(options: SignOptions) -> List[str]:
     params = []
     if options.allowEraseWekaPartitions:
         params.append("--allow-erase-weka-partitions")
@@ -569,6 +540,17 @@ async def sign_device_path(device_path, options: SignOptions):
         params.append("--allow-non-empty-device")
     if options.skipTrimFormat:
         params.append("--skip-trim-format")
+    return params
+
+
+async def sign_device_path(device_path, options: SignOptions):
+    # Check if device path should be excluded
+    if device_path in EXCLUDED_DRIVE_PATHS:
+        logging.info(f"Skipping drive {device_path} - in exclusion list")
+        return
+
+    logging.info(f"Signing drive {device_path}")
+    params = _build_sign_params(options)
 
     stdout, stderr, ec = await run_command(
         f"/weka-sign-drive {' '.join(params)} -- {device_path}")
@@ -583,15 +565,7 @@ async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
     Sets the proxy SystemGUID automatically.
     """
     logging.info(f"Signing drive for proxy: {device_path}")
-    params = ["sign", "proxy"]
-    if options.allowEraseWekaPartitions:
-        params.append("--allow-erase-weka-partitions")
-    if options.allowEraseNonWekaPartitions:
-        params.append("--allow-erase-non-weka-partitions")
-    if options.allowNonEmptyDevice:
-        params.append("--allow-non-empty-device")
-    if options.skipTrimFormat:
-        params.append("--skip-trim-format")
+    params = ["sign", "proxy"] + _build_sign_params(options)
 
     stdout, stderr, ec = await run_command(
         f"/weka-sign-drive {' '.join(params)} -- {device_path}")
@@ -608,6 +582,49 @@ async def sign_device_path_for_proxy(device_path: str, options: SignOptions):
     # Parse signing output (may contain info, but we'll use show command for consistency)
     logging.info(f"Successfully signed {device_path} for proxy")
     return await get_proxy_drive_info(device_path)
+
+
+async def sign_device_paths_batch(device_paths: List[str], options: SignOptions) -> List[str]:
+    paths = [p for p in device_paths if p not in EXCLUDED_DRIVE_PATHS]
+    if not paths:
+        return []
+    params = _build_sign_params(options)
+    params_str = (" ".join(params) + " ") if params else ""
+    cmd = f"/weka-sign-drive sign {params_str}-- {' '.join(paths)}"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec == 0:
+        return paths
+    logging.warning(f"Batch sign failed (ec={ec}), falling back to per-device signing: {stderr}")
+    signed = []
+    for p in paths:
+        try:
+            await sign_device_path(p, options)
+            signed.append(p)
+        except SignException as e:
+            logging.error(str(e))
+    return signed
+
+
+async def sign_device_paths_for_proxy_batch(device_paths: List[str], options: SignOptions) -> List[dict]:
+    paths = [p for p in device_paths if p not in EXCLUDED_DRIVE_PATHS]
+    if not paths:
+        return []
+    params = ["sign", "proxy"] + _build_sign_params(options)
+    cmd = f"/weka-sign-drive {' '.join(params)} -- {' '.join(paths)}"
+    stdout, stderr, ec = await run_command(cmd)
+    if ec == 0:
+        results = await asyncio.gather(*[get_proxy_drive_info(p) for p in paths], return_exceptions=True)
+        return [r for r in results if not isinstance(r, Exception)]
+    stderr_str = stderr.decode() if isinstance(stderr, bytes) else stderr
+    logging.warning(f"Batch proxy sign failed (ec={ec}), falling back to per-device signing: {stderr_str}")
+    infos = []
+    for p in paths:
+        try:
+            info = await sign_device_path_for_proxy(p, options)
+            infos.append(info)
+        except SignException as e:
+            logging.error(str(e))
+    return infos
 
 
 async def get_device_serial_id(device_path: str) -> str:
@@ -741,24 +758,11 @@ async def sign_not_mounted_for_proxy(options: SignOptions) -> List[dict]:
     """
     logging.info("Signing unmounted drives for proxy mode")
     all_disks = await find_disks()
-    signed_drives_info = []
 
     unmounted_disks = [disk for disk in all_disks if not disk.is_mounted]
     logging.info(f"Found {len(unmounted_disks)} unmounted disks to sign for proxy: {[d.path for d in unmounted_disks]}")
 
-    for disk in unmounted_disks:
-        if disk.path in EXCLUDED_DRIVE_PATHS:
-            logging.info(f"Skipping excluded drive: {disk.path}")
-            continue
-
-        try:
-            drive_info = await sign_device_path_for_proxy(disk.path, options)
-            signed_drives_info.append(drive_info)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-
-    return signed_drives_info
+    return await sign_device_paths_for_proxy_batch([disk.path for disk in unmounted_disks], options)
 
 
 async def sign_device_paths_for_proxy(devices_paths: List[str], options: SignOptions) -> List[dict]:
@@ -767,21 +771,7 @@ async def sign_device_paths_for_proxy(devices_paths: List[str], options: SignOpt
     Returns list of dicts with physical_uuid, serial, capacity_gib for each drive.
     """
     logging.info(f"Signing {len(devices_paths)} device paths for proxy mode: {devices_paths}")
-    signed_drives_info = []
-
-    for device_path in devices_paths:
-        if device_path in EXCLUDED_DRIVE_PATHS:
-            logging.info(f"Skipping excluded drive: {device_path}")
-            continue
-
-        try:
-            drive_info = await sign_device_path_for_proxy(device_path, options)
-            signed_drives_info.append(drive_info)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-
-    return signed_drives_info
+    return await sign_device_paths_for_proxy_batch(list(devices_paths), options)
 
 
 async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, options: SignOptions) -> List[dict]:
@@ -801,23 +791,9 @@ async def sign_drives_for_proxy_by_pci_info(vendor_id: str, device_id: str, opti
         logging.info("No devices found matching PCI info")
         return []
 
-    signed_drives_info = []
     pci_devices = stdout.decode().strip().split()
-    for pci_device in pci_devices:
-        device = f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1"
-
-        if device in EXCLUDED_DRIVE_PATHS:
-            logging.info(f"Skipping excluded drive: {device}")
-            continue
-
-        try:
-            drive_info = await sign_device_path_for_proxy(device, options)
-            signed_drives_info.append(drive_info)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-
-    return signed_drives_info
+    devices = [f"/dev/disk/by-path/pci-0000:{pci_device}-nvme-1" for pci_device in pci_devices]
+    return await sign_device_paths_for_proxy_batch(devices, options)
 
 
 async def sign_drives_for_proxy_gke(vendor_id: str, device_id: str, options: SignOptions) -> List[dict]:
@@ -844,28 +820,10 @@ done"""
         logging.info("No devices found via sysfs")
         return []
 
-    logging.info(f"Found {len(stdout.decode().strip().split())} drives to sign for proxy")
-    signed_drives_info = []
     dev_devices = stdout.decode().strip().split("\n")
-
-    for dev_device in dev_devices:
-        if not dev_device:  # Skip empty lines
-            continue
-
-        device = f"/dev/{dev_device}"
-
-        if device in EXCLUDED_DRIVE_PATHS:
-            logging.info(f"Skipping excluded drive: {device}")
-            continue
-
-        try:
-            drive_info = await sign_device_path_for_proxy(device, options)
-            signed_drives_info.append(drive_info)
-        except SignException as e:
-            logging.error(str(e))
-            continue
-
-    return signed_drives_info
+    devices = [f"/dev/{dev_device}" for dev_device in dev_devices if dev_device]
+    logging.info(f"Found {len(devices)} drives to sign for proxy")
+    return await sign_device_paths_for_proxy_batch(devices, options)
 
 
 async def sign_drives_gke(vendor_id: str, device_id: str, options: dict) -> List[str]:
@@ -886,19 +844,10 @@ done"""
     if ec != 0:
         return
 
-    logging.info(f"Found {len(stdout.decode().strip().split())} drives to sign")
-    signed_drives = []
     dev_devices = stdout.decode().strip().split("\n")
-    for dev_device in dev_devices:
-        device = f"/dev/{dev_device}"
-        try:
-            await sign_device_path(device, options)
-            signed_drives.append(device)
-
-        except SignException as e:
-            logging.error(str(e))
-            continue
-    return signed_drives
+    devices = [f"/dev/{dev_device}" for dev_device in dev_devices if dev_device]
+    logging.info(f"Found {len(devices)} drives to sign")
+    return await sign_device_paths_batch(devices, options)
 
 async def sign_drives(instruction: dict):
     """
@@ -982,15 +931,8 @@ async def sign_drives(instruction: dict):
 
 async def force_resign_drives_by_paths(devices_paths: List[str]):
     logging.info("Force resigning drives by paths: %s", devices_paths)
-    signed_drives = []
     options = SignOptions(allowEraseWekaPartitions=True)
-    for device_path in devices_paths:
-        try:
-            await sign_device_path(device_path, options)
-            signed_drives.append(device_path)
-        except SignException as e:
-            logging.error(str(e))
-            continue
+    signed_drives = await sign_device_paths_batch(devices_paths, options)
     write_results(dict(
         err=None,
         drives=signed_drives
@@ -4564,6 +4506,7 @@ async def shutdown():
         timeout = 60
         # print out in-kernel devices for up to 60 seconds every 0.3 seconds
         requested_drives = await get_requested_drives()
+        requested_drives_returned = True
         logging.info(f"Waiting for {len(requested_drives)} requested drives to return to kernel: {requested_drives}")
 
         for _ in range(int(timeout / 0.3)):
@@ -4582,6 +4525,9 @@ async def shutdown():
                 break
 
             await asyncio.sleep(0.3)
+        
+        if not requested_drives_returned:
+            logging.error("Not all requested drives returned to kernel after waiting")
 
     for key, process in dict(processes.items()).items():
         logging.info(f"stopping process {process.pid}, {key}")
