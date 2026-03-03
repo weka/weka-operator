@@ -598,9 +598,6 @@ func (o *EnsureDistServiceOperation) EnsureBuilderContainers(ctx context.Context
 					//	Type:    "build-drivers",
 					//	Payload: fmt.Sprintf(`{"kernel": "%s", "arch": "%s", "osImage":"%s"}`, ka.kernelVersion, ka.architecture, ka.osImage),
 					//},
-					Overrides: &weka.WekaContainerSpecOverrides{
-						DebugSleepOnTerminate: 3600,
-					},
 					// PreRunScript for kernel verification if needed, though scheduling should handle it.
 					// Example: wc.Spec.Overrides = &weka.WekaContainerSpecOverrides{ PreRunScript: "..." }
 					// Resources: Define appropriate resources for a builder container
