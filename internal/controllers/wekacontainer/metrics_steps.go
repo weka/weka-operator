@@ -89,7 +89,7 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 
 func (r *containerReconcilerLoop) SetStatusMetrics(ctx context.Context) error {
 	// TODO: Should we be do this locally? it actually will be better to find failures from different container
-	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything throught just one
+	// but, if we dont keep locality - performance wise too easy to make mistake and funnel everything through just one
 	// tldr: we need a proper service gateway for weka api, that will both healthcheck and distribute
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()

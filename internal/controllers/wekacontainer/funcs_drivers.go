@@ -172,7 +172,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 
 	if results.NoWekaDriversHandling {
 		// for legacy drivers handling, we don't have support for weka driver command
-		// copy everything from builer's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
+		// copy everything from builder's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
 		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
 		stdout, stderr, err := executor.ExecNamed(ctx, "CopyDrivers",
 			[]string{"bash", "-ce", cmd},

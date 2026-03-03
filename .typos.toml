@@ -1,0 +1,13 @@
+[files]
+extend-exclude = ["pkg/weka-k8s-api/", "pkg/go-steps-engine/"]
+
+[default.extend-words]
+# ChromeOS abbreviation used in charts/weka-operator/resources/cos-devenv.sh
+# and weka_runtime.py (e.g. CROS_TC_VERSION, x86_64-cros-linux-gnu, cros_efi)
+cros = "cros"
+CROS = "CROS"
+# Appears inside the opaque AMI ID string ami-03b7ba7765035f79d in
+# packer/ubuntu/manifest.json — not an English word
+ba = "ba"
+# umounted follows the umount(8) command naming convention
+umounted = "umounted"

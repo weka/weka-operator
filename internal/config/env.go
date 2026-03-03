@@ -275,7 +275,7 @@ var Consts struct {
 	ContainerUpdateAllocationsSleep time.Duration
 	// TTL for join ips cache
 	JoinIpsCacheTTL time.Duration
-	// Limit for the number of contianers to be created during one reconcile loop
+	// Limit for the number of containers to be created during one reconcile loop
 	NewContainersLimit int
 	// Interval for periodic drives check on weka container
 	PeriodicDrivesCheckInterval time.Duration

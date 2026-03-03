@@ -117,7 +117,7 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 			}
 			// better to define specific error type for this, and helper function that would unwrap steps-execution exceptions
 			// as an option, we should look into preserving original error without unwrapping. i.e abort+wait are encapsulated control cycles
-			// but generic ReconcilationError wrapping error is sort of pointless
+			// but generic ReconciliationError wrapping error is sort of pointless
 			if strings.Contains(err.Error(), "error reconciling object during phase GetNode: Node") && strings.Contains(err.Error(), "not found") {
 				logger.Info("node is deleted, no need for cleanup")
 				return nil
@@ -408,7 +408,7 @@ func (r *containerReconcilerLoop) runWekaLocalStop(ctx context.Context, pod *v1.
 	}
 
 	_, stderr, err := executor.ExecNamed(ctx, "WekaLocalStop", args)
-	// hanlde the case when there is no weka-container on the pod
+	// handle the case when there is no weka-container on the pod
 	if err != nil && strings.Contains(err.Error(), "container not found") {
 		return nil
 	}

@@ -248,7 +248,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// If the policy is done, requeue after the specified interval
 	if loop.DurationTillNext() > 0 {
-		logger.Info("Policy done, requeueing", "requeueAfter", loop.DurationTillNext())
+		logger.Info("Policy done, requeuing", "requeueAfter", loop.DurationTillNext())
 		return ctrl.Result{RequeueAfter: loop.DurationTillNext()}, nil
 	}
 

@@ -425,7 +425,7 @@ async def find_disks() -> List[Disk]:
     """
     logging.info("Finding disks and checking mount status")
     # Use -J for JSON output, -p for full paths, -o to specify columns
-    # TODO: We are dependant on lsblk here on host here. Is it a probelm? potentially
+    # TODO: We are dependant on lsblk here on host here. Is it a problem? potentially
     cmd = "nsenter --mount --pid --target 1 -- lsblk -p -J -o NAME,TYPE,MOUNTPOINT,SERIAL"
     stdout, stderr, ec = await run_command(cmd, capture_stdout=True)
     if ec != 0:
@@ -2554,7 +2554,7 @@ def convert_to_bytes(memory: str) -> int:
 
 
 async def check_resources_json(resources_dir: str):
-    # Check current container status and if "runStatus" is "Uknown", look for empty resources file in
+    # Check current container status and if "runStatus" is "Unknown", look for empty resources file in
     #   resources_dir ("/opt/weka/data/{NAME}/container/")
     # If resources.json.stable pointing to an empty file:
     #   look for older weka-resources*.json files in the same directory

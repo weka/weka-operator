@@ -317,7 +317,7 @@ func (r *wekaClusterReconcilerLoop) EnsureDefaultFS(ctx context.Context) error {
 	}
 
 	// This defaults are not meant to be configurable, as instead weka should not require them.
-	// Until then, user configuratino post cluster create
+	// Until then, user configuration post cluster create
 
 	var thinProvisionedLimitsConfigFS int64 = 100 * 1024 * 1024 * 1024 // half a total capacity allocated for thin provisioning
 	thinProvisionedLimitsDefault := status.Capacity.TotalBytes / 10    // half a total capacity allocated for thin provisioning

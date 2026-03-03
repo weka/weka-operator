@@ -209,7 +209,7 @@ install_release_cross_toolchain() {
   fi
 
   # Download .gcs file with the original location of the toolchain
-  # we need the version to put it in cachable location
+  # we need the version to put it in cacheable location
   local -r tc_gcs_download_url="${COS_DOWNLOAD_GCS}/${RELEASE_ID}/${TOOLCHAIN_ARCHIVE_GCS}"
   if ! download_from_gcs "${tc_gcs_download_url}" "${BUILD_DIR}/${TOOLCHAIN_ARCHIVE_GCS}"; then
     error "Failed to download toolchain .gcs file"

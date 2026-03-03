@@ -45,7 +45,7 @@ volumeType: dir/v1
 - cluster, clients, drivers components should use WEKA_IMAGE image
 
 use `https://github.com/weka/csi-wekafs/releases/download/v2.7.2/csi-wekafsplugin-2.7.2.tgz` for CSI install
-derive parameters from my request if execution asks for more, ask for what cannot be derrived
+derive parameters from my request if execution asks for more, ask for what cannot be derived
 
 Params(and their defaults):
   - New operator version: v1.6.0-dev.8 (NEW_OPERATOR_VERSION)

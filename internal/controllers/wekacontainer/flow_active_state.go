@@ -271,7 +271,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			},
 		},
 		&lifecycle.SimpleStep{
-			Run: r.checkPodUnhealty,
+			Run: r.checkPodUnhealthy,
 			Predicates: lifecycle.Predicates{
 				func() bool {
 					return r.container.Status.Status != weka.Unhealthy
@@ -515,7 +515,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.MarkDrivesForRemoval,
 			Predicates: lifecycle.Predicates{
 				r.container.IsDriveContainer,
-				r.AddedDrivesNotAligedWithAllocations,
+				r.AddedDrivesNotAlignedWithAllocations,
 				func() bool { return config.Config.RemoveFailedDrivesFromWeka },
 			},
 		},
@@ -604,7 +604,7 @@ func (r *containerReconcilerLoop) ensureStateDeleting(ctx context.Context) error
 	return services.SetContainerStateDeleting(ctx, r.container, r.Client)
 }
 
-func (r *containerReconcilerLoop) checkPodUnhealty(ctx context.Context) error {
+func (r *containerReconcilerLoop) checkPodUnhealthy(ctx context.Context) error {
 	pod := r.pod
 
 	// check ContainersReady
@@ -703,7 +703,7 @@ func (r *containerReconcilerLoop) setNodeAffinityStatus(ctx context.Context) err
 	}
 
 	// get node before setting status - if node is not found, we will return error and retry
-	// NOTE: let kuberenetes terminate pod if node is not found and get it rescheduled
+	// NOTE: let kubernetes terminate pod if node is not found and get it rescheduled
 	_, err := r.KubeService.GetNode(ctx, k8sTypes.NodeName(nodeName))
 	if apierrors.IsNotFound(err) {
 		return fmt.Errorf("node not found: %s", nodeName)

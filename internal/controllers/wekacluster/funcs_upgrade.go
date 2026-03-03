@@ -344,8 +344,8 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 
 		// desired labels = cluster labels + required labels
 		// priority-wise, required labels have the highest priority
-		requiredLables := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
-		newLabels := util.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLables)
+		requiredLabels := factory.RequiredWekaContainerLabels(cluster.UID, cluster.Name, role)
+		newLabels := util.MergeMaps(cluster.ObjectMeta.GetLabels(), requiredLabels)
 		if !util.NewHashableMap(newLabels).Equals(util.NewHashableMap(container.Labels)) {
 			container.Labels = newLabels
 		}
@@ -723,7 +723,7 @@ func (r *wekaClusterReconcilerLoop) prepareForUpgradeS3(ctx context.Context, con
 	defer end()
 
 	if len(containers) == 0 {
-		logger.Info("No S3 containers found to ugprade")
+		logger.Info("No S3 containers found to upgrade")
 		return nil
 	}
 

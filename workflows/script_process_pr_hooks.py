@@ -174,7 +174,7 @@ def get_input_files(pr_infos: List[PRInfo], output_dir: Path) -> InputFilePaths:
         'hooks_guidance': AITESTS_DIR / 'upgrade_extended' / 'hooks_guidance.txt',
         'upgrade_test_description': AITESTS_DIR / 'upgrade_extended' / 'test_description.md',
         'upgrade_test_hooks_description': AITESTS_DIR / 'upgrade_extended' / 'hooks.md',
-        'upgrade_test_hooks_env_vars': AITESTS_DIR / 'upgrade_extended' / 'hooks_environmnent_variables.md',
+        'upgrade_test_hooks_env_vars': AITESTS_DIR / 'upgrade_extended' / 'hooks_environment_variables.md',
     }
     
     # Check all source files exist

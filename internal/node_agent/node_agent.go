@@ -1419,7 +1419,7 @@ type CategoryStat struct {
 	Stat     string `json:"stat"`
 	Category string `json:"category"`
 }
-type GrouppedMetrics map[CategoryStat][]WekaStat
+type GroupedMetrics map[CategoryStat][]WekaStat
 
 type processedStat struct {
 	OriginalStat WekaStat
@@ -1538,7 +1538,7 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 	}
 
 	//group metrics
-	groupedMetrics := make(GrouppedMetrics)
+	groupedMetrics := make(GroupedMetrics)
 	for _, stat := range container.statsResponse {
 		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
 	}
@@ -1848,7 +1848,7 @@ func sumTagsBy(sumBy string, keepTags []string, values []metrics2.TaggedValue) [
 		sums[key] += value.Value
 	}
 
-	// last pass, keep track of processed key, if proceesed just continue, as we have sums
+	// last pass, keep track of processed key, if processed just continue, as we have sums
 	ret := []metrics2.TaggedValue{}
 	processed := make(map[string]bool)
 	for _, value := range values {

@@ -317,7 +317,7 @@ func (r *containerReconcilerLoop) checkUnhealyPodResources(ctx context.Context) 
 	return nil
 }
 
-func (r *containerReconcilerLoop) FormReallocaionRequest(ctx context.Context) (*allocator.DriveReallocationRequest, error) {
+func (r *containerReconcilerLoop) FormReallocationRequest(ctx context.Context) (*allocator.DriveReallocationRequest, error) {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "FormReallocationRequest")
 	defer end()
 
@@ -334,7 +334,7 @@ func (r *containerReconcilerLoop) FormReallocaionRequest(ctx context.Context) (*
 		return nil, fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	// depending on the container spec we will use numDrives or conteinerCapacity as the target
+	// depending on the container spec we will use numDrives or containerCapacity as the target
 	if container.HasContainerCapacity() {
 		allocatedCapacity := container.Status.Allocations.GetAllocatedVirtualDrivesCapacity()
 		targetCapacity := container.Spec.ContainerCapacity
@@ -397,7 +397,7 @@ func (r *containerReconcilerLoop) AllocateDrivesIfNeeded(ctx context.Context) er
 
 	container := r.container
 
-	reallocRequest, err := r.FormReallocaionRequest(ctx)
+	reallocRequest, err := r.FormReallocationRequest(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to form drive reallocation request: %w", err)
 	}

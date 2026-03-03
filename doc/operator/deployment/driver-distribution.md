@@ -7,7 +7,7 @@ Classic approach to build drivers is to deploy
 Example of such, handling multiple kernels, and having custom pre-run script
 
 Important: No need to deploy multiple builders if no need to support multiple kernels or multiple weka versions
-Importnat: Replace versions with your target wekaclient/wekacluster versions. Versions(images) on builders must match
+Important: Replace versions with your target wekaclient/wekacluster versions. Versions(images) on builders must match
 ```
 apiVersion: weka.weka.io/v1alpha1
 kind: WekaContainer
@@ -101,7 +101,7 @@ spec:
   payload:
     interval: "1m" # How often to reconcile this policy
     driverDistPayload: # mandatory
-      # Images to ensure IN ADDDITION to these found by existing WekaCluster/WekaClients
+      # Images to ensure IN ADDITION to these found by existing WekaCluster/WekaClients
       ensureImages:
         - "quay.io/weka.io/weka-in-container:4.4.2.157-k8s.2" # Example Weka image version for proactive building
         - "quay.io/weka.io/weka-in-container:4.4.5.118-k8s.4" # Another example
