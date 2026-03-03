@@ -2389,7 +2389,7 @@ async def create_container():
         net_str = "--net udp"
     else:
         # Bare-metal: create without --net, reconcile adds devices after
-        net_str = ""
+        net_str = "--net udp" # setting udp first, then adding nics during reconfigure
 
     failure_domain = FAILURE_DOMAIN
 
