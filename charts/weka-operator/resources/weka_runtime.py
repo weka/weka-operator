@@ -118,6 +118,8 @@ PORT_RANGE = os.environ.get("PORT_RANGE", "0")
 WEKA_CONTAINER_PORT_SUBRANGE = 100
 MAX_PORT = 65535
 
+SUBPROCESS_DEFAULT_TIMEOUT_SEC = 30
+
 # Define global variables
 exiting = 0
 
@@ -640,7 +642,8 @@ async def get_device_serial_id(device_path: str) -> str:
         # Resolve to the actual device in sysfs
         pci_device_path = subprocess.check_output(
             f"readlink -f /sys/class/block/{device_name}",
-            shell=True
+            shell=True,
+            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
         ).decode().strip()
 
         if "nvme" in device_name.lower():
@@ -648,7 +651,8 @@ async def get_device_serial_id(device_path: str) -> str:
             # /sys/devices/pci.../nvme/nvme0/nvme0n1 -> need /sys/devices/pci.../nvme/nvme0/serial
             # Remove last element (nvme0n1) to get the nvme0 directory
             serial_id_path = "/".join(pci_device_path.split("/")[:-1]) + "/serial"
-            serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
+            serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True,
+                                                timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
 
             # Google COS specific handling if needed
             if is_google_cos():
@@ -661,14 +665,16 @@ async def get_device_serial_id(device_path: str) -> str:
             device_base_name = pci_device_path.split("/")[-2]
             dev_index = subprocess.check_output(
                 f"cat /sys/block/{device_base_name}/dev",
-                shell=True
+                shell=True,
+                timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
             ).decode().strip()
 
             serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
-            serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
+            serial_id = subprocess.check_output(serial_id_cmd, shell=True,
+                                                timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split("=")[-1]
             return serial_id
 
-    except Exception as e:
+    except (Exception, subprocess.TimeoutExpired) as e:
         logging.warning(f"Failed to get serial ID for {device_path}: {e}")
         return ""
 
@@ -1073,9 +1079,11 @@ async def find_weka_drives():
     drives = []
     # ls /dev/disk/by-path/pci-0000\:03\:00.0-scsi-0\:0\:3\:0  | ssd
 
-    devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True).decode().strip().split()
+    devices_by_id = subprocess.check_output("ls /dev/disk/by-id/", shell=True,
+                                             timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split()
     if os.path.exists("/dev/disk/by-path"):
-        devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True).decode().strip().split()
+        devices_by_path = subprocess.check_output("ls /dev/disk/by-path/", shell=True,
+                                                   timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split()
     else:
         devices_by_path = []
 
@@ -1086,18 +1094,20 @@ async def find_weka_drives():
         for device in devices_by_path:
             try:
                 part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-path/{device})",
-                                                    shell=True).decode().strip()
-            except subprocess.CalledProcessError:
+                                                    shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 logging.error(f"Failed to get part name for {device}")
                 continue
             part_names.append(part_name)
         for device in devices_by_id:
             try:
                 part_name = subprocess.check_output(f"basename $(readlink -f /dev/disk/by-id/{device})",
-                                                    shell=True).decode().strip()
+                                                    shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
                 if part_name in part_names:
                     continue
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 logging.error(f"Failed to get part name for {device}")
                 continue
             part_names.append(part_name)
@@ -1108,8 +1118,9 @@ async def find_weka_drives():
     for part_name in part_names:
         try:
             type_id = subprocess.check_output(f"blkid -s PART_ENTRY_TYPE -o value -p /dev/{part_name}",
-                                              shell=True).decode().strip()
-        except subprocess.CalledProcessError:
+                                              shell=True,
+                                              timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             logging.error(f"Failed to get PART_ENTRY_TYPE for {part_name}")
             continue
 
@@ -1118,8 +1129,9 @@ async def find_weka_drives():
             # Signature is at offset 8, 16 bytes
             try:
                 signature_cmd = f"hexdump -v -e '1/1 \"%.2x\"' -s 8 -n 16 /dev/{part_name}"
-                signature = subprocess.check_output(signature_cmd, shell=True).decode().strip()
-            except subprocess.CalledProcessError:
+                signature = subprocess.check_output(signature_cmd, shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 logging.error(f"Failed to read signature for {part_name}")
                 signature = ""
 
@@ -1135,20 +1147,24 @@ async def find_weka_drives():
 
             # resolve block_device to serial id
             pci_device_path = subprocess.check_output(f"readlink -f /sys/class/block/{part_name}",
-                                                      shell=True).decode().strip()
+                                                      shell=True,
+                                                      timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
             if "nvme" in part_name:
                 # 3 directories up is the serial id
                 serial_id_path = "/".join(pci_device_path.split("/")[:-2]) + "/serial"
-                serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True).decode().strip()
+                serial_id = subprocess.check_output(f"cat {serial_id_path}", shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
                 device_path = "/dev/" + pci_device_path.split("/")[-2]
                 if is_google_cos():
                     serial_id = await get_serial_id_cos_specific(os.path.basename(device_path))
             else:
                 device_name = pci_device_path.split("/")[-2]
                 device_path = "/dev/" + device_name
-                dev_index = subprocess.check_output(f"cat /sys/block/{device_name}/dev", shell=True).decode().strip()
+                dev_index = subprocess.check_output(f"cat /sys/block/{device_name}/dev", shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip()
                 serial_id_cmd = f"cat /host/run/udev/data/b{dev_index} | grep ID_SERIAL="
-                serial_id = subprocess.check_output(serial_id_cmd, shell=True).decode().strip().split("=")[-1]
+                serial_id = subprocess.check_output(serial_id_cmd, shell=True,
+                                                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC).decode().strip().split("=")[-1]
 
             drives.append({
                 "partition": "/dev/" + part_name,
@@ -1752,7 +1768,8 @@ def get_data_path_cores():
             ["ps", "aux"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
         )
 
         data_path_pids = []
@@ -1772,7 +1789,8 @@ def get_data_path_cores():
                     ["taskset", "-cp", pid],
                     capture_output=True,
                     text=True,
-                    check=True
+                    check=True,
+                    timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
                 )
                 # Parse output like "pid 1673's current affinity list: 6"
                 for line in affinity_result.stdout.splitlines():
@@ -1866,7 +1884,8 @@ def get_processes_to_reassign():
             ["ps", "aux"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=SUBPROCESS_DEFAULT_TIMEOUT_SEC,
         )
 
         pids_to_reassign = []
