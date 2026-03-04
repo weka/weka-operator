@@ -82,6 +82,19 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			drivesAddedByVids[d.Uuid] = true
 		}
 
+		// Check if all virtual drives are of the same type
+		allSameType := true
+		var firstType string
+		if len(container.Status.Allocations.VirtualDrives) > 0 {
+			firstType = container.Status.Allocations.VirtualDrives[0].Type
+			for _, vd := range container.Status.Allocations.VirtualDrives {
+				if vd.Type != firstType {
+					allSameType = false
+					break
+				}
+			}
+		}
+
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
 			l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
@@ -94,9 +107,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding virtual drive to cluster")
 
+			// If all drives are the same type, use legacy pool, otherwise use pool based on drive type
 			pool := "iu4k" // default to TLC
 
-			if vd.Type == "QLC" {
+			if allSameType {
+				pool = "legacy"
+			} else if vd.Type == "QLC" {
 				pool = "iubig"
 			}
 
@@ -159,7 +175,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			l.Info("Adding drive into system")
 			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, nil)
+			pool := "legacy" // default to legacy pool for non-drive-sharing mode
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, &pool)
 			if err != nil {
 				l.Error(err, "Error adding drive into system")
 				errs = append(errs, err)
