@@ -397,12 +397,6 @@ spec:
               value: "{{ .Values.hugepagesUpdate.compute }}"
             - name: HUGEPAGES_UPDATE_DRIVE
               value: "{{ .Values.hugepagesUpdate.drive }}"
-            - name: HUGEPAGES_UPDATE_S3
-              value: "{{ .Values.hugepagesUpdate.s3 }}"
-            - name: HUGEPAGES_UPDATE_NFS
-              value: "{{ .Values.hugepagesUpdate.nfs }}"
-            - name: HUGEPAGES_UPDATE_DATA_SERVICES
-              value: "{{ .Values.hugepagesUpdate.dataServices }}"
             - name: COMPUTE_MAX_HUGEPAGES_MIB
               value: "{{ .Values.computeMaxHugepagesMiB }}"
             - name: PORT_ALLOCATION_STARTING_PORT

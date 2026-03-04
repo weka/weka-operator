@@ -59,10 +59,10 @@ func TestComputeCapacityBasedHugepages_MaxCap(t *testing.T) {
 
 func TestCalculateDriveHugepages(t *testing.T) {
 	tests := []struct {
-		name      string
-		numDrives int
+		name       string
+		numDrives  int
 		driveCores int
-		expected  int
+		expected   int
 	}{
 		{
 			name:       "traditional mode (NumDrives > 0)",
@@ -100,10 +100,10 @@ func TestCalculateDriveHugepages(t *testing.T) {
 
 func TestCalculateDriveHugepagesOffset(t *testing.T) {
 	tests := []struct {
-		name      string
-		numDrives int
+		name       string
+		numDrives  int
 		driveCores int
-		expected  int
+		expected   int
 	}{
 		{
 			name:       "traditional mode (NumDrives > 0)",
