@@ -3270,6 +3270,9 @@ GENERATION_PATH = f'{WEKA_K8S_RUNTIME_DIR}/runtime-generation'
 CURRENT_GENERATION = str(time.time())
 PERSISTENCY_CONFIGURED = f'{WEKA_K8S_RUNTIME_DIR}/persistency-configured'
 
+_last_wrong_generation_log: float = 0.0
+_WRONG_GENERATION_LOG_INTERVAL = 30  # seconds
+
 
 def is_udp():
     return NETWORK_DEVICE.lower() == "udp" or UDP_MODE
@@ -4290,6 +4293,11 @@ async def stop_process(process):
 
 
 def is_wrong_generation():
+    global _last_wrong_generation_log
+    # These modes have no persistent storage — /host-binds/opt-weka is not mounted,
+    # so GENERATION_PATH is container-local. A new pod cannot write a generation visible
+    # to the old pod, meaning the mechanism cannot work. Skip the check to avoid
+    # misleading log noise.
     if MODE in ['drivers-loader', 'discovery', 'drivers-builder']:
         return False
 
@@ -4298,7 +4306,10 @@ def is_wrong_generation():
         return False
 
     if current_generation != CURRENT_GENERATION:
-        logging.error("Wrong generation detected, exiting, current:%s, read: %s", CURRENT_GENERATION, read_generation())
+        now = time.time()
+        if now - _last_wrong_generation_log >= _WRONG_GENERATION_LOG_INTERVAL:
+            logging.error("Wrong generation detected, exiting, current:%s, read: %s", CURRENT_GENERATION, current_generation)
+            _last_wrong_generation_log = now
         return True
     return False
 

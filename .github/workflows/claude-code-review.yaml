@@ -39,14 +39,13 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           track_progress: true  # Enables tracking comments
           prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
-
-            Review with a focus on:
+            Focus on:
             - Code quality and best practices
             - Potential bugs or issues
             - Security implications
             - Performance considerations
+
+            Exit early if nothing changed from your last review.
 
             Provide detailed feedback using inline comments for specific issues.
             Add brief summary comment at the end of the review.
