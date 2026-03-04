@@ -254,7 +254,13 @@ func (r *containerReconcilerLoop) deletePodOnConfigVersionMismatch(ctx context.C
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
-	currentHash := resources.PodConfigHash()
+	cluster, err := r.getCluster(ctx)
+	if err != nil {
+		// Some containers (adhoc-op, feature-flags) don't belong to a cluster.
+		// Skip config version check for them.
+		return nil
+	}
+	currentHash := resources.PodConfigHashForCluster(cluster)
 	podHash, exists := r.pod.Annotations["weka.io/pod-config-version"]
 
 	if exists && podHash == currentHash {

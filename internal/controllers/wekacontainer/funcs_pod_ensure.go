@@ -127,7 +127,9 @@ func (r *containerReconcilerLoop) ensurePod(ctx context.Context) error {
 		}
 	}
 
-	desiredPod, err := resources.NewPodFactory(container, nodeInfo).Create(ctx, &image)
+	cluster, _ := r.getCluster(ctx)
+	podConfigHash := resources.PodConfigHashForCluster(cluster)
+	desiredPod, err := resources.NewPodFactory(container, nodeInfo, podConfigHash).Create(ctx, &image)
 	if err != nil {
 		return errors.Wrap(err, "Failed to create pod spec")
 	}

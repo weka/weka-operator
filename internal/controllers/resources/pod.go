@@ -40,13 +40,18 @@ const (
 type podConfigData struct {
 	PodConfigVersion   int
 	WekaRuntimeVersion int
+	ClusterSpec        *UpdatableClusterSpec `json:"clusterSpec,omitempty"`
 }
 
-// podConfigHash returns a hex-encoded SHA-256 hash of the podConfigData struct.
-func PodConfigHash() string {
+// PodConfigHashForCluster returns a hex-encoded SHA-256 hash of config data that should trigger pod rotation.
+// cluster may be nil (e.g. in tests); in that case ClusterSpec is excluded from the hash.
+func PodConfigHashForCluster(cluster *weka.WekaCluster) string {
 	data := podConfigData{
 		PodConfigVersion:   config.Config.PodConfigVersion,
 		WekaRuntimeVersion: consts.WekaRuntimeVersion,
+	}
+	if cluster != nil {
+		data.ClusterSpec = NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta)
 	}
 	b, _ := json.Marshal(data)
 	sum := sha256.Sum256(b)
@@ -87,8 +92,9 @@ type WekaLocalContainerGetIdentityResponse struct {
 type WekaLocalStatusResponse map[string]WekaLocalStatusContainer
 
 type PodFactory struct {
-	container *weka.WekaContainer
-	nodeInfo  *discovery.DiscoveryNodeInfo
+	container     *weka.WekaContainer
+	nodeInfo      *discovery.DiscoveryNodeInfo
+	podConfigHash string
 }
 
 type WekaDriveResponse struct {
@@ -106,10 +112,11 @@ func (driveResponse *WekaDriveResponse) ContainerId() (int, error) {
 	return HostIdToContainerId(driveResponse.HostId)
 }
 
-func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo) *PodFactory {
+func NewPodFactory(container *weka.WekaContainer, nodeInfo *discovery.DiscoveryNodeInfo, podConfigHash string) *PodFactory {
 	return &PodFactory{
-		nodeInfo:  nodeInfo,
-		container: container,
+		nodeInfo:      nodeInfo,
+		container:     container,
+		podConfigHash: podConfigHash,
 	}
 }
 
@@ -915,7 +922,7 @@ echo "=== OTEL Init Container Completed ==="`,
 		return nil, err
 	}
 
-	pod.Annotations[podConfigVersionAnnotation] = PodConfigHash()
+	pod.Annotations[podConfigVersionAnnotation] = f.podConfigHash
 
 	return pod, nil
 }

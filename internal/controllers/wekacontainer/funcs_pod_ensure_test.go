@@ -80,7 +80,7 @@ var _ = Describe("PodFactory for drivers-builder with Instructions", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo)
+		factory := resources.NewPodFactory(container, nodeInfo, "")
 
 		podImage := builderImage
 		pod, err := factory.Create(ctx, &podImage)
@@ -132,7 +132,7 @@ var _ = Describe("PodFactory for drivers-builder with Instructions", func() {
 		}
 
 		nodeInfo := &discovery.DiscoveryNodeInfo{}
-		factory := resources.NewPodFactory(container, nodeInfo)
+		factory := resources.NewPodFactory(container, nodeInfo, "")
 
 		podImage := clusterImage
 		pod, err := factory.Create(ctx, &podImage)
