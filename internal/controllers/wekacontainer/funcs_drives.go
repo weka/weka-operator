@@ -82,6 +82,19 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			drivesAddedByVids[d.Uuid] = true
 		}
 
+		// Check if all virtual drives are of the same type
+		allSameType := true
+		var firstType string
+		if len(container.Status.Allocations.VirtualDrives) > 0 {
+			firstType = container.Status.Allocations.VirtualDrives[0].Type
+			for _, vd := range container.Status.Allocations.VirtualDrives {
+				if vd.Type != firstType {
+					allSameType = false
+					break
+				}
+			}
+		}
+
 		// Add each virtual drive to the cluster
 		for _, vd := range container.Status.Allocations.VirtualDrives {
 			l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "serial", vd.Serial, "physical_uuid", vd.PhysicalUUID)
@@ -92,13 +105,18 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				continue
 			}
 
-			l.Info("Adding virtual drive to cluster")
-
-			pool := "iu4k" // default to TLC
-
-			if vd.Type == "QLC" {
+			var pool string
+			switch {
+			case allSameType:
+				pool = "legacy"
+			case vd.Type == "QLC":
 				pool = "iubig"
+			default:
+				pool = "iu4k"
 			}
+
+			l = l.WithValues("pool", pool)
+			l.Info("Adding virtual drive to cluster")
 
 			// Add drive using virtual UUID (virtual UUID was already signed on device via AddVirtualDrives)
 			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, vd.VirtualUUID, &pool)
@@ -115,6 +133,17 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 		drivesAddedBySerial := make(map[string]bool)
 		for _, s := range container.Status.GetAddedDrivesSerials() {
 			drivesAddedBySerial[s] = true
+		}
+
+		// Check if --pool flag is supported (only once for all drives in this container)
+		supportsPool := wekaService.SupportsFlag(ctx, "weka cluster drive add", "pool")
+		var pool *string
+		if supportsPool {
+			legacyPool := "legacy"
+			pool = &legacyPool
+			logger.Info("Weka version supports --pool flag, using legacy pool for all drives")
+		} else {
+			logger.Info("Weka version does not support --pool flag, drives will be added without pool specification")
 		}
 
 		// Regular mode: add exclusive drives
@@ -157,9 +186,12 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				continue
 			}
 
+			if pool != nil {
+				l = l.WithValues("pool", *pool)
+			}
 			l.Info("Adding drive into system")
 			// TODO: We need to login here. Maybe handle it on wekaauthcli level?
-			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, nil)
+			err = wekaService.AddDrive(ctx, *container.Status.ClusterContainerID, kDrives[drive].DevicePath, pool)
 			if err != nil {
 				l.Error(err, "Error adding drive into system")
 				errs = append(errs, err)

@@ -341,6 +341,7 @@ type WekaService interface {
 	ListDrives(ctx context.Context, listOptions DriveListOptions) ([]weka.Drive, error)
 	ListContainerDrives(ctx context.Context, containerId int) ([]weka.Drive, error)
 	DeactivateContainer(ctx context.Context, containerId int) error
+	SupportsFlag(ctx context.Context, command string, flagName string) bool
 	AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error
 	RemoveDrive(ctx context.Context, driveUuid string) error
 	RemoveContainer(ctx context.Context, containerId int, noUnimprint bool) error
@@ -1189,6 +1190,47 @@ func (c *CliWekaService) DeactivateContainer(ctx context.Context, containerId in
 		return err
 	}
 	return nil
+}
+
+func (c *CliWekaService) SupportsFlag(ctx context.Context, command string, flagName string) bool {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SupportsFlag", "command", command, "flag", flagName)
+	defer end()
+
+	// Validate inputs
+	if command == "" || flagName == "" {
+		logger.Debug("Empty command or flag name", "command", command, "flag", flagName)
+		return false
+	}
+
+	executor, err := c.ExecService.GetExecutor(ctx, c.Container)
+	if err != nil {
+		logger.Debug("Failed to get executor for flag check", "error", err)
+		return false
+	}
+
+	// Split command into binary and arguments, then append --help
+	cmdParts := strings.Fields(command)
+	if len(cmdParts) == 0 {
+		logger.Debug("Command has no executable part", "command", command)
+		return false
+	}
+	cmd := append(cmdParts, "--help")
+
+	stdout, stderr, err := executor.ExecNamed(ctx, "CheckFlagSupport", cmd)
+	if err != nil {
+		logger.Debug("Flag is not supported or help command failed", "error", err)
+		return false
+	}
+
+	// Check if the help output contains the flag as a literal substring
+	output := stdout.String() + stderr.String()
+	if strings.Contains(output, "--"+flagName) {
+		logger.Debug("Flag is supported")
+		return true
+	}
+
+	logger.Debug("Flag is not supported")
+	return false
 }
 
 func (c *CliWekaService) AddDrive(ctx context.Context, containerId int, devicePath string, pool *string) error {
