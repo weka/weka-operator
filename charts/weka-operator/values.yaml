@@ -299,16 +299,16 @@ driveSharing:
 hugepagesTlcRatio: 1000
 hugepagesQlcRatio: 6000
 
-# Hugepages update propagation to existing containers.
-# When enabled per container type, the operator recalculates and propagates
-# hugepages values to existing containers during HandleSpecUpdates.
-# All disabled by default.
+# Hugepages update propagation to existing compute/drive containers.
+# User-set hugepages values (spec.dynamic.computeHugepages / driveHugepages) are always
+# propagated to existing containers regardless of these flags.
+# These flags control auto-calculation from cluster capacity for containers where no
+# explicit value is set in the spec. S3/NFS/DataServices hugepages are always
+# propagated using per-role defaults unless overridden in the spec.
+# Disabled by default.
 hugepagesUpdate:
   compute: false
   drive: false
-  s3: false
-  nfs: false
-  dataServices: false
 
 # Maximum hugepages (MiB) for compute containers. 0 = no cap.
 # Applied during both initial container creation and hugepages updates.
