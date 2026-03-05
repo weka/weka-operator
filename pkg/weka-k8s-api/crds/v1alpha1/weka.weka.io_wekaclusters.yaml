@@ -314,24 +314,14 @@ spec:
                   envoyCores:
                     type: integer
                   nfsContainers:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS containers'
                     type: integer
                   nfsCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS cores per container'
                     type: integer
                   nfsExtraCores:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: number of NFS extra cores per container'
                     type: integer
                   nfsFrontendHugepages:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage allocation for NFS frontend'
                     type: integer
                   nfsFrontendHugepagesOffset:
-                    description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
-                      production: hugepage offset for NFS frontend'
                     type: integer
                   numDrives:
                     type: integer
@@ -554,10 +544,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object
@@ -574,10 +568,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object
@@ -638,6 +636,13 @@ spec:
                     description: force weka to use drives in aio mode and not direct
                       nvme (impacts performance, but might serve as a fallback in
                       case of incompatible device)
+                    type: boolean
+                  paused:
+                    description: |-
+                      Pause the cluster - all containers will be stopped forcefully.
+                      nil (not set): no propagation, allows direct container-level state manipulation.
+                      true: pause all containers.
+                      false: actively unpause containers that are in paused state.
                     type: boolean
                   podTerminationDeactivationTimeout:
                     description: |-
@@ -905,10 +910,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -925,10 +934,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -985,10 +998,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1005,10 +1022,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1065,10 +1086,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1085,10 +1110,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1145,10 +1174,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1165,10 +1198,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1225,10 +1262,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1245,10 +1286,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1305,10 +1350,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1325,10 +1374,14 @@ spec:
                               items:
                                 type: string
                               type: array
+                            disableRdma:
+                              type: boolean
                             max:
                               type: integer
                             min:
                               type: integer
+                            rdmaOnly:
+                              type: boolean
                             subnet:
                               type: string
                           type: object
@@ -1395,18 +1448,75 @@ spec:
                     description: ClusterName is the SMB-W cluster name, defaults to
                       "default"
                     type: string
+                  defaultDomainMappingFromId:
+                    description: DefaultDomainMappingFromId is the start of the UID/GID
+                      range for default domain mapping
+                    type: integer
+                  defaultDomainMappingToId:
+                    description: DefaultDomainMappingToId is the end of the UID/GID
+                      range for default domain mapping
+                    type: integer
                   domainJoinSecret:
                     type: string
                   domainName:
                     description: DomainName is the domain name for SMB-W, required
                       for SMB-W cluster creation
                     type: string
+                  domainNetbiosName:
+                    description: DomainNetbiosName is the NetBIOS name for the domain
+                    type: string
+                  encryption:
+                    description: Encryption specifies the encryption level for SMB
+                      connections
+                    enum:
+                    - enabled
+                    - disabled
+                    - desired
+                    - required
+                    type: string
+                  idmapBackend:
+                    description: IdmapBackend specifies the identity mapping backend
+                      (e.g., "ad", "rfc2307")
+                    type: string
+                  ipPools:
+                    description: IpPools specifies IP pools for SMB-W service assignment
+                    items:
+                      type: string
+                    type: array
                   ipRanges:
                     description: IpRanges specifies floating IP ranges for SMB-W high
                       availability
                     items:
                       type: string
                     type: array
+                  joinedDomainMappingFromId:
+                    description: JoinedDomainMappingFromId is the start of the UID/GID
+                      range for joined domain mapping
+                    type: integer
+                  joinedDomainMappingToId:
+                    description: JoinedDomainMappingToId is the end of the UID/GID
+                      range for joined domain mapping
+                    type: integer
+                  profile:
+                    description: Profile specifies the SMB-W profile (e.g., "smb2",
+                      "smb3")
+                    type: string
+                  scaleOutMode:
+                    description: ScaleOutMode specifies the scale-out mode for SMB-W
+                      clustering
+                    enum:
+                    - none
+                    - full
+                    - partial
+                    type: string
+                  smbConfExtra:
+                    description: SmbConfExtra contains additional smb.conf configuration
+                    type: string
+                  symlink:
+                    description: |-
+                      Creation-time configuration flags
+                      Symlink enables symlink support for SMB-W shares
+                    type: boolean
                   userName:
                     type: string
                 required:

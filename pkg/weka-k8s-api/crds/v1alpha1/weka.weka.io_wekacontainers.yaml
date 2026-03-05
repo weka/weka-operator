@@ -1244,10 +1244,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object
@@ -1264,10 +1268,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object
@@ -1335,6 +1343,11 @@ spec:
                     description: skips resign of drives, if we did not resign drives
                       on removal of drive container we will not be able to reuse them,
                       and manual operation with force resign will be required
+                    type: boolean
+                  skipVirtualDrivesRemoval:
+                    description: |-
+                      skips removal of virtual drives from ssdproxy - unsafe operation that can lead to virtual drives leftovers
+                      should not be used unless instructed explicitly by weka personnel
                     type: boolean
                   umountOnHost:
                     description: unsafe operation, runs nsenter in root namespace

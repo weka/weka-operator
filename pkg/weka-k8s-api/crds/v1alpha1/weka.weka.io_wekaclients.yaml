@@ -259,10 +259,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object
@@ -279,10 +283,14 @@ spec:
                           items:
                             type: string
                           type: array
+                        disableRdma:
+                          type: boolean
                         max:
                           type: integer
                         min:
                           type: integer
+                        rdmaOnly:
+                          type: boolean
                         subnet:
                           type: string
                       type: object

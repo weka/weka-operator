@@ -539,6 +539,32 @@ type SmbwConfig struct {
 	UserName         string `json:"userName,omitempty"`
 	// IpRanges specifies floating IP ranges for SMB-W high availability
 	IpRanges []string `json:"ipRanges,omitempty"`
+
+	// Creation-time configuration flags
+	// Symlink enables symlink support for SMB-W shares
+	Symlink *bool `json:"symlink,omitempty"`
+	// DomainNetbiosName is the NetBIOS name for the domain
+	DomainNetbiosName string `json:"domainNetbiosName,omitempty"`
+	// IdmapBackend specifies the identity mapping backend (e.g., "ad", "rfc2307")
+	IdmapBackend string `json:"idmapBackend,omitempty"`
+	// DefaultDomainMappingFromId is the start of the UID/GID range for default domain mapping
+	DefaultDomainMappingFromId *int `json:"defaultDomainMappingFromId,omitempty"`
+	// DefaultDomainMappingToId is the end of the UID/GID range for default domain mapping
+	DefaultDomainMappingToId *int `json:"defaultDomainMappingToId,omitempty"`
+	// JoinedDomainMappingFromId is the start of the UID/GID range for joined domain mapping
+	JoinedDomainMappingFromId *int `json:"joinedDomainMappingFromId,omitempty"`
+	// JoinedDomainMappingToId is the end of the UID/GID range for joined domain mapping
+	JoinedDomainMappingToId *int `json:"joinedDomainMappingToId,omitempty"`
+	// Encryption specifies the encryption level for SMB connections
+	// +kubebuilder:validation:Enum=enabled;disabled;desired;required
+	Encryption string `json:"encryption,omitempty"`
+	// ScaleOutMode specifies the scale-out mode for SMB-W clustering
+	// +kubebuilder:validation:Enum=none;full;partial
+	ScaleOutMode string `json:"scaleOutMode,omitempty"`
+	// SmbConfExtra contains additional smb.conf configuration
+	SmbConfExtra string `json:"smbConfExtra,omitempty"`
+	// IpPools specifies IP pools for SMB-W service assignment
+	IpPools []string `json:"ipPools,omitempty"`
 }
 
 // CatalogConfig defines configuration for the data catalog service
