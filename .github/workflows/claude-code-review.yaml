@@ -11,8 +11,48 @@ on:
     #   - "src/**/*.jsx"
 
 jobs:
+  optimize_ci:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      should_review: ${{ steps.check.outputs.should_review }}
+    steps:
+      - name: Check if PR is top of stack or has override label
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          CURRENT_BRANCH="${{ github.head_ref }}"
+          HAS_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'claude-review') }}"
+
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "PR has 'claude-review' label — forcing review" >> $GITHUB_STEP_SUMMARY
+            echo "should_review=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if ! CHILD_PR=$(gh pr list --base "$CURRENT_BRANCH" --json number --limit 1 --state open); then
+            echo "Warning: gh pr list failed; proceeding without stack optimization" >&2
+            CHILD_PR='[]'
+          fi
+          CHILD_NUMBER=$(echo "$CHILD_PR" | jq -r '.[0].number // empty')
+
+          if [ -n "$CHILD_NUMBER" ]; then
+            echo "### Claude Code Review skipped" >> $GITHUB_STEP_SUMMARY
+            echo "PR #$CHILD_NUMBER is stacked on top of this one. Review is skipped to avoid redundant CI on intermediate stack PRs." >> $GITHUB_STEP_SUMMARY
+            echo "Add the \`claude-review\` label to this PR to force a review." >> $GITHUB_STEP_SUMMARY
+            echo "should_review=false" >> $GITHUB_OUTPUT
+          else
+            echo "PR is top of stack — proceeding with review" >> $GITHUB_STEP_SUMMARY
+            echo "should_review=true" >> $GITHUB_OUTPUT
+          fi
+
   claude-review:
+    needs: optimize_ci
     if: |
+      needs.optimize_ci.outputs.should_review == 'true' &&
       github.event.pull_request.head.repo.fork == false &&
       (github.event.pull_request.author_association == 'OWNER' ||
        github.event.pull_request.author_association == 'MEMBER' ||
@@ -29,11 +69,65 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Build PR stack context
+        id: stack-context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BASE_BRANCH="${{ github.base_ref }}"
+          MAIN_BRANCH="main"
+          STACK_INFO=""
+          CURRENT_BASE="$BASE_BRANCH"
+
+          if [ "$CURRENT_BASE" = "$MAIN_BRANCH" ]; then
+            echo "targets_main=true" >> $GITHUB_OUTPUT
+          else
+            TARGETS_MAIN="false"
+            MAX_ITERATIONS=20
+            ITERATION=0
+            while [ "$CURRENT_BASE" != "$MAIN_BRANCH" ]; do
+              ITERATION=$((ITERATION + 1))
+              if [ "$ITERATION" -ge "$MAX_ITERATIONS" ]; then
+                echo "Reached maximum PR stack traversal depth ($MAX_ITERATIONS). Possible cycle or misconfigured stacked PR base branches involving '$CURRENT_BASE'."
+                break
+              fi
+              PR_JSON=$(gh pr list --head "$CURRENT_BASE" --json number,title,baseRefName,headRepositoryOwner --state open || echo '[]')
+              PR_NUMBER=$(echo "$PR_JSON" | jq -r '[.[] | select(.headRepositoryOwner.login == "${{ github.repository_owner }}")] | .[0].number // empty')
+              [ -z "$PR_NUMBER" ] && break
+
+              PR_TITLE=$(echo "$PR_JSON" | jq -r '.[0].title')
+              NEXT_BASE=$(echo "$PR_JSON" | jq -r '.[0].baseRefName')
+              STACK_INFO="${STACK_INFO}PR #${PR_NUMBER}: ${PR_TITLE}"$'\n'
+              CURRENT_BASE="$NEXT_BASE"
+            done
+            [ "$CURRENT_BASE" = "$MAIN_BRANCH" ] && TARGETS_MAIN="true"
+            echo "targets_main=$TARGETS_MAIN" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -n "$STACK_INFO" ]; then
+            echo "### Stacked PR Context" >> $GITHUB_STEP_SUMMARY
+            echo "Parent PRs in the stack (closest first):" >> $GITHUB_STEP_SUMMARY
+            printf '%s\n' "$STACK_INFO" >> $GITHUB_STEP_SUMMARY
+            SECTION="## Stacked PR Context"$'\n\n'"This PR is built on top of other PRs (not directly on main). Parent PRs in the stack (closest first):"$'\n'"${STACK_INFO}"$'\n'"For each parent PR listed:"$'\n'"1. Compare its title to the current PR title/topic"$'\n'"2. If the parent PR appears related (shares topic, fixes, or features), run 'gh pr diff <number>' to fetch its diff"$'\n'"3. Use that diff as background context when reviewing the current PR -- do not re-review parent PRs, just use them for context"$'\n'"4. Skip fetching diff for unrelated parent PRs"
+            {
+              echo "stack_section<<EOF"
+              printf '%s\n' "$SECTION"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip notice
+        if: steps.stack-context.outputs.targets_main != 'true'
+        run: |
+          echo "### Claude Code Review skipped" >> $GITHUB_STEP_SUMMARY
+          echo "This PR does not eventually target \`main\` — review is only run for PRs that lead to main (directly or via a stack)." >> $GITHUB_STEP_SUMMARY
 
       - name: Run Claude Code Review
         id: claude-review
+        if: steps.stack-context.outputs.targets_main == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -49,9 +143,10 @@ jobs:
 
             Provide detailed feedback using inline comments for specific issues.
             Add brief summary comment at the end of the review.
-            Add PR description in case it is empty.
+
+            ${{ steps.stack-context.outputs.stack_section }}
 
           claude_args: |
-            --max-turns 100 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --max-turns 100 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
 
 
