@@ -23,21 +23,22 @@ import (
 // CsiControllerHashableSpec represents the fields from CSI Controller Deployment
 // that are relevant for determining if an update is needed
 type CsiControllerHashableSpec struct {
-	CsiDriverName         string
-	CsiImage              string
-	CsiAttacherImage      string
-	CsiProvisionerImage   string
-	CsiResizerImage       string
-	CsiSnapshotterImage   string
-	CsiLivenessProbeImage string
-	Labels                *util2.HashableMap
-	Tolerations           []corev1.Toleration
-	NodeSelector          *util2.HashableMap
-	EnforceTrustedHttps   bool
-	SkipGarbageCollection bool
-	LogLevel              int
-	PriorityClassName     string
-	WekaContainerName     string
+	CsiDriverName                       string
+	CsiImage                            string
+	CsiAttacherImage                    string
+	CsiProvisionerImage                 string
+	CsiResizerImage                     string
+	CsiSnapshotterImage                 string
+	CsiLivenessProbeImage               string
+	Labels                              *util2.HashableMap
+	Tolerations                         []corev1.Toleration
+	NodeSelector                        *util2.HashableMap
+	EnforceTrustedHttps                 bool
+	SkipGarbageCollection               bool
+	SetOwnershipOnDynamicFilesystems    bool
+	LogLevel                            int
+	PriorityClassName                   string
+	WekaContainerName                   string
 }
 
 // GetCsiControllerDeploymentHash generates a hash for the CSI Controller Deployment
@@ -68,21 +69,22 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 	}
 
 	spec := CsiControllerHashableSpec{
-		CsiDriverName:         csiDriverName,
-		CsiImage:              config.Config.Csi.WekafsImage,
-		CsiAttacherImage:      config.Config.Csi.AttacherImage,
-		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
-		CsiResizerImage:       config.Config.Csi.ResizerImage,
-		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
-		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
-		Labels:                labelsHashable,
-		Tolerations:           tolerations,
-		NodeSelector:          nodeSelectorHashable,
-		EnforceTrustedHttps:   enforceTrustedHttps,
-		SkipGarbageCollection: skipGarbageCollection,
-		LogLevel:              config.Config.Csi.LogLevel,
-		PriorityClassName:     config.Config.PriorityClasses.Targeted,
-		WekaContainerName:     resources.GetWekaClientContainerName(wekaClient),
+		CsiDriverName:                    csiDriverName,
+		CsiImage:                         config.Config.Csi.WekafsImage,
+		CsiAttacherImage:                 config.Config.Csi.AttacherImage,
+		CsiProvisionerImage:              config.Config.Csi.ProvisionerImage,
+		CsiResizerImage:                  config.Config.Csi.ResizerImage,
+		CsiSnapshotterImage:              config.Config.Csi.SnapshotterImage,
+		CsiLivenessProbeImage:            config.Config.Csi.LivenessProbeImage,
+		Labels:                           labelsHashable,
+		Tolerations:                      tolerations,
+		NodeSelector:                     nodeSelectorHashable,
+		EnforceTrustedHttps:              enforceTrustedHttps,
+		SkipGarbageCollection:            skipGarbageCollection,
+		SetOwnershipOnDynamicFilesystems: config.Config.Csi.SetOwnershipOnDynamicFilesystems,
+		LogLevel:                         config.Config.Csi.LogLevel,
+		PriorityClassName:                config.Config.PriorityClasses.Targeted,
+		WekaContainerName:                resources.GetWekaClientContainerName(wekaClient),
 	}
 
 	return util2.HashStruct(spec)
@@ -162,6 +164,9 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 	}
 	if skipGarbageCollection {
 		args = append(args, "--skipgarbagecollection")
+	}
+	if config.Config.Csi.SetOwnershipOnDynamicFilesystems {
+		args = append(args, "--setownershipondynamicfilesystems")
 	}
 
 	tracingFlag := GetTracingFlag()
