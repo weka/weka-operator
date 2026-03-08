@@ -91,6 +91,7 @@ jobs:
       needs.run_condition_check.outputs.skip_upgrade_test != 'true'
     env:
       GOPRIVATE: github.com/weka
+      GOTOOLCHAIN: auto
     name: upgrade_extended_test
     outputs:
       operator_image: ${{ steps.set-operator-versions.outputs.operator_image }}
