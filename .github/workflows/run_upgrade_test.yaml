@@ -92,6 +92,7 @@ jobs:
     if: needs.get_operator_version.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
     env:
       GOPRIVATE: github.com/weka
+      GOTOOLCHAIN: auto
     steps:
       - uses: actions/create-github-app-token@v2
         id: app-token
