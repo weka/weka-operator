@@ -13,6 +13,7 @@ async def _go_builder_container(sock: Socket, gh_token: Optional[Secret] = None,
         dag.container()
         .from_(f"golang:{version}")
         .with_env_variable("GOPRIVATE", "github.com/weka")  # find a way to remove this to be less weka-specific?
+        .with_env_variable("GOTOOLCHAIN", "auto")
     )
 
     if gh_token:
