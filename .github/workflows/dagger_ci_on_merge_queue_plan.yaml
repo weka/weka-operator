@@ -135,6 +135,7 @@ jobs:
           repository: weka/wekai
           token: ${{ steps.app-token.outputs.token }}
           path: wekai
+          ref: fef89c34562a7c289d4bd1bf1f6f4c634cefcd9a
 
       - name: Checkout testing repository
         uses: actions/checkout@v4
