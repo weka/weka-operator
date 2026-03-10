@@ -6,3 +6,9 @@ repos:
         entry: make fmt vet
         language: system
         pass_filenames: false
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.44.0
+    hooks:
+      - id: typos
+        exclude: ^(CHANGELOG\.md|crds/|go\.(mod|sum)$)

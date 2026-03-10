@@ -1156,8 +1156,6 @@ spec:
                 type: integer
               hugepagesSize:
                 type: string
-              hugepagesSizeOverride:
-                type: string
               image:
                 type: string
               imagePullSecret:
@@ -1811,6 +1809,9 @@ spec:
                       type: string
                     serial_number:
                       type: string
+                    size_bytes:
+                      format: int64
+                      type: integer
                     status:
                       type: string
                     uuid:
@@ -1819,6 +1820,7 @@ spec:
                   - added_time
                   - device_path
                   - serial_number
+                  - size_bytes
                   - status
                   - uuid
                   type: object

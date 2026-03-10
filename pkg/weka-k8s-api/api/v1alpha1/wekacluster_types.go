@@ -492,7 +492,7 @@ func unmarshalTopologySpreadConstraints(raw *runtime.RawExtension) ([]v1.Topolog
 }
 
 type StartIoConditions struct {
-	// minumum number of drives that should be added to the cluster before starting IO
+	// minimum number of drives that should be added to the cluster before starting IO
 	MinNumDrives int `json:"minNumDrives,omitempty"`
 }
 

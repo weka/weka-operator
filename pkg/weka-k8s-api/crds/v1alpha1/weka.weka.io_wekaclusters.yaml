@@ -233,31 +233,40 @@ spec:
                 description: weka cluster topology configuration
                 properties:
                   computeContainers:
+                    minimum: 0
                     type: integer
                   computeCores:
+                    minimum: 0
                     type: integer
                   computeExtraCores:
+                    minimum: 0
                     type: integer
                   computeHugepages:
+                    minimum: 0
                     type: integer
                   computeHugepagesOffset:
+                    minimum: 0
                     type: integer
                   containerCapacity:
                     description: |-
                       ContainerCapacity specifies the total capacity (in GiB) requested by each container when using shared drives via SSD proxy.
                       This value takes precedence over DriveCapacity when both are set. It allows more flexible capacity allocation.
+                    minimum: 0
                     type: integer
                   dataServicesContainers:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of data services containers'
+                    minimum: 0
                     type: integer
                   dataServicesCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of data services cores per container'
+                    minimum: 0
                     type: integer
                   dataServicesExtraCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of data services extra cores per container'
+                    minimum: 0
                     type: integer
                   dataServicesFeCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
@@ -274,26 +283,34 @@ spec:
                   dataServicesHugepages:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage allocation for data services frontend'
+                    minimum: 0
                     type: integer
                   dataServicesHugepagesOffset:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage offset for data services frontend'
+                    minimum: 0
                     type: integer
                   driveCapacity:
                     description: |-
                       DriveCapacity is the capacity in GiB to allocate per single virtual drive.
                       NumDrives multiplied by DriveCapacity gives the total capacity requested by each drive container.
                       This value determines how much capacity each container receives from shared drives.
+                    minimum: 0
                     type: integer
                   driveContainers:
+                    minimum: 0
                     type: integer
                   driveCores:
+                    minimum: 0
                     type: integer
                   driveExtraCores:
+                    minimum: 0
                     type: integer
                   driveHugepages:
+                    minimum: 0
                     type: integer
                   driveHugepagesOffset:
+                    minimum: 0
                     type: integer
                   driveTypesRatio:
                     description: DriveTypesRatio specifies the desired ratio of drive
@@ -312,48 +329,65 @@ spec:
                     - tlc
                     type: object
                   envoyCores:
+                    minimum: 0
                     type: integer
                   nfsContainers:
+                    minimum: 0
                     type: integer
                   nfsCores:
+                    minimum: 0
                     type: integer
                   nfsExtraCores:
+                    minimum: 0
                     type: integer
                   nfsFrontendHugepages:
+                    minimum: 0
                     type: integer
                   nfsFrontendHugepagesOffset:
+                    minimum: 0
                     type: integer
                   numDrives:
+                    minimum: 0
                     type: integer
                   s3Containers:
+                    minimum: 0
                     type: integer
                   s3Cores:
+                    minimum: 0
                     type: integer
                   s3ExtraCores:
+                    minimum: 0
                     type: integer
                   s3FrontendHugepages:
+                    minimum: 0
                     type: integer
                   s3FrontendHugepagesOffset:
+                    minimum: 0
                     type: integer
                   smbwContainers:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of SMB-W containers (3-8)'
+                    minimum: 0
                     type: integer
                   smbwCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of SMB-W cores per container'
+                    minimum: 0
                     type: integer
                   smbwExtraCores:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: number of SMB-W extra cores per container'
+                    minimum: 0
                     type: integer
                   smbwFrontendHugepages:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage allocation for SMB-W frontend'
+                    minimum: 0
                     type: integer
                   smbwFrontendHugepagesOffset:
                     description: 'EXPERIMENTAL, ALPHA STATE, should not be used in
                       production: hugepage offset for SMB-W frontend'
+                    minimum: 0
                     type: integer
                 type: object
                 x-kubernetes-validations:
@@ -1497,10 +1531,6 @@ spec:
                     description: JoinedDomainMappingToId is the end of the UID/GID
                       range for joined domain mapping
                     type: integer
-                  profile:
-                    description: Profile specifies the SMB-W profile (e.g., "smb2",
-                      "smb3")
-                    type: string
                   scaleOutMode:
                     description: ScaleOutMode specifies the scale-out mode for SMB-W
                       clustering
@@ -1527,7 +1557,7 @@ spec:
                 description: conditions that must be met before starting IO
                 properties:
                   minNumDrives:
-                    description: minumum number of drives that should be added to
+                    description: minimum number of drives that should be added to
                       the cluster before starting IO
                     type: integer
                 type: object
@@ -1596,12 +1626,6 @@ spec:
                       type: object
                     type: array
                 type: object
-              template:
-                default: dynamic
-                description: A template/strategy of how to build a cluster, right
-                  now only "dynamic" supported, explicitly specifying config of a
-                  cluster
-                type: string
               tolerations:
                 description: simplified tolerations, checked only by key existence,
                   expanding to NoExecute|NoSchedule tolerations
