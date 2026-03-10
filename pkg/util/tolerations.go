@@ -13,6 +13,11 @@ import (
 func CheckTolerations(taints []corev1.Taint, tolerations []corev1.Toleration, ignoreTaints []string) bool {
 TAINT:
 	for _, taint := range taints {
+		// PreferNoSchedule taints are soft scheduling hints and should not
+		// be treated as hard blockers when selecting eligible nodes.
+		if taint.Effect == corev1.TaintEffectPreferNoSchedule {
+			continue
+		}
 		if ignoreTaints != nil && slices.Contains(ignoreTaints, taint.Key) {
 			continue
 		}
