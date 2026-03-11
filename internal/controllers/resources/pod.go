@@ -2,9 +2,7 @@ package resources
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,26 +30,7 @@ const (
 	inPodHostBinds = "/host-binds"
 	// appliedAnnotationsKey is used to store the annotations that were applied to the pod by the operator.
 	appliedAnnotationsKey = "weka.io/applied-annotations"
-	// podConfigVersionAnnotation is used to track the config version of the pod.
-	podConfigVersionAnnotation = "weka.io/pod-config-version"
 )
-
-// podConfigData contains fields that should trigger pod rotation when changed.
-type podConfigData struct {
-	PodConfigVersion   int
-	WekaRuntimeVersion int
-}
-
-// podConfigHash returns a hex-encoded SHA-256 hash of the podConfigData struct.
-func PodConfigHash() string {
-	data := podConfigData{
-		PodConfigVersion:   config.Config.PodConfigVersion,
-		WekaRuntimeVersion: consts.WekaRuntimeVersion,
-	}
-	b, _ := json.Marshal(data)
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:4])
-}
 
 // if the container mode is not in the map, the default is 1 year
 var terminationGracePeriodSecondsMap = map[string]int64{
@@ -914,8 +893,6 @@ echo "=== OTEL Init Container Completed ==="`,
 	if err != nil {
 		return nil, err
 	}
-
-	pod.Annotations[podConfigVersionAnnotation] = PodConfigHash()
 
 	return pod, nil
 }

@@ -141,6 +141,7 @@ func (r *wekaClusterReconcilerLoop) InitState(ctx context.Context) error {
 
 		wekaCluster.Status.InitStatus()
 		wekaCluster.Status.LastAppliedImage = wekaCluster.Spec.Image
+		wekaCluster.Status.LastAppliedConfig = clusterConfigHash()
 
 		err := r.getClient().Status().Update(ctx, wekaCluster)
 		if err != nil {
