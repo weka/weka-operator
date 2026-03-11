@@ -172,11 +172,11 @@ func (o *SignDrivesOperation) EnsureContainers(ctx context.Context) error {
 
 		// if data exists and not force - skip
 		if !o.force {
-			// Detect old annotation format and invalidate hash to trigger re-run
-			if drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && drivesStr != "" {
-				_, isOldFormat, _ := domain.ParseDriveEntries(drivesStr)
-				if isOldFormat && node.Annotations[consts.AnnotationSignDrivesHash] != "" {
-					// Clear hash so sign-drives re-runs and writes the new format
+			// If weka-full-drives annotation is absent, the node hasn't been updated yet.
+			// Invalidate hash so sign-drives re-runs and writes both annotations.
+			if _, hasFullDrives := node.Annotations[consts.AnnotationWekaFullDrives]; !hasFullDrives {
+				if node.Annotations[consts.AnnotationWekaDrives] != "" && node.Annotations[consts.AnnotationSignDrivesHash] != "" {
+					// Clear hash so sign-drives re-runs and writes the new annotations
 					delete(node.Annotations, consts.AnnotationSignDrivesHash)
 					if err := o.client.Update(ctx, &node); err != nil {
 						return fmt.Errorf("failed to clear sign-drives hash for format migration on node %s: %w", node.Name, err)
@@ -402,10 +402,11 @@ func getAlreadySignedDrives(node *v1.Node) []string {
 		return alreadySignedDrives
 	}
 
-	// Regular drives (non-proxy mode) — handles both old []string and new []DriveEntry formats
-	if drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && drivesStr != "" {
-		entries, _, err := domain.ParseDriveEntries(drivesStr)
-		if err == nil {
+	// Regular drives (non-proxy mode) — prefers weka-full-drives, falls back to weka-drives
+	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+	legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
+	if fullAnnotation != "" || legacyAnnotation != "" {
+		if entries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation); err == nil {
 			alreadySignedDrives = append(alreadySignedDrives, domain.DriveEntrySerials(entries)...)
 		}
 	}

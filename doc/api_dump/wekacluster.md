@@ -65,6 +65,7 @@
 
 | JSON Field | Type | Description |
 |------------|------|-------------|
+| template | string | A template/strategy of how to build a cluster, right now only "dynamic" supported, explicitly specifying config of a cluster |
 | image | string | full container image name in format of quay.io/weka.io/weka-in-container:VERSION |
 | imagePullSecret | string | image pull secret to use for pulling the image |
 | driversDistService | string | endpoint for distribution service, global https://drivers.weka.io or in-k8s-cluster "https://weka-drivers-dist.namespace.svc.cluster.local:60001" |

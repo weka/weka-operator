@@ -8,9 +8,15 @@ const (
 
 // Node annotation keys for drive management
 const (
-	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode
+	// AnnotationWekaDrives stores drive serial IDs for non-proxy mode.
 	// Format: ["SERIAL1", "SERIAL2", ...]
+	// Deprecated for writing: use AnnotationWekaFullDrives instead. Kept for backward compatibility reading.
 	AnnotationWekaDrives = "weka.io/weka-drives"
+
+	// AnnotationWekaFullDrives stores drive entries with full metadata (serial + capacity_gib) for non-proxy mode.
+	// Format: [{"serial":"SERIAL1","capacity_gib":14307},...]
+	// This supersedes AnnotationWekaDrives which is deprecated for writing but still supported for reading (fallback).
+	AnnotationWekaFullDrives = "weka.io/weka-full-drives"
 
 	// AnnotationBlockedDrives stores blocked drive serial IDs (non-proxy mode)
 	// Format: ["SERIAL1", "SERIAL2", ...]

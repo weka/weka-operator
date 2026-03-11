@@ -152,16 +152,20 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		}
 	}
 
-	// Parse existing annotation (handles both old []string and new []DriveEntry formats)
+	// Parse existing annotation (prefers weka-full-drives, falls back to weka-drives)
 	seenDrives := make(map[string]domain.DriveEntry)
-	if existingDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok && existingDrivesStr != "" {
-		existingEntries, _, _ := domain.ParseDriveEntries(existingDrivesStr)
-		for _, entry := range existingEntries {
-			if entry.Serial == "" {
-				continue // clean bad records of empty serial ids
-			}
-			seenDrives[entry.Serial] = entry
+	fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+	legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
+	existingEntries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
+	if err != nil {
+		return fmt.Errorf("error reading existing drive annotations: %w", err)
+	}
+
+	for _, entry := range existingEntries {
+		if entry.Serial == "" {
+			continue // clean bad records of empty serial ids
 		}
+		seenDrives[entry.Serial] = entry
 	}
 
 	complete := func() error {
@@ -194,7 +198,17 @@ func (r *containerReconcilerLoop) updateNodeAnnotations(ctx context.Context) err
 		return err
 	}
 
-	node.Annotations[consts.AnnotationWekaDrives] = string(newDrivesStr)
+	// Write new annotation with full drive metadata
+	node.Annotations[consts.AnnotationWekaFullDrives] = string(newDrivesStr)
+
+	// Write legacy annotation with serials only (backward compat)
+	legacySerials := domain.DriveEntrySerials(updatedDrivesList)
+	legacySerialsStr, err := json.Marshal(legacySerials)
+	if err != nil {
+		return fmt.Errorf("error marshalling legacy drives list: %w", err)
+	}
+	node.Annotations[consts.AnnotationWekaDrives] = string(legacySerialsStr)
+
 	// calculate hash, based on o.node.Status.NodeInfo.BootID
 	node.Annotations[consts.AnnotationSignDrivesHash] = domain.CalculateNodeDriveSignHash(node)
 

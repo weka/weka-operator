@@ -35,8 +35,9 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 
 		// get from annotations, all serial ids minus blocked-drives serial ids
 		// Note: this is for exclusive drive allocation mode only
-		allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
-		if ok {
+		fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+		legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
+		if fullAnnotation != "" || legacyAnnotation != "" {
 			blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]
 			if !ok {
 				blockedDrivesStr = "[]"
@@ -48,12 +49,9 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 				return
 			}
 
-			// Parse as new []DriveEntry format only — old []string format is an error
-			// (sign-drives will convert old format on its next run)
-			var allEntries []domain.DriveEntry
-			err = json.Unmarshal([]byte(allDrivesStr), &allEntries)
-			if err != nil {
-				err = fmt.Errorf("failed to unmarshal weka-drives as DriveEntry format (old format pending migration): %v", err)
+			allEntries, readErr := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
+			if readErr != nil {
+				err = fmt.Errorf("failed to read drive annotations: %v", readErr)
 				return
 			}
 
@@ -117,11 +115,12 @@ func computeMaxNodeDriveCapacityForInitCluster(ctx context.Context, k8sClient cl
 	maxCapacity := 0
 	for i := range sampleSize {
 		node := nodes[i]
-		drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
-		if !ok || drivesStr == "" {
+		fullAnnotation := node.Annotations[consts.AnnotationWekaFullDrives]
+		legacyAnnotation := node.Annotations[consts.AnnotationWekaDrives]
+		if fullAnnotation == "" && legacyAnnotation == "" {
 			continue
 		}
-		entries, _, err := domain.ParseDriveEntries(drivesStr)
+		entries, err := domain.ReadDriveAnnotations(fullAnnotation, legacyAnnotation)
 		if err != nil {
 			continue
 		}

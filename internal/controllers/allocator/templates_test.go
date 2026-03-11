@@ -149,7 +149,7 @@ func makeNode(name string, drives []domain.DriveEntry, labels map[string]string)
 	annotations := map[string]string{}
 	if drives != nil {
 		b, _ := json.Marshal(drives)
-		annotations[consts.AnnotationWekaDrives] = string(b)
+		annotations[consts.AnnotationWekaFullDrives] = string(b)
 	}
 	return &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{

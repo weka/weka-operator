@@ -21,7 +21,7 @@ func TestGetAlreadySignedDrives_NewFormat(t *testing.T) {
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				consts.AnnotationWekaDrives: string(data),
+				consts.AnnotationWekaFullDrives: string(data),
 			},
 		},
 	}
@@ -96,8 +96,8 @@ func TestGetAlreadySignedDrives_BothAnnotations(t *testing.T) {
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				consts.AnnotationWekaDrives:   string(regularData),
-				consts.AnnotationSharedDrives: string(sharedData),
+				consts.AnnotationWekaFullDrives: string(regularData),
+				consts.AnnotationSharedDrives:   string(sharedData),
 			},
 		},
 	}
