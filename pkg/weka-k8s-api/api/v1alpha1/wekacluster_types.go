@@ -203,11 +203,11 @@ func (a *AdditionalMemory) GetForMode(mode string) int {
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0 || self.driveTypesRatio.qlc > 0",message="at least one of driveTypesRatio.tlc or driveTypesRatio.qlc must be greater than 0"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveTypesRatio) || self.driveTypesRatio.tlc > 0",message="driveTypesRatio.tlc must be greater than 0 when driveTypesRatio is specified; TLC-only and mixed TLC/QLC configurations are supported, but QLC-only is not allowed"
 // +kubebuilder:validation:XValidation:rule="!has(self.driveCapacity) || self.driveCapacity > 0",message="driveCapacity must be greater than 0 when specified"
-type WekaConfig struct {
+type WekaClusterTemplate struct {
 	// +kubebuilder:validation:Minimum=0
-	ComputeContainers *int `json:"computeContainers,omitempty"`
+	ComputeContainers int `json:"computeContainers,omitempty"`
 	// +kubebuilder:validation:Minimum=0
-	DriveContainers *int `json:"driveContainers,omitempty"`
+	DriveContainers int `json:"driveContainers,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	S3Containers int `json:"s3Containers,omitempty"`
 	// +kubebuilder:validation:Minimum=0
@@ -702,7 +702,7 @@ type WekaClusterSpec struct {
 	// endpoint of existing weka cluster, containers created for this k8s-driver cluster will join existing weka cluster, used in flow of migration
 	ExpandEndpoints []string `json:"expandEndpoints,omitempty"`
 	// weka cluster topology configuration
-	Dynamic *WekaConfig `json:"dynamicTemplate,omitempty"`
+	Dynamic *WekaClusterTemplate `json:"dynamicTemplate,omitempty"`
 	// weka cluster network configuration
 	Network Network `json:"network,omitempty"`
 	// A hot spare is reserved capacity designed to handle data rebuilds while maintaining the system's net capacity, even in the event of failure domains being lost
