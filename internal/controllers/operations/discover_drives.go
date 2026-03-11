@@ -44,10 +44,9 @@ type DiscoverDrivesOperation struct {
 }
 
 type DriveRawInfo struct {
-	SerialId    string `json:"serial_id"`
-	Path        string `json:"path"`
-	IsMounted   bool   `json:"is_mounted"`
-	CapacityGiB int    `json:"capacity_gib"`
+	SerialId  string `json:"serial_id"`
+	Path      string `json:"path"`
+	IsMounted bool   `json:"is_mounted"`
 }
 
 type DriveNodeResults struct {

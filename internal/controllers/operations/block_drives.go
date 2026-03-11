@@ -138,8 +138,7 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		entries, _, _ := domain.ParseDriveEntries(allDrivesStr)
-		allDrives = domain.DriveEntrySerials(entries)
+		json.Unmarshal([]byte(allDrivesStr), &allDrives)
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)
@@ -218,8 +217,7 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		entries, _, _ := domain.ParseDriveEntries(allDrivesStr)
-		allDrives = domain.DriveEntrySerials(entries)
+		json.Unmarshal([]byte(allDrivesStr), &allDrives)
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)
