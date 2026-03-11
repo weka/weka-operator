@@ -122,7 +122,12 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 	return false
 }
 
-func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
+func (r *wekaClusterReconcilerLoop) ShouldSetComputeHugepages() bool {
+	// skip if user explicitly set
+	return r.cluster.Spec.Dynamic != nil && r.cluster.Spec.Dynamic.ComputeHugepages == 0
+}
+
+func (r *wekaClusterReconcilerLoop) getClusterTotalCapacityGiB(template allocator.ClusterTemplate) (int, error) {
 	var totalRawCapacityGiB int
 	var err error
 
@@ -134,7 +139,7 @@ func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template alloc
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
 	} else if template.Containers.Drive > 0 {
 		// Traditional mode without capacity in spec: read from node annotations
-		totalRawCapacityGiB, err = getFullDrivesClusterTotalCapacityGiB(containers, template)
+		totalRawCapacityGiB, err = r.getFullDrivesClusterTotalCapacityGiB(template)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get total drive capacity from nodes: %w", err)
 		}
@@ -143,6 +148,6 @@ func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template alloc
 	return totalRawCapacityGiB, nil
 }
 
-func getFullDrivesClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
-	return allocator.ComputeTotalCapacityFromContainers(containers, template.Containers.Drive, template.NumDrives)
+func (r *wekaClusterReconcilerLoop) getFullDrivesClusterTotalCapacityGiB(template allocator.ClusterTemplate) (int, error) {
+	return allocator.ComputeTotalCapacityFromContainers(r.containers, template.Containers.Drive, template.NumDrives)
 }

@@ -78,10 +78,7 @@ type UpdatableClusterSpec struct {
 	DataServicesHugepagesOffset int
 }
 
-func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewUpdatableClusterSpec")
-	defer end()
-
+func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, computeHp, computeHpOffset int) *UpdatableClusterSpec {
 	// Helper function to safely convert pointer-to-map to HashableMap
 	safeHashableMap := func(ptr *map[string]string) *util.HashableMap {
 		if ptr == nil {
@@ -109,46 +106,6 @@ func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, me
 	dynamicTemplate := spec.Dynamic
 	if dynamicTemplate == nil {
 		dynamicTemplate = &weka.WekaClusterTemplate{}
-	}
-
-	// Compute desired compute/drive hugepages (0 = skip propagation).
-	// User-set values are always propagated; auto-calculated values only when
-	// hugepagesUpdate.compute/drive is enabled in config.
-	// Offsets are only set when the corresponding hugepages value is non-zero.
-	var computeHp, computeHpOffset int
-	var driveHp, driveHpOffset int
-
-	if dynamicTemplate.ComputeHugepages > 0 {
-		// User override
-		computeHp = dynamicTemplate.ComputeHugepages
-
-		maxMiB := config.Config.ComputeMaxHugepagesMiB
-		if maxMiB > 0 && computeHp > maxMiB {
-			computeHp = maxMiB
-		}
-	} else if config.Config.HugepagesUpdate.Compute {
-		// Auto-calculate from capacity
-		totalRawCapacityGiB, err := getClusterTotalCapacityGiB(containers, tmpl)
-		if err != nil {
-			logger.Info("Cannot compute capacity for hugepages, skipping compute hugepages propagation", "error", err)
-		} else if totalRawCapacityGiB > 0 {
-			computeHp = allocator.ComputeCapacityBasedHugepages(
-				ctx, totalRawCapacityGiB, tmpl.Containers.Compute, tmpl.Cores.Compute, tmpl.DriveTypesRatio)
-		}
-	}
-	if computeHp > 0 {
-		computeHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.ComputeHugepagesOffset, 200)
-	}
-
-	if dynamicTemplate.DriveHugepages > 0 {
-		// User override
-		driveHp = dynamicTemplate.DriveHugepages
-	} else if config.Config.HugepagesUpdate.Drive {
-		// Auto-calculate
-		driveHp = allocator.CalculateDriveHugepages(tmpl)
-	}
-	if driveHp > 0 {
-		driveHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepagesOffset, allocator.CalculateDriveHugepagesOffset(tmpl))
 	}
 
 	return &UpdatableClusterSpec{
@@ -187,8 +144,8 @@ func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, me
 		DriversBuildId:              spec.GetOverrides().DriversBuildId,
 		ComputeHugepages:            computeHp,
 		ComputeHugepagesOffset:      computeHpOffset,
-		DriveHugepages:              driveHp,
-		DriveHugepagesOffset:        driveHpOffset,
+		DriveHugepages:              util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepages, allocator.CalculateDriveHugepages(tmpl)),
+		DriveHugepagesOffset:        util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepagesOffset, allocator.CalculateDriveHugepagesOffset(tmpl)),
 		S3Hugepages:                 util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepages, 1400*tmpl.Cores.S3),
 		S3HugepagesOffset:           util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepagesOffset, 200),
 		NfsHugepages:                util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepages, 1400*tmpl.Cores.Nfs),
@@ -233,10 +190,38 @@ func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaCont
 }
 
 func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	defer end()
+
 	cluster := r.cluster
 	containers := r.containers
 
-	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, containers)
+	// Compute desired compute hugepages (0 = skip propagation)
+	var computeHp, computeHpOffset int
+	if config.Config.HugepagesUpdate.Compute && cluster.Spec.Dynamic != nil {
+		if cluster.Spec.Dynamic.ComputeHugepages > 0 {
+			// User override
+			computeHp = cluster.Spec.Dynamic.ComputeHugepages
+			maxMiB := config.Config.ComputeMaxHugepagesMiB
+			if maxMiB > 0 && computeHp > maxMiB {
+				computeHp = maxMiB
+			}
+		} else {
+			// Auto-calculate from capacity
+			tmpl := allocator.GetWekaClusterTemplate(cluster.Spec.Dynamic)
+			totalRawCapacityGiB, err := r.getClusterTotalCapacityGiB(tmpl)
+			if err != nil {
+				logger.Info("Cannot compute capacity for hugepages, skipping compute hugepages propagation", "error", err)
+			} else if totalRawCapacityGiB > 0 {
+				computeHp = allocator.ComputeCapacityBasedHugepages(
+					ctx, totalRawCapacityGiB, tmpl.Containers.Compute, tmpl.Cores.Compute, tmpl.DriveTypesRatio)
+			}
+		}
+		computeHpOffset = util.GetNonZeroOrDefault(
+			cluster.Spec.Dynamic.ComputeHugepagesOffset, 200)
+	}
+
+	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta, computeHp, computeHpOffset)
 	specHash, err := util.HashStruct(updatableSpec)
 	if err != nil {
 		return errors.Wrap(err, "failed to hash struct")
@@ -392,29 +377,40 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.ExtraCores = targetExtraCores
 		}
 
-		// Hugepages propagation per role
-		var targetHp, targetHpOffset int
-		switch role {
-		case weka.WekaContainerModeCompute:
-			targetHp = updatableSpec.ComputeHugepages
-			targetHpOffset = updatableSpec.ComputeHugepagesOffset
-		case weka.WekaContainerModeDrive:
-			targetHp = updatableSpec.DriveHugepages
-			targetHpOffset = updatableSpec.DriveHugepagesOffset
-		case weka.WekaContainerModeS3:
-			targetHp = updatableSpec.S3Hugepages
-			targetHpOffset = updatableSpec.S3HugepagesOffset
-		case weka.WekaContainerModeNfs:
-			targetHp = updatableSpec.NfsHugepages
-			targetHpOffset = updatableSpec.NfsHugepagesOffset
-		case weka.WekaContainerModeDataServices:
-			targetHp = updatableSpec.DataServicesHugepages
-			targetHpOffset = updatableSpec.DataServicesHugepagesOffset
+		// Hugepages propagation per role (when enabled via config)
+		if config.Config.HugepagesUpdate.IsEnabledForRole(string(role)) {
+			var targetHp, targetHpOffset int
+			switch role {
+			case weka.WekaContainerModeCompute:
+				targetHp = updatableSpec.ComputeHugepages
+				targetHpOffset = updatableSpec.ComputeHugepagesOffset
+			case weka.WekaContainerModeDrive:
+				targetHp = updatableSpec.DriveHugepages
+				targetHpOffset = updatableSpec.DriveHugepagesOffset
+			case weka.WekaContainerModeS3:
+				targetHp = updatableSpec.S3Hugepages
+				targetHpOffset = updatableSpec.S3HugepagesOffset
+			case weka.WekaContainerModeNfs:
+				targetHp = updatableSpec.NfsHugepages
+				targetHpOffset = updatableSpec.NfsHugepagesOffset
+			case weka.WekaContainerModeDataServices:
+				targetHp = updatableSpec.DataServicesHugepages
+				targetHpOffset = updatableSpec.DataServicesHugepagesOffset
+			}
+			if targetHp > 0 {
+				if role == weka.WekaContainerModeCompute {
+					// NOTE: only allow to increase hugepages value
+					// Preserve 200 MiB buffer to avoid churn from minor capacity fluctuations
+					if container.Spec.Hugepages < targetHp-200 {
+						container.Spec.Hugepages = targetHp
+						container.Spec.HugepagesOffset = targetHpOffset
+					}
+				} else {
+					container.Spec.Hugepages = targetHp
+					container.Spec.HugepagesOffset = targetHpOffset
+				}
+			}
 		}
-
-		// Only update hugepages if there is a change and the new value is not zero
-		container.Spec.Hugepages = util.GetNonZeroOrDefault(targetHp, container.Spec.Hugepages)
-		container.Spec.HugepagesOffset = util.GetNonZeroOrDefault(targetHpOffset, container.Spec.HugepagesOffset)
 
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
 			container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage
