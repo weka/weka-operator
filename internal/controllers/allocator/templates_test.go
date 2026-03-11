@@ -13,9 +13,10 @@ import (
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/pkg/util"
 )
 
-func TestGetContainerHugepages_Compute(t *testing.T) {
+func TestGetEnrichedTemplate_ComputeHugepages(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
@@ -108,7 +109,7 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &weka.WekaClusterTemplate{
+			config := &weka.WekaConfig{
 				ContainerCapacity: tt.containerCapacity,
 				NumDrives:         tt.numDrives,
 				DriveCapacity:     tt.driveCapacity,
@@ -117,29 +118,29 @@ func TestGetContainerHugepages_Compute(t *testing.T) {
 				DriveTypesRatio:   tt.driveTypesRatio,
 			}
 			if tt.driveContainers > 0 {
-				config.DriveContainers = tt.driveContainers
+				config.DriveContainers = util.IntRef(tt.driveContainers)
 			}
 			if tt.computeContainers > 0 {
-				config.ComputeContainers = tt.computeContainers
+				config.ComputeContainers = util.IntRef(tt.computeContainers)
 			}
 
 			cluster := weka.WekaCluster{
 				Spec: weka.WekaClusterSpec{
-					Dynamic: config,
+					Template: "dynamic",
+					Dynamic:  config,
 				},
 			}
 
-			template := GetWekaClusterTemplate(config)
-			hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+			tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if hp == nil {
-				t.Fatal("expected hugepages to be computed")
+			if tmpl == nil {
+				t.Fatal("expected template to be found")
 			}
 
-			if hp.Hugepages != tt.expectedHugepages {
-				t.Errorf("expected ComputeHugepages=%d, got %d", tt.expectedHugepages, hp.Hugepages)
+			if tmpl.ComputeHugepages != tt.expectedHugepages {
+				t.Errorf("expected ComputeHugepages=%d, got %d", tt.expectedHugepages, tmpl.ComputeHugepages)
 			}
 		})
 	}
@@ -160,7 +161,7 @@ func makeNode(name string, drives []domain.DriveEntry, labels map[string]string)
 	}
 }
 
-func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
+func TestGetEnrichedTemplate_EnrichesFromNodeDrives(t *testing.T) {
 	labels := map[string]string{"weka.io/role": "server"}
 	drives := []domain.DriveEntry{
 		{Serial: "sn1", CapacityGiB: 3000},
@@ -174,8 +175,9 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 
 	cluster := weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
+			Template:     "dynamic",
 			NodeSelector: labels,
-			Dynamic: &weka.WekaClusterTemplate{
+			Dynamic: &weka.WekaConfig{
 				ComputeCores: 1,
 				NumDrives:    2, // takes top 2 drives per node → 3000+4000 = 7000 per drive container
 				// No ContainerCapacity/DriveCapacity → traditional mode
@@ -183,23 +185,22 @@ func TestGetContainerHugepages_EnrichesFromNodeDrives(t *testing.T) {
 		},
 	}
 
-	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
+	if tmpl == nil {
+		t.Fatal("expected template to be found")
 	}
 
 	// totalRawCapacity = driveContainers(6) * maxNodeCap(7000) = 42000GiB, all TLC
 	// tlcMiB = 42000*1024/1000 = 43008, /6 = 7168 + 1700 = 8868
-	if hp.Hugepages != 8868 {
-		t.Errorf("expected enriched ComputeHugepages=8868, got %d", hp.Hugepages)
+	if tmpl.ComputeHugepages != 8868 {
+		t.Errorf("expected enriched ComputeHugepages=8868, got %d", tmpl.ComputeHugepages)
 	}
 }
 
-func TestGetContainerHugepages_UsesContainerCapacity(t *testing.T) {
+func TestGetEnrichedTemplate_SkipsEnrichmentWhenContainerCapacitySet(t *testing.T) {
 	labels := map[string]string{"weka.io/role": "server"}
 	drives := []domain.DriveEntry{
 		{Serial: "sn1", CapacityGiB: 5000},
@@ -212,31 +213,31 @@ func TestGetContainerHugepages_UsesContainerCapacity(t *testing.T) {
 
 	cluster := weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
+			Template:     "dynamic",
 			NodeSelector: labels,
-			Dynamic: &weka.WekaClusterTemplate{
+			Dynamic: &weka.WekaConfig{
 				ComputeCores:      1,
 				ContainerCapacity: 2000, // capacity set → no enrichment
 			},
 		},
 	}
 
-	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
+	if tmpl == nil {
+		t.Fatal("expected template to be found")
 	}
 
 	// With ContainerCapacity=2000, driveContainers=6, computeContainers=6, all TLC:
 	// totalRaw=12000GiB, tlcMiB=12000*1024/1000=12288, /6=2048 + 1700 = 3748
-	if hp.Hugepages != 3748 {
-		t.Errorf("expected ComputeHugepages=3748 (from spec capacity), got %d", hp.Hugepages)
+	if tmpl.ComputeHugepages != 3748 {
+		t.Errorf("expected ComputeHugepages=3748 (from spec capacity), got %d", tmpl.ComputeHugepages)
 	}
 }
 
-func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
+func TestGetEnrichedTemplate_SkipsEnrichmentWhenUserOverridesHugepages(t *testing.T) {
 	labels := map[string]string{"weka.io/role": "server"}
 	drives := []domain.DriveEntry{
 		{Serial: "sn1", CapacityGiB: 5000},
@@ -249,8 +250,9 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 
 	cluster := weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
+			Template:     "dynamic",
 			NodeSelector: labels,
-			Dynamic: &weka.WekaClusterTemplate{
+			Dynamic: &weka.WekaConfig{
 				ComputeCores:     1,
 				NumDrives:        1,
 				ComputeHugepages: 9999, // user override
@@ -258,46 +260,70 @@ func TestGetContainerHugepages_RespectsUserOverride(t *testing.T) {
 		},
 	}
 
-	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
+	if tmpl == nil {
+		t.Fatal("expected template to be found")
 	}
 
-	if hp.Hugepages != 9999 {
-		t.Errorf("expected user override ComputeHugepages=9999, got %d", hp.Hugepages)
+	if tmpl.ComputeHugepages != 9999 {
+		t.Errorf("expected user override ComputeHugepages=9999, got %d", tmpl.ComputeHugepages)
 	}
 }
 
-func TestGetContainerHugepages_FallbackWhenNoNodes(t *testing.T) {
+func TestGetEnrichedTemplate_StaticTemplateUnchanged(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+
+	cluster := weka.WekaCluster{
+		Spec: weka.WekaClusterSpec{
+			Template: "small",
+		},
+	}
+
+	tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "small", cluster)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tmpl == nil {
+		t.Fatal("expected template to be found")
+	}
+
+	expected := WekaClusterTemplates["small"]
+	if tmpl.ComputeHugepages != expected.ComputeHugepages {
+		t.Errorf("expected ComputeHugepages=%d, got %d", expected.ComputeHugepages, tmpl.ComputeHugepages)
+	}
+}
+
+func TestGetEnrichedTemplate_NoNodesGracefulFallback(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1.AddToScheme(scheme)
 	k8sClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build() // no nodes
 
 	cluster := weka.WekaCluster{
 		Spec: weka.WekaClusterSpec{
+			Template:     "dynamic",
 			NodeSelector: map[string]string{"weka.io/role": "server"},
-			Dynamic: &weka.WekaClusterTemplate{
+			Dynamic: &weka.WekaConfig{
 				ComputeCores: 1,
 				NumDrives:    1,
 			},
 		},
 	}
 
-	template := GetWekaClusterTemplate(cluster.Spec.Dynamic)
-	hp, err := GetContainerHugepages(context.Background(), k8sClient, template, &cluster, "compute")
+	tmpl, err := GetEnrichedTemplate(context.Background(), k8sClient, "dynamic", cluster)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hp == nil {
-		t.Fatal("expected hugepages to be computed")
+	if tmpl == nil {
+		t.Fatal("expected template to be found")
 	}
 
 	// No nodes → no enrichment → default minimum
-	if hp.Hugepages != 3000 {
-		t.Errorf("expected fallback ComputeHugepages=3000, got %d", hp.Hugepages)
+	if tmpl.ComputeHugepages != 3000 {
+		t.Errorf("expected fallback ComputeHugepages=3000, got %d", tmpl.ComputeHugepages)
 	}
 }

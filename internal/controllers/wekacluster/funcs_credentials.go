@@ -101,14 +101,17 @@ func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Contex
 	containers := discovery.SelectOperationalContainers(r.containers, 30, nil)
 	endpoints := discovery.GetClusterEndpoints(ctx, containers, 30, cluster.Spec.CsiConfig)
 
-	containerNums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
 
 	var nfsContainers []*weka.WekaContainer
 	var nfsTargetIps []string
 	nfsTargetIpsBytes := []byte{}
 	endpointsBytes := []byte{}
 
-	if containerNums.Nfs > 0 {
+	if template.NfsContainers != 0 {
 		nfsContainers = discovery.SelectOperationalContainers(r.containers, 30, []string{weka.WekaContainerModeNfs})
 		nfsTargetIps = discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
 	}

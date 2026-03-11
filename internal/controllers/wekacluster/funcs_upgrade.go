@@ -389,8 +389,10 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	cluster := r.cluster
 	clusterService := r.clusterService
-
-	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
@@ -475,17 +477,17 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
 		}
 
-		activeDrivesThreshold := float64(nums.Drive) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
-		activeComputesThreshold := float64(nums.Compute) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
+		activeDrivesThreshold := float64(template.DriveContainers) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
+		activeComputesThreshold := float64(template.ComputeContainers) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
 
 		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
-			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
+			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveContainers)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
 		if float64(status.Containers.Computes.Active) < activeComputesThreshold {
-			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
+			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, template.ComputeContainers)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}

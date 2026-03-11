@@ -64,6 +64,7 @@
 | hugepages | int |  |
 | hugepagesOffset | int |  |
 | hugepagesSize | string |  |
+| hugepagesSizeOverride | string |  |
 | numDrives | int |  |
 | driversDistService | string |  |
 | driversLoaderImage | string |  |
@@ -260,7 +261,6 @@
 | added_time | string |  |
 | device_path | string |  |
 | serial_number | string |  |
-| size_bytes | int64 |  |
 | status | string |  |
 
 ---

@@ -116,10 +116,13 @@ func (r *wekaClusterReconcilerLoop) InitialContainersReady(ctx context.Context) 
 	}
 
 	// check expected containers number
-	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
+	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
+	if !ok {
+		return errors.New("Failed to get template")
+	}
 
-	expectedComputeContainersNum := util2.GetMinValue(nums.Compute, config.Consts.FormClusterMaxComputeContainers)
-	expectedDriveContainersNum := util2.GetMinValue(nums.Drive, config.Consts.FormClusterMaxDriveContainers)
+	expectedComputeContainersNum := util2.GetMinValue(template.ComputeContainers, config.Consts.FormClusterMaxComputeContainers)
+	expectedDriveContainersNum := util2.GetMinValue(template.DriveContainers, config.Consts.FormClusterMaxDriveContainers)
 
 	if driveContainersCount+computeContainersCount+ignoredContainersCount < expectedComputeContainersNum+expectedDriveContainersNum {
 		err := fmt.Errorf("waiting for all containers to be either ready or ignored before forming the cluster, expected %d, got %d", expectedComputeContainersNum+expectedDriveContainersNum, driveContainersCount+computeContainersCount+ignoredContainersCount)
