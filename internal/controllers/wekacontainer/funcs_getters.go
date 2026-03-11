@@ -120,19 +120,7 @@ func (r *containerReconcilerLoop) NeedWekaDrivesListUpdate() bool {
 	if !r.AllExpectedDrivesAreActive() {
 		return true
 	}
-	if r.AddedDrivesNotAlignedWithAllocations() {
-		return true
-	}
-
-	// if size_bytes field is empty, try again to update weka drives list, to get the missing information
-	// NOTE: needed for migration, and can be removed after all clusters are migrated to latest operator version that has capacity-based hugepages calculation
-	// #migration #temporary
-	for _, drive := range r.container.Status.AddedDrives {
-		if drive.SizeBytes == 0 {
-			return true
-		}
-	}
-	return false
+	return r.AddedDrivesNotAlignedWithAllocations()
 }
 
 func (r *containerReconcilerLoop) AllExpectedDrivesAreActive() bool {

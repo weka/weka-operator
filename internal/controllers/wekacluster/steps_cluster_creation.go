@@ -66,12 +66,6 @@ func GetClusterSetupSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 			Run: loop.HandleSpecUpdates,
 		},
 		&lifecycle.SimpleStep{
-			Run: loop.ensureComputeContainersHugepages,
-			Predicates: lifecycle.Predicates{
-				loop.ShouldSetComputeHugepages,
-			},
-		},
-		&lifecycle.SimpleStep{
 			Run: loop.updateContainersOnNodeSelectorMismatch,
 			Predicates: lifecycle.Predicates{
 				lifecycle.BoolValue(config.Config.CleanupBackendsOnNodeSelectorMismatch),
