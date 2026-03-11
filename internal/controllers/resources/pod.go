@@ -1022,23 +1022,41 @@ type HugePagesDetails struct {
 	HugePagesResourceName corev1.ResourceName
 }
 
-func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
+// GetHugePagesOffset returns the hugepages offset for a container based on its mode and spec.
+func GetHugePagesOffset(container *weka.WekaContainer) int {
+	offset := container.Spec.HugepagesOffset
+	// get default if not set
+	if offset == 0 {
+		switch container.Spec.Mode {
+		case weka.WekaContainerModeDrive:
+			if container.UsesDriveSharing() {
+				offset = 200 * container.Spec.NumCores
+			} else {
+				offset = 200 * container.Spec.NumDrives
+			}
+		case weka.WekaContainerModeSSDProxy:
+			offset = config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
+		default:
+			offset = 200
+		}
+	}
+	return offset
+}
+
+// GetHugePagesDetails returns hugepages details for a container based on its spec.
+func GetHugePagesDetails(container *weka.WekaContainer) HugePagesDetails {
 	hugePagesStr := ""
 	hugePagesK8sSuffix := "2Mi"
 	wekaMemoryString := ""
-	if f.container.Spec.HugepagesSize == "1Gi" {
-		hugePagesK8sSuffix = f.container.Spec.HugepagesSize
-		hugePagesStr = fmt.Sprintf("%dGi", f.container.Spec.Hugepages/1000)
-		wekaMemoryString = fmt.Sprintf("%dGiB", f.container.Spec.Hugepages/1000)
+	if container.Spec.HugepagesSize == "1Gi" {
+		hugePagesK8sSuffix = container.Spec.HugepagesSize
+		hugePagesStr = fmt.Sprintf("%dGi", container.Spec.Hugepages/1000)
+		wekaMemoryString = fmt.Sprintf("%dGiB", container.Spec.Hugepages/1000)
 	} else {
-		hugePagesStr = fmt.Sprintf("%dMi", f.container.Spec.Hugepages)
+		hugePagesStr = fmt.Sprintf("%dMi", container.Spec.Hugepages)
 		hugePagesK8sSuffix = "2Mi"
-		offset := f.getHugePagesOffset()
-		wekaMemoryString = fmt.Sprintf("%dMiB", f.container.Spec.Hugepages-offset)
-	}
-
-	if f.container.Spec.HugepagesOverride != "" {
-		wekaMemoryString = f.container.Spec.HugepagesOverride
+		offset := GetHugePagesOffset(container)
+		wekaMemoryString = fmt.Sprintf("%dMiB", container.Spec.Hugepages-offset)
 	}
 
 	hugePagesName := corev1.ResourceName(
@@ -1051,28 +1069,16 @@ func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
 		HugePagesK8sSuffix:    hugePagesK8sSuffix,
 		WekaMemoryString:      wekaMemoryString,
 		HugePagesResourceName: hugePagesName,
-		HugePagesMb:           f.container.Spec.Hugepages,
+		HugePagesMb:           container.Spec.Hugepages,
 	}
 }
 
+func (f *PodFactory) getHugePagesDetails() HugePagesDetails {
+	return GetHugePagesDetails(f.container)
+}
+
 func (f *PodFactory) getHugePagesOffset() int {
-	offset := f.container.Spec.HugepagesOffset
-	// get default if not set
-	if offset == 0 {
-		switch f.container.Spec.Mode {
-		case weka.WekaContainerModeDrive:
-			if f.container.UsesDriveSharing() {
-				offset = 200 * f.container.Spec.NumCores
-			} else {
-				offset = 200 * f.container.Spec.NumDrives
-			}
-		case weka.WekaContainerModeSSDProxy:
-			offset = config.Config.DriveSharing.SsdProxyHugepagesOffsetMiB
-		default:
-			offset = 200
-		}
-	}
-	return offset
+	return GetHugePagesOffset(f.container)
 }
 
 func (f *PodFactory) setResources(ctx context.Context, pod *corev1.Pod) error {

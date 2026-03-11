@@ -393,6 +393,12 @@ spec:
               value: "{{ .Values.hugepagesQlcRatio }}"
             - name: SSD_PROXY_HUGEPAGES_OFFSET_MIB
               value: "{{ .Values.driveSharing.ssdProxy.hugepagesOffsetMiB }}"
+            - name: HUGEPAGES_UPDATE_COMPUTE
+              value: "{{ .Values.hugepagesUpdate.compute }}"
+            - name: HUGEPAGES_UPDATE_DRIVE
+              value: "{{ .Values.hugepagesUpdate.drive }}"
+            - name: COMPUTE_MAX_HUGEPAGES_MIB
+              value: "{{ .Values.computeMaxHugepagesMiB }}"
             - name: PORT_ALLOCATION_STARTING_PORT
               value: "{{ .Values.portAllocation.startingPort }}"
             - name: LOG_FORMAT

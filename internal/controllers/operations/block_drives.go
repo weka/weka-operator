@@ -141,10 +141,8 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		if err := json.Unmarshal([]byte(allDrivesStr), &allDrives); err != nil {
-			err = fmt.Errorf("failed to unmarshal weka-drives annotation: %w", err)
-			return err
-		}
+		entries, _, _ := domain.ParseDriveEntries(allDrivesStr)
+		allDrives = domain.DriveEntrySerials(entries)
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)
@@ -230,10 +228,8 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		if err := json.Unmarshal([]byte(allDrivesStr), &allDrives); err != nil {
-			err = fmt.Errorf("failed to unmarshal weka-drives annotation: %w", err)
-			return err
-		}
+		entries, _, _ := domain.ParseDriveEntries(allDrivesStr)
+		allDrives = domain.DriveEntrySerials(entries)
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)

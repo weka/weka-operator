@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/weka/go-weka-observability/instrumentation"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/weka/weka-operator/internal/consts"
 	"github.com/weka/weka-operator/internal/pkg/domain"
+	"github.com/weka/weka-operator/internal/services/kubernetes"
 )
 
 type NodeInfoGetter func(ctx context.Context, nodeName weka.NodeName) (*AllocatorNodeInfo, error)
@@ -46,17 +48,19 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 				return
 			}
 
-			availableDrives := []string{}
-			allDrives := []string{}
-			err = json.Unmarshal([]byte(allDrivesStr), &allDrives)
+			// Parse as new []DriveEntry format only — old []string format is an error
+			// (sign-drives will convert old format on its next run)
+			var allEntries []domain.DriveEntry
+			err = json.Unmarshal([]byte(allDrivesStr), &allEntries)
 			if err != nil {
-				err = fmt.Errorf("failed to unmarshal weka-drives: %v", err)
+				err = fmt.Errorf("failed to unmarshal weka-drives as DriveEntry format (old format pending migration): %v", err)
 				return
 			}
 
-			for _, drive := range allDrives {
-				if !slices.Contains(blockedDriveSerials, drive) {
-					availableDrives = append(availableDrives, drive)
+			availableDrives := make([]domain.DriveEntry, 0, len(allEntries))
+			for _, entry := range allEntries {
+				if !slices.Contains(blockedDriveSerials, entry.Serial) {
+					availableDrives = append(availableDrives, entry)
 				}
 			}
 
@@ -64,7 +68,7 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 		} else {
 			// No exclusive drives annotation - set empty list
 			// This is expected in drive-sharing/proxy mode where we only use shared drives
-			nodeInfo.AvailableDrives = []string{}
+			nodeInfo.AvailableDrives = []domain.DriveEntry{}
 		}
 
 		var sharedDrives []domain.SharedDriveInfo
@@ -93,6 +97,54 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 
 		return
 	}
+}
+
+// computeMaxNodeDriveCapacityForInitCluster samples up to maxNodeSample nodes matching the selector,
+// computes the top-numDrives capacity sum per node, and returns the maximum.
+// This represents the worst-case (most memory) capacity a single drive container could manage.
+func computeMaxNodeDriveCapacityForInitCluster(ctx context.Context, k8sClient client.Client, nodeSelector map[string]string, numDriveContainers, numDrives int) (int, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "computeMaxNodeDriveCapacityForInitCluster", "nodeSelector", nodeSelector, "numDrives", numDrives)
+	defer end()
+
+	kubeService := kubernetes.NewKubeService(k8sClient)
+	nodes, err := kubeService.GetNodes(ctx, nodeSelector)
+	if err != nil {
+		return 0, err
+	}
+
+	sampleSize := min(10, numDriveContainers, len(nodes))
+
+	maxCapacity := 0
+	for i := range sampleSize {
+		node := nodes[i]
+		drivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]
+		if !ok || drivesStr == "" {
+			continue
+		}
+		entries, _, err := domain.ParseDriveEntries(drivesStr)
+		if err != nil {
+			continue
+		}
+
+		// Sort capacities descending, take top numDrives
+		capacities := make([]int, 0, len(entries))
+		for _, e := range entries {
+			if e.CapacityGiB > 0 {
+				capacities = append(capacities, e.CapacityGiB)
+			}
+		}
+		slices.SortFunc(capacities, func(a, b int) int { return b - a }) // descending
+
+		nodeSum := 0
+		for j := 0; j < min(numDrives, len(capacities)); j++ {
+			nodeSum += capacities[j]
+		}
+		maxCapacity = max(maxCapacity, nodeSum)
+	}
+
+	logger.Info("Computed max node drive capacity", "maxCapacityGiB", maxCapacity)
+
+	return maxCapacity, nil
 }
 
 // filterBlockedSharedDrives removes blocked drives from the list

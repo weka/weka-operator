@@ -51,65 +51,25 @@ func (r *wekaClusterReconcilerLoop) HasPostFormClusterScript() bool {
 	return r.cluster.Spec.GetOverrides().PostFormClusterScript != ""
 }
 
-func (r *wekaClusterReconcilerLoop) HasS3Containers() bool {
-	cluster := r.cluster
+func (r *wekaClusterReconcilerLoop) HasRunningS3Containers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
 
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
-		return false
-	}
-	if template.S3Containers == 0 {
-		return false
-	}
-
-	for _, container := range r.containers {
-		if container.Spec.Mode == weka.WekaContainerModeS3 {
-			return true
-		}
-	}
-
-	return false
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.S3, weka.WekaContainerModeS3)
+	return len(c) > 0
 }
 
-func (r *wekaClusterReconcilerLoop) HasNfsContainers() bool {
-	return len(r.SelectNfsContainers(r.containers)) > 0
+func (r *wekaClusterReconcilerLoop) HasRunningNfsContainers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
+
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.Nfs, weka.WekaContainerModeNfs)
+	return len(c) > 0
 }
 
-func (r *wekaClusterReconcilerLoop) SelectS3Containers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var s3Containers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeS3 {
-			s3Containers = append(s3Containers, container)
-		}
-	}
+func (r *wekaClusterReconcilerLoop) HasRunningDataServicesContainers() bool {
+	nums := allocator.GetWekaContainerNumbers(r.cluster.Spec.Dynamic)
 
-	return s3Containers
-}
-
-func (r *wekaClusterReconcilerLoop) SelectNfsContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var nfsContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeNfs {
-			nfsContainers = append(nfsContainers, container)
-		}
-	}
-
-	return nfsContainers
-}
-
-func (r *wekaClusterReconcilerLoop) HasDataServicesContainers() bool {
-	return len(r.SelectDataServicesContainers(r.containers)) > 0
-}
-
-func (r *wekaClusterReconcilerLoop) SelectDataServicesContainers(containers []*weka.WekaContainer) []*weka.WekaContainer {
-	var dataServicesContainers []*weka.WekaContainer
-	for _, container := range containers {
-		if container.Spec.Mode == weka.WekaContainerModeDataServices {
-			dataServicesContainers = append(dataServicesContainers, container)
-		}
-	}
-
-	return dataServicesContainers
+	c := discovery.SelectRunningContainersByRole(r.containers, nums.DataServices, weka.WekaContainerModeDataServices)
+	return len(c) > 0
 }
 
 // ValidateDriveTypesRatio validates that driveTypesRatio.tlc > 0 when driveTypesRatio is specified.
@@ -160,4 +120,29 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 		}
 	}
 	return false
+}
+
+func getClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
+	var totalRawCapacityGiB int
+	var err error
+
+	if template.ContainerCapacity > 0 {
+		// Drive-sharing mode - full capacity per drive container is known
+		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive
+	} else if template.NumDrives > 0 && template.DriveCapacity > 0 {
+		// Drive-sharing mode with explicit drive count and capacity
+		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
+	} else if template.Containers.Drive > 0 {
+		// Traditional mode without capacity in spec: read from node annotations
+		totalRawCapacityGiB, err = getFullDrivesClusterTotalCapacityGiB(containers, template)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get total drive capacity from nodes: %w", err)
+		}
+	}
+
+	return totalRawCapacityGiB, nil
+}
+
+func getFullDrivesClusterTotalCapacityGiB(containers []*weka.WekaContainer, template allocator.ClusterTemplate) (int, error) {
+	return allocator.ComputeTotalCapacityFromContainers(containers, template.Containers.Drive, template.NumDrives)
 }

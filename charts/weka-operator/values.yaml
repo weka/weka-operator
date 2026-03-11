@@ -299,6 +299,21 @@ driveSharing:
 hugepagesTlcRatio: 1000
 hugepagesQlcRatio: 6000
 
+# Hugepages update propagation to existing compute/drive containers.
+# User-set hugepages values (spec.dynamic.computeHugepages / driveHugepages) are always
+# propagated to existing containers regardless of these flags.
+# These flags control auto-calculation from cluster capacity for containers where no
+# explicit value is set in the spec. S3/NFS/DataServices hugepages are always
+# propagated using per-role defaults unless overridden in the spec.
+# Disabled by default.
+hugepagesUpdate:
+  compute: false
+  drive: false
+
+# Maximum hugepages (MiB) for compute containers. 0 = no cap.
+# Applied during both initial container creation and hugepages updates.
+computeMaxHugepagesMiB: 360000
+
 # Port allocation configuration
 portAllocation:
   # Starting port for Weka container port allocation.

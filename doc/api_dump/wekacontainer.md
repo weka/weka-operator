@@ -64,7 +64,6 @@
 | hugepages | int |  |
 | hugepagesOffset | int |  |
 | hugepagesSize | string |  |
-| hugepagesSizeOverride | string |  |
 | numDrives | int |  |
 | driversDistService | string |  |
 | driversLoaderImage | string |  |

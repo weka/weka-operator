@@ -33,42 +33,55 @@ import (
 )
 
 type UpdatableClusterSpec struct {
-	AdditionalMemory          weka.AdditionalMemory
-	Tolerations               []string
-	RawTolerations            []v1.Toleration
-	DriversDistService        string
-	ImagePullSecret           string
-	Labels                    *util.HashableMap
-	Annotations               *util.HashableMap
-	NodeSelector              *util.HashableMap
-	S3NodeSelector            *util.HashableMap
-	NfsNodeSelector           *util.HashableMap
-	ComputeNodeSelector       *util.HashableMap
-	DriveNodeSelector         *util.HashableMap
-	DataServicesNodeSelector  *util.HashableMap
-	S3Annotations             *util.HashableMap
-	NfsAnnotations            *util.HashableMap
-	ComputeAnnotations        *util.HashableMap
-	DriveAnnotations          *util.HashableMap
-	DataServicesAnnotations   *util.HashableMap
-	UpgradeForceReplace       bool
-	UpgradeForceReplaceDrives bool
-	Network                   weka.Network
-	RoleNetworkSelector       weka.RoleNetworkSelector
-	PvcConfig                 *weka.PVCConfig
-	TracesConfiguration       *weka.TracesConfiguration
-	RoleCoreIds               weka.RoleCoreIds
-	CpuPolicy                 weka.CpuPolicy
-	ComputeExtraCores         int
-	DriveExtraCores           int
-	S3ExtraCores              int
-	NfsExtraCores             int
-	DataServicesExtraCores    int
-	DriversLoaderImage        string
-	DriversBuildId            *string
+	AdditionalMemory            weka.AdditionalMemory
+	Tolerations                 []string
+	RawTolerations              []v1.Toleration
+	DriversDistService          string
+	ImagePullSecret             string
+	Labels                      *util.HashableMap
+	Annotations                 *util.HashableMap
+	NodeSelector                *util.HashableMap
+	S3NodeSelector              *util.HashableMap
+	NfsNodeSelector             *util.HashableMap
+	ComputeNodeSelector         *util.HashableMap
+	DriveNodeSelector           *util.HashableMap
+	DataServicesNodeSelector    *util.HashableMap
+	S3Annotations               *util.HashableMap
+	NfsAnnotations              *util.HashableMap
+	ComputeAnnotations          *util.HashableMap
+	DriveAnnotations            *util.HashableMap
+	DataServicesAnnotations     *util.HashableMap
+	UpgradeForceReplace         bool
+	UpgradeForceReplaceDrives   bool
+	Network                     weka.Network
+	RoleNetworkSelector         weka.RoleNetworkSelector
+	PvcConfig                   *weka.PVCConfig
+	TracesConfiguration         *weka.TracesConfiguration
+	RoleCoreIds                 weka.RoleCoreIds
+	CpuPolicy                   weka.CpuPolicy
+	ComputeExtraCores           int
+	DriveExtraCores             int
+	S3ExtraCores                int
+	NfsExtraCores               int
+	DataServicesExtraCores      int
+	DriversLoaderImage          string
+	DriversBuildId              *string
+	ComputeHugepages            int
+	ComputeHugepagesOffset      int
+	DriveHugepages              int
+	DriveHugepagesOffset        int
+	S3Hugepages                 int
+	S3HugepagesOffset           int
+	NfsHugepages                int
+	NfsHugepagesOffset          int
+	DataServicesHugepages       int
+	DataServicesHugepagesOffset int
 }
 
-func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta) *UpdatableClusterSpec {
+func NewUpdatableClusterSpec(ctx context.Context, spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta, containers []*weka.WekaContainer) *UpdatableClusterSpec {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewUpdatableClusterSpec")
+	defer end()
+
 	// Helper function to safely convert pointer-to-map to HashableMap
 	safeHashableMap := func(ptr *map[string]string) *util.HashableMap {
 		if ptr == nil {
@@ -91,40 +104,97 @@ func NewUpdatableClusterSpec(spec *weka.WekaClusterSpec, meta *metav1.ObjectMeta
 		dataServicesExtraCores = spec.Dynamic.DataServicesExtraCores
 	}
 
+	// Compute deterministic hugepages from template
+	tmpl := allocator.GetWekaClusterTemplate(spec.Dynamic)
+	dynamicTemplate := spec.Dynamic
+	if dynamicTemplate == nil {
+		dynamicTemplate = &weka.WekaClusterTemplate{}
+	}
+
+	// Compute desired compute/drive hugepages (0 = skip propagation).
+	// User-set values are always propagated; auto-calculated values only when
+	// hugepagesUpdate.compute/drive is enabled in config.
+	// Offsets are only set when the corresponding hugepages value is non-zero.
+	var computeHp, computeHpOffset int
+	var driveHp, driveHpOffset int
+
+	if dynamicTemplate.ComputeHugepages > 0 {
+		// User override
+		computeHp = dynamicTemplate.ComputeHugepages
+
+		maxMiB := config.Config.ComputeMaxHugepagesMiB
+		if maxMiB > 0 && computeHp > maxMiB {
+			computeHp = maxMiB
+		}
+	} else if config.Config.HugepagesUpdate.Compute {
+		// Auto-calculate from capacity
+		totalRawCapacityGiB, err := getClusterTotalCapacityGiB(containers, tmpl)
+		if err != nil {
+			logger.Info("Cannot compute capacity for hugepages, skipping compute hugepages propagation", "error", err)
+		} else if totalRawCapacityGiB > 0 {
+			computeHp = allocator.ComputeCapacityBasedHugepages(
+				ctx, totalRawCapacityGiB, tmpl.Containers.Compute, tmpl.Cores.Compute, tmpl.DriveTypesRatio)
+		}
+	}
+	if computeHp > 0 {
+		computeHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.ComputeHugepagesOffset, 200)
+	}
+
+	if dynamicTemplate.DriveHugepages > 0 {
+		// User override
+		driveHp = dynamicTemplate.DriveHugepages
+	} else if config.Config.HugepagesUpdate.Drive {
+		// Auto-calculate
+		driveHp = allocator.CalculateDriveHugepages(tmpl)
+	}
+	if driveHp > 0 {
+		driveHpOffset = util.GetNonZeroOrDefault(dynamicTemplate.DriveHugepagesOffset, allocator.CalculateDriveHugepagesOffset(tmpl))
+	}
+
 	return &UpdatableClusterSpec{
-		AdditionalMemory:          spec.AdditionalMemory,
-		Tolerations:               spec.Tolerations,
-		RawTolerations:            spec.RawTolerations,
-		DriversDistService:        spec.DriversDistService,
-		ImagePullSecret:           spec.ImagePullSecret,
-		Labels:                    util.NewHashableMap(meta.Labels),
-		Annotations:               util.NewHashableMap(util.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
-		NodeSelector:              util.NewHashableMap(spec.NodeSelector),
-		S3NodeSelector:            safeHashableMap(spec.RoleNodeSelector.S3),
-		NfsNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Nfs),
-		ComputeNodeSelector:       safeHashableMap(spec.RoleNodeSelector.Compute),
-		DriveNodeSelector:         safeHashableMap(spec.RoleNodeSelector.Drive),
-		DataServicesNodeSelector:  safeHashableMap(spec.RoleNodeSelector.DataServices),
-		S3Annotations:             safeHashableMap(spec.RoleAnnotations.S3),
-		NfsAnnotations:            safeHashableMap(spec.RoleAnnotations.Nfs),
-		ComputeAnnotations:        safeHashableMap(spec.RoleAnnotations.Compute),
-		DriveAnnotations:          safeHashableMap(spec.RoleAnnotations.Drive),
-		DataServicesAnnotations:   safeHashableMap(spec.RoleAnnotations.DataServices),
-		UpgradeForceReplace:       spec.GetOverrides().UpgradeForceReplace,
-		UpgradeForceReplaceDrives: spec.GetOverrides().UpgradeForceReplaceDrives,
-		Network:                   spec.Network,
-		RoleNetworkSelector:       spec.RoleNetworkSelector,
-		PvcConfig:                 resources.GetPvcConfig(spec.GlobalPVC),
-		TracesConfiguration:       spec.TracesConfiguration,
-		RoleCoreIds:               spec.RoleCoreIds,
-		CpuPolicy:                 spec.CpuPolicy,
-		ComputeExtraCores:         computeExtraCores,
-		DriveExtraCores:           driveExtraCores,
-		S3ExtraCores:              s3ExtraCores,
-		NfsExtraCores:             nfsExtraCores,
-		DataServicesExtraCores:    dataServicesExtraCores,
-		DriversLoaderImage:        spec.GetOverrides().DriversLoaderImage,
-		DriversBuildId:            spec.GetOverrides().DriversBuildId,
+		AdditionalMemory:            spec.AdditionalMemory,
+		Tolerations:                 spec.Tolerations,
+		RawTolerations:              spec.RawTolerations,
+		DriversDistService:          spec.DriversDistService,
+		ImagePullSecret:             spec.ImagePullSecret,
+		Labels:                      util.NewHashableMap(meta.Labels),
+		Annotations:                 util.NewHashableMap(util.RemoveKeysStartingWithPrefix(meta.Annotations, "weka.io/prepull-")),
+		NodeSelector:                util.NewHashableMap(spec.NodeSelector),
+		S3NodeSelector:              safeHashableMap(spec.RoleNodeSelector.S3),
+		NfsNodeSelector:             safeHashableMap(spec.RoleNodeSelector.Nfs),
+		ComputeNodeSelector:         safeHashableMap(spec.RoleNodeSelector.Compute),
+		DriveNodeSelector:           safeHashableMap(spec.RoleNodeSelector.Drive),
+		DataServicesNodeSelector:    safeHashableMap(spec.RoleNodeSelector.DataServices),
+		S3Annotations:               safeHashableMap(spec.RoleAnnotations.S3),
+		NfsAnnotations:              safeHashableMap(spec.RoleAnnotations.Nfs),
+		ComputeAnnotations:          safeHashableMap(spec.RoleAnnotations.Compute),
+		DriveAnnotations:            safeHashableMap(spec.RoleAnnotations.Drive),
+		DataServicesAnnotations:     safeHashableMap(spec.RoleAnnotations.DataServices),
+		UpgradeForceReplace:         spec.GetOverrides().UpgradeForceReplace,
+		UpgradeForceReplaceDrives:   spec.GetOverrides().UpgradeForceReplaceDrives,
+		Network:                     spec.Network,
+		RoleNetworkSelector:         spec.RoleNetworkSelector,
+		PvcConfig:                   resources.GetPvcConfig(spec.GlobalPVC),
+		TracesConfiguration:         spec.TracesConfiguration,
+		RoleCoreIds:                 spec.RoleCoreIds,
+		CpuPolicy:                   spec.CpuPolicy,
+		ComputeExtraCores:           computeExtraCores,
+		DriveExtraCores:             driveExtraCores,
+		S3ExtraCores:                s3ExtraCores,
+		NfsExtraCores:               nfsExtraCores,
+		DataServicesExtraCores:      dataServicesExtraCores,
+		DriversLoaderImage:          spec.GetOverrides().DriversLoaderImage,
+		DriversBuildId:              spec.GetOverrides().DriversBuildId,
+		ComputeHugepages:            computeHp,
+		ComputeHugepagesOffset:      computeHpOffset,
+		DriveHugepages:              driveHp,
+		DriveHugepagesOffset:        driveHpOffset,
+		S3Hugepages:                 util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepages, 1400*tmpl.Cores.S3),
+		S3HugepagesOffset:           util.GetNonZeroOrDefault(dynamicTemplate.S3FrontendHugepagesOffset, 200),
+		NfsHugepages:                util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepages, 1400*tmpl.Cores.Nfs),
+		NfsHugepagesOffset:          util.GetNonZeroOrDefault(dynamicTemplate.NfsFrontendHugepagesOffset, 200),
+		DataServicesHugepages:       util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepages, 1536),
+		DataServicesHugepagesOffset: util.GetNonZeroOrDefault(dynamicTemplate.DataServicesHugepagesOffset, 200),
 	}
 }
 
@@ -163,13 +233,10 @@ func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaCont
 }
 
 func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleSpecUpdates")
-	defer end()
-
 	cluster := r.cluster
 	containers := r.containers
 
-	updatableSpec := NewUpdatableClusterSpec(&cluster.Spec, &cluster.ObjectMeta)
+	updatableSpec := NewUpdatableClusterSpec(ctx, &cluster.Spec, &cluster.ObjectMeta, containers)
 	specHash, err := util.HashStruct(updatableSpec)
 	if err != nil {
 		return errors.Wrap(err, "failed to hash struct")
@@ -179,6 +246,10 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 		if container.Status.LastAppliedSpec == specHash {
 			return nil
 		}
+
+		ctx, logger, end := instrumentation.GetLogSpan(ctx, "handleContainerSpecUpdate", "container", container.Name)
+		defer end()
+
 		err := r.getClient().Get(ctx, client.ObjectKey{Namespace: container.Namespace, Name: container.Name}, container)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -321,6 +392,30 @@ func (r *wekaClusterReconcilerLoop) HandleSpecUpdates(ctx context.Context) error
 			container.Spec.ExtraCores = targetExtraCores
 		}
 
+		// Hugepages propagation per role
+		var targetHp, targetHpOffset int
+		switch role {
+		case weka.WekaContainerModeCompute:
+			targetHp = updatableSpec.ComputeHugepages
+			targetHpOffset = updatableSpec.ComputeHugepagesOffset
+		case weka.WekaContainerModeDrive:
+			targetHp = updatableSpec.DriveHugepages
+			targetHpOffset = updatableSpec.DriveHugepagesOffset
+		case weka.WekaContainerModeS3:
+			targetHp = updatableSpec.S3Hugepages
+			targetHpOffset = updatableSpec.S3HugepagesOffset
+		case weka.WekaContainerModeNfs:
+			targetHp = updatableSpec.NfsHugepages
+			targetHpOffset = updatableSpec.NfsHugepagesOffset
+		case weka.WekaContainerModeDataServices:
+			targetHp = updatableSpec.DataServicesHugepages
+			targetHpOffset = updatableSpec.DataServicesHugepagesOffset
+		}
+
+		// Only update hugepages if there is a change and the new value is not zero
+		container.Spec.Hugepages = util.GetNonZeroOrDefault(targetHp, container.Spec.Hugepages)
+		container.Spec.HugepagesOffset = util.GetNonZeroOrDefault(targetHpOffset, container.Spec.HugepagesOffset)
+
 		if container.Spec.DriversLoaderImage != updatableSpec.DriversLoaderImage {
 			container.Spec.DriversLoaderImage = updatableSpec.DriversLoaderImage
 		}
@@ -389,10 +484,8 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 	cluster := r.cluster
 	clusterService := r.clusterService
-	template, ok := allocator.GetTemplateByName(cluster.Spec.Template, *cluster)
-	if !ok {
-		return errors.New("Failed to get template")
-	}
+
+	nums := allocator.GetWekaContainerNumbers(cluster.Spec.Dynamic)
 
 	if cluster.Spec.Image != cluster.Status.LastAppliedImage {
 		logger.Info("Image upgrade sequence")
@@ -477,17 +570,17 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			return lifecycle.NewWaitError(errors.New("Weka status is not OK/REDISTRIBUTING, waiting to stabilize. status:" + status.Status))
 		}
 
-		activeDrivesThreshold := float64(template.DriveContainers) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
-		activeComputesThreshold := float64(template.ComputeContainers) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
+		activeDrivesThreshold := float64(nums.Drive) * (float64(config.Config.Upgrade.DriveThresholdPercent) / 100)
+		activeComputesThreshold := float64(nums.Compute) * (float64(config.Config.Upgrade.ComputeThresholdPercent) / 100)
 
 		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
-			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, template.DriveContainers)
+			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
 		if float64(status.Containers.Computes.Active) < activeComputesThreshold {
-			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, template.ComputeContainers)
+			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
 			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
 			return lifecycle.NewWaitError(errors.New(msg))
 		}

@@ -21,8 +21,8 @@ type BindAddress struct {
 }
 
 type Timeouts struct {
-	ReconcileTimeout time.Duration // Reconcile timeout
-	KubeExecTimeout  time.Duration // Kubernetes ssh commands executor timeout
+	ReconcileTimeout                  time.Duration // Reconcile timeout
+	KubeExecTimeout                   time.Duration // Kubernetes ssh commands executor timeout
 	PodTerminationDeactivationTimeout time.Duration // Default timeout for pod termination deactivation
 }
 
@@ -144,6 +144,11 @@ type NfsConfig struct {
 	NotifyPort      int
 }
 
+type HugepagesUpdateConfig struct {
+	Compute bool
+	Drive   bool
+}
+
 type DriveSharingConfig struct {
 	DriveTypesRatio                v1alpha1.DriveTypesRatio
 	MaxVirtualDrivesPerCore        int
@@ -231,14 +236,16 @@ var Config struct {
 	EvictedPodCleanupEnabled                     bool
 	EvictedPodCleanupInterval                    time.Duration
 
-	BuilderImages   BuilderImagesConfig
-	Csi             EmbeddedCsiSettings
-	SyslogPackage   string
-	Proxy           string
-	PriorityClasses PriorityClasses
-	Nfs             NfsConfig
-	DriveSharing    DriveSharingConfig
-	PortAllocation  PortAllocationConfig
+	BuilderImages          BuilderImagesConfig
+	Csi                    EmbeddedCsiSettings
+	SyslogPackage          string
+	Proxy                  string
+	PriorityClasses        PriorityClasses
+	Nfs                    NfsConfig
+	DriveSharing           DriveSharingConfig
+	PortAllocation         PortAllocationConfig
+	HugepagesUpdate        HugepagesUpdateConfig
+	ComputeMaxHugepagesMiB int
 }
 
 type NodeAgentRequestsTimeouts struct {
@@ -460,6 +467,11 @@ func ConfigureEnv(ctx context.Context) {
 
 	// Port allocation configuration
 	Config.PortAllocation.StartingPort = getIntEnvOrDefault("PORT_ALLOCATION_STARTING_PORT", 35000)
+
+	// Hugepages update propagation configuration
+	Config.HugepagesUpdate.Compute = getBoolEnvOrDefault("HUGEPAGES_UPDATE_COMPUTE", false)
+	Config.HugepagesUpdate.Drive = getBoolEnvOrDefault("HUGEPAGES_UPDATE_DRIVE", false)
+	Config.ComputeMaxHugepagesMiB = getIntEnvOrDefault("COMPUTE_MAX_HUGEPAGES_MIB", 360000)
 
 	// Evicted pod cleanup configuration
 	Config.EvictedPodCleanupEnabled = getBoolEnvOrDefault("EVICTED_POD_CLEANUP_ENABLED", true)
