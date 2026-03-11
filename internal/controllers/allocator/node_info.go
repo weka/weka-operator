@@ -99,11 +99,13 @@ func NewK8sNodeInfoGetter(k8sClient client.Client) NodeInfoGetter {
 	}
 }
 
-// computeMaxNodeDriveCapacityForInitCluster samples up to maxNodeSample nodes matching the selector,
+const maxNodeSample = 3
+
+// computeMaxNodeDriveCapacity samples up to maxNodeSample nodes matching the selector,
 // computes the top-numDrives capacity sum per node, and returns the maximum.
 // This represents the worst-case (most memory) capacity a single drive container could manage.
-func computeMaxNodeDriveCapacityForInitCluster(ctx context.Context, k8sClient client.Client, nodeSelector map[string]string, numDriveContainers, numDrives int) (int, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "computeMaxNodeDriveCapacityForInitCluster", "nodeSelector", nodeSelector, "numDrives", numDrives)
+func computeMaxNodeDriveCapacity(ctx context.Context, k8sClient client.Client, nodeSelector map[string]string, numDrives int) (int, error) {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "computeMaxNodeDriveCapacity", "nodeSelector", nodeSelector, "numDrives", numDrives)
 	defer end()
 
 	kubeService := kubernetes.NewKubeService(k8sClient)
@@ -112,7 +114,7 @@ func computeMaxNodeDriveCapacityForInitCluster(ctx context.Context, k8sClient cl
 		return 0, err
 	}
 
-	sampleSize := min(10, numDriveContainers, len(nodes))
+	sampleSize := min(len(nodes), maxNodeSample)
 
 	maxCapacity := 0
 	for i := range sampleSize {

@@ -255,9 +255,9 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			ContinueOnError: true,
 		},
 		&lifecycle.SimpleStep{
-			Run: r.ensureEnoughHugepages,
+			Run: r.ensureEnoughComputeHugepages,
 			Predicates: lifecycle.Predicates{
-				r.isHugepagesUpdateEnabled,
+				r.container.IsComputeContainer,
 				lifecycle.IsNotFunc(r.PodNotSet),
 			},
 		},
@@ -807,12 +807,8 @@ func (r *containerReconcilerLoop) setPodRunningStatus(ctx context.Context) error
 	return nil
 }
 
-func (r *containerReconcilerLoop) isHugepagesUpdateEnabled() bool {
-	return config.Config.HugepagesUpdate.IsEnabledForRole(r.container.Spec.Mode)
-}
-
-func (r *containerReconcilerLoop) ensureEnoughHugepages(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+func (r *containerReconcilerLoop) ensureEnoughComputeHugepages(ctx context.Context) error {
+	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ensureEnoughComputeHugepages")
 	defer end()
 
 	podContainer, err := resources.GetWekaPodContainer(r.pod)
@@ -820,33 +816,26 @@ func (r *containerReconcilerLoop) ensureEnoughHugepages(ctx context.Context) err
 		return nil // no weka container in pod, skip
 	}
 
-	expected := resources.GetHugePagesDetails(r.container)
+	// Determine hugepages resource name based on page size
+	hpSuffix := "2Mi"
+	if r.container.Spec.HugepagesSize == "1Gi" {
+		hpSuffix = "1Gi"
+	}
+	hpResourceName := v1.ResourceName("hugepages-" + hpSuffix)
 
-	// Check hugepages resource
-	podHp := podContainer.Resources.Requests[expected.HugePagesResourceName]
+	// Get pod's current hugepages in MiB
+	podHp := podContainer.Resources.Requests[hpResourceName]
 	podHpMiB := int(podHp.Value() / (1024 * 1024))
 
 	specHpMiB := r.container.Spec.Hugepages
 
-	if podHpMiB < specHpMiB {
-		logger.Info("Pod hugepages less than spec, deleting pod to apply new value",
-			"podHugepagesMiB", podHpMiB, "specHugepagesMiB", specHpMiB)
-		return r.deletePod(ctx, r.pod)
+	if podHpMiB >= specHpMiB {
+		return nil
 	}
 
-	// Check MEMORY env var (reflects hugepages - offset)
-	for _, env := range podContainer.Env {
-		if env.Name == "MEMORY" {
-			if env.Value != expected.WekaMemoryString {
-				logger.Info("Pod MEMORY env mismatch, deleting pod to apply new value",
-					"podMemory", env.Value, "expectedMemory", expected.WekaMemoryString)
-				return r.deletePod(ctx, r.pod)
-			}
-			break
-		}
-	}
-
-	return nil
+	logger.Info("Pod hugepages less than spec, deleting pod to apply new value",
+		"podHugepagesMiB", podHpMiB, "specHugepagesMiB", specHpMiB)
+	return r.deletePod(ctx, r.pod)
 }
 
 func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
