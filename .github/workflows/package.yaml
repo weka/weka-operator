@@ -139,6 +139,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivy-version: v0.68.2
       - name: Create release
         if: ${{ env.VERSION != '' && github.event_name != 'workflow_dispatch' }}
         env:
