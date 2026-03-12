@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.24.3 as builder
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.1 as builder
 ARG TARGETOS
 ARG TARGETARCH
 
