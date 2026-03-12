@@ -375,7 +375,7 @@ type Drive struct {
 	AddedTime    string `json:"added_time"`
 	DevicePath   string `json:"device_path"`
 	SerialNumber string `json:"serial_number"`
-	SizeBytes    int64  `json:"size_bytes"`
+	SizeBytes    int64  `json:"size_bytes,omitempty"`
 	Status       string `json:"status"`
 }
 
