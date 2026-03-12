@@ -226,6 +226,11 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 	return r.container.Status.LastAppliedImage != r.container.Spec.Image
 }
 
+func (r *containerReconcilerLoop) IsNotAlignedClusterConfig() bool {
+	return r.container.Spec.TargetClusterConfigHash != "" &&
+		r.container.Status.LastAppliedClusterConfigHash != r.container.Spec.TargetClusterConfigHash
+}
+
 func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()

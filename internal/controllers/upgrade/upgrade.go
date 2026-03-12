@@ -15,25 +15,32 @@ import (
 )
 
 type UpgradeController struct {
-	Containers  []*v1alpha1.WekaContainer
-	TargetImage string
-	Client      client.Client
+	Containers       []*v1alpha1.WekaContainer
+	TargetImage      string
+	TargetConfigHash string
+	Client           client.Client
 }
 
-func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string) *UpgradeController {
+func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string, targetConfigHash string) *UpgradeController {
 	return &UpgradeController{
-		Containers:  containers,
-		TargetImage: targetImage,
-		Client:      client,
+		Containers:       containers,
+		TargetImage:      targetImage,
+		TargetConfigHash: targetConfigHash,
+		Client:           client,
 	}
 }
 
+func (u *UpgradeController) isConfigApplied(container *v1alpha1.WekaContainer) bool {
+	return container.Status.LastAppliedClusterConfigHash == u.TargetConfigHash
+}
+
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
-	if container.Status.LastAppliedImage != u.TargetImage {
-		if container.Spec.Image != u.TargetImage {
+	if !u.isConfigApplied(container) {
+		if container.Spec.TargetClusterConfigHash != u.TargetConfigHash {
 			patch := map[string]interface{}{
 				"spec": map[string]interface{}{
-					"image": u.TargetImage,
+					"image":                   u.TargetImage,
+					"targetClusterConfigHash": u.TargetConfigHash,
 				},
 			}
 
@@ -44,7 +51,7 @@ func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1al
 			}
 
 			if err := u.Client.Patch(ctx, container, client.RawPatch(types.MergePatchType, patchBytes)); err != nil {
-				err = fmt.Errorf("failed to patch container %s with new image %s: %w", container.Name, u.TargetImage, err)
+				err = fmt.Errorf("failed to patch container %s: %w", container.Name, err)
 				return err
 			}
 		}
@@ -58,7 +65,7 @@ func (u *UpgradeController) AreUpgraded() bool {
 			continue // if pod is not schedulable, ignore it from "Upgrading" status calc
 		}
 
-		if container.Status.LastAppliedImage != u.TargetImage {
+		if !u.isConfigApplied(container) {
 			return false
 		}
 	}
@@ -95,11 +102,15 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			logger.Info("container marked for deletion, skipping", "container", container.Name)
 			continue
 		}
-		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage == "" {
+		isNewContainer := container.Status.LastAppliedImage == ""
+		isTargetAligned := container.Spec.TargetClusterConfigHash == u.TargetConfigHash
+		isApplied := container.Status.LastAppliedClusterConfigHash == container.Spec.TargetClusterConfigHash
+
+		if isNewContainer && isTargetAligned {
 			logger.Info("container is a new container and does not need upgrade", "container_name", container.Name)
 			continue
 		}
-		if container.Spec.Image == u.TargetImage && container.Status.LastAppliedImage != container.Spec.Image {
+		if isTargetAligned && !isApplied {
 			if container.GetNodeAffinity() == "" {
 				logger.Debug("container does not have node affinity, skipping", "container", container.Name)
 				continue
@@ -110,7 +121,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	}
 
 	for _, container := range u.Containers {
-		if container.Spec.Image != u.TargetImage {
+		if container.Spec.TargetClusterConfigHash != u.TargetConfigHash {
 			err := u.UpdateContainer(ctx, container)
 			if err != nil {
 				return err

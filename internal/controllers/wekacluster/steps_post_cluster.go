@@ -190,9 +190,6 @@ func GetPostClusterSteps(loop *wekaClusterReconcilerLoop) []lifecycle.Step {
 		&lifecycle.SimpleStep{
 			Run: loop.handleUpgrade,
 		},
-		&lifecycle.SimpleStep{
-			Run: loop.handleClusterConfigChange,
-		},
 	}
 }
 
