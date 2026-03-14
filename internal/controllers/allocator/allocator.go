@@ -291,6 +291,15 @@ func (t *ResourcesAllocator) AllocateClusterRange(ctx context.Context, cluster *
 	}
 	cluster.Status.Ports.S3Port = s3PortRange.Base
 
+	// Allocate Data Services port (fixed port outside cluster range, no boundary check needed)
+	if cluster.Status.Ports.DataServicesPort == 0 {
+		if cluster.Spec.Ports.DataServicesPort != 0 {
+			cluster.Status.Ports.DataServicesPort = cluster.Spec.Ports.DataServicesPort
+		} else {
+			cluster.Status.Ports.DataServicesPort = 14611
+		}
+	}
+
 	// Management proxy port is allocated on-demand when the management proxy is first enabled
 	// This avoids wasting a port if the feature is not used
 
@@ -309,6 +318,9 @@ func GetClusterGlobalAllocatedRanges(cluster *weka.WekaCluster) (allocatedRanges
 	}
 	if cluster.Status.Ports.ManagementProxyPort > 0 {
 		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.ManagementProxyPort, Size: 1})
+	}
+	if cluster.Status.Ports.DataServicesPort > 0 {
+		allocatedRanges = append(allocatedRanges, Range{Base: cluster.Status.Ports.DataServicesPort, Size: 2})
 	}
 	return
 }

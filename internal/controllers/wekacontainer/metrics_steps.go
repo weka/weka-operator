@@ -44,6 +44,9 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 							weka.WekaContainerModeS3,
 							weka.WekaContainerModeNfs,
 							weka.WekaContainerModeDrive,
+							weka.WekaContainerModeDataServices,
+							weka.WekaContainerModeSmbw,
+							weka.WekaContainerModeDataServicesFe,
 							// TODO: Expand to clients, introduce API-level(or not) HasManagement check
 						}, container.Spec.Mode)
 				},
@@ -68,6 +71,8 @@ func MetricsSteps(loop *containerReconcilerLoop) []lifecycle.Step {
 							weka.WekaContainerModeDrive,
 							weka.WekaContainerModeEnvoy,
 							weka.WekaContainerModeSSDProxy,
+							weka.WekaContainerModeDataServices,
+							weka.WekaContainerModeDataServicesFe,
 						}, container.Spec.Mode)
 				},
 			},
