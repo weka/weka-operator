@@ -19,7 +19,11 @@ func TestGetFreeRange(t *testing.T) {
 
 	clusterRanges := ClusterRanges{}
 
-	r1, _ := clusterRanges.GetFreeRange(500)
+	r1, err := clusterRanges.GetFreeRange(500)
+	if err != nil {
+		t.Errorf("GetFreeRange failed: %v", err)
+		return
+	}
 	if r1 != globalconfig.Config.PortAllocation.StartingPort {
 		t.Errorf("Expected %d, got %d", globalconfig.Config.PortAllocation.StartingPort, r1)
 		return
@@ -52,7 +56,11 @@ func TestGetFreeRange(t *testing.T) {
 		return
 	}
 
-	cr2, _ := clusterRanges.GetFreeRange(500)
+	cr2, err := clusterRanges.GetFreeRange(500)
+	if err != nil {
+		t.Errorf("GetFreeRange failed: %v", err)
+		return
+	}
 	if cr2 != globalconfig.Config.PortAllocation.StartingPort+500 {
 		t.Errorf("Expected 14500, got %d", r1)
 		return
@@ -63,7 +71,11 @@ func TestGetFreeRange(t *testing.T) {
 func TestClusterRangesAllocation(t *testing.T) {
 	clusterRanges := ClusterRanges{}
 
-	r1, _ := clusterRanges.GetFreeRange(500)
+	r1, err := clusterRanges.GetFreeRange(500)
+	if err != nil {
+		t.Errorf("GetFreeRange failed: %v", err)
+		return
+	}
 	if r1 != globalconfig.Config.PortAllocation.StartingPort {
 		t.Errorf("Expected %d, got %d", globalconfig.Config.PortAllocation.StartingPort, r1)
 		return

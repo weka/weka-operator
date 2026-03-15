@@ -30,14 +30,20 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	_ = shutdown(ctx)
+	if err := shutdown(ctx); err != nil {
+		logger.Error(err, "Failed to shut down OTel SDK")
+	}
 	os.Exit(code)
 }
 
 func newTestAllocator(existingClusters []weka.WekaCluster) Allocator {
 	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = weka.AddToScheme(scheme)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
+	if err := weka.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
 
 	clientBuilder := fake.NewClientBuilder().WithScheme(scheme)
 	for i := range existingClusters {

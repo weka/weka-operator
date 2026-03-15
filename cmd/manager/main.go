@@ -103,7 +103,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() {
-		_ = shutdown(ctx)
+		if err := shutdown(ctx); err != nil {
+			logger.Error(err, "Failed to shut down OTel SDK")
+		}
 	}()
 
 	logger.Info("running in mode", "mode", config.Config.Mode)
