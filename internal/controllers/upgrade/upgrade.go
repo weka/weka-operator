@@ -19,6 +19,7 @@ type UpgradeController struct {
 	TargetImage      string
 	TargetConfigHash string
 	Client           client.Client
+	SpecPropagator   func(ctx context.Context, container *v1alpha1.WekaContainer) error // optional, for spec propagation
 }
 
 func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage string, targetConfigHash string) *UpgradeController {
@@ -31,16 +32,33 @@ func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaConta
 }
 
 func (u *UpgradeController) isConfigApplied(container *v1alpha1.WekaContainer) bool {
-	return container.Status.LastAppliedClusterConfigHash == u.TargetConfigHash
+	if u.TargetConfigHash == "" {
+		return container.Status.LastAppliedImage == u.TargetImage
+	}
+	return container.Status.LastAppliedSpec == u.TargetConfigHash
+}
+
+// isSpecAligned returns true if the container's spec already targets the upgrade goal.
+// For cluster containers this checks TargetClusterSpecHash; for clients (no config hash) it checks image.
+func (u *UpgradeController) isSpecAligned(container *v1alpha1.WekaContainer) bool {
+	if u.TargetConfigHash == "" {
+		return container.Spec.Image == u.TargetImage
+	}
+	return container.Spec.TargetClusterSpecHash == u.TargetConfigHash
 }
 
 func (u *UpgradeController) UpdateContainer(ctx context.Context, container *v1alpha1.WekaContainer) error {
 	if !u.isConfigApplied(container) {
-		if container.Spec.TargetClusterConfigHash != u.TargetConfigHash {
+		if !u.isSpecAligned(container) {
+			// If we have a spec propagator, use it (it handles image + hash + spec fields)
+			if u.SpecPropagator != nil {
+				return u.SpecPropagator(ctx, container)
+			}
+			// Fallback: just patch image and hash (for clients without spec propagation)
 			patch := map[string]interface{}{
 				"spec": map[string]interface{}{
-					"image":                   u.TargetImage,
-					"targetClusterConfigHash": u.TargetConfigHash,
+					"image":                 u.TargetImage,
+					"targetClusterSpecHash": u.TargetConfigHash,
 				},
 			}
 
@@ -103,8 +121,8 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 			continue
 		}
 		isNewContainer := container.Status.LastAppliedImage == ""
-		isTargetAligned := container.Spec.TargetClusterConfigHash == u.TargetConfigHash
-		isApplied := container.Status.LastAppliedClusterConfigHash == container.Spec.TargetClusterConfigHash
+		isTargetAligned := u.isSpecAligned(container)
+		isApplied := u.isConfigApplied(container)
 
 		if isNewContainer && isTargetAligned {
 			logger.Info("container is a new container and does not need upgrade", "container_name", container.Name)
@@ -121,7 +139,7 @@ func (u *UpgradeController) RollingUpgrade(ctx context.Context) error {
 	}
 
 	for _, container := range u.Containers {
-		if container.Spec.TargetClusterConfigHash != u.TargetConfigHash {
+		if !u.isSpecAligned(container) {
 			err := u.UpdateContainer(ctx, container)
 			if err != nil {
 				return err

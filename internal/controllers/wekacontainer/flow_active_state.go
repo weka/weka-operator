@@ -203,7 +203,7 @@ func ActiveStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 			Run: r.handleImageUpdate,
 			Predicates: lifecycle.Predicates{
 				func() bool {
-					return r.container.Status.LastAppliedImage != "" || r.container.Status.LastAppliedClusterConfigHash != ""
+					return r.container.Status.LastAppliedImage != ""
 				},
 				func() bool {
 					return r.IsNotAlignedImage() || r.IsNotAlignedClusterConfig()
@@ -821,8 +821,8 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 		return nil
 	}
 
-	if container.Spec.TargetClusterConfigHash != "" && pod.Annotations[resources.ClusterConfigHashAnnotation] != container.Spec.TargetClusterConfigHash {
-		logger.Info("Pod config hash does not match target", "pod_hash", pod.Annotations[resources.ClusterConfigHashAnnotation], "target_hash", container.Spec.TargetClusterConfigHash)
+	if container.Spec.TargetClusterSpecHash != "" && pod.Annotations[resources.ClusterSpecHashAnnotation] != container.Spec.TargetClusterSpecHash {
+		logger.Info("Pod config hash does not match target", "pod_hash", pod.Annotations[resources.ClusterSpecHashAnnotation], "target_hash", container.Spec.TargetClusterSpecHash)
 		return nil
 	}
 
@@ -842,6 +842,6 @@ func (r *containerReconcilerLoop) applyCurrentImage(ctx context.Context) error {
 	logger.Info("Updating LastAppliedImage", "image", container.Spec.Image)
 
 	container.Status.LastAppliedImage = container.Spec.Image
-	container.Status.LastAppliedClusterConfigHash = container.Spec.TargetClusterConfigHash
+	container.Status.LastAppliedSpec = container.Spec.TargetClusterSpecHash
 	return r.Status().Update(ctx, container)
 }

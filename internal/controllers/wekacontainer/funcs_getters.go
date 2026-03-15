@@ -227,8 +227,8 @@ func (r *containerReconcilerLoop) IsNotAlignedImage() bool {
 }
 
 func (r *containerReconcilerLoop) IsNotAlignedClusterConfig() bool {
-	return r.container.Spec.TargetClusterConfigHash != "" &&
-		r.container.Status.LastAppliedClusterConfigHash != r.container.Spec.TargetClusterConfigHash
+	return r.container.Spec.TargetClusterSpecHash != "" &&
+		r.container.Status.LastAppliedSpec != r.container.Spec.TargetClusterSpecHash
 }
 
 func (r *containerReconcilerLoop) GetNode(ctx context.Context) error {

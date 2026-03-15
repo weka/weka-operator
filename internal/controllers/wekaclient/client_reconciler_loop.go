@@ -934,7 +934,8 @@ func (c *clientReconcilerLoop) HandleUpgrade(ctx context.Context) error {
 	defer end()
 
 	uController := upgrade.NewUpgradeController(c.Client, c.containers, c.wekaClient.Spec.Image, "")
-	if uController.AreUpgraded() {
+	allUpgraded := uController.AreUpgraded()
+	if allUpgraded {
 		// Clear pre-pull annotation after successful upgrade
 		err := c.clearPrePullAnnotationForClient(ctx)
 		if err != nil {

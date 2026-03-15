@@ -90,8 +90,8 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 				logger.Info("Pod is being deleted, waiting")
 				return errors.New("Pod is being deleted, waiting")
 			}
-			podConfigAligned := pod.Annotations[resources.ClusterConfigHashAnnotation] == container.Spec.TargetClusterConfigHash
-			if wekaPodContainer.Image == container.Spec.Image && (!r.IsNotAlignedClusterConfig() || podConfigAligned) {
+			podAligned := pod.Annotations[resources.ClusterSpecHashAnnotation] == container.Spec.TargetClusterSpecHash
+			if wekaPodContainer.Image == container.Spec.Image && (!r.IsNotAlignedClusterConfig() || podAligned) {
 				return nil
 			}
 			err := r.writeAllowForceStopInstruction(ctx, pod, false)
@@ -119,7 +119,7 @@ func (r *containerReconcilerLoop) handleImageUpdate(ctx context.Context) error {
 			return err
 		}
 
-		podConfigAligned := pod.Annotations[resources.ClusterConfigHashAnnotation] == container.Spec.TargetClusterConfigHash
+		podConfigAligned := pod.Annotations[resources.ClusterSpecHashAnnotation] == container.Spec.TargetClusterSpecHash
 		needsPodRotation := wekaPodContainer.Image != container.Spec.Image || (r.IsNotAlignedClusterConfig() && !podConfigAligned)
 		if needsPodRotation {
 			if wekaPodContainer.Image != container.Spec.Image && container.HasFrontend() {
