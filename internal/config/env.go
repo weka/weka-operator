@@ -109,7 +109,6 @@ type CsiControllerResources struct {
 	CsiProvisioner ResourceRequirements `json:"csiProvisioner,omitempty"`
 	CsiResizer     ResourceRequirements `json:"csiResizer,omitempty"`
 	CsiSnapshotter ResourceRequirements `json:"csiSnapshotter,omitempty"`
-	LivenessProbe  ResourceRequirements `json:"livenessProbe,omitempty"`
 }
 
 type CsiNodeResources struct {
@@ -623,7 +622,6 @@ func parseCsiControllerResources() CsiControllerResources {
 		CsiProvisioner: parseResourceRequirements("CSI_CONTROLLER_PROVISIONER"),
 		CsiResizer:     parseResourceRequirements("CSI_CONTROLLER_RESIZER"),
 		CsiSnapshotter: parseResourceRequirements("CSI_CONTROLLER_SNAPSHOTTER"),
-		LivenessProbe:  parseResourceRequirements("CSI_CONTROLLER_LIVENESS_PROBE"),
 	}
 }
 

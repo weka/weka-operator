@@ -28,9 +28,8 @@ type CsiControllerHashableSpec struct {
 	CsiAttacherImage      string
 	CsiProvisionerImage   string
 	CsiResizerImage       string
-	CsiSnapshotterImage   string
-	CsiLivenessProbeImage string
-	Labels                *util2.HashableMap
+	CsiSnapshotterImage string
+	Labels              *util2.HashableMap
 	Tolerations           []corev1.Toleration
 	NodeSelector          *util2.HashableMap
 	EnforceTrustedHttps   bool
@@ -73,9 +72,8 @@ func GetCsiControllerDeploymentHash(csiGroupName string, wekaClient *weka.WekaCl
 		CsiAttacherImage:      config.Config.Csi.AttacherImage,
 		CsiProvisionerImage:   config.Config.Csi.ProvisionerImage,
 		CsiResizerImage:       config.Config.Csi.ResizerImage,
-		CsiSnapshotterImage:   config.Config.Csi.SnapshotterImage,
-		CsiLivenessProbeImage: config.Config.Csi.LivenessProbeImage,
-		Labels:                labelsHashable,
+		CsiSnapshotterImage: config.Config.Csi.SnapshotterImage,
+		Labels:              labelsHashable,
 		Tolerations:           tolerations,
 		NodeSelector:          nodeSelectorHashable,
 		EnforceTrustedHttps:   enforceTrustedHttps,
@@ -209,6 +207,19 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 					NodeSelector:       nodeSelector,
 					ServiceAccountName: "csi-wekafs-controller-sa",
 					PriorityClassName:  config.Config.PriorityClasses.Targeted,
+					InitContainers: []corev1.Container{
+						{
+							Name:    "copy-wait-binary",
+							Image:   config.Config.Csi.WekafsImage,
+							Command: []string{"cp", "/wait-for-leader", "/shared/wait-for-leader"},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "shared-bin",
+									MountPath: "/shared",
+								},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name: "wekafs",
@@ -221,7 +232,7 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 							Resources:       toK8sResourceRequirements(config.Config.Csi.ControllerResources.Wekafs),
 							Ports: []corev1.ContainerPort{
 								{
-									ContainerPort: 9898,
+									ContainerPort: 8081,
 									Name:          "healthz",
 									Protocol:      corev1.ProtocolTCP,
 								},
@@ -288,6 +299,18 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:  "WEKAFS_CONTAINER_NAME",
 									Value: wekaContainerName,
 								},
+								{
+									Name: "POD_NAMESPACE",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.namespace",
+										},
+									},
+								},
+								{
+									Name:  "HEALTH_PORT",
+									Value: "8081",
+								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -312,21 +335,25 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									MountPath: "/dev",
 									Name:      "dev-dir",
 								},
+								{
+									MountPath: "/leader-state",
+									Name:      "leader-state",
+								},
 							},
 						},
 						{
-							Name:  "csi-attacher",
-							Image: config.Config.Csi.AttacherImage,
+							Name:    "csi-attacher",
+							Image:   config.Config.Csi.AttacherImage,
+							Command: []string{"/shared/wait-for-leader"},
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privileged,
 							},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiAttacher),
 							Args: []string{
+								"/csi-attacher",
 								"--csi-address=$(ADDRESS)",
 								"--v=$(LOG_LEVEL)",
 								"--timeout=60s",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
 								"--worker-threads=5",
 								"--http-endpoint=:9095",
 							},
@@ -345,13 +372,14 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 									MountPath: "/csi",
 								},
-							},
-							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Port: intstr.FromInt(9095),
-										Path: "/healthz/leader-election",
-									},
+								{
+									Name:      "leader-state",
+									MountPath: "/leader-state",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "shared-bin",
+									MountPath: "/shared",
 								},
 							},
 							Ports: []corev1.ContainerPort{
@@ -365,26 +393,18 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						{
 							Name:      "csi-provisioner",
 							Image:     config.Config.Csi.ProvisionerImage,
+							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiProvisioner),
 							Args: []string{
+								"/csi-provisioner",
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--feature-gates=Topology=true",
 								"--timeout=60s",
 								"--prevent-volume-mode-conversion",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
 								"--worker-threads=5",
 								"--retry-interval-start=10s",
 								"--http-endpoint=:9091",
-							},
-							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Port: intstr.FromInt(9091),
-										Path: "/healthz/leader-election",
-									},
-								},
 							},
 							Env: []corev1.EnvVar{
 								{
@@ -400,6 +420,15 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 								{
 									Name:      "socket-dir",
 									MountPath: "/csi",
+								},
+								{
+									Name:      "leader-state",
+									MountPath: "/leader-state",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "shared-bin",
+									MountPath: "/shared",
 								},
 							},
 							Ports: []corev1.ContainerPort{
@@ -413,24 +442,16 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						{
 							Name:      "csi-resizer",
 							Image:     config.Config.Csi.ResizerImage,
+							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiResizer),
 							Args: []string{
+								"/csi-resizer",
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--timeout=60s",
 								"--http-endpoint=:9092",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
 								"--workers=5",
 								"--retry-interval-start=10s",
-							},
-							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Port: intstr.FromInt(9092),
-										Path: "/healthz/leader-election",
-									},
-								},
 							},
 							Env: []corev1.EnvVar{
 								{
@@ -447,6 +468,15 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 									MountPath: "/csi",
 								},
+								{
+									Name:      "leader-state",
+									MountPath: "/leader-state",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "shared-bin",
+									MountPath: "/shared",
+								},
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -459,24 +489,16 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 						{
 							Name:      "csi-snapshotter",
 							Image:     config.Config.Csi.SnapshotterImage,
+							Command:   []string{"/shared/wait-for-leader"},
 							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.CsiSnapshotter),
 							Args: []string{
+								"/csi-snapshotter",
 								"--v=$(LOG_LEVEL)",
 								"--csi-address=$(ADDRESS)",
 								"--timeout=60s",
-								"--leader-election",
-								"--leader-election-namespace=" + namespace,
 								"--worker-threads=5",
 								"--retry-interval-start=10s",
 								"--http-endpoint=:9093",
-							},
-							LivenessProbe: &corev1.Probe{
-								ProbeHandler: corev1.ProbeHandler{
-									HTTPGet: &corev1.HTTPGetAction{
-										Port: intstr.FromInt(9093),
-										Path: "/healthz/leader-election",
-									},
-								},
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -501,35 +523,14 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Name:      "socket-dir",
 									MountPath: "/csi",
 								},
-							},
-						},
-						{
-							Name: "liveness-probe",
-							VolumeMounts: []corev1.VolumeMount{
 								{
-									MountPath: "/csi",
-									Name:      "socket-dir",
-								},
-							},
-							Image:     config.Config.Csi.LivenessProbeImage,
-							Resources: toK8sResourceRequirements(config.Config.Csi.ControllerResources.LivenessProbe),
-							Args: []string{
-								"--v=$(LOG_LEVEL)",
-								"--csi-address=$(ADDRESS)",
-								"--health-port=$(HEALTH_PORT)",
-							},
-							Env: []corev1.EnvVar{
-								{
-									Name:  "ADDRESS",
-									Value: "unix:///csi/csi.sock",
+									Name:      "leader-state",
+									MountPath: "/leader-state",
+									ReadOnly:  true,
 								},
 								{
-									Name:  "HEALTH_PORT",
-									Value: "9898",
-								},
-								{
-									Name:  "LOG_LEVEL",
-									Value: strconv.Itoa(config.Config.Csi.LogLevel),
+									Name:      "shared-bin",
+									MountPath: "/shared",
 								},
 							},
 						},
@@ -588,6 +589,18 @@ func NewCsiControllerDeployment(ctx context.Context, csiGroupName string, wekaCl
 									Path: "/dev",
 									Type: typePtr(corev1.HostPathDirectory),
 								},
+							},
+						},
+						{
+							Name: "leader-state",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
+							},
+						},
+						{
+							Name: "shared-bin",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						},
 					},
