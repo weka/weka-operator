@@ -372,6 +372,11 @@ func (r *containerReconcilerLoop) removeVirtualDriveViaJSONRPC(ctx context.Conte
 		return fmt.Errorf("JSONRPC error [%d]: %s", jsonrpcResp.Error.Code, jsonrpcResp.Error.Message)
 	}
 
+	// Check if result is false
+	if resultBool, ok := jsonrpcResp.Result.(bool); ok && !resultBool {
+		return fmt.Errorf("JSONRPC call failed: result is false")
+	}
+
 	logger.Info("Virtual drive removed successfully via JSONRPC", "virtual_uuid", virtualUUID, "result", jsonrpcResp.Result)
 	return nil
 }
