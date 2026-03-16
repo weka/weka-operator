@@ -133,12 +133,18 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 
 	blockedDrives := []string{}
 	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
-		json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		if err := json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives); err != nil {
+			err = fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
+			return err
+		}
 	}
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		json.Unmarshal([]byte(allDrivesStr), &allDrives)
+		if err := json.Unmarshal([]byte(allDrivesStr), &allDrives); err != nil {
+			err = fmt.Errorf("failed to unmarshal weka-drives annotation: %w", err)
+			return err
+		}
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)
@@ -171,7 +177,11 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 		return nil
 	}
 
-	newBlockedDrivesStr, _ := json.Marshal(updatedBlockedDrives)
+	newBlockedDrivesStr, err := json.Marshal(updatedBlockedDrives)
+	if err != nil {
+		err = fmt.Errorf("failed to marshal blocked-drives: %w", err)
+		return err
+	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
 	availableDrives := len(allDrives) - len(updatedBlockedDrives)
@@ -212,12 +222,18 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 
 	blockedDrives := []string{}
 	if blockedDrivesStr, ok := node.Annotations[consts.AnnotationBlockedDrives]; ok {
-		json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives)
+		if err := json.Unmarshal([]byte(blockedDrivesStr), &blockedDrives); err != nil {
+			err = fmt.Errorf("failed to unmarshal blocked-drives annotation: %w", err)
+			return err
+		}
 	}
 
 	allDrives := []string{}
 	if allDrivesStr, ok := node.Annotations[consts.AnnotationWekaDrives]; ok {
-		json.Unmarshal([]byte(allDrivesStr), &allDrives)
+		if err := json.Unmarshal([]byte(allDrivesStr), &allDrives); err != nil {
+			err = fmt.Errorf("failed to unmarshal weka-drives annotation: %w", err)
+			return err
+		}
 	}
 
 	logger.Debug("Available drives", "drives", allDrives)
@@ -250,7 +266,11 @@ func (o *BlockDrivesOperation) BlockDrives(ctx context.Context) error {
 		return nil
 	}
 
-	newBlockedDrivesStr, _ := json.Marshal(blockedDrives)
+	newBlockedDrivesStr, err := json.Marshal(blockedDrives)
+	if err != nil {
+		err = fmt.Errorf("failed to marshal blocked-drives: %w", err)
+		return err
+	}
 	node.Annotations[consts.AnnotationBlockedDrives] = string(newBlockedDrivesStr)
 
 	availableDrives := len(allDrives) - len(blockedDrives)
@@ -345,7 +365,11 @@ func (o *BlockDrivesOperation) BlockSharedDrives(ctx context.Context) error {
 		return nil
 	}
 
-	newBlockedDrivesStr, _ := json.Marshal(blockedDriveUuids)
+	newBlockedDrivesStr, err := json.Marshal(blockedDriveUuids)
+	if err != nil {
+		err = fmt.Errorf("failed to marshal blocked-drives: %w", err)
+		return err
+	}
 	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
 
 	// update weka.io/shared-drives-capacity extended resource
@@ -454,7 +478,11 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 		return nil
 	}
 
-	newBlockedDrivesStr, _ := json.Marshal(updatedBlockedDriveUuids)
+	newBlockedDrivesStr, err := json.Marshal(updatedBlockedDriveUuids)
+	if err != nil {
+		err = fmt.Errorf("failed to marshal blocked-drives: %w", err)
+		return err
+	}
 	node.Annotations[consts.AnnotationBlockedDrivesPhysicalUuids] = string(newBlockedDrivesStr)
 
 	// update weka.io/shared-drives-capacity extended resource
@@ -489,7 +517,10 @@ func (o *BlockDrivesOperation) GetResult() BlockDrivesResult {
 }
 
 func (o *BlockDrivesOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, err := json.Marshal(o.results)
+	if err != nil {
+		return ""
+	}
 	return string(resultJSON)
 }
 
