@@ -2723,8 +2723,11 @@ async def ensure_weka_container():
             })
         resources['backend_endpoints'] = backend_endpoints
     ff = await get_feature_flags()
-    if ff.supports_binding_to_not_all_interfaces and os.environ.get("BIND_MANAGEMENT_ALL", "false").lower() == "false":
-        resources["restrict_listen"] = True
+    if ff.supports_binding_to_not_all_interfaces:
+        if os.environ.get("BIND_MANAGEMENT_ALL", "false").lower() == "false":
+            resources["restrict_listen"] = True
+        else:
+            resources["restrict_listen"] = False
 
     nvidia_vf_single_ip = os.environ.get("NVIDIA_VF_SINGLE_IP")
     if nvidia_vf_single_ip is not None:
@@ -4555,7 +4558,7 @@ async def shutdown():
                 break
 
             await asyncio.sleep(0.3)
-        
+
         if not requested_drives_returned:
             logging.error("Not all requested drives returned to kernel after waiting")
 
