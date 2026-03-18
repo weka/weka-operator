@@ -3696,14 +3696,35 @@ async def get_devices_waiting_for_all_subnets_to_have_device(subnets: List[str],
         await asyncio.sleep(5)  # Wait before checking again
 
 
-async def filter_out_missing_devices(device_names: List[str]) -> List[str]:
+async def device_interface_exists(device_name: str) -> bool:
+    """Check if a network interface exists by running 'ip link show dev {device_name}'."""
+    proc = await asyncio.create_subprocess_exec(
+        "ip", "link", "show", "dev", device_name,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+    return proc.returncode == 0
+
+
+
+async def filter_out_missing_devices(device_names: List[str], rdma_only: bool = False) -> List[str]:
     """Filter out devices that are not available in the system."""
     available_devices = []
     for device_name in device_names:
         try:
-            ip = await get_single_device_ip(device_name)
-            if ip:
-                available_devices.append(device_name)
+            if rdma_only:
+                exists = await device_interface_exists(device_name)
+                if exists:
+                    available_devices.append(device_name)
+                else:
+                    logging.warning(f"Device {device_name} is not available: interface not found")
+            else:
+                ip = await get_single_device_ip(device_name)
+                if ip:
+                    available_devices.append(device_name)
+                else:
+                    logging.warning(f"Device {device_name} is not available: no IP address found")
         except Exception as e:
             logging.warning(f"Device {device_name} is not available: {e}")
     return available_devices
@@ -3730,7 +3751,7 @@ async def get_devices_by_selectors(selectors_str: str) -> List[dict]:
         disable_rdma = selector.get("disableRdma", False)
 
         if device_names:
-            device_names = await filter_out_missing_devices(device_names)
+            device_names = await filter_out_missing_devices(device_names, rdma_only=rdma_only)
             if len(device_names) < min_devices:
                 raise Exception(f"Not enough devices found by deviceNames selector. Expected at least {min_devices}, found {len(device_names)}.")
 
