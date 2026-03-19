@@ -102,7 +102,7 @@ func (r *wekaClusterService) FormCluster(ctx context.Context, containers []*weka
 		if container.Spec.Mode == wekav1alpha1.WekaContainerModeEnvoy {
 			continue
 		}
-		hostIps = append(hostIps, container.GetHostIps(nil)[0])
+		hostIps = append(hostIps, container.GetHostIps(r.Cluster.Spec.Network.DeviceSubnets)[0])
 		hostnamesList = append(hostnamesList, container.Status.GetManagementIps()[0])
 	}
 	hostIpsStr := strings.Join(hostIps, ",")
