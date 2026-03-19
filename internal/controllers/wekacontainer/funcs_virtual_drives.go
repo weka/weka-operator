@@ -192,6 +192,7 @@ func (r *containerReconcilerLoop) addVirtualDriveViaJSONRPC(ctx context.Context,
 
 // RemoveVirtualDrives removes virtual drives from physical proxy devices using jrpc
 // This is called during container deletion for drive containers in drive sharing mode
+// Uses a query-first approach: checks if VD exists, attempts removal, and tolerates transient failures
 func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error {
 	container := r.container
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "RemoveVirtualDrives")
@@ -239,14 +240,29 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 		return fmt.Errorf("failed to get node agent token for virtual drive removal: %w", err)
 	}
 
+	// Query existing virtual drives first
+	existingVDs, err := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	if err != nil {
+		return fmt.Errorf("failed to query existing virtual drives: %w", err)
+	}
+
 	var errs []error
-	removedCount := 0
+	var attemptedVDUUIDs []string
+	var removedVDUUIDs []string
+	alreadyDeletedCount := 0
 
 	// Remove each virtual drive via JSONRPC
 	for _, vd := range container.Status.Allocations.VirtualDrives {
 		l := logger.WithValues("virtual_uuid", vd.VirtualUUID, "physical_uuid", vd.PhysicalUUID)
 
-		l.Info("Removing virtual drive via JSONRPC")
+		// Check if VD already doesn't exist (query-first approach)
+		if !existingVDs[vd.VirtualUUID] {
+			l.Info("Virtual drive does not exist on proxy, treating as already deleted")
+			alreadyDeletedCount++
+			continue
+		}
+
+		l.Info("Attempting to remove virtual drive via JSONRPC")
 
 		err := r.removeVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, vd.VirtualUUID)
 		if err != nil {
@@ -255,16 +271,43 @@ func (r *containerReconcilerLoop) RemoveVirtualDrives(ctx context.Context) error
 			continue
 		}
 
-		l.Info("Virtual drive removed successfully via JSONRPC")
-		removedCount++
+		attemptedVDUUIDs = append(attemptedVDUUIDs, vd.VirtualUUID)
+	}
+
+	// Single post-removal verification query for all attempted removals
+	if len(attemptedVDUUIDs) > 0 {
+		verifyVDs, verifyErr := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+		if verifyErr != nil {
+			logger.Error(verifyErr, "Could not verify VD removals via query")
+			errs = append(errs, fmt.Errorf("could not verify VD removals via query: %w", verifyErr))
+		} else {
+			// Check which removals succeeded via query
+			for _, vdUUID := range attemptedVDUUIDs {
+				if verifyVDs[vdUUID] {
+					logger.WithValues("virtual_uuid", vdUUID).Info("Virtual drive still exists after deletion call, may be delayed. Retrying on next cycle")
+					errs = append(errs, fmt.Errorf("virtual drive %s still exists after deletion", vdUUID))
+				} else {
+					removedVDUUIDs = append(removedVDUUIDs, vdUUID)
+				}
+			}
+		}
+
+		removedVDUUIDsJSON, errMarshal := json.Marshal(removedVDUUIDs)
+		if errMarshal != nil {
+			logger.Error(errMarshal, "Failed to marshal removed virtual drive UUIDs for logging")
+		} else {
+			logger.Info("Virtual drives removed successfully", "removedVDUUIDs", string(removedVDUUIDsJSON))
+		}
 	}
 
 	if len(errs) > 0 {
-		logger.Warn("Some virtual drives failed to remove", "errorCount", len(errs), "errors", errs)
+		logger.Error(nil, "Some virtual drives failed to remove", "errorCount", len(errs), "errors", errs)
 		return fmt.Errorf("errors while removing virtual drives: %v", errs)
 	}
 
-	logger.InfoWithStatus(codes.Ok, "Virtual drive removal completed", "removedCount", removedCount)
+	logger.InfoWithStatus(codes.Ok, "Virtual drive removal completed",
+		"removedCount", len(removedVDUUIDs),
+		"alreadyDeletedCount", alreadyDeletedCount)
 	return nil
 }
 
@@ -299,12 +342,35 @@ func (r *containerReconcilerLoop) removeVirtualDrive(ctx context.Context, virtua
 		return fmt.Errorf("failed to get node agent token for virtual drive cleanup: %w", err)
 	}
 
+	// Query first - check if VD exists
+	existingVDs, err := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	if err != nil {
+		return fmt.Errorf("failed to query existing virtual drives: %w", err)
+	}
+
+	// If VD doesn't exist, treat as already deleted
+	if !existingVDs[virtualDriveUuid] {
+		logger.Info("Virtual drive does not exist on proxy, treating as already deleted", "virtual_uuid", virtualDriveUuid)
+		return nil
+	}
+
 	err = r.removeVirtualDriveViaJSONRPC(ctx, string(ssdproxyContainer.GetUID()), agentPod, token, virtualDriveUuid)
 	if err != nil {
 		return fmt.Errorf("failed to remove virtual drive %s: %w", virtualDriveUuid, err)
 	}
 
-	logger.Info("Virtual drive removed successfully", "virtual_uuid", virtualDriveUuid)
+	// Defensively verify removal via query before returning success
+	verifyVDs, verifyErr := r.getAddedVirtualDrives(ctx, string(ssdproxyContainer.GetUID()), agentPod, token)
+	if verifyErr != nil {
+		logger.Error(verifyErr, "Could not verify removal via query, but deletion call succeeded", "virtual_uuid", virtualDriveUuid)
+		return fmt.Errorf("could not verify removal via query, but deletion call succeeded %s: %w", virtualDriveUuid, verifyErr)
+	}
+
+	if verifyVDs[virtualDriveUuid] {
+		return fmt.Errorf("virtual drive %s still exists after deletion call, may be transient", virtualDriveUuid)
+	}
+
+	logger.Info("Virtual drive removed successfully and verified via query", "virtual_uuid", virtualDriveUuid)
 
 	return nil
 }
@@ -618,6 +684,11 @@ func (r *containerReconcilerLoop) getAddedVirtualDrives(ctx context.Context, ssd
 
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getAddedVirtualDrives", "node", container.GetNodeAffinity())
 	defer end()
+
+	if container.Status.Allocations == nil {
+		logger.Debug("No allocations to query")
+		return make(map[string]bool), nil
+	}
 
 	// Collect unique physical drive UUIDs from allocations
 	physicalUUIDs := container.Status.Allocations.GetVirtualDrivesPhysicalUuids()
