@@ -2735,14 +2735,15 @@ async def ensure_weka_container():
     resources['auto_remove_timeout'] = AUTO_REMOVE_TIMEOUT
 
     cores_cursor = 0
-    for node_id, node in resources['nodes'].items():
+    for node_id, _ in resources['nodes'].items():
+        node = resources['nodes'][node_id]
         if "MANAGEMENT" in node['roles']:
             continue
         if CPU_POLICY == "shared":
             node['dedicate_core'] = False
             node['dedicated_mode'] = "NONE"
         else:
-            node['dedicated_core'] = True
+            node['dedicate_core'] = True
         node['core_id'] = full_cores[cores_cursor]
         cores_cursor += 1
 
