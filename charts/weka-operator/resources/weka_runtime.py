@@ -2741,6 +2741,8 @@ async def ensure_weka_container():
         if CPU_POLICY == "shared":
             node['dedicate_core'] = False
             node['dedicated_mode'] = "NONE"
+        else:
+            node['dedicate_core'] = True
         node['core_id'] = full_cores[cores_cursor]
         cores_cursor += 1
 
