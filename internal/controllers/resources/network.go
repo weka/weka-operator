@@ -24,7 +24,7 @@ func ContainerHasDevicesInSubnets(container *wekav1alpha1.WekaContainer, subnets
 	return true
 }
 
-func ipIsInSubnet(ip string, subnet string) bool {
+func ipIsInSubnet(ip, subnet string) bool {
 	_, ipNet, err := net.ParseCIDR(subnet)
 	if err != nil {
 		return false

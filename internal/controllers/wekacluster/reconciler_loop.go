@@ -77,15 +77,6 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 
 	// Manual pause path - when paused=true and cluster is not actively being deleted
 	// (either not marked for deletion, or deletion was cancelled via cancelDeletion)
-	steps = append(steps, &lifecycle.SimpleStep{
-		Predicates: lifecycle.Predicates{
-			loop.ClusterIsPaused,
-			loop.ClusterIsNotActivelyDeleting,
-		},
-		Run:             loop.HandleManualPause,
-		FinishOnSuccess: true,
-	})
-
 	// Deletion/creation paths are mutually exclusive
 	steps = append(steps, &lifecycle.GroupedSteps{
 		Name: "DeletionPath",
@@ -128,17 +119,10 @@ func (loop *wekaClusterReconcilerLoop) GetAllSteps() []lifecycle.Step {
 		Run: loop.SetReadyStatus,
 	})
 
-	clusterSetupSteps := GetClusterSetupSteps(loop)
-	steps = append(steps, clusterSetupSteps...)
-
-	clusterCreationSteps := GetClusterCreationSteps(loop)
-	steps = append(steps, clusterCreationSteps...)
-
-	credentialSteps := GetCredentialSteps(loop)
-	steps = append(steps, credentialSteps...)
-
-	postClusterConfigSteps := GetPostClusterSteps(loop)
-	steps = append(steps, postClusterConfigSteps...)
+	steps = append(steps, GetClusterSetupSteps(loop)...)
+	steps = append(steps, GetClusterCreationSteps(loop)...)
+	steps = append(steps, GetCredentialSteps(loop)...)
+	steps = append(steps, GetPostClusterSteps(loop)...)
 
 	return steps
 }

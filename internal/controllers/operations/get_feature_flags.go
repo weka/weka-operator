@@ -88,7 +88,7 @@ func (o *GetFeatureFlagsOperation) GetJsonResult() string {
 	result := map[string]any{
 		"feature_flags": o.featureFlags,
 	}
-	jsonBytes, _ := json.Marshal(result)
+	jsonBytes, _ := json.Marshal(result) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(jsonBytes)
 }
 
@@ -312,7 +312,7 @@ func (o *GetFeatureFlagsOperation) PollAdhocResult(ctx context.Context) error {
 
 // ProcessAdhocResult processes the result from the ad-hoc container
 func (o *GetFeatureFlagsOperation) ProcessAdhocResult(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
 	defer end()
 
 	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {

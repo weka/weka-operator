@@ -17,7 +17,11 @@ func (r *wekaClusterReconcilerLoop) getClient() client.Client {
 }
 
 func (r *wekaClusterReconcilerLoop) getCurrentContainers(ctx context.Context) error {
-	currentContainers := discovery.GetClusterContainers(ctx, r.getClient(), r.cluster, "")
+	currentContainers, err := discovery.GetClusterContainers(ctx, r.getClient(), r.cluster, "")
+	if err != nil {
+		return fmt.Errorf("failed to get cluster containers: %w", err)
+	}
+
 	r.containers = currentContainers
 	return nil
 }
@@ -27,8 +31,8 @@ func (r *wekaClusterReconcilerLoop) updateClusterStatusIfNotEquals(ctx context.C
 		r.cluster.Status.Status = newStatus
 		err := r.getClient().Status().Update(ctx, r.cluster)
 		if err != nil {
-			err := fmt.Errorf("failed to update cluster status: %w", err)
-			return err
+			wrapErr := fmt.Errorf("failed to update cluster status: %w", err)
+			return wrapErr
 		}
 	}
 
@@ -146,16 +150,17 @@ func (r *wekaClusterReconcilerLoop) HasPausedContainers() bool {
 
 func getClusterTotalCapacityGiB(ctx context.Context, k8sClient client.Client, containers []*weka.WekaContainer, template *allocator.ClusterTemplate) (int, error) {
 	var totalRawCapacityGiB int
-	var err error
 
-	if template.ContainerCapacity > 0 {
+	switch {
+	case template.ContainerCapacity > 0:
 		// Drive-sharing mode - full capacity per drive container is known
 		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive
-	} else if template.NumDrives > 0 && template.DriveCapacity > 0 {
+	case template.NumDrives > 0 && template.DriveCapacity > 0:
 		// Drive-sharing mode with explicit drive count and capacity
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
-	} else if template.Containers.Drive > 0 {
+	case template.Containers.Drive > 0:
 		// Full-drives mode without capacity in spec: derive from most recent drive container's allocations
+		var err error
 		totalRawCapacityGiB, err = allocator.ComputeCapacityFromMostRecentDriveContainerAllocation(ctx, k8sClient, containers, template.Containers.Drive, template.NumDrives)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get total drive capacity from nodes: %w", err)

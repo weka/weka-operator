@@ -55,8 +55,9 @@ func (r *containerReconcilerLoop) ManageCsiTopologyLabels(ctx context.Context) e
 
 	csiTopologyLabelsService := operations.NewCsiTopologyLabelsService(csiDriverName, string(nodeName), r.container)
 	if !csiTopologyLabelsService.NodeHasExpectedCsiTopologyLabels(r.node) {
-		ctx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
+		spanCtx, logger, end := instrumentation.GetLogSpan(ctx, "UpdateNodeCsiTopologyLabels")
 		defer end()
+		ctx = spanCtx
 
 		expectedLabels := csiTopologyLabelsService.GetExpectedCsiTopologyLabels()
 		logger.Info("Updating node with CSI topology labels", "labels", expectedLabels)

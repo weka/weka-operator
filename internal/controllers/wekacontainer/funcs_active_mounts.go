@@ -54,20 +54,20 @@ func (r *containerReconcilerLoop) fetchActiveMounts(ctx context.Context) (*int, 
 		url = fmt.Sprintf("%s?container_name=%s&container_uuid=%s", url, r.container.Spec.WekaContainerName, containerUuid)
 	}
 
-	resp, err := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
-	if err != nil {
-		err = errors.Wrap(err, "error sending getActiveMountsget request")
-		return nil, err
+	resp, requestErr := util.SendGetRequest(ctx, url, util.RequestOptions{AuthHeader: "Token " + token})
+	if requestErr != nil {
+		requestErr = errors.Wrap(requestErr, "error sending getActiveMountsget request")
+		return nil, requestErr
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusNotFound {
 			return nil, &NoWekaFsDriverFound{}
 		}
 
-		err := errors.New("getActiveMounts request failed")
-		return nil, err
+		reqErr := errors.New("getActiveMounts request failed")
+		return nil, reqErr
 	}
 
 	var activeMountsResp struct {
@@ -106,7 +106,7 @@ func (r *containerReconcilerLoop) noActiveMountsRestriction(ctx context.Context)
 
 	if activeMounts != nil && *activeMounts != 0 {
 		err := fmt.Errorf("%d mounts are still active", *activeMounts)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return false, err
 	}

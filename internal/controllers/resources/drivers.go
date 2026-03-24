@@ -18,19 +18,21 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		// in COS we can't load it in the drivers-loader pod because of /lib/modules override
 		addUIOLoaderInitContainer(pod)
 		allowCosDisableDriverSigning := config.Config.GkeCompatibility.DisableDriverSigning
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "weka-boot-scripts",
-			MountPath: "/devenv.sh",
-			SubPath:   "devenv.sh",
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "proc-sysrq-trigger",
-			MountPath: "/hostside/proc/sysrq-trigger",
-		})
-		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-			Name:      "proc-cmdline",
-			MountPath: "/hostside/proc/cmdline",
-		})
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts,
+			corev1.VolumeMount{
+				Name:      "weka-boot-scripts",
+				MountPath: "/devenv.sh",
+				SubPath:   "devenv.sh",
+			},
+			corev1.VolumeMount{
+				Name:      "proc-sysrq-trigger",
+				MountPath: "/hostside/proc/sysrq-trigger",
+			},
+			corev1.VolumeMount{
+				Name:      "proc-cmdline",
+				MountPath: "/hostside/proc/cmdline",
+			},
+		)
 		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
 			Name: "proc-sysrq-trigger",
 			VolumeSource: corev1.VolumeSource{
@@ -79,22 +81,24 @@ func (f *PodFactory) setDriverDependencies(pod *corev1.Pod) {
 		usrSrcPath := "/usr/src"
 
 		// adding mount of headers only for case of drivers-related container
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "libmodules",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/lib/modules",
+		pod.Spec.Volumes = append(pod.Spec.Volumes,
+			corev1.Volume{
+				Name: "libmodules",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/lib/modules",
+					},
 				},
 			},
-		})
-		pod.Spec.Volumes = append(pod.Spec.Volumes, corev1.Volume{
-			Name: "usrsrc",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/usr/src",
+			corev1.Volume{
+				Name: "usrsrc",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/usr/src",
+					},
 				},
 			},
-		})
+		)
 		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "libmodules",
 			MountPath: libModulesPath,

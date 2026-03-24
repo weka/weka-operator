@@ -17,7 +17,6 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/services/kubernetes"
 	"github.com/weka/weka-operator/pkg/util"
-	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 const (
@@ -47,8 +46,8 @@ type DiscoveryNodeInfo struct {
 	NumCpus            int      `json:"num_cpus,omitempty"`
 	Provider           Provider `json:"provider,omitempty"`
 	Arch               string   `json:"arch,omitempty"` // k8s-normalized, e.g. "amd64", "arm64"; set by Enrich()
-	// this field is for internal use only, is populayed by DiscoverNodeOperation.Enrich
-	//Node *corev1.Node `json:"-"` // this is not necesserally aligned with a node
+	// this field is for internal use only, is populated by DiscoverNodeOperation.Enrich
+	// Node *corev1.Node `json:"-"` // this is not necessarily aligned with a node
 }
 
 // PodDiscoverySnapshot holds the DiscoveryNodeInfo fields that affect pod spec creation.
@@ -166,17 +165,13 @@ func IsContainerOperational(container *weka.WekaContainer) bool {
 		weka.Deleting,
 		weka.Paused,
 	}
-	if slices.Contains(notSuitableStatuses, container.Status.Status) {
-		return false
-	}
-
-	return true
+	return !slices.Contains(notSuitableStatuses, container.Status.Status)
 }
 
 func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers int, roles []string) []*weka.WekaContainer {
 	firstPassSuitable := []*weka.WekaContainer{}
 	selected := []*weka.WekaContainer{}
-	util2.Shuffle(containers)
+	util.Shuffle(containers)
 
 	for _, container := range containers {
 		// if roles are set - select only suitable roles
@@ -207,8 +202,8 @@ func SelectOperationalContainers(containers []*weka.WekaContainer, numContainers
 
 	// if we selected at least one "Running" - lets go with it, if none - populate with many "not running"
 	if len(selected) == 0 {
-		// if we could not select target amount of  containers, we will select somem random that are not running
-		util2.Shuffle(containers)
+		// if we could not select target amount of  containers, we will select some random that are not running
+		util.Shuffle(containers)
 
 		notSuitableStatuses := []weka.ContainerStatus{
 			weka.PodNotRunning,
@@ -270,7 +265,7 @@ func GetClusterEndpoints(ctx context.Context, containers []*weka.WekaContainer, 
 }
 
 func GetClusterNfsTargetIps(ctx context.Context, containers []*weka.WekaContainer) []string {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterNfsTargetIps")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "GetClusterNfsTargetIps")
 	defer end()
 
 	var nfsTargetIps []string
@@ -318,7 +313,7 @@ func SelectJoinIps(containers []*weka.WekaContainer) (map[string][]string, error
 }
 
 func WrapIpv6Brackets(ip string) string {
-	if util2.IsIpv6(ip) {
+	if util.IsIpv6(ip) {
 		return "[" + ip + "]"
 	}
 	return ip
@@ -340,9 +335,9 @@ func GetClusterByUID(ctx context.Context, c client.Client, uid types.UID) (*weka
 	if err != nil {
 		return nil, err
 	}
-	for _, cluster := range clustersList.Items {
-		if cluster.UID == uid {
-			return &cluster, nil
+	for i := range clustersList.Items {
+		if clustersList.Items[i].UID == uid {
+			return &clustersList.Items[i], nil
 		}
 	}
 	return nil, errors.New("Cluster not found")
@@ -361,9 +356,8 @@ func GetAllContainers(ctx context.Context, c client.Client) []weka.WekaContainer
 	return containersList.Items
 }
 
-func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) []*weka.WekaContainer {
-	containers, _ := GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
-	return containers
+func GetClusterContainers(ctx context.Context, c client.Client, cluster *weka.WekaCluster, mode string) ([]*weka.WekaContainer, error) {
+	return GetClusterContainersByClusterUID(ctx, c, string(cluster.UID), cluster.Namespace, mode)
 }
 
 func GetClusterContainersByClusterUID(ctx context.Context, c client.Client, clusterUID, clusterNamespace, mode string) ([]*weka.WekaContainer, error) {
@@ -412,7 +406,7 @@ func SelectActiveContainer(containers []*weka.WekaContainer) *weka.WekaContainer
 	operational := SelectOperationalContainers(containers, 1, nil)
 	if len(operational) == 0 {
 		// return any random container if no operational found
-		util2.Shuffle(containers)
+		util.Shuffle(containers)
 		if len(containers) == 0 {
 			return nil
 		}
@@ -434,7 +428,7 @@ func SelectActiveContainerWithRole(ctx context.Context, containers []*weka.WekaC
 
 func GetOcpToolkitImage(ctx context.Context, c client.Client, v string) (string, error) {
 	toolkitMap := &corev1.ConfigMap{}
-	namespace, err := util2.GetPodNamespace()
+	namespace, err := util.GetPodNamespace()
 	if err != nil {
 		return "", err
 	}
@@ -519,10 +513,8 @@ func GetWekaClientsForCluster(ctx context.Context, c client.Client, cluster *wek
 
 	var wekaClients []*weka.WekaClient
 	for i := range clientsList.Items {
-		client := clientsList.Items[i]
-
-		if client.Spec.TargetCluster.Name == cluster.Name && client.Spec.TargetCluster.Namespace == cluster.Namespace {
-			wekaClients = append(wekaClients, &client)
+		if clientsList.Items[i].Spec.TargetCluster.Name == cluster.Name && clientsList.Items[i].Spec.TargetCluster.Namespace == cluster.Namespace {
+			wekaClients = append(wekaClients, &clientsList.Items[i])
 		}
 	}
 

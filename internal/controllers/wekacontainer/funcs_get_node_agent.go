@@ -22,7 +22,7 @@ func (r *containerReconcilerLoop) getCurrentPodNodeName() (string, error) {
 	pod := r.pod
 
 	if pod.Status.Phase != v1.PodRunning {
-		err := fmt.Errorf("Pod is not running yet, current phase: %s", pod.Status.Phase)
+		err := fmt.Errorf("pod is not running yet, current phase: %s", pod.Status.Phase)
 		return "", err
 	}
 
@@ -115,7 +115,8 @@ func (r *containerReconcilerLoop) getNodeAgentToken(ctx context.Context) (string
 }
 
 func getNodeAgentContainerImage(pod *v1.Pod) (string, error) {
-	for _, container := range pod.Spec.Containers {
+	for i := range pod.Spec.Containers {
+		container := &pod.Spec.Containers[i]
 		if container.Name == "node-agent" {
 			return container.Image, nil
 		}

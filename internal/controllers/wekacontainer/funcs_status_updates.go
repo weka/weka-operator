@@ -31,8 +31,8 @@ func (r *containerReconcilerLoop) updateContainerStatusIfNotEquals(ctx context.C
 		r.container.Status.Status = newStatus
 		err := r.Status().Update(ctx, r.container)
 		if err != nil {
-			err := fmt.Errorf("failed to update container status: %w", err)
-			return err
+			wrapErr := fmt.Errorf("failed to update container status: %w", err)
+			return wrapErr
 		}
 	}
 	return nil
@@ -49,7 +49,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 	}
 
 	reason := fmt.Sprintf("%sError", stepName)
-	r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Minute)
+	_ = r.RecordEventThrottled(v1.EventTypeWarning, reason, err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 	if !r.IsStatusOverwritableByLocal() {
 		return nil
@@ -63,7 +63,7 @@ func (r *containerReconcilerLoop) setErrorStatus(ctx context.Context, stepName s
 }
 
 func (r *containerReconcilerLoop) setDrivesErrorStatus(ctx context.Context, _ string, err error) error {
-	r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", err.Error())
+	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesAddingError", err.Error()) //nolint:errcheck // error return value intentionally not checked
 
 	if r.container.Status.Status == weka.DrivesAdding {
 		return nil

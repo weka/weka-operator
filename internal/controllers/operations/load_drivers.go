@@ -69,19 +69,19 @@ type LoadDrivers struct {
 	force               bool // ignores existing node annotation
 }
 
-func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails,
-	DriversLoaderImage string, DriversBuildId *string,
+func NewLoadDrivers(mgr ctrl.Manager, node *v1.Node, ownerDetails weka.WekaOwnerDetails, //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
+	driversLoaderImage string, driversBuildId *string,
 	distServiceEndpoint string, isFrontend, force bool) *LoadDrivers {
 	kclient := mgr.GetClient()
-	ns, _ := util.GetPodNamespace()
+	ns, _ := util.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 	return &LoadDrivers{
 		mgr:                 mgr,
 		client:              kclient,
 		kubeService:         kubernetes.NewKubeService(kclient),
 		scheme:              mgr.GetScheme(),
 		containerDetails:    ownerDetails,
-		driversLoaderImage:  DriversLoaderImage,
-		driversBuildId:      DriversBuildId,
+		driversLoaderImage:  driversLoaderImage,
+		driversBuildId:      driversBuildId,
 		node:                node,
 		distServiceEndpoint: distServiceEndpoint,
 		namespace:           ns,
@@ -224,7 +224,7 @@ func (o *LoadDrivers) CreateContainer(ctx context.Context) error {
 	// from the cluster image via an init container
 	var instructions *weka.Instructions
 	if loaderImage != o.containerDetails.Image {
-		payloadBytes, _ := json.Marshal(map[string]string{
+		payloadBytes, _ := json.Marshal(map[string]string{ //nolint:errcheck // marshal of string map; error not possible
 			"targetImage": o.containerDetails.Image,
 			"cliImage":    loaderImage,
 		})
@@ -288,12 +288,12 @@ func (o *LoadDrivers) ProcessResult(ctx context.Context) error {
 
 	if loadResults.Err != "" {
 		ret := fmt.Errorf("%s, re-create container", loadResults.Err)
-		_ = o.DeleteContainers(ctx)
+		_ = o.DeleteContainers(ctx) //nolint:errcheck // best-effort cleanup; returning primary error
 		return NewDriversNotLoadedError(ret)
 	}
 
 	if !loadResults.Loaded {
-		_ = o.DeleteContainers(ctx)
+		_ = o.DeleteContainers(ctx) //nolint:errcheck // best-effort cleanup; returning primary error
 		return NewDriversNotLoadedError(nil)
 	}
 

@@ -19,7 +19,7 @@ const (
 	CSIStorageclass CSIRole = "csi_storageclass"
 )
 
-func GenerateStorageClassName(csiGroup string, fileSystemName string, mountOptions ...string) string {
+func GenerateStorageClassName(csiGroup, fileSystemName string, mountOptions ...string) string {
 	base := "weka-" + strings.ReplaceAll(csiGroup, ".", "-") + "-" + fileSystemName
 	if len(mountOptions) > 0 {
 		base += "-" + strings.Join(mountOptions, "-")

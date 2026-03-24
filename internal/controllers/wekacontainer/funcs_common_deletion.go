@@ -98,10 +98,6 @@ func (r *containerReconcilerLoop) cleanupPersistentDir(ctx context.Context) erro
 
 	var persistencePath string
 	if r.container.Spec.PVC == nil {
-		// if r.node != nil && NodeIsUnschedulable(r.node) {
-		// 	err := fmt.Errorf("container node is unschedulable, cannot perform cleanup persistent dir operation")
-		// 	return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
-		// }
 		if r.node != nil && !NodeIsReady(r.node) {
 			err := fmt.Errorf("container node is not ready, cannot perform cleanup persistent dir operation")
 			return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
@@ -456,7 +452,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 
 	if r.node == nil {
 		// no reason to wait for mounts if node does not exist
-		_ = r.RecordEventThrottled(v1.EventTypeNormal, "NodeNotFound", "Node is not found", time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeNormal, "NodeNotFound", "Node is not found", time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return nil
 	}
 
@@ -470,7 +466,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 	}
 	if mounts == nil {
 		err := errors.New("Mounts are not set")
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 		return err
 	}
 
@@ -488,7 +484,7 @@ func (r *containerReconcilerLoop) waitForMountsOrDrain(ctx context.Context) erro
 			}
 		}
 		err := fmt.Errorf("%d mounts are still active", *mounts)
-		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute)
+		_ = r.RecordEventThrottled(v1.EventTypeWarning, "ActiveMounts", err.Error(), time.Minute) //nolint:errcheck // error return value intentionally not checked
 
 		return lifecycle.NewWaitErrorWithDuration(err, 15*time.Second)
 	}

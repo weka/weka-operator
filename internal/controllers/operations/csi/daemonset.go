@@ -83,12 +83,12 @@ func GetCsiNodeDaemonSetHash(csiGroupName string, wekaClient *weka.WekaClient) (
 	return util2.HashStruct(spec)
 }
 
-func GetCSINodeDaemonSetName(CSIGroupName string) string {
-	return strings.Replace(CSIGroupName, ".", "-", -1) + "-weka-csi-node"
+func GetCSINodeDaemonSetName(csiGroupName string) string {
+	return strings.ReplaceAll(csiGroupName, ".", "-") + "-weka-csi-node"
 }
 
 func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *weka.WekaClient) (*appsv1.DaemonSet, error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiNodeDaemonSet")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "NewCsiNodeDaemonSet")
 	defer end()
 
 	name := GetCSINodeDaemonSetName(csiGroupName)
@@ -118,7 +118,7 @@ func NewCsiNodeDaemonSet(ctx context.Context, csiGroupName string, wekaClient *w
 	}
 
 	nodeSelector := wekaClient.Spec.NodeSelector
-	namespace, _ := util2.GetPodNamespace()
+	namespace, _ := util2.GetPodNamespace() //nolint:errcheck // namespace used for object metadata only; failure falls back to empty string
 
 	privileged := true
 

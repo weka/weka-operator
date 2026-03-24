@@ -25,9 +25,9 @@ type ContainerResourceAllocator struct {
 }
 
 // NewContainerResourceAllocator creates a new container resource allocator
-func NewContainerResourceAllocator(client client.Client) *ContainerResourceAllocator {
+func NewContainerResourceAllocator(k8sClient client.Client) *ContainerResourceAllocator {
 	return &ContainerResourceAllocator{
-		client: client,
+		client: k8sClient,
 	}
 }
 
@@ -77,17 +77,17 @@ func (a *ContainerResourceAllocator) AllocateResources(ctx context.Context, req 
 	// Allocate drives if needed
 	if req.Container.UsesDriveSharing() {
 		// Allocate shared drives (virtual drives with capacity)
-		virtualDrives, err := a.AllocateSharedDrives(ctx, req, containers)
-		if err != nil {
-			return nil, err
+		virtualDrives, allocErr := a.AllocateSharedDrives(ctx, req, containers)
+		if allocErr != nil {
+			return nil, allocErr
 		}
 		result.VirtualDrives = virtualDrives
 		logger.Debug("Allocated virtual drives", "count", len(result.VirtualDrives))
 	} else if req.NumDrives > 0 {
 		// Regular drive allocation (exclusive drives)
-		drives, err := a.getAvailableDrivesFromStatus(ctx, req.Node, allocatedDrives)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get available drives: %w", err)
+		drives, allocErr := a.getAvailableDrivesFromStatus(ctx, req.Node, allocatedDrives)
+		if allocErr != nil {
+			return nil, fmt.Errorf("failed to get available drives: %w", allocErr)
 		}
 
 		if len(drives) < req.NumDrives {
@@ -124,7 +124,8 @@ func (a *ContainerResourceAllocator) aggregateNodeDrivesAllocations(ctx context.
 
 	allocatedDrives := make(map[string]bool)
 
-	for _, container := range containers {
+	for i := range containers {
+		container := containers[i]
 		if container.Status.Allocations == nil {
 			continue
 		}
@@ -202,8 +203,8 @@ func (a *ContainerResourceAllocator) getAvailableDrivesFromStatus(ctx context.Co
 // allocatedRanges: pre-aggregated port ranges from other containers on this node
 // allocateWeka: if true, allocate weka port (60 or 100 ports based on feature flags)
 // allocateAgent: if true, allocate agent port (1 port)
-func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedRanges []Range, allocateWeka bool, allocateAgent bool) (wekaPort int, agentPort int, err error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
+func (a *ContainerResourceAllocator) allocatePortRangesFromStatus(ctx context.Context, cluster *weka.WekaCluster, featureFlags *domain.FeatureFlags, allocatedRanges []Range, allocateWeka, allocateAgent bool) (wekaPort, agentPort int, err error) {
+	_, logger, end := instrumentation.GetLogSpan(ctx, "allocatePortRangesFromStatus")
 	defer end()
 
 	// Get the cluster's allocated port range from cluster Status
@@ -443,14 +444,15 @@ func (a *ContainerResourceAllocator) AllocateSharedDrives(ctx context.Context, r
 		return nil, fmt.Errorf("no shared drives found on node %s", req.Node.Name)
 	}
 
-	if req.CapacityGiB > 0 {
+	switch {
+	case req.CapacityGiB > 0:
 		// Allocate based on total capacity divided by drive types (TLC/QLC)
 		// QLC can be disabled by setting driveTypesRatio.qlc=0
 		return a.allocateSharedDrivesByCapacityWithTypes(ctx, req, containers, sharedDrives)
-	} else if req.NumDrives > 0 {
+	case req.NumDrives > 0:
 		// Allocate based on number of drives needed
 		return a.allocateSharedDrivesByDrivesNum(ctx, req, containers, sharedDrives)
-	} else {
+	default:
 		return nil, fmt.Errorf("either NumDrives or CapacityGiB must be specified for shared drive allocation")
 	}
 }
@@ -488,7 +490,8 @@ func buildDriveCapacityMap(ctx context.Context, availableSharedDrives []domain.S
 	}
 
 	// Calculate claimed capacity per physical drive from existing allocations
-	for _, container := range containers {
+	for i := range containers {
+		container := containers[i]
 		if container.Status.Allocations == nil {
 			continue
 		}
@@ -684,20 +687,21 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		effectiveMaxDrives = remainingMaxDrives
 	}
 
-	if tlcCapacityNeeded == 0 {
+	switch {
+	case tlcCapacityNeeded == 0:
 		// QLC only: skip TLC iteration
 		tlcMinStart = 0
 		tlcMinEnd = 0
-	} else if isReallocation {
+	case isReallocation:
 		// Reallocation mode: no minimum constraint, just need at least 1 drive
 		// The combined constraint (existing + new >= numCores) is already satisfied by existing drives
 		tlcMinStart = 1
 		tlcMinEnd = max(1, effectiveMaxDrives)
-	} else if qlcCapacityNeeded == 0 || globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
+	case qlcCapacityNeeded == 0 || globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore:
 		// TLC only OR per-type constraint: must have exactly numCores TLC drives (no iteration)
 		tlcMinStart = numCores
 		tlcMinEnd = numCores
-	} else {
+	default:
 		// Combined constraint with mixed types: iterate from 1 to numCores
 		tlcMinStart = 1
 		tlcMinEnd = numCores
@@ -720,13 +724,14 @@ func (a *ContainerResourceAllocator) allocateSharedDrivesByCapacityWithTypes(ctx
 		if qlcCapacityNeeded > 0 {
 			// Determine QLC min based on constraint mode and reallocation status
 			var qlcMin int
-			if isReallocation {
+			switch {
+			case isReallocation:
 				// Reallocation mode: no minimum constraint, just need at least 1 drive
 				qlcMin = 1
-			} else if globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore {
+			case globalconfig.Config.DriveSharing.EnforceMinDrivesPerTypePerCore:
 				// Per-type constraint: QLC must have at least numCores drives
 				qlcMin = numCores
-			} else {
+			default:
 				// Combined constraint: QLC min ensures combined total >= numCores
 				qlcMin = max(1, numCores-len(allVirtualDrives))
 			}
@@ -801,28 +806,29 @@ func tryAllocateStrategy(usableDrives []*physicalDriveCapacity, strategy Allocat
 		// Find a physical drive with sufficient capacity
 		// Start from the one with most available capacity
 		for j := range usableDrives {
-			if availableCapacities[j] >= driveSizeGiB {
-				// Allocate from this drive
-				allocPlan = append(allocPlan, virtualDriveAllocationPlan{
-					physicalUUID: usableDrives[j].drive.PhysicalUUID,
-					capacityGiB:  driveSizeGiB,
-					serial:       usableDrives[j].drive.Serial,
-				})
-				availableCapacities[j] -= driveSizeGiB
-				allocated = true
-
-				// Re-sort to maintain distribution (drive with most capacity first)
-				// This is a simple bubble-down of the used drive
-				for k := j; k < len(usableDrives)-1; k++ {
-					if availableCapacities[k] < availableCapacities[k+1] {
-						availableCapacities[k], availableCapacities[k+1] = availableCapacities[k+1], availableCapacities[k]
-						usableDrives[k], usableDrives[k+1] = usableDrives[k+1], usableDrives[k]
-					} else {
-						break
-					}
-				}
-				break
+			if availableCapacities[j] < driveSizeGiB {
+				continue
 			}
+			// Allocate from this drive
+			allocPlan = append(allocPlan, virtualDriveAllocationPlan{
+				physicalUUID: usableDrives[j].drive.PhysicalUUID,
+				capacityGiB:  driveSizeGiB,
+				serial:       usableDrives[j].drive.Serial,
+			})
+			availableCapacities[j] -= driveSizeGiB
+			allocated = true
+
+			// Re-sort to maintain distribution (drive with most capacity first)
+			// This is a simple bubble-down of the used drive
+			for k := j; k < len(usableDrives)-1; k++ {
+				if availableCapacities[k] < availableCapacities[k+1] {
+					availableCapacities[k], availableCapacities[k+1] = availableCapacities[k+1], availableCapacities[k]
+					usableDrives[k], usableDrives[k+1] = usableDrives[k+1], usableDrives[k]
+				} else {
+					break
+				}
+			}
+			break
 		}
 
 		if !allocated {

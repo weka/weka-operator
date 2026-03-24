@@ -15,7 +15,7 @@ package resources
 //   - 4 drives × 10 TiB: 378 + 4×40 = 538 MiB
 //   - 6 drives × 10 TiB: 378 + 4×60 = 618 MiB
 //   - 6 drives × 50 TiB: 378 + 4×300 = 1578 MiB
-func GetSsdProxyHugepagesMiB(maxDrives int, expectedMaxDriveTiB int) int64 {
+func GetSsdProxyHugepagesMiB(maxDrives, expectedMaxDriveTiB int) int64 {
 	const baseMiB int64 = 378
 	const perTotalTiBMiB int64 = 4
 

@@ -21,12 +21,12 @@ type UpgradeController struct {
 	Client            client.Client
 }
 
-func NewUpgradeController(client client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetPodConfigHash string) *UpgradeController {
+func NewUpgradeController(k8sClient client.Client, containers []*v1alpha1.WekaContainer, targetImage, targetPodConfigHash string) *UpgradeController {
 	return &UpgradeController{
-		Containers:        containers,
-		TargetImage:       targetImage,
+		Containers:          containers,
+		TargetImage:         targetImage,
 		TargetPodConfigHash: targetPodConfigHash,
-		Client:            client,
+		Client:              k8sClient,
 	}
 }
 

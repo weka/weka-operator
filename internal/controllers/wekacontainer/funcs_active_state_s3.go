@@ -102,13 +102,13 @@ func (r *containerReconcilerLoop) deleteEnvoyIfNoS3Neighbor(ctx context.Context)
 		return nil
 	}
 
-	_ = r.RecordEvent(
+	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 		v1.EventTypeNormal,
 		"EnvoyContainerWithoutS3Neighbor",
 		"Envoy container has no S3 neighbor, deleting it",
 	)
 
-	if err := r.Client.Delete(ctx, r.container); err != nil {
+	if err := r.Delete(ctx, r.container); err != nil {
 		return errors.Wrap(err, "failed to delete envoy container")
 	}
 
@@ -184,13 +184,13 @@ func (r *containerReconcilerLoop) deleteTelemetryIfNoComputeNeighbor(ctx context
 		return nil
 	}
 
-	_ = r.RecordEvent(
+	_ = r.RecordEvent( //nolint:errcheck // error return value intentionally not checked
 		v1.EventTypeNormal,
 		"TelemetryContainerWithoutComputeNeighbor",
 		"Telemetry container has no compute neighbor, deleting it",
 	)
 
-	if err := r.Client.Delete(ctx, r.container); err != nil {
+	if err := r.Delete(ctx, r.container); err != nil {
 		return errors.Wrap(err, "failed to delete telemetry container")
 	}
 

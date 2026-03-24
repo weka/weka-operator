@@ -11,12 +11,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func SetContainerStateDeleting(ctx context.Context, container *weka.WekaContainer, client client.Client) error {
-	return UpdateContainerState(ctx, container, client, weka.ContainerStateDeleting, "SetContainerStateDeleting")
+func SetContainerStateDeleting(ctx context.Context, container *weka.WekaContainer, k8sClient client.Client) error {
+	return UpdateContainerState(ctx, container, k8sClient, weka.ContainerStateDeleting, "SetContainerStateDeleting")
 }
 
-func SetContainerStateDestroying(ctx context.Context, container *weka.WekaContainer, client client.Client) error {
-	return UpdateContainerState(ctx, container, client, weka.ContainerStateDestroying, "SetContainerStateDestroying")
+func SetContainerStateDestroying(ctx context.Context, container *weka.WekaContainer, k8sClient client.Client) error {
+	return UpdateContainerState(ctx, container, k8sClient, weka.ContainerStateDestroying, "SetContainerStateDestroying")
 }
 
 func UpdateContainerState(ctx context.Context, container *weka.WekaContainer, c client.Client, state weka.ContainerState, spanName string) error {

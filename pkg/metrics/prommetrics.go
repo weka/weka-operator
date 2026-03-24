@@ -32,17 +32,17 @@ func NewTaggedValue(tags map[string]string, value float64) TaggedValue {
 	}
 }
 
-func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
+func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	//TODO: non optimal implementation, but this is also not a data path
 	tags := []string{}
 
 	for k, v := range util.MapOrdered(defaultTags) {
-		tags = append(tags, fmt.Sprintf("%s=\"%s\"", k, v))
+		tags = append(tags, fmt.Sprintf("%s=%q", k, v))
 	}
 
 	for k, v := range util.MapOrdered(m.Tags) {
 		label := NormalizeLabelName(k)
-		tags = append(tags, fmt.Sprintf("%s=\"%s\"", label, v))
+		tags = append(tags, fmt.Sprintf("%s=%q", label, v))
 	}
 
 	mtype := m.Type
@@ -51,8 +51,8 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	}
 
 	ret := ""
-	ret = ret + "# HELP " + m.Metric + " " + m.Help + "\n"
-	ret = ret + "# TYPE " + m.Metric + " " + mtype + "\n"
+	ret += "# HELP " + m.Metric + " " + m.Help + "\n"
+	ret += "# TYPE " + m.Metric + " " + mtype + "\n"
 
 	ts := time.Now()
 	if !m.Timestamp.IsZero() {
@@ -60,7 +60,7 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	}
 
 	if len(m.ValuesByTags) == 0 && m.Value != nil {
-		ret = ret + fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(tags, ","), *m.Value, ts.UnixMilli())
+		ret += fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(tags, ","), *m.Value, ts.UnixMilli())
 		return &ret
 	} else if len(m.ValuesByTags) == 0 {
 		return nil // no data
@@ -69,10 +69,10 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 	parts := []string{}
 
 	for _, perm := range m.ValuesByTags {
-		//copy tags into new list
+		// copy tags into new list
 		permTags := append([]string{}, tags...)
 		for k, v := range util.MapOrdered(perm.Tags) {
-			permTags = append(permTags, fmt.Sprintf("%s=\"%s\"", k, v))
+			permTags = append(permTags, fmt.Sprintf("%s=%q", k, v))
 		}
 		tagTs := ts
 		if !perm.Timestamp.IsZero() {
@@ -81,7 +81,7 @@ func (m PromMetric) AsPrometheusString(defaultTags map[string]string) *string {
 
 		parts = append(parts, fmt.Sprintf("%s{%s} %f %d", m.Metric, strings.Join(permTags, ","), perm.Value, tagTs.UnixMilli()))
 	}
-	ret = ret + strings.Join(parts, "\n")
+	ret += strings.Join(parts, "\n")
 
 	return &ret
 }

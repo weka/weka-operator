@@ -34,8 +34,8 @@ func (s *PodExecService) GetExecutorWithTimeout(ctx context.Context, container *
 	nodeName := string(container.GetNodeAffinity())
 
 	executor, err := util2.NewExecWithConfig(s.restClient, config, types.NamespacedName{
-		Namespace: container.ObjectMeta.Namespace,
-		Name:      container.ObjectMeta.Name,
+		Namespace: container.Namespace,
+		Name:      container.Name,
 	}, timeout, "weka-container", nodeName)
 	if err != nil {
 		return nil, errors.Wrap(err, "Could not create executor")

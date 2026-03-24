@@ -52,7 +52,7 @@ func (r *wekaClusterReconcilerLoop) EnsureNfs(ctx context.Context) error {
 	execInContainer := discovery.SelectActiveContainer(r.containers)
 	wekaService := services.NewWekaService(r.ExecService, execInContainer)
 
-	err := wekaService.ConfigureNfs(ctx, services.NFSParams{
+	err := wekaService.ConfigureNfs(ctx, &services.NFSParams{
 		ConfigFilesystem: ".config_fs",
 		MountdPort:       config.Config.Nfs.MountdPort,
 		LockmanagerPort:  config.Config.Nfs.LockmanagerPort,

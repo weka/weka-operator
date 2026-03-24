@@ -105,7 +105,8 @@ func (r *containerReconcilerLoop) ensureBootConfigMapInTargetNamespace(ctx conte
 		return err
 	}
 	key := client.ObjectKey{Namespace: podNamespace, Name: bootScriptConfigName}
-	if err := r.Get(ctx, key, bundledConfigMap); err != nil {
+	if getErr := r.Get(ctx, key, bundledConfigMap); getErr != nil {
+		err = getErr
 		if apierrors.IsNotFound(err) {
 			logger.Error(err, "Bundled config map not found")
 			return err
@@ -180,7 +181,8 @@ func (r *containerReconcilerLoop) podMetadataChanged() bool {
 }
 
 func (r *containerReconcilerLoop) updatePodTolerationsOnChange(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "")
+	var logger *instrumentation.SpanLogger
+	ctx, _, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
 	pod := r.pod

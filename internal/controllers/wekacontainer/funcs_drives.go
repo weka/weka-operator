@@ -129,7 +129,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 			}
 
 			l.Info("Virtual drive added to cluster")
-			r.RecordEvent("", "VirtualDriveAdded", fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID))
+			_ = r.RecordEvent("", "VirtualDriveAdded", fmt.Sprintf("Virtual drive %s added to cluster", vd.VirtualUUID)) //nolint:errcheck // error return value intentionally not checked
 		}
 	} else {
 		drivesAddedBySerial := make(map[string]bool)
@@ -166,16 +166,16 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				return err
 			}
 			if _, ok := kDrives[drive]; !ok {
-				err := fmt.Errorf("drive %s not found in kernel", drive)
-				l.Error(err, "Error configuring drive")
-				errs = append(errs, err)
+				driveErr := fmt.Errorf("drive %s not found in kernel", drive)
+				l.Error(driveErr, "Error configuring drive")
+				errs = append(errs, driveErr)
 				continue
 			}
 
 			if kDrives[drive].Partition == "" {
-				err := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
-				l.Error(err, "Error configuring drive")
-				errs = append(errs, err)
+				partErr := fmt.Errorf("drive %v is not partitioned", kDrives[drive])
+				l.Error(partErr, "Error configuring drive")
+				errs = append(errs, partErr)
 				continue
 			}
 
@@ -183,8 +183,8 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 
 			if kDrives[drive].IsSigned {
 				l.Info("Drive has Weka signature on it, forbidding usage")
-				err := fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
-				errs = append(errs, err)
+				sigErr := fmt.Errorf("drive %s has Weka signature on it, forbidding usage", drive)
+				errs = append(errs, sigErr)
 				continue
 			}
 
@@ -200,7 +200,7 @@ func (r *containerReconcilerLoop) EnsureDrives(ctx context.Context) error {
 				continue
 			} else {
 				l.Info("Drive added into system")
-				r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive))
+				_ = r.RecordEvent("", "DriveAdded", fmt.Sprintf("Drive %s added", drive)) //nolint:errcheck // error return value intentionally not checked
 			}
 		}
 	}
@@ -521,7 +521,7 @@ func (r *containerReconcilerLoop) RemoveDrivesByPhysicalUuids(ctx context.Contex
 		if !ok {
 			logger.Warn("Added drive virtual UUID has no matching physical UUID", "virtual_uuid", d.Uuid)
 
-			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive virtual UUID %s has no matching physical UUID", d.Uuid), time.Minute*1)
+			_ = r.RecordEventThrottled(v1.EventTypeWarning, "DriveRemovalSkipped", fmt.Sprintf("Added drive virtual UUID %s has no matching physical UUID", d.Uuid), time.Minute*1) //nolint:errcheck // error return value intentionally not checked
 			continue
 		}
 
@@ -572,7 +572,7 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 
 	container := r.container
 
-	if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy {
+	if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy { //nolint:errcheck // error return value intentionally not checked
 		return errors.New("container is uneligible for drive allocation (unhealthy)")
 	}
 
@@ -626,7 +626,7 @@ func (r *containerReconcilerLoop) MarkDrivesForRemoval(ctx context.Context) erro
 		return fmt.Errorf("failed to block drives %v: %w", toRemoveSerialIDs, err)
 	}
 
-	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesMarkedForRemoval", fmt.Sprintf("Drives %v marked for removal from container", toRemoveSerialIDs))
+	_ = r.RecordEvent(v1.EventTypeWarning, "DrivesMarkedForRemoval", fmt.Sprintf("Drives %v marked for removal from container", toRemoveSerialIDs)) //nolint:errcheck // error return value intentionally not checked
 
 	return nil
 }
@@ -676,7 +676,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromNodeAgent(ctx context.Conte
 	if err != nil {
 		return nil, fmt.Errorf("failed to call node-agent: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -730,7 +730,7 @@ func (r *containerReconcilerLoop) getKernelDrivesFromPod(ctx context.Context, ex
 }
 
 func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) (blockedPhysicalUuids []string, err error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveUuids")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveUuids")
 	defer end()
 
 	node := r.node
@@ -753,7 +753,7 @@ func (r *containerReconcilerLoop) getNodeBlockedDriveUuids(ctx context.Context) 
 }
 
 func (r *containerReconcilerLoop) getNodeBlockedDriveSerials(ctx context.Context) (blockedSerials []string, err error) {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveSerials")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "getNodeBlockedDriveSerials")
 	defer end()
 
 	node := r.node
@@ -797,18 +797,16 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 	switch reFetchedDrive.Status {
 	case statusActive:
 		logger.Info("Deactivating drive")
-		err := wekaService.DeactivateDrive(ctx, drive.Uuid)
-		if err != nil {
-			err = fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, err)
-			return err
+		deactivateErr := wekaService.DeactivateDrive(ctx, drive.Uuid)
+		if deactivateErr != nil {
+			return fmt.Errorf("error deactivating drive %s: %w", drive.SerialNumber, deactivateErr)
 		}
 
-		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber))
+		_ = r.RecordEvent("", "DriveDeactivated", fmt.Sprintf("Drive %s deactivated", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
 	case statusInactive:
 		logger.Debug("Drive is inactive")
 	default:
-		err := fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
-		return err
+		return fmt.Errorf("drive has status '%s', wait for it to become '%s'", drive.Status, statusInactive)
 	}
 
 	// remove failed (replaced) drive from weka
@@ -820,7 +818,7 @@ func (r *containerReconcilerLoop) removeDriveFromWeka(ctx context.Context, drive
 		return err
 	}
 
-	_ = r.RecordEvent("", "DriveRemoved", fmt.Sprintf("Drive %s removed", drive.SerialNumber))
+	_ = r.RecordEvent("", "DriveRemoved", fmt.Sprintf("Drive %s removed", drive.SerialNumber)) //nolint:errcheck // error return value intentionally not checked
 
 	logger.Info("Drive removed from weka")
 

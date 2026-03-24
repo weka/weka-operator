@@ -205,7 +205,7 @@ func (r *wekaClusterReconcilerLoop) AllocateClusterRanges(ctx context.Context) e
 	err = resourcesAllocator.AllocateClusterRange(ctx, cluster, featureFlags)
 	var allocateRangeErr *allocator.AllocateClusterRangeError
 	if errors.As(err, &allocateRangeErr) {
-		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error())
+		_ = r.RecordEvent(v1.EventTypeWarning, "AllocateClusterRangeError", allocateRangeErr.Error()) //nolint:errcheck // error is intentionally ignored
 		return lifecycle.NewWaitErrorWithDuration(err, time.Second*15)
 	}
 	if err != nil {
@@ -301,13 +301,11 @@ func (r *wekaClusterReconcilerLoop) EnsureWekaContainers(ctx context.Context) er
 		if len(joinIps) == 0 {
 			allowExpansion = true
 		}
-		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { //TO
+		if err != nil && len(cluster.Spec.ExpandEndpoints) != 0 && allowExpansion { // TODO: consider removing ExpandEndpoints fallback once join-ip caching is reliable
 			joinIps = cluster.Spec.ExpandEndpoints
-		} else {
-			if err != nil {
-				logger.Error(err, "Failed to get join ips")
-				return err
-			}
+		} else if err != nil {
+			logger.Error(err, "Failed to get join ips")
+			return err
 		}
 	}
 
@@ -391,7 +389,7 @@ func (r *wekaClusterReconcilerLoop) BuildMissingContainers(ctx context.Context) 
 
 		currentCount := 0
 		for _, container := range existingContainers {
-			if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy {
+			if unhealthy, _, _ := utils.IsUnhealthy(ctx, container); unhealthy { //nolint:errcheck // error is intentionally ignored
 				continue // we don't care why it's unhealthy, but if it is - we do not account for it and replacement will be scheduled
 			}
 			if container.Spec.Mode == role {

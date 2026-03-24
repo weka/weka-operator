@@ -40,7 +40,8 @@ func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Cont
 
 	// Find the weka-container status to get start time
 	var containerStartTime *time.Time
-	for _, cs := range pod.Status.ContainerStatuses {
+	for i := range pod.Status.ContainerStatuses {
+		cs := &pod.Status.ContainerStatuses[i]
 		if cs.Name == "weka-container" && cs.State.Running != nil {
 			containerStartTime = &cs.State.Running.StartedAt.Time
 			break
@@ -98,7 +99,7 @@ func (r *containerReconcilerLoop) deleteEnvoyIfProcessNotExists(ctx context.Cont
 			}
 		}
 
-		_ = r.RecordEvent(v1.EventTypeWarning, "EnvoyProcessNotFound",
+		_ = r.RecordEvent(v1.EventTypeWarning, "EnvoyProcessNotFound", //nolint:errcheck // error return value intentionally not checked
 			fmt.Sprintf("Envoy process not found while container is in Error state (pod running for %v), deleting container for recreation",
 				podRunningDuration.Round(time.Second)))
 

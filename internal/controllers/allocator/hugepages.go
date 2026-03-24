@@ -17,33 +17,32 @@ import (
 	"github.com/weka/weka-operator/internal/pkg/domain"
 )
 
-func CalculateDriveHugepages(template ClusterTemplate) int {
+func CalculateDriveHugepages(template ClusterTemplate) int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	if template.NumDrives > 0 {
 		return 1400*template.Cores.Drive + 200*template.NumDrives
-	} else {
-		return 1600 * template.Cores.Drive
 	}
+	return 1600 * template.Cores.Drive
 }
 
-func CalculateDriveHugepagesOffset(template ClusterTemplate) int {
+func CalculateDriveHugepagesOffset(template ClusterTemplate) int { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	if template.NumDrives > 0 {
 		return 200 * template.NumDrives
-	} else {
-		return 200 * template.Cores.Drive
 	}
+	return 200 * template.Cores.Drive
 }
 
 // Compute hugepages (capacity-based)
-func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer) (hp int, err error) {
+func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Client, template ClusterTemplate, cluster *weka.WekaCluster, containers []*weka.WekaContainer) (hp int, err error) { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	var totalRawCapacityGiB int
 
-	if template.ContainerCapacity > 0 {
+	switch {
+	case template.ContainerCapacity > 0:
 		// Drive-sharing mode - full capacity per drive container is known
 		totalRawCapacityGiB = template.ContainerCapacity * template.Containers.Drive
-	} else if template.NumDrives > 0 && template.DriveCapacity > 0 {
+	case template.NumDrives > 0 && template.DriveCapacity > 0:
 		// Drive-sharing mode with explicit drive count and capacity
 		totalRawCapacityGiB = template.NumDrives * template.DriveCapacity * template.Containers.Drive
-	} else if template.Containers.Drive > 0 {
+	case template.Containers.Drive > 0:
 		// Full-drives mode: unified path for both new and ready clusters.
 		// Capacity is derived from the most recently created drive container's allocation
 		// looked up in the weka-full-drives node annotation.
@@ -53,7 +52,7 @@ func calculateDynamicComputeHugepages(ctx context.Context, k8sClient client.Clie
 		if err != nil {
 			return 0, err
 		}
-	} else {
+	default:
 		return 0, errors.New("either containerCapacity or numDrives must be specified for dynamic template")
 	}
 
@@ -170,7 +169,7 @@ func ComputeCapacityFromMostRecentDriveContainerAllocation(
 
 // ComputeCapacityBasedHugepages calculates compute hugepages using TLC/QLC-aware capacity ratios.
 func ComputeCapacityBasedHugepages(ctx context.Context, totalRawCapacityGiB, computeContainers, computeCores int, driveTypesRatio *weka.DriveTypesRatio) int {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ComputeCapacityBasedHugepages")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ComputeCapacityBasedHugepages")
 	defer end()
 
 	capacityBased := 0

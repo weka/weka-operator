@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weka/go-steps-engine/lifecycle"
 	"github.com/weka/go-weka-observability/instrumentation"
-	"github.com/weka/weka-k8s-api/api/v1alpha1"
 	weka "github.com/weka/weka-k8s-api/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -23,13 +22,12 @@ import (
 	"github.com/weka/weka-operator/internal/config"
 	"github.com/weka/weka-operator/internal/controllers/operations/csi"
 	"github.com/weka/weka-operator/pkg/util"
-	util2 "github.com/weka/weka-operator/pkg/util"
 )
 
 type DeployCsiOperation struct {
 	client        client.Client
 	results       DeployCsiResult
-	wekaClient    *v1alpha1.WekaClient
+	wekaClient    *weka.WekaClient
 	namespace     string
 	csiGroupName  string
 	csiDriverName string
@@ -47,14 +45,14 @@ type DeployCsiResult struct {
 	Result string `json:"result"`
 }
 
-func NewDeployCsiOperation(client client.Client, targetClient *v1alpha1.WekaClient, csiGroupName string, nodes []corev1.Node, undeploy bool) (*DeployCsiOperation, error) {
-	namespace, err := util2.GetPodNamespace()
+func NewDeployCsiOperation(k8sClient client.Client, targetClient *weka.WekaClient, csiGroupName string, nodes []corev1.Node, undeploy bool) (*DeployCsiOperation, error) {
+	namespace, err := util.GetPodNamespace()
 	if err != nil {
 		return nil, err
 	}
 
 	return &DeployCsiOperation{
-		client:        client,
+		client:        k8sClient,
 		wekaClient:    targetClient,
 		csiDriverName: csi.GetCsiDriverName(csiGroupName),
 		csiGroupName:  csiGroupName,
@@ -150,7 +148,7 @@ func (o *DeployCsiOperation) GetResult() DeployCsiResult {
 }
 
 func (o *DeployCsiOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, _ := json.Marshal(o.results) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 
@@ -317,8 +315,8 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 	if len(existingScList.Items) > 0 {
 		o.storageClassesExist = true
 		var scNames []string
-		for _, sc := range existingScList.Items {
-			scNames = append(scNames, sc.Name)
+		for i := range existingScList.Items {
+			scNames = append(scNames, existingScList.Items[i].Name)
 		}
 		logger.Debug("Found existing StorageClasses", "names", scNames)
 	}
@@ -355,7 +353,7 @@ func (o *DeployCsiOperation) getExistingCsiResources(ctx context.Context) error 
 }
 
 func (o *DeployCsiOperation) getCsiSecret() client.ObjectKey {
-	emptyRef := v1alpha1.ObjectReference{}
+	emptyRef := weka.ObjectReference{}
 	if o.wekaClient.Spec.TargetCluster != emptyRef && o.wekaClient.Spec.TargetCluster.Name != "" {
 		name := fmt.Sprintf("weka-csi-%s", o.wekaClient.Spec.TargetCluster.Name)
 		return client.ObjectKey{
@@ -415,7 +413,7 @@ func (s *CsiTopologyLabelsService) UpdateNodeLabels(node *corev1.Node, expectedL
 	maps.Copy(node.Labels, expectedLabels)
 
 	// remove unexpected labels
-	for key, _ := range node.Labels {
+	for key := range node.Labels {
 		if key == s.nodeLabelKey || key == s.transportLabelKey || key == s.accessibleLabelKey {
 			if _, exists := expectedLabels[key]; !exists {
 				delete(node.Labels, key)
@@ -531,16 +529,16 @@ func (o *DeployCsiOperation) cleanupLegacyCsiNodePods(ctx context.Context) error
 
 	// Filter legacy pods (those NOT owned by a DaemonSet)
 	var legacyPods []corev1.Pod
-	for _, pod := range podList.Items {
+	for i := range podList.Items {
 		isOwnedByDaemonSet := false
-		for _, ownerRef := range pod.OwnerReferences {
+		for _, ownerRef := range podList.Items[i].OwnerReferences {
 			if ownerRef.Kind == "DaemonSet" {
 				isOwnedByDaemonSet = true
 				break
 			}
 		}
 		if !isOwnedByDaemonSet {
-			legacyPods = append(legacyPods, pod)
+			legacyPods = append(legacyPods, podList.Items[i])
 		}
 	}
 
@@ -552,12 +550,12 @@ func (o *DeployCsiOperation) cleanupLegacyCsiNodePods(ctx context.Context) error
 	logger.Info("Found legacy CSI node pods to clean up", "count", len(legacyPods))
 
 	// Delete legacy pods
-	for _, pod := range legacyPods {
-		logger.Info("Deleting legacy CSI node pod", "pod", pod.Name, "node", pod.Spec.NodeName)
-		err := o.client.Delete(ctx, &pod, client.PropagationPolicy(metav1.DeletePropagationForeground))
+	for i := range legacyPods {
+		logger.Info("Deleting legacy CSI node pod", "pod", legacyPods[i].Name, "node", legacyPods[i].Spec.NodeName)
+		err := o.client.Delete(ctx, &legacyPods[i], client.PropagationPolicy(metav1.DeletePropagationForeground))
 		if err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "Failed to delete legacy CSI node pod", "pod", pod.Name)
-			return fmt.Errorf("failed to delete legacy CSI node pod %s: %w", pod.Name, err)
+			logger.Error(err, "Failed to delete legacy CSI node pod", "pod", legacyPods[i].Name)
+			return fmt.Errorf("failed to delete legacy CSI node pod %s: %w", legacyPods[i].Name, err)
 		}
 	}
 
@@ -579,9 +577,9 @@ func (o *DeployCsiOperation) cleanupLegacyCsiNodePods(ctx context.Context) error
 
 			// Check if any legacy pods still exist
 			remainingLegacyPods := 0
-			for _, pod := range podList.Items {
+			for j := range podList.Items {
 				isOwnedByDaemonSet := false
-				for _, ownerRef := range pod.OwnerReferences {
+				for _, ownerRef := range podList.Items[j].OwnerReferences {
 					if ownerRef.Kind == "DaemonSet" {
 						isOwnedByDaemonSet = true
 						break

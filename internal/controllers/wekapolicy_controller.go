@@ -100,8 +100,8 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		result := loop.Op.GetJsonResult()
 
 		var resultMap map[string]interface{}
-		if err := json.Unmarshal([]byte(result), &resultMap); err == nil {
-			if reason, ok := resultMap["InProgress"].(bool); ok && reason == false {
+		if unmarshalErr := json.Unmarshal([]byte(result), &resultMap); unmarshalErr == nil {
+			if reason, ok := resultMap["InProgress"].(bool); ok && !reason {
 				wekaPolicy.Status.Status = "Expired"
 			} else {
 				wekaPolicy.Status.Status = "Done"
@@ -140,7 +140,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+				Labels:          wekaPolicy.GetLabels(),
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
@@ -157,7 +157,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+				Labels:          wekaPolicy.GetLabels(),
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
@@ -173,7 +173,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+				Labels:          wekaPolicy.GetLabels(),
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
@@ -200,7 +200,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Image:           opImage,
 				ImagePullSecret: opImagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+				Labels:          wekaPolicy.GetLabels(),
 			},
 			wekaPolicy.Status.Status,
 			onSuccess,
@@ -222,7 +222,7 @@ func (r *WekaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				Image:           image,
 				ImagePullSecret: imagePullSecret,
 				Tolerations:     wekaPolicy.Spec.Tolerations,
-				Labels:          wekaPolicy.ObjectMeta.GetLabels(),
+				Labels:          wekaPolicy.GetLabels(),
 			},
 			nil,
 			onSuccess,

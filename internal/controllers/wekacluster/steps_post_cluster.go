@@ -274,12 +274,12 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 	wekaCluster := r.cluster
 	containers := r.containers
 
-	config, err := domain.GetWekahomeConfig(wekaCluster)
+	wekahomeConfig, err := domain.GetWekahomeConfig(wekaCluster)
 	if err != nil {
 		return err
 	}
 
-	if config.Endpoint == "" {
+	if wekahomeConfig.Endpoint == "" {
 		return nil // explicitly asked not to configure
 	}
 
@@ -289,7 +289,7 @@ func (r *wekaClusterReconcilerLoop) configureWekaHome(ctx context.Context) error
 	}
 
 	wekaService := services.NewWekaService(r.ExecService, driveContainer)
-	err = wekaService.SetWekaHome(ctx, config)
+	err = wekaService.SetWekaHome(ctx, wekahomeConfig)
 	if err != nil {
 		return err
 	}

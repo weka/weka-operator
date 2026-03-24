@@ -11,7 +11,6 @@ import (
 	"github.com/weka/go-weka-observability/instrumentation"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -27,7 +26,7 @@ type PrePullImagePayload struct {
 	// NodeSelector filters which nodes to pre-pull on (applied with OR logic if multiple selectors)
 	NodeSelector map[string]string
 	// Tolerations for the pre-pull pods
-	Tolerations []v1.Toleration
+	Tolerations []corev1.Toleration
 	OwnerKind   string
 	OwnerMeta   metav1.Object
 	Role        string
@@ -130,7 +129,7 @@ func (o *PrePullImageOperation) GetSteps() []lifecycle.Step {
 
 // GetJsonResult returns the operation result as JSON
 func (o *PrePullImageOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, _ := json.Marshal(o.results) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 
@@ -152,7 +151,7 @@ func (o *PrePullImageOperation) allPodsReady() bool {
 }
 
 func (o *PrePullImageOperation) SkipIfNoNodes(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SkipIfNoNodes")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "SkipIfNoNodes")
 	defer end()
 
 	logger.Info("No target nodes found for pre-pull, skipping")
@@ -219,15 +218,15 @@ func (o *PrePullImageOperation) EnsureDaemonSet(ctx context.Context) error {
 		Tolerations:     o.payload.Tolerations,
 	}
 
-	ds := BuildPrePullDaemonSet(cfg)
+	ds := BuildPrePullDaemonSet(&cfg)
 
 	logger.Info("Creating pre-pull DaemonSet", "name", dsName, "image", o.payload.TargetImage, "targetNodes", len(o.targetNodes))
 
 	if err := o.client.Create(ctx, ds); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// Race condition - another reconcile created it
-			if err := o.client.Get(ctx, client.ObjectKey{Namespace: o.namespace, Name: dsName}, existingDS); err != nil {
-				return errors.Wrap(err, "failed to get existing DaemonSet after create conflict")
+			if getErr := o.client.Get(ctx, client.ObjectKey{Namespace: o.namespace, Name: dsName}, existingDS); getErr != nil {
+				return errors.Wrap(getErr, "failed to get existing DaemonSet after create conflict")
 			}
 			o.daemonSet = existingDS
 			return nil
@@ -274,7 +273,7 @@ func (o *PrePullImageOperation) CheckPodStatus(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) HandleTimeout(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "HandleTimeout")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "HandleTimeout")
 	defer end()
 
 	// Fail-open: proceed with upgrade even if timeout is reached
@@ -301,7 +300,7 @@ func (o *PrePullImageOperation) HandleTimeout(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) WaitForPods(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "WaitForPods")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "WaitForPods")
 	defer end()
 
 	logger.Debug("Waiting for pre-pull pods",
@@ -316,7 +315,7 @@ func (o *PrePullImageOperation) WaitForPods(ctx context.Context) error {
 }
 
 func (o *PrePullImageOperation) ReportSuccess(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ReportSuccess")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ReportSuccess")
 	defer end()
 
 	logger.Info("Pre-pull completed successfully",

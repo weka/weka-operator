@@ -287,7 +287,7 @@ func (o *DiscoverNodeOperation) GetJsonResult() string {
 	if o.result == nil {
 		return "{}"
 	}
-	resultJSON, _ := json.Marshal(o.result)
+	resultJSON, _ := json.Marshal(o.result) //nolint:errcheck // error return value intentionally not checked
 	return string(resultJSON)
 }
 

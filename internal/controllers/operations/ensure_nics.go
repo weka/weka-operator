@@ -59,7 +59,7 @@ type EnsureNICsResult struct {
 	Results map[string]ensureNICsResult `json:"results"`
 }
 
-func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation {
+func NewEnsureNICsOperation(mgr ctrl.Manager, payload *weka.EnsureNICsPayload, ownerRef client.Object, ownerDetails weka.WekaOwnerDetails, ownerStatus string, successCallback lifecycle.StepFunc) *EnsureNICsOperation { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	kclient := mgr.GetClient()
 	return &EnsureNICsOperation{
 		mgr:             mgr,
@@ -123,10 +123,11 @@ func (o *EnsureNICsOperation) EnsureContainers(ctx context.Context) error {
 		existingContainerNodes[string(container.GetNodeAffinity())] = true
 	}
 
-	for _, node := range matchingNodes {
-		if existingContainerNodes[node.Name] {
+	for i := range matchingNodes {
+		if existingContainerNodes[matchingNodes[i].Name] {
 			continue
 		}
+		node := &matchingNodes[i]
 
 		labels := map[string]string{
 			"weka.io/mode": weka.WekaContainerModeAdhocOpWC,
@@ -249,7 +250,7 @@ func (o *EnsureNICsOperation) GetResult() EnsureNICsResult {
 }
 
 func (o *EnsureNICsOperation) GetJsonResult() string {
-	resultJSON, _ := json.Marshal(o.results)
+	resultJSON, _ := json.Marshal(o.results) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(resultJSON)
 }
 

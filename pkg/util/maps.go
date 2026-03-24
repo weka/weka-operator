@@ -24,7 +24,7 @@ func MapOrdered[K cmp.Ordered, V any](m map[K]V) iter.Seq2[K, V] {
 	}
 }
 
-func MergeMaps(originalMap map[string]string, newMap map[string]string) map[string]string {
+func MergeMaps(originalMap, newMap map[string]string) map[string]string {
 	retMap := make(map[string]string)
 	for k, v := range originalMap {
 		retMap[k] = v
@@ -36,7 +36,7 @@ func MergeMaps(originalMap map[string]string, newMap map[string]string) map[stri
 }
 
 // MapMissingItems returns a map containing the items that are in the newMap but not in the originalMap
-func MapMissingItems(originalMap map[string]string, newMap map[string]string) map[string]string {
+func MapMissingItems(originalMap, newMap map[string]string) map[string]string {
 	retMap := make(map[string]string)
 	for k, v := range newMap {
 		if _, ok := originalMap[k]; !ok {
@@ -60,13 +60,13 @@ func (tsm *TypedSyncMap[K, V]) Load(key K) (V, bool) {
 		var zero V
 		return zero, false
 	}
-	return value.(V), true
+	return value.(V), true //nolint:errcheck // error return value intentionally not checked
 }
 
 func (tsm *TypedSyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	actual, loaded := tsm.m.LoadOrStore(key, value)
 	if loaded {
-		return actual.(V), true
+		return actual.(V), true //nolint:errcheck // error return value intentionally not checked
 	}
 	return value, false
 }

@@ -48,8 +48,8 @@ echo "UIO module loaded successfully"
 
 	// Add the required volume if it doesn't already exist
 	volumeExists := false
-	for _, vol := range pod.Spec.Volumes {
-		if vol.Name == "host-modules" {
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].Name == "host-modules" {
 			volumeExists = true
 			break
 		}

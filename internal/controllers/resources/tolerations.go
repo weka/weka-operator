@@ -13,8 +13,7 @@ func ExpandNoScheduleTolerations(tolerations []corev1.Toleration) []corev1.Toler
 		Operator: corev1.TolerationOpExists,
 		Effect:   corev1.TaintEffectPreferNoSchedule,
 	}
-	tolerations = append(tolerations, noScheduleToleration)
-	tolerations = append(tolerations, preferNoScheduleToleration)
+	tolerations = append(tolerations, noScheduleToleration, preferNoScheduleToleration)
 
 	return tolerations
 }

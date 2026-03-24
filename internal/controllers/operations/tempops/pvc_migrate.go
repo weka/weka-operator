@@ -189,8 +189,8 @@ func (o *PvcMigrateOperation) EnsureJob(ctx context.Context) error {
 
 	// Set container as owner for garbage collection (though TTL handles job cleanup)
 	// we expect such cluster to be in operator namespace, aligned with pvc namespace
-	if err := controllerutil.SetControllerReference(o.container, job, o.scheme); err != nil {
-		return errors.Wrap(err, "failed setting controller reference for pvc migrate job")
+	if refErr := controllerutil.SetControllerReference(o.container, job, o.scheme); refErr != nil {
+		return errors.Wrap(refErr, "failed setting controller reference for pvc migrate job")
 	}
 
 	err = o.client.Create(ctx, job)

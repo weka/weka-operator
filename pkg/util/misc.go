@@ -7,7 +7,7 @@ func GetMinValue(a, b int) int {
 	return b
 }
 
-func GetNonZeroOrDefault(val int, defaultVal int) int {
+func GetNonZeroOrDefault(val, defaultVal int) int {
 	if val == 0 {
 		return defaultVal
 	}

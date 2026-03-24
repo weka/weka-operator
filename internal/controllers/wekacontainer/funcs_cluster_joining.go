@@ -106,7 +106,7 @@ func (r *containerReconcilerLoop) setJoinIpsIfStuckInStemMode(ctx context.Contex
 
 	// if cluster creation time is more than 1 minute, set join ips in the container spec
 	if time.Since(clusterCreationTime) > time.Minute {
-		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, clusterGuid, owner.Name, container.Namespace)
+		joinIps, _ := services.ClustersCachedInfo.GetJoinIps(ctx, clusterGuid, owner.Name, container.Namespace) //nolint:errcheck // error return value intentionally not checked
 		if len(joinIps) > 0 {
 			container.Spec.JoinIps = joinIps
 			executor, err := r.ExecService.GetExecutor(ctx, r.container)

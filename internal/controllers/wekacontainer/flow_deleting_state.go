@@ -20,7 +20,7 @@ import (
 
 // DeletingStateFlow returns the steps for a container in the deleting state
 func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
-	steps1 := []lifecycle.Step{
+	steps := []lifecycle.Step{
 		&lifecycle.SimpleStep{
 			Run: r.GetNode,
 		},
@@ -139,7 +139,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		//      container.IsDriveContainer,
 		//  },
 		//  ,
-		//},
+		// },
 		&lifecycle.SimpleStep{
 			State: &lifecycle.State{
 				Name:   condition.CondContainerDeactivated,
@@ -254,7 +254,7 @@ func DeletingStateFlow(r *containerReconcilerLoop) []lifecycle.Step {
 		},
 	}
 
-	steps := append(steps1, csiSteps...)
+	steps = append(steps, csiSteps...)
 	steps = append(steps, metricsSteps...)
 	steps = append(steps, steps2...)
 	return steps
@@ -458,9 +458,9 @@ func (r *containerReconcilerLoop) RemoveDeactivatedContainersDrives(ctx context.
 
 	var errs []error
 	for _, drive := range drives {
-		err := wekaService.RemoveDrive(ctx, drive.Uuid)
-		if err != nil {
-			errs = append(errs, err)
+		removeErr := wekaService.RemoveDrive(ctx, drive.Uuid)
+		if removeErr != nil {
+			errs = append(errs, removeErr)
 		} else {
 			logger.Info("Drive removed", "drive_uuid", drive.Uuid, "container_id", *containerId)
 		}

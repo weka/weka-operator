@@ -174,12 +174,11 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 		// for legacy drivers handling, we don't have support for weka driver command
 		// copy everything from builder's /opt/weka/dist/drivers to targetDistcontainer's /opt/weka/dist/drivers
 		cmd := fmt.Sprintf("cd /opt/weka/dist/drivers/ && wget -r -nH --cut-dirs=3 --no-parent --reject=\"index.html*\" http://%s:%d/dist/v1/drivers/", builderIp, builderPort)
-		stdout, stderr, err := executor.ExecNamed(ctx, "CopyDrivers",
+		stdout, stderr, execErr := executor.ExecNamed(ctx, "CopyDrivers",
 			[]string{"bash", "-ce", cmd},
 		)
-		if err != nil {
-			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-			return err
+		if execErr != nil {
+			return fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, execErr, stdout.String(), stderr.String())
 		}
 		return complete()
 	}
@@ -188,13 +187,13 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 
 	// if weka pack is not supported, we don't need to download it
 	if !results.WekaPackNotSupported {
-		stdout, stderr, err := executor.ExecNamed(ctx, "DownloadVersion",
+		stdout, stderr, execErr := executor.ExecNamed(ctx, "DownloadVersion",
 			[]string{"bash", "-ce",
 				"weka version get --driver-only " + results.WekaVersion + " --from " + endpoint,
 			},
 		)
-		if err != nil {
-			return errors.Wrap(err, stderr.String()+stdout.String())
+		if execErr != nil {
+			return errors.Wrap(execErr, stderr.String()+stdout.String())
 		}
 	}
 
@@ -217,8 +216,7 @@ func (r *containerReconcilerLoop) UploadBuiltDrivers(ctx context.Context) error 
 			[]string{"bash", "-ce", cmd},
 		)
 		if err != nil {
-			err := fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
-			return err
+			return fmt.Errorf("failed to run command: %s, error: %s, stdout: %s, stderr: %s", cmd, err, stdout.String(), stderr.String())
 		}
 	}
 
@@ -295,11 +293,10 @@ func (r *containerReconcilerLoop) uploadedDriversPeriodicCheck(ctx context.Conte
 			msg := "Cannot load drivers, trigger re-build and re-upload"
 			logger.Info(msg)
 
-			r.RecordEvent("", "DriversRebuild", msg)
+			_ = r.RecordEvent("", "DriversRebuild", msg) //nolint:errcheck // error return value intentionally not checked
 
-			if err := r.clearStatus(ctx); err != nil {
-				err = fmt.Errorf("error clearing builder results: %w", err)
-				return err
+			if clearErr := r.clearStatus(ctx); clearErr != nil {
+				return fmt.Errorf("error clearing builder results: %w", clearErr)
 			}
 		}
 		return err

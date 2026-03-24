@@ -15,7 +15,7 @@ import (
 	"github.com/weka/weka-operator/pkg/util"
 )
 
-func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster, wekaStatus services.WekaStatusResponse) (string, error) {
+func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCluster, wekaStatus *services.WekaStatusResponse) (string, error) {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "BuildClusterPrometheusMetrics")
 	defer end()
 	metrics := []metrics2.PromMetric{}
@@ -30,86 +30,82 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		return "", errors.New("cluster stats are not available")
 	}
 
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_throughput_bytes_per_second",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
-			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+	metrics = append(metrics,
+		metrics2.PromMetric{
+			Metric: "weka_throughput_bytes_per_second",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
+				{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "DEPRECATED: Weka clusters throughput, use weka_cluster_throughput_bytes_per_second instead",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "DEPRECATED: Weka clusters throughput, use weka_cluster_throughput_bytes_per_second instead",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_throughput_bytes_per_second",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
-			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+		metrics2.PromMetric{
+			Metric: "weka_cluster_throughput_bytes_per_second",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Read)},
+				{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Throughput.Write)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka clusters throughput",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka clusters throughput",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_iops",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Read)},
-			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Write)},
-			{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
+		metrics2.PromMetric{
+			Metric: "weka_iops",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Read)},
+				{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Write)},
+				{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "DEPRECATED: Weka clusters iops, use weka_cluster_iops instead",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "DEPRECATED: Weka clusters iops, use weka_cluster_iops instead",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_iops",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Read)},
-			{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Write)},
-			{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
+		metrics2.PromMetric{
+			Metric: "weka_cluster_iops",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "read"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Read)},
+				{Tags: metrics2.TagMap{"type": "write"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Write)},
+				{Tags: metrics2.TagMap{"type": "metadata"}, Value: float64(cluster.Status.Stats.IoStats.Iops.Metadata)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka clusters iops",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka clusters iops",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_drives_count",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"status": "desired"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Desired)},
-			{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Active)},
-			{Tags: metrics2.TagMap{"status": "created"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Created)},
+		metrics2.PromMetric{
+			Metric: "weka_cluster_drives_count",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"status": "desired"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Desired)},
+				{Tags: metrics2.TagMap{"status": "active"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Active)},
+				{Tags: metrics2.TagMap{"status": "created"}, Value: float64(cluster.Status.Stats.Drives.DriveCounters.Created)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka cluster drives count, per status",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka cluster drives count, per status",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_processes_count",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Active)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Active)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Desired)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Desired)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Created)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Created)},
+		metrics2.PromMetric{
+			Metric: "weka_cluster_processes_count",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Active)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Active)},
+				{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Desired)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Desired)},
+				{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Processes.Created)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Processes.Created)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka clusters processes count, per type and status",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka clusters processes count, per type and status",
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
-		Metric: "weka_cluster_containers_count",
-		ValuesByTags: []metrics2.TaggedValue{
-			{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Active)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Active)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Desired)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Desired)},
-			{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Created)},
-			{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Created)},
+		metrics2.PromMetric{
+			Metric: "weka_cluster_containers_count",
+			ValuesByTags: []metrics2.TaggedValue{
+				{Tags: metrics2.TagMap{"type": "compute", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Active)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "active"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Active)},
+				{Tags: metrics2.TagMap{"type": "compute", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Desired)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "desired"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Desired)},
+				{Tags: metrics2.TagMap{"type": "compute", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Compute.Containers.Created)},
+				{Tags: metrics2.TagMap{"type": "drive", "status": "created"}, Value: float64(cluster.Status.Stats.Containers.Drive.Containers.Created)},
+			},
+			Timestamp: cluster.Status.Stats.LastUpdate.Time,
+			Help:      "Weka containers count, per type and status",
 		},
-		Timestamp: cluster.Status.Stats.LastUpdate.Time,
-		Help:      "Weka containers count, per type and status",
-	})
+	)
 	// TODO: Conditionally add s3/nfs
 
 	alertsVal := float64(cluster.Status.Stats.AlertsCount)
@@ -146,16 +142,14 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 	for rebuildType, rebuildValue := range cluster.Status.Stats.NumFailures {
 		value := rebuildValue.GetValue()
 		rebuildTaggedValues = append(rebuildTaggedValues, metrics2.TaggedValue{
-			Tags:  metrics2.TagMap{"num_failures": fmt.Sprintf("%s", rebuildType)},
+			Tags:  metrics2.TagMap{"num_failures": rebuildType},
 			Value: value,
 		})
 	}
 	metrics = append(metrics, metrics2.PromMetric{
 		Metric:       "weka_cluster_protection_level",
 		ValuesByTags: rebuildTaggedValues,
-	})
-
-	metrics = append(metrics, metrics2.PromMetric{
+	}, metrics2.PromMetric{
 		Metric: "weka_cluster_capacity_bytes",
 		ValuesByTags: []metrics2.TaggedValue{
 			{Tags: metrics2.TagMap{"type": "total"}, Value: float64(cluster.Status.Stats.Capacity.TotalBytes)},
@@ -188,7 +182,7 @@ func BuildClusterPrometheusMetrics(ctx context.Context, cluster *v1alpha1.WekaCl
 		})
 	}
 
-	for i, _ := range metrics {
+	for i := range metrics {
 		metrics[i].Tags = util.MergeMaps(metrics[i].Tags, commonTags)
 		if metrics[i].Timestamp.IsZero() {
 			metrics[i].Timestamp = cluster.Status.Stats.LastUpdate.Time

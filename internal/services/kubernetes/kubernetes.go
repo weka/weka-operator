@@ -24,16 +24,16 @@ type KubeService interface {
 	GetNode(ctx context.Context, nodeName types.NodeName) (*v1.Node, error)
 	GetNodes(ctx context.Context, nodeSelector map[string]string) ([]v1.Node, error)
 	GetPods(ctx context.Context, options GetPodsOptions) ([]v1.Pod, error)
-	GetPodsSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1.Pod, error)
-	GetWekaContainersSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error)
+	GetPodsSimple(ctx context.Context, namespace, node string, labelMap map[string]string) ([]v1.Pod, error)
+	GetWekaContainersSimple(ctx context.Context, namespace, node string, labelMap map[string]string) ([]v1alpha1.WekaContainer, error)
 	GetWekaContainers(ctx context.Context, options GetPodsOptions) ([]v1alpha1.WekaContainer, error)
 	GetSecret(ctx context.Context, secretName, namespace string) (*v1.Secret, error)
 	EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error
 }
 
-func NewKubeService(client client.Client) KubeService {
+func NewKubeService(k8sClient client.Client) KubeService {
 	return &ApiKubeService{
-		Client: client,
+		Client: k8sClient,
 	}
 }
 
@@ -130,7 +130,7 @@ func (s *ApiKubeService) GetPods(ctx context.Context, options GetPodsOptions) ([
 	return pods.Items, nil
 }
 
-func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace, node string, labels map[string]string) ([]v1.Pod, error) {
+func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace, node string, labelMap map[string]string) ([]v1.Pod, error) {
 	pods := &v1.PodList{}
 
 	// Create a list of options to pass to the List method
@@ -138,8 +138,8 @@ func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace, node stri
 		client.InNamespace(namespace),
 	}
 
-	if len(labels) != 0 {
-		listOptions = append(listOptions, client.MatchingLabels(labels))
+	if len(labelMap) != 0 {
+		listOptions = append(listOptions, client.MatchingLabels(labelMap))
 	}
 
 	// Add node name filtering if the node parameter is not empty
@@ -155,7 +155,7 @@ func (s *ApiKubeService) GetPodsSimple(ctx context.Context, namespace, node stri
 	return pods.Items, nil
 }
 
-func (s *ApiKubeService) GetWekaContainersSimple(ctx context.Context, namespace string, node string, labels map[string]string) ([]v1alpha1.WekaContainer, error) {
+func (s *ApiKubeService) GetWekaContainersSimple(ctx context.Context, namespace, node string, labelMap map[string]string) ([]v1alpha1.WekaContainer, error) {
 	wekaContainers := &v1alpha1.WekaContainerList{}
 
 	// Create a list of options to pass to the List method
@@ -163,8 +163,8 @@ func (s *ApiKubeService) GetWekaContainersSimple(ctx context.Context, namespace 
 		client.InNamespace(namespace),
 	}
 
-	if len(labels) != 0 {
-		listOptions = append(listOptions, client.MatchingLabels(labels))
+	if len(labelMap) != 0 {
+		listOptions = append(listOptions, client.MatchingLabels(labelMap))
 	}
 
 	// Add node name filtering if the node parameter is not empty
@@ -214,16 +214,16 @@ func (s *ApiKubeService) GetSecret(ctx context.Context, secretName, namespace st
 
 func (s *ApiKubeService) EnsureSecret(ctx context.Context, secret *v1.Secret, owner *K8sOwnerRef) error {
 	existing := &v1.Secret{}
-	err := s.Client.Get(ctx, client.ObjectKey{Namespace: secret.ObjectMeta.Namespace, Name: secret.ObjectMeta.Name}, existing)
+	err := s.Client.Get(ctx, client.ObjectKey{Namespace: secret.Namespace, Name: secret.Name}, existing)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
 		}
 
 		if owner != nil {
-			err := ctrl.SetControllerReference(owner.Obj, secret, owner.Scheme)
-			if err != nil {
-				return err
+			refErr := ctrl.SetControllerReference(owner.Obj, secret, owner.Scheme)
+			if refErr != nil {
+				return refErr
 			}
 		}
 

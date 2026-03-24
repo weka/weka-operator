@@ -157,7 +157,7 @@ func (o *BlockDrivesOperation) UnblockDrives(ctx context.Context) error {
 		for i, blockedDrive := range blockedDrives {
 			if blockedDrive == serialID {
 				found = true
-				updatedBlockedDrives = append(blockedDrives[:i], blockedDrives[i+1:]...)
+				updatedBlockedDrives = append(blockedDrives[:i], blockedDrives[i+1:]...) //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 				break
 			}
 		}
@@ -447,7 +447,7 @@ func (o *BlockDrivesOperation) UnblockSharedDrives(ctx context.Context) error {
 		for i, blockedUuid := range blockedDriveUuids {
 			if blockedUuid == physicalUuid {
 				found = true
-				updatedBlockedDriveUuids = append(blockedDriveUuids[:i], blockedDriveUuids[i+1:]...)
+				updatedBlockedDriveUuids = append(blockedDriveUuids[:i], blockedDriveUuids[i+1:]...) //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 				break
 			}
 		}

@@ -178,7 +178,7 @@ func (r *wekaClusterReconcilerLoop) generateEnvoyConfig(activeContainers []*weka
                 port_value: %d`, ip, clusterBasePort))
 	}
 
-	config := fmt.Sprintf(`static_resources:
+	proxyConfig := fmt.Sprintf(`static_resources:
   listeners:
   - name: listener_0
     address:
@@ -228,7 +228,7 @@ admin:
       port_value: 9901
 `, managementProxyPort, strings.Join(endpoints, "\n"))
 
-	return config
+	return proxyConfig
 }
 
 // ensureManagementProxyDeployment creates or updates the Envoy Deployment

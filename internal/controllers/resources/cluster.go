@@ -21,7 +21,7 @@ type ClusterContainer struct {
 	HostId         string   `json:"host_id"`
 }
 
-func (c ClusterContainer) ContainerId() (int, error) {
+func (c ClusterContainer) ContainerId() (int, error) { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	return HostIdToContainerId(c.HostId)
 }
 
@@ -65,7 +65,7 @@ func DriveIdToInteger(driveId string) (int, error) {
 	return wekaId, nil
 }
 
-func WekaIdToInteger(prefix string, wekaId string) (int, error) {
+func WekaIdToInteger(prefix, wekaId string) (int, error) {
 	wekaId = strings.Replace(wekaId, prefix+"<", "", 1)
 	wekaId = strings.Replace(wekaId, ">", "", 1)
 	id, err := strconv.Atoi(wekaId)

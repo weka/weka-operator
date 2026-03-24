@@ -40,7 +40,7 @@ type AdhocContainerParams struct {
 type GetFeatureFlagsViaAdhocOperation struct {
 	client         client.Client
 	scheme         *runtime.Scheme
-	params         AdhocContainerParams
+	params         *AdhocContainerParams
 	adhocContainer *weka.WekaContainer
 	featureFlags   *domain.FeatureFlags
 }
@@ -50,7 +50,7 @@ type GetFeatureFlagsViaAdhocOperation struct {
 func NewGetFeatureFlagsFromImage(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
-	params AdhocContainerParams,
+	params *AdhocContainerParams,
 ) *GetFeatureFlagsViaAdhocOperation {
 	return &GetFeatureFlagsViaAdhocOperation{
 		client: k8sClient,
@@ -81,7 +81,7 @@ func (o *GetFeatureFlagsViaAdhocOperation) GetJsonResult() string {
 	result := map[string]any{
 		"feature_flags": o.featureFlags,
 	}
-	jsonBytes, _ := json.Marshal(result)
+	jsonBytes, _ := json.Marshal(result) //nolint:errcheck // marshal of known-serializable struct; error not possible
 	return string(jsonBytes)
 }
 
@@ -199,7 +199,7 @@ func (o *GetFeatureFlagsViaAdhocOperation) PollAdhocResult(ctx context.Context) 
 }
 
 func (o *GetFeatureFlagsViaAdhocOperation) ProcessAdhocResult(ctx context.Context) error {
-	ctx, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
+	_, logger, end := instrumentation.GetLogSpan(ctx, "ProcessAdhocResult")
 	defer end()
 
 	if o.adhocContainer == nil || o.adhocContainer.Status.ExecutionResult == nil {

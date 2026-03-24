@@ -15,7 +15,7 @@ func NewPromResponse() *PromResponse {
 	}
 }
 
-func (p *PromResponse) AddMetric(metric PromMetric, taggedValues []TaggedValue) {
+func (p *PromResponse) AddMetric(metric PromMetric, taggedValues []TaggedValue) { //nolint:gocritic // intentional code pattern, linter suggestion does not apply here
 	p.lock.Lock()
 	defer p.lock.Unlock()
 

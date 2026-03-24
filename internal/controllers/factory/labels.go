@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func RequiredWekaContainerLabels(clusterUID types.UID, clusterName string, role string) map[string]string {
+func RequiredWekaContainerLabels(clusterUID types.UID, clusterName, role string) map[string]string {
 	return util.MergeMaps(RequiredAnyWekaContainerLabels(role), map[string]string{
 		domain.WekaLabelClusterId:   string(clusterUID),
 		domain.WekaLabelClusterName: clusterName,
@@ -16,13 +16,13 @@ func RequiredWekaContainerLabels(clusterUID types.UID, clusterName string, role 
 
 func BuildClientContainerLabels(client *weka.WekaClient) map[string]string {
 	labels := util.MergeMaps(RequiredAnyWekaContainerLabels(weka.WekaContainerModeClient), map[string]string{
-		domain.WekaLabelClientName: client.ObjectMeta.Name,
+		domain.WekaLabelClientName: client.Name,
 	})
 	if client.Spec.TargetCluster.Name != "" {
 		labels[domain.WekaLabelTargetClusterName] = client.Spec.TargetCluster.Name
 	}
 
-	return util.MergeMaps(client.ObjectMeta.GetLabels(), labels)
+	return util.MergeMaps(client.GetLabels(), labels)
 }
 
 func RequiredAnyWekaContainerLabels(role string) map[string]string {

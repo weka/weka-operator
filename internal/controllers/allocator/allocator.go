@@ -55,7 +55,7 @@ func getSinglePortsOffsetFromFlags(flags *domain.FeatureFlags) int {
 
 // getPortConfigFromFlags returns port configuration based on feature flags.
 // Returns (60, 240) if agent_validate_60_ports_per_container is set, otherwise (100, 300).
-func getPortConfigFromFlags(flags *domain.FeatureFlags) (portsPerContainer int, singlePortsOffset int) {
+func getPortConfigFromFlags(flags *domain.FeatureFlags) (portsPerContainer, singlePortsOffset int) {
 	if flags != nil && flags.AgentValidate60PortsPerContainer {
 		return ReducedPortsPerContainer, ReducedSinglePortsOffset
 	}
@@ -68,7 +68,8 @@ func getPortConfigFromFlags(flags *domain.FeatureFlags) (portsPerContainer int, 
 func AggregatePortRangesFromContainers(containers []weka.WekaContainer, portsPerContainer int) []Range {
 	var ranges []Range
 
-	for _, container := range containers {
+	for i := range containers {
+		container := containers[i]
 		if container.Status.Allocations == nil {
 			continue
 		}
@@ -162,7 +163,8 @@ func (t *ResourcesAllocator) AggregateContainerPortAllocations(ctx context.Conte
 	var aggregatedRanges []Range
 
 	// Aggregate port allocations from all containers on each node
-	for _, node := range nodeList.Items {
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
 		containers, err := kubeService.GetWekaContainersSimple(ctx, "", node.Name, nil)
 		if err != nil {
 			continue
@@ -183,7 +185,8 @@ func (t *ResourcesAllocator) aggregateClusterPortRanges(ctx context.Context) (Cl
 	}
 
 	clusterRanges := make(ClusterRanges)
-	for _, c := range clusterList.Items {
+	for i := range clusterList.Items {
+		c := &clusterList.Items[i]
 		if c.Status.Ports.BasePort > 0 {
 			owner := OwnerCluster{ClusterName: c.Name, Namespace: c.Namespace}
 			clusterRanges[owner] = Range{
@@ -325,7 +328,7 @@ func (f *FailedAllocations) Error() string {
 	// build new-line separated string of container:original error
 	strBuilder := strings.Builder{}
 	for _, failed := range *f {
-		strBuilder.WriteString(fmt.Sprintf("%s: %s\n", failed.Container.Name, failed.Err.Error()))
+		fmt.Fprintf(&strBuilder, "%s: %s\n", failed.Container.Name, failed.Err.Error())
 	}
 	return strBuilder.String()
 }
@@ -444,8 +447,8 @@ func (c *OwnerCluster) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // GetAllocator creates and returns a new ResourcesAllocator instance.
 // Port allocations are serialized by polling WekaCluster Status objects,
-func GetAllocator(client client.Client) Allocator {
+func GetAllocator(k8sClient client.Client) Allocator {
 	return &ResourcesAllocator{
-		client: client,
+		client: k8sClient,
 	}
 }

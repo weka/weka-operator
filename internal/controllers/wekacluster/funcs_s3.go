@@ -59,9 +59,9 @@ func (r *wekaClusterReconcilerLoop) EnsureS3Cluster(ctx context.Context) error {
 	}
 
 	if len(containerIds) == 0 {
-		err := errors.New("Ready S3 containers not found")
-		logger.Error(err, "Cannot create S3 cluster")
-		return err
+		s3Err := errors.New("Ready S3 containers not found")
+		logger.Error(s3Err, "Cannot create S3 cluster")
+		return s3Err
 	}
 
 	logger.Debug("Creating S3 cluster", "containers", containerIds)
@@ -131,8 +131,8 @@ func (r *wekaClusterReconcilerLoop) DestroyS3Cluster(ctx context.Context) error 
 	logger.Info("S3 cluster containers", "containers", s3ContainerIds)
 
 	if len(s3ContainerIds) > 1 {
-		err := fmt.Errorf("more than one container in S3 cluster: %v", s3ContainerIds)
-		return lifecycle.NewWaitError(err)
+		containerErr := fmt.Errorf("more than one container in S3 cluster: %v", s3ContainerIds)
+		return lifecycle.NewWaitError(containerErr)
 	}
 
 	logger.Info("Destroying S3 cluster")

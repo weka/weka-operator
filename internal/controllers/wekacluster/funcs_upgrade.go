@@ -221,7 +221,7 @@ func (r *wekaClusterReconcilerLoop) GetUpgradedCount(containers []*weka.WekaCont
 			upgradedCount.TotalS3++
 		}
 
-		if container.Status.LastAppliedImage == r.cluster.Spec.Image && container.Status.LastAppliedImage == container.Spec.Image {
+		if container.Status.LastAppliedImage == r.cluster.Spec.Image && container.Spec.Image == r.cluster.Spec.Image {
 			switch container.Spec.Mode {
 			case weka.WekaContainerModeCompute:
 				upgradedCount.UpgradedCompute++
@@ -549,7 +549,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
+			err = r.prepareForUpgradeDrives(ctx, driveContainers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -568,7 +568,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 		}
 
 		if !status.Rebuild.IsFullyProtected() {
-			_ = r.RecordEvent("", "WaitingForStabilize", "Weka is not fully protected, waiting to stabilize")
+			_ = r.RecordEvent("", "WaitingForStabilize", "Weka is not fully protected, waiting to stabilize") //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.Errorf("Weka is not fully protected, waiting to stabilize, %v", status.Rebuild))
 		}
 
@@ -584,13 +584,13 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 
 		if float64(status.Containers.Drives.Active) < activeDrivesThreshold {
 			msg := fmt.Sprintf("Not enough drives containers are active, waiting to stabilize, %d/%d", status.Containers.Drives.Active, nums.Drive)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
+			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
 		if float64(status.Containers.Computes.Active) < activeComputesThreshold {
 			msg := fmt.Sprintf("Not enough computes containers are active, waiting to stabilize, %d/%d", status.Containers.Computes.Active, nums.Compute)
-			_ = r.RecordEvent("", "ClusterSizeThreshold", msg)
+			_ = r.RecordEvent("", "ClusterSizeThreshold", msg) //nolint:errcheck // error is intentionally ignored
 			return lifecycle.NewWaitError(errors.New(msg))
 		}
 
@@ -619,7 +619,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
+			err = r.prepareForUpgradeCompute(ctx, computeContainers, targetVersion)
 			if err != nil {
 				return err
 			}
@@ -640,7 +640,9 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	feContainers := append(s3Containers, nfsContainres...)
+	feContainers := make([]*weka.WekaContainer, 0, len(s3Containers)+len(nfsContainres))
+	feContainers = append(feContainers, s3Containers...)
+	feContainers = append(feContainers, nfsContainres...)
 
 	if imageChanged {
 		prepareForUpgrade := true
@@ -650,7 +652,7 @@ func (r *wekaClusterReconcilerLoop) handleUpgrade(ctx context.Context) error {
 			}
 		}
 		if prepareForUpgrade {
-			err := r.prepareForUpgradeS3(ctx, feContainers, targetVersion)
+			err = r.prepareForUpgradeS3(ctx, feContainers, targetVersion)
 			if err != nil {
 				return err
 			}

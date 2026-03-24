@@ -60,7 +60,6 @@ type ContainerInfo struct {
 	cpuInfoLastPoll              time.Time
 	containerState               LocalConfigStateResponse
 	containerStateLastPull       time.Time
-	lastRegisterTimestamp        time.Time
 	containerName                string
 	containerId                  string
 	mode                         string
@@ -93,7 +92,7 @@ type containersData struct {
 type ScrapeTarget struct {
 	Port int    `json:"port"`
 	Path string `json:"path"`
-	//defaults to localhost if not specified
+	// defaults to localhost if not specified
 	Endpoint string `json:"endpoint,omitempty"`
 	AppName  string `json:"app_name"`
 }
@@ -173,7 +172,7 @@ func getPendingIOsFromProcfs(ctx context.Context, wekaContainerName string) (int
 		}
 		return 0, errors.Wrapf(err, "failed to open procfs queue file %s", filePath)
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // error return value intentionally not checked
 
 	scanner := bufio.NewScanner(file)
 	pendingIOsCount := 0
@@ -246,7 +245,7 @@ func (a *NodeAgent) PanicRecovery(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 	return hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		name := fmt.Sprintf("%s %s", r.Method, r.URL.Path)
-		_, logger := instrumentation.GetLoggerForContext(r.Context(), nil, name)
+		_, logger := instrumentation.GetLoggerForContext(r.Context(), nil, name) //nolint:staticcheck // using deprecated API, will be updated separately
 
 		logger.V(0).Info("", "status", status, "size", size, "duration", duration)
 	})(next)
@@ -255,7 +254,7 @@ func (a *NodeAgent) LoggingMiddleware(next http.Handler) http.Handler {
 func (a *NodeAgent) LoggerInjectionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create logger context and inject it into the request
-		ctx, _ := instrumentation.GetLoggerForContext(r.Context(), &a.logger, "")
+		ctx, _ := instrumentation.GetLoggerForContext(r.Context(), &a.logger, "") //nolint:staticcheck // using deprecated API, will be updated separately
 
 		ctx, _, end := instrumentation.GetLogSpan(ctx, "http", "method", r.Method, "path", r.URL.Path, "node", config.Config.MetricsServerEnv.NodeName)
 		defer end()
@@ -330,7 +329,7 @@ func (a *NodeAgent) metricsHandler(writer http.ResponseWriter, request *http.Req
 
 	writer.Header().Set("Content-Type", "text/plain")
 	writer.WriteHeader(http.StatusOK)
-	_, _ = writer.Write(body)
+	_, _ = writer.Write(body) //nolint:errcheck // error return value intentionally not checked
 }
 
 // getOrRefreshMetrics returns a cached metrics response if fresh, otherwise regenerates it.
@@ -357,7 +356,7 @@ func (a *NodeAgent) getOrRefreshMetrics(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return v.([]byte), nil
+	return v.([]byte), nil //nolint:errcheck // error return value intentionally not checked
 }
 
 func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error) {
@@ -477,10 +476,8 @@ func (a *NodeAgent) generateMetricsResponse(ctx context.Context) ([]byte, error)
 				if cpuLoad.Err != nil && *cpuLoad.Err != "" {
 					processLogger.Error(errors.New(*cpuLoad.Err), "Failed to fetch cpu utilization", "node_id", nodeIdStr)
 					continue
-				} else {
-					if cpuLoad.Value != nil {
-						value = *cpuLoad.Value
-					}
+				} else if cpuLoad.Value != nil {
+					value = *cpuLoad.Value
 				}
 
 				promResponse.AddMetric(metrics2.PromMetric{
@@ -571,9 +568,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	defer a.containersData.lock.Unlock()
 
 	existingContainer, exists := a.containersData.data[payload.ContainerId]
-	var podStatusStartTime time.Time
-
-	podStatusStartTime = payload.PodStatusStartTime
+	podStatusStartTime := payload.PodStatusStartTime
 	if exists && existingContainer.podStatus != payload.PodStatus {
 		logger.Info("Pod status changed",
 			"container_id", payload.ContainerId,
@@ -599,7 +594,7 @@ func (a *NodeAgent) registerHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{"message": "Container registered successfully"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 }
 
 type DeregisterContainerPayload struct {
@@ -635,7 +630,7 @@ func (a *NodeAgent) deregisterHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{"message": "Container deregistered successfully"}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 }
 
 // JSONRPCProxyPayload represents a generic JSONRPC call to be proxied to a container
@@ -698,7 +693,7 @@ func (a *NodeAgent) jsonrpcHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (a *NodeAgent) validateAuth(w http.ResponseWriter, r *http.Request, logger *instrumentation.SpanLogger) bool {
@@ -849,7 +844,7 @@ func (s *WekaJSONRPCService) Call(ctx context.Context, container *ContainerInfo,
 		logger.SetError(err, "JSONRPC HTTP request failed")
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // error return value intentionally not checked
 
 	// Log response details
 	logger.SetValues("http.status_code", resp.StatusCode)
@@ -930,7 +925,7 @@ type WekaStat struct {
 		FeIdx string `json:"feIdx,omitempty"`
 	} `json:"params"`
 	Stat     string `json:"stat"`
-	NodeId   string `json:"nodeId"` //NodeId<25011>
+	NodeId   string `json:"nodeId"` // NodeId<25011>
 	Category string `json:"category"`
 	Value    string `json:"value"`
 	Unit     string `json:"unit"`
@@ -949,7 +944,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 			logger.Error(err, "Failed to fetch local config summary, proceeding with other metrics")
 			// Do not return; attempt to gather other metrics.
 		} else if response.HasLease == nil || *response.HasLease {
-			//if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
+			// if no lease info = old version, if has lease field and do not have lease = stale data which we have no interest in
 			container.containerState = response
 			container.containerStateLastPull = time.Now()
 		}
@@ -998,7 +993,7 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 		}
 
 		url := fmt.Sprintf("http://%s:%d%s", endpoint, target.Port, target.Path)
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 		if err != nil {
 			logger.Error(err, "Failed to create request for metrics scraping", "target", target)
 			continue
@@ -1009,11 +1004,11 @@ func (a *NodeAgent) fetchAndPopulateMetrics(ctx context.Context, container *Cont
 			logger.Error(err, "Failed to fetch metrics", "target", target)
 			continue
 		}
-		defer resp.Body.Close()
 		if container.scrappedData == nil {
 			container.scrappedData = make(map[ScrapeTarget][]byte)
 		}
 		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close() //nolint:errcheck // error not actionable, response already consumed
 		if err != nil {
 			logger.Error(err, "Failed to read response body", "target", target)
 			continue
@@ -1126,7 +1121,7 @@ func (a *NodeAgent) getContainerInfo(w http.ResponseWriter, r *http.Request) {
 	// write response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
@@ -1197,7 +1192,7 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // error return value intentionally not checked
 
 	var activeMounts int
 
@@ -1224,7 +1219,7 @@ func (a *NodeAgent) getActiveMounts(w http.ResponseWriter, r *http.Request) {
 	// write response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts})
+	_ = json.NewEncoder(w).Encode(map[string]int{"active_mounts": activeMounts}) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
@@ -1249,7 +1244,7 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 		return
 	}
 
@@ -1261,7 +1256,7 @@ func (a *NodeAgent) findDrivesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response) //nolint:errcheck // error return value intentionally not checked
 }
 
 func (a *NodeAgent) discoverWekaDrives(ctx context.Context) ([]domain.DriveInfo, error) {
@@ -1362,7 +1357,7 @@ func (a *NodeAgent) readDriveSignature(ctx context.Context, devicePath string) (
 	return strings.TrimSpace(string(output)), nil
 }
 
-func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialID string, blockDevice string, err error) {
+func (a *NodeAgent) getDeviceInfo(ctx context.Context, partName string) (serialID, blockDevice string, err error) {
 	// Get PCI device path
 	cmd := exec.CommandContext(ctx, "readlink", "-f", "/sys/class/block/"+partName)
 	output, err := cmd.Output()
@@ -1429,7 +1424,7 @@ type processedStat struct {
 	DriveDetails WekaDrive
 }
 
-func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) processedStat {
+func processStat(ctx context.Context, stat *WekaStat, container *ContainerInfo) processedStat {
 	_, logger, end := instrumentation.GetLogSpan(ctx, "")
 	defer end()
 
@@ -1473,7 +1468,7 @@ func processStat(ctx context.Context, stat WekaStat, container *ContainerInfo) p
 	}
 
 	return processedStat{
-		OriginalStat: stat,
+		OriginalStat: *stat,
 		Value:        floatVal,
 		NodeId:       nodeIdInt,
 		FsName:       fsName,
@@ -1534,12 +1529,13 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		return // ignoring all data
 	}
 	if time.Since(container.statsResponseLastPoll) > 5*time.Minute {
-		return //ignoring all data
+		return // ignoring all data
 	}
 
-	//group metrics
+	// group metrics
 	groupedMetrics := make(GroupedMetrics)
-	for _, stat := range container.statsResponse {
+	for i := range container.statsResponse {
+		stat := container.statsResponse[i]
 		groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}] = append(groupedMetrics[CategoryStat{Stat: stat.Stat, Category: stat.Category}], stat)
 	}
 
@@ -1782,7 +1778,8 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		},
 	}
 
-	for _, def := range metricDefinitions {
+	for defIdx := range metricDefinitions {
+		def := metricDefinitions[defIdx]
 		if len(def.Modes) > 0 && !slices.Contains(def.Modes, container.mode) {
 			continue
 		}
@@ -1793,13 +1790,14 @@ func (a *NodeAgent) addLocalNodeStats(ctx context.Context, response *metrics2.Pr
 		} else if len(def.CategoryStats) > 0 {
 			for _, cs := range def.CategoryStats {
 				if stats, ok := groupedMetrics[cs]; ok {
-					for _, stat := range stats {
-						processed := processStat(ctx, stat, container)
+					for statIdx := range stats {
+						stat := stats[statIdx]
+						processed := processStat(ctx, &stat, container)
 						value := processed.Value
 						if def.ValueTransform != nil {
 							value = def.ValueTransform(value)
 						}
-						var currentTags metrics2.TagMap = metrics2.TagMap{}
+						currentTags := metrics2.TagMap{}
 						if def.TagsFunc != nil {
 							currentTags = def.TagsFunc(processed)
 						}

@@ -515,28 +515,12 @@ func getEnvOrFail(envKey string) string {
 	return val
 }
 
-func getEnvOrDefault(envKey string, defaultVal string) string {
+func getEnvOrDefault(envKey, defaultVal string) string {
 	val, found := os.LookupEnv(envKey)
 	if !found {
 		return defaultVal
 	}
 	return val
-}
-
-func getBoolEnv(envKey string) bool {
-	val, found := os.LookupEnv(envKey)
-	if !found {
-		err := fmt.Errorf("failed to find value %s in env vars", envKey)
-		klog.Error(err)
-		os.Exit(1)
-	}
-	ival, err := strconv.ParseBool(val)
-	if err != nil {
-		err = fmt.Errorf("failed to parse boolean value %s from env vars", val)
-		klog.Error(err)
-		os.Exit(1)
-	}
-	return ival
 }
 
 func getStringSlice(envKey string) []string {
@@ -588,40 +572,6 @@ func getIntEnvOrDefault(envKey string, defaultVal int) int {
 	}
 
 	return ival
-}
-
-func getFloatEnvOrDefault(envKey string, defaultVal float64) float64 {
-	val, found := os.LookupEnv(envKey)
-	if !found || val == "" {
-		return defaultVal
-	}
-
-	fval, err := strconv.ParseFloat(val, 64)
-	if err != nil {
-		err = fmt.Errorf("failed to parse float value %s from env var %s", val, envKey)
-		klog.Error(err)
-		os.Exit(1)
-	}
-
-	return fval
-}
-
-func getDurationEnv(envKey string) time.Duration {
-	val, found := os.LookupEnv(envKey)
-	if !found {
-		err := fmt.Errorf("failed to find value %s in env vars", envKey)
-		klog.Error(err)
-		os.Exit(1)
-	}
-
-	duration, err := time.ParseDuration(val)
-	if err != nil {
-		err = fmt.Errorf("failed to parse duration value %s from env var %s", val, envKey)
-		klog.Error(err)
-		os.Exit(1)
-	}
-
-	return duration
 }
 
 func getDurationEnvOrDefault(envKey string, defaultVal time.Duration) time.Duration {

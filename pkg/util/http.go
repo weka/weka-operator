@@ -55,7 +55,7 @@ func SendGetRequest(ctx context.Context, url string, options RequestOptions) (*h
 	ctx, logger, end := instrumentation.GetLogSpan(ctx, "SendGetRequest", "url", url)
 	defer end()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		logger.SetError(err, "Failed to create request")
 		return nil, err

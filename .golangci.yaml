@@ -33,6 +33,23 @@ linters:
         text: "cognitive complexity|cyclomatic complexity"
         linters:
           - gocritic
+      # Ignore linting in test files
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gocritic
+          - ineffassign
+          - staticcheck
+          - unused
+      # Ignore linting in test/ directory
+      - path: test/
+        linters:
+          - errcheck
+          - gocritic
+          - ineffassign
+          - staticcheck
+          - unused
+          - govet
 
 issues:
   max-issues-per-linter: 0

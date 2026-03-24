@@ -66,13 +66,6 @@ func (r *wekaClusterReconcilerLoop) ApplyCredentials(ctx context.Context) error 
 		return err
 	}
 
-	// Cannot delete admin at is used until we apply credential here, i.e creating new users
-	// TODO: Delete later? How can we know that all pod updated their secrets? Or just, delay by 5 minutes? Docs says it's 1 minute
-
-	//err := wekaService.EnsureNoUser(ctx, "admin")
-	//if err != nil {
-	//	return err
-	//}
 	logger.Info("Cluster credentials applied")
 
 	return nil
@@ -105,15 +98,15 @@ func (r *wekaClusterReconcilerLoop) EnsureCsiLoginCredentials(ctx context.Contex
 
 	var nfsContainers []*weka.WekaContainer
 	var nfsTargetIps []string
-	nfsTargetIpsBytes := []byte{}
-	endpointsBytes := []byte{}
+	var nfsTargetIpsBytes []byte
+	var endpointsBytes []byte
 
 	if containerNums.Nfs > 0 {
 		nfsContainers = discovery.SelectOperationalContainers(r.containers, 30, []string{weka.WekaContainerModeNfs})
 		nfsTargetIps = discovery.GetClusterNfsTargetIps(ctx, nfsContainers)
 	}
 
-	if nfsTargetIps != nil && len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
+	if len(nfsTargetIps) > 0 && nfsTargetIps[0] != "" {
 		nfsTargetIpsBytes = []byte(strings.Join(nfsTargetIps, ","))
 	}
 
@@ -195,16 +188,16 @@ func (r *wekaClusterReconcilerLoop) applyCsiLoginCredentials(ctx context.Context
 	return nil
 }
 
-func (r *wekaClusterReconcilerLoop) getUsernameAndPassword(ctx context.Context, namespace string, secretName string) (string, string, error) {
+func (r *wekaClusterReconcilerLoop) getUsernameAndPassword(ctx context.Context, namespace, secretName string) (username, password string, err error) {
 	secret := &v1.Secret{}
-	err := r.getClient().Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	err = r.getClient().Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
 	if err != nil {
 		return "", "", err
 	}
-	username := secret.Data["username"]
-	password := secret.Data["password"]
+	usernameBytes := secret.Data["username"]
+	passwordBytes := secret.Data["password"]
 
-	return string(username), string(password), nil
+	return string(usernameBytes), string(passwordBytes), nil
 }
 
 func (r *wekaClusterReconcilerLoop) ensureClientLoginCredentials(ctx context.Context) error {

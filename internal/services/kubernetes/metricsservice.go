@@ -50,7 +50,8 @@ func (a *ApiKubeMetricsService) GetPodMetrics(ctx context.Context, pod *v1.Pod) 
 		ret.MemoryUsage += container.Usage.Memory().Value()
 	}
 
-	for _, container := range pod.Spec.Containers {
+	for i := range pod.Spec.Containers {
+		container := &pod.Spec.Containers[i]
 		ret.CpuRequest += container.Resources.Requests.Cpu().AsApproximateFloat64()
 		ret.CpuLimit += container.Resources.Limits.Cpu().AsApproximateFloat64()
 		ret.MemoryRequest += container.Resources.Requests.Memory().Value()
